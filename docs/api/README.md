@@ -1,6 +1,6 @@
 # API Notes
 
-API contracts are not implemented in stage `2-1`.
+API contracts are partially implemented through stage `2-3A`.
 
 Planned endpoints include:
 
@@ -12,3 +12,9 @@ Planned endpoints include:
 - `GET /api/eval/answer`
 - `POST /api/admin/reindex`
 
+Implemented in `2-3A`:
+
+- corpus admin read APIs under `/api/admin/corpus/*`
+- document/chunk/glossary preview endpoints
+
+See `docs/api/corpus_admin_api.md` for details.

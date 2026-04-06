@@ -2,12 +2,12 @@
 
 Research-oriented RAG scaffold for improving Korean retrieval and answer quality over English Spring technical documentation.
 
-This repository currently contains only stage `2-1` deliverables:
+This repository currently contains stage `2-3A` deliverables up to chunking/glossary import and corpus admin APIs:
 
 - repository skeleton
 - local infrastructure with Docker Compose
 - Spring Boot backend scaffold
-- Python pipeline scaffold
+- Python pipeline scaffold with collection, normalization, chunking, glossary extraction, and PostgreSQL import
 - PostgreSQL + pgvector schema bootstrap via Flyway
 
 Later stages will fill in document collection, preprocessing, chunking, synthetic query generation, quality gating, memory building, selective rewrite, evaluation, and UI.
@@ -36,8 +36,8 @@ scripts/              PowerShell helpers for local Windows execution
 
 ## Scope boundary for this stage
 
-- Implemented: scaffold, infra, schema
-- Not implemented yet: collectors, chunking, generation, gating, memory build, rewrite, retrieval, reranking, answer generation, UI
+- Implemented: collector, normalization, heading-aware chunking, glossary extraction, corpus import, corpus admin read API, scaffold, infra, schema
+- Not implemented yet: synthetic generation, gating, memory build, rewrite, user retrieval, reranking, answer generation, GUI
 
 ## Notes
 
@@ -45,4 +45,3 @@ scripts/              PowerShell helpers for local Windows execution
 - Prompt files are tracked under `configs/prompts/`.
 - Flyway migrations under `backend/src/main/resources/db/migration/` are the schema source of truth.
 - `pipeline/cli.py` intentionally exposes placeholder commands only in this stage.
-
