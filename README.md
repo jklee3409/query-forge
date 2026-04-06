@@ -2,12 +2,12 @@
 
 Research-oriented RAG scaffold for improving Korean retrieval and answer quality over English Spring technical documentation.
 
-This repository currently contains stage `2-3A` deliverables up to chunking/glossary import and corpus admin APIs:
+This repository currently contains stage `2-3B` deliverables up to chunking/glossary import, pipeline orchestration, and corpus admin backoffice UI:
 
 - repository skeleton
 - local infrastructure with Docker Compose
-- Spring Boot backend scaffold
-- Python pipeline scaffold with collection, normalization, chunking, glossary extraction, and PostgreSQL import
+- Spring Boot backend with corpus admin API, pipeline orchestration API, and Thymeleaf backoffice UI
+- Python pipeline scaffold with collection, normalization, chunking, glossary extraction, glossary-only extraction, and PostgreSQL import
 - PostgreSQL + pgvector schema bootstrap via Flyway
 
 Later stages will fill in document collection, preprocessing, chunking, synthetic query generation, quality gating, memory building, selective rewrite, evaluation, and UI.
@@ -36,12 +36,12 @@ scripts/              PowerShell helpers for local Windows execution
 
 ## Scope boundary for this stage
 
-- Implemented: collector, normalization, heading-aware chunking, glossary extraction, corpus import, corpus admin read API, scaffold, infra, schema
-- Not implemented yet: synthetic generation, gating, memory build, rewrite, user retrieval, reranking, answer generation, GUI
+- Implemented: collector, normalization, heading-aware chunking, glossary extraction, corpus import, corpus admin read/mutation API, pipeline orchestration API, admin GUI, scaffold, infra, schema
+- Not implemented yet: synthetic generation, gating, memory build, rewrite, user retrieval, reranking, answer generation
 
 ## Notes
 
 - Application and experiment settings are expected outside code under `configs/`.
 - Prompt files are tracked under `configs/prompts/`.
 - Flyway migrations under `backend/src/main/resources/db/migration/` are the schema source of truth.
-- `pipeline/cli.py` intentionally exposes placeholder commands only in this stage.
+- Admin UI starts at `http://localhost:8080/admin`.

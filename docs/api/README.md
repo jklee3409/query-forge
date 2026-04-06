@@ -18,3 +18,10 @@ Implemented in `2-3A`:
 - document/chunk/glossary preview endpoints
 
 See `docs/api/corpus_admin_api.md` for details.
+
+Implemented in `2-3B`:
+
+- pipeline execution/control APIs under `/api/admin/pipeline/*`
+- corpus mutation APIs for source enable toggle and glossary alias/policy edits
+
+See `docs/api/admin_pipeline_api.md` for details.
