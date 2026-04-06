@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.queryforge.backend.admin.corpus.model.CorpusAdminDtos;
 import io.queryforge.backend.admin.corpus.repository.CorpusAdminRepository;
+import io.queryforge.backend.admin.pipeline.service.SourceCatalogService;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
@@ -16,16 +17,20 @@ public class CorpusAdminService {
 
     private final CorpusAdminRepository repository;
     private final ObjectMapper objectMapper;
+    private final SourceCatalogService sourceCatalogService;
 
     public CorpusAdminService(
             CorpusAdminRepository repository,
-            ObjectMapper objectMapper
+            ObjectMapper objectMapper,
+            SourceCatalogService sourceCatalogService
     ) {
         this.repository = repository;
         this.objectMapper = objectMapper;
+        this.sourceCatalogService = sourceCatalogService;
     }
 
     public List<CorpusAdminDtos.SourceSummary> listSources() {
+        sourceCatalogService.syncSourcesFromConfig();
         return repository.findSources();
     }
 
@@ -91,7 +96,7 @@ public class CorpusAdminService {
             Integer limit,
             Integer offset
     ) {
-        return repository.findChunks(null, null, null, documentId, chunkKeyword, runId, false, limit, offset);
+        return repository.findChunks(null, null, null, documentId, chunkKeyword, null, null, null, runId, false, limit, offset);
     }
 
     public List<CorpusAdminDtos.ChunkSummary> listChunks(
@@ -100,12 +105,28 @@ public class CorpusAdminService {
             String sourceId,
             String documentId,
             String chunkKeyword,
+            Boolean codePresence,
+            Integer minTokenLen,
+            Integer maxTokenLen,
             UUID runId,
             boolean activeOnly,
             Integer limit,
             Integer offset
     ) {
-        return repository.findChunks(productName, versionLabel, sourceId, documentId, chunkKeyword, runId, activeOnly, limit, offset);
+        return repository.findChunks(
+                productName,
+                versionLabel,
+                sourceId,
+                documentId,
+                chunkKeyword,
+                codePresence,
+                minTokenLen,
+                maxTokenLen,
+                runId,
+                activeOnly,
+                limit,
+                offset
+        );
     }
 
     public CorpusAdminDtos.ChunkDetail getChunk(String chunkId) {
@@ -173,6 +194,9 @@ public class CorpusAdminService {
                 documentId,
                 null,
                 null,
+                null,
+                null,
+                null,
                 false,
                 500,
                 0
@@ -229,5 +253,43 @@ public class CorpusAdminService {
 
     public JsonNode toJson(Object value) {
         return objectMapper.valueToTree(value);
+    }
+
+    public List<CorpusAdminDtos.GlossaryAliasDto> updateGlossaryTerm(
+            UUID termId,
+            CorpusAdminDtos.GlossaryTermPatchRequest request
+    ) {
+        repository.updateGlossaryTerm(
+                termId,
+                request.keepInEnglish(),
+                request.active(),
+                request.descriptionShort()
+        );
+        return repository.findGlossaryAliases(termId);
+    }
+
+    public CorpusAdminDtos.GlossaryTermDetail createGlossaryAlias(
+            UUID termId,
+            CorpusAdminDtos.GlossaryAliasCreateRequest request
+    ) {
+        repository.insertGlossaryAlias(
+                termId,
+                request.aliasText(),
+                request.aliasLanguage() == null || request.aliasLanguage().isBlank() ? "en" : request.aliasLanguage(),
+                request.aliasType() == null || request.aliasType().isBlank() ? "same_case" : request.aliasType()
+        );
+        return getGlossaryTerm(termId);
+    }
+
+    public void deleteGlossaryAlias(UUID aliasId) {
+        repository.deleteGlossaryAlias(aliasId);
+    }
+
+    public CorpusAdminDtos.SourceSummary updateSourceEnabled(String sourceId, boolean enabled) {
+        repository.updateSourceEnabled(sourceId, enabled);
+        return repository.findSources().stream()
+                .filter(source -> source.sourceId().equals(sourceId))
+                .findFirst()
+                .orElseThrow();
     }
 }

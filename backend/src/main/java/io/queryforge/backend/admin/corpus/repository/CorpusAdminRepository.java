@@ -93,7 +93,9 @@ public class CorpusAdminRepository {
                        summary_json::text AS summary_json,
                        error_message,
                        created_by,
-                       created_at
+                       created_at,
+                       cancel_requested_at,
+                       updated_at
                 FROM corpus_runs
                 WHERE 1=1
                 """);
@@ -130,7 +132,9 @@ public class CorpusAdminRepository {
                        summary_json::text AS summary_json,
                        error_message,
                        created_by,
-                       created_at
+                       created_at,
+                       cancel_requested_at,
+                       updated_at
                 FROM corpus_runs
                 WHERE run_id = :runId
                 """;
@@ -145,10 +149,16 @@ public class CorpusAdminRepository {
                        step_status,
                        input_artifact_path,
                        output_artifact_path,
+                       command_line,
                        metrics_json::text AS metrics_json,
                        started_at,
                        finished_at,
-                       error_message
+                       error_message,
+                       stdout_log_path,
+                       stderr_log_path,
+                       stdout_excerpt,
+                       stderr_excerpt,
+                       updated_at
                 FROM corpus_run_steps
                 WHERE run_id = :runId
                 ORDER BY step_order
@@ -277,6 +287,9 @@ public class CorpusAdminRepository {
             String sourceId,
             String documentId,
             String chunkKeyword,
+            Boolean codePresence,
+            Integer minTokenLen,
+            Integer maxTokenLen,
             UUID runId,
             boolean activeOnly,
             Integer limit,
@@ -307,7 +320,20 @@ public class CorpusAdminRepository {
                 WHERE 1=1
                 """);
         MapSqlParameterSource params = new MapSqlParameterSource();
-        appendChunkFilters(sql, params, productName, versionLabel, sourceId, documentId, chunkKeyword, runId, activeOnly);
+        appendChunkFilters(
+                sql,
+                params,
+                productName,
+                versionLabel,
+                sourceId,
+                documentId,
+                chunkKeyword,
+                codePresence,
+                minTokenLen,
+                maxTokenLen,
+                runId,
+                activeOnly
+        );
         sql.append("""
                 ORDER BY c.document_id, c.chunk_index_in_document
                 LIMIT :limit OFFSET :offset
@@ -472,6 +498,90 @@ public class CorpusAdminRepository {
         return jdbcTemplate.query(sql, new MapSqlParameterSource("termId", termId), glossaryEvidenceRowMapper());
     }
 
+    public void updateSourceEnabled(String sourceId, boolean enabled) {
+        String sql = """
+                UPDATE corpus_sources
+                SET enabled = :enabled,
+                    updated_at = NOW()
+                WHERE source_id = :sourceId
+                """;
+        jdbcTemplate.update(
+                sql,
+                new MapSqlParameterSource()
+                        .addValue("sourceId", sourceId)
+                        .addValue("enabled", enabled)
+        );
+    }
+
+    public void updateGlossaryTerm(
+            UUID termId,
+            Boolean keepInEnglish,
+            Boolean active,
+            String descriptionShort
+    ) {
+        StringBuilder sql = new StringBuilder("""
+                UPDATE corpus_glossary_terms
+                SET updated_at = NOW()
+                """);
+        MapSqlParameterSource params = new MapSqlParameterSource("termId", termId);
+        if (keepInEnglish != null) {
+            sql.append(", keep_in_english = :keepInEnglish");
+            params.addValue("keepInEnglish", keepInEnglish);
+        }
+        if (active != null) {
+            sql.append(", is_active = :active");
+            params.addValue("active", active);
+        }
+        if (descriptionShort != null) {
+            sql.append(", description_short = :descriptionShort");
+            params.addValue("descriptionShort", descriptionShort);
+        }
+        sql.append(" WHERE term_id = :termId");
+        jdbcTemplate.update(sql.toString(), params);
+    }
+
+    public UUID insertGlossaryAlias(
+            UUID termId,
+            String aliasText,
+            String aliasLanguage,
+            String aliasType
+    ) {
+        UUID aliasId = UUID.randomUUID();
+        String sql = """
+                INSERT INTO corpus_glossary_aliases (
+                    alias_id,
+                    term_id,
+                    alias_text,
+                    alias_language,
+                    alias_type,
+                    created_at
+                ) VALUES (
+                    :aliasId,
+                    :termId,
+                    :aliasText,
+                    :aliasLanguage,
+                    :aliasType,
+                    NOW()
+                )
+                ON CONFLICT (term_id, alias_text, alias_language) DO NOTHING
+                """;
+        jdbcTemplate.update(
+                sql,
+                new MapSqlParameterSource()
+                        .addValue("aliasId", aliasId)
+                        .addValue("termId", termId)
+                        .addValue("aliasText", aliasText)
+                        .addValue("aliasLanguage", aliasLanguage)
+                        .addValue("aliasType", aliasType)
+        );
+        return aliasId;
+    }
+
+    public void deleteGlossaryAlias(UUID aliasId) {
+        String sql = "DELETE FROM corpus_glossary_aliases WHERE alias_id = :aliasId";
+        jdbcTemplate.update(sql, new MapSqlParameterSource("aliasId", aliasId));
+    }
+
     public List<CorpusAdminDtos.TopTermPreview> findTopTermsPreview(
             Integer limit,
             String productName,
@@ -587,6 +697,9 @@ public class CorpusAdminRepository {
             String sourceId,
             String documentId,
             String chunkKeyword,
+            Boolean codePresence,
+            Integer minTokenLen,
+            Integer maxTokenLen,
             UUID runId,
             boolean activeOnly
     ) {
@@ -616,6 +729,18 @@ public class CorpusAdminRepository {
         if (chunkKeyword != null && !chunkKeyword.isBlank()) {
             sql.append(" AND c.chunk_text ILIKE :chunkKeyword");
             params.addValue("chunkKeyword", like(chunkKeyword));
+        }
+        if (codePresence != null) {
+            sql.append(" AND c.code_presence = :codePresence");
+            params.addValue("codePresence", codePresence);
+        }
+        if (minTokenLen != null) {
+            sql.append(" AND c.token_len >= :minTokenLen");
+            params.addValue("minTokenLen", minTokenLen);
+        }
+        if (maxTokenLen != null) {
+            sql.append(" AND c.token_len <= :maxTokenLen");
+            params.addValue("maxTokenLen", maxTokenLen);
         }
     }
 
@@ -702,7 +827,9 @@ public class CorpusAdminRepository {
                 readJson(rs, "summary_json"),
                 rs.getString("error_message"),
                 rs.getString("created_by"),
-                readInstant(rs, "created_at")
+                readInstant(rs, "created_at"),
+                readInstant(rs, "cancel_requested_at"),
+                readInstant(rs, "updated_at")
         );
     }
 
@@ -714,10 +841,16 @@ public class CorpusAdminRepository {
                 rs.getString("step_status"),
                 rs.getString("input_artifact_path"),
                 rs.getString("output_artifact_path"),
+                rs.getString("command_line"),
                 readJson(rs, "metrics_json"),
                 readInstant(rs, "started_at"),
                 readInstant(rs, "finished_at"),
-                rs.getString("error_message")
+                rs.getString("error_message"),
+                rs.getString("stdout_log_path"),
+                rs.getString("stderr_log_path"),
+                rs.getString("stdout_excerpt"),
+                rs.getString("stderr_excerpt"),
+                readInstant(rs, "updated_at")
         );
     }
 

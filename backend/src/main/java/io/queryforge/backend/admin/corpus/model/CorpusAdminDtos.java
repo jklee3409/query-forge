@@ -42,7 +42,9 @@ public final class CorpusAdminDtos {
             JsonNode summaryJson,
             String errorMessage,
             String createdBy,
-            Instant createdAt
+            Instant createdAt,
+            Instant cancelRequestedAt,
+            Instant updatedAt
     ) {
     }
 
@@ -53,11 +55,17 @@ public final class CorpusAdminDtos {
             String stepStatus,
             String inputArtifactPath,
             String outputArtifactPath,
+            String commandLine,
             JsonNode metricsJson,
             Instant startedAt,
             Instant finishedAt,
-            String errorMessage
-    ) {
+            String errorMessage,
+            String stdoutLogPath,
+            String stderrLogPath,
+            String stdoutExcerpt,
+            String stderrExcerpt,
+            Instant updatedAt
+        ) {
     }
 
     public record RunDetail(
@@ -275,6 +283,25 @@ public final class CorpusAdminDtos {
             int evidenceCount,
             boolean keepInEnglish,
             List<String> provenanceSnippets
+    ) {
+    }
+
+    public record SourceUpdateRequest(
+            Boolean enabled
+    ) {
+    }
+
+    public record GlossaryTermPatchRequest(
+            Boolean keepInEnglish,
+            Boolean active,
+            String descriptionShort
+    ) {
+    }
+
+    public record GlossaryAliasCreateRequest(
+            String aliasText,
+            String aliasLanguage,
+            String aliasType
     ) {
     }
 }

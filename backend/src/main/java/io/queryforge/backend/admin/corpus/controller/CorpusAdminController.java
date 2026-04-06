@@ -3,7 +3,11 @@ package io.queryforge.backend.admin.corpus.controller;
 import io.queryforge.backend.admin.corpus.model.CorpusAdminDtos;
 import io.queryforge.backend.admin.corpus.service.CorpusAdminService;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PatchMapping;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -101,12 +105,28 @@ public class CorpusAdminController {
             @RequestParam(name = "source_id", required = false) String sourceId,
             @RequestParam(name = "document_id", required = false) String documentId,
             @RequestParam(name = "chunk_keyword", required = false) String chunkKeyword,
+            @RequestParam(name = "code_presence", required = false) Boolean codePresence,
+            @RequestParam(name = "min_token_len", required = false) Integer minTokenLen,
+            @RequestParam(name = "max_token_len", required = false) Integer maxTokenLen,
             @RequestParam(name = "run_id", required = false) UUID runId,
             @RequestParam(name = "active_only", defaultValue = "true") boolean activeOnly,
             @RequestParam(name = "limit", required = false) Integer limit,
             @RequestParam(name = "offset", required = false) Integer offset
     ) {
-        return service.listChunks(productName, versionLabel, sourceId, documentId, chunkKeyword, runId, activeOnly, limit, offset);
+        return service.listChunks(
+                productName,
+                versionLabel,
+                sourceId,
+                documentId,
+                chunkKeyword,
+                codePresence,
+                minTokenLen,
+                maxTokenLen,
+                runId,
+                activeOnly,
+                limit,
+                offset
+        );
     }
 
     @GetMapping("/chunks/{chunkId}")
@@ -150,9 +170,39 @@ public class CorpusAdminController {
         return service.getGlossaryTerm(termId);
     }
 
+    @PatchMapping("/sources/{sourceId}")
+    public CorpusAdminDtos.SourceSummary patchSource(
+            @PathVariable String sourceId,
+            @RequestBody CorpusAdminDtos.SourceUpdateRequest request
+    ) {
+        return service.updateSourceEnabled(sourceId, Boolean.TRUE.equals(request.enabled()));
+    }
+
     @GetMapping("/glossary/{termId}/evidence")
     public List<CorpusAdminDtos.GlossaryEvidenceDto> getGlossaryEvidence(@PathVariable UUID termId) {
         return service.listGlossaryEvidence(termId);
+    }
+
+    @PatchMapping("/glossary/{termId}")
+    public CorpusAdminDtos.GlossaryTermDetail patchGlossaryTerm(
+            @PathVariable UUID termId,
+            @RequestBody CorpusAdminDtos.GlossaryTermPatchRequest request
+    ) {
+        service.updateGlossaryTerm(termId, request);
+        return service.getGlossaryTerm(termId);
+    }
+
+    @PostMapping("/glossary/{termId}/aliases")
+    public CorpusAdminDtos.GlossaryTermDetail createGlossaryAlias(
+            @PathVariable UUID termId,
+            @RequestBody CorpusAdminDtos.GlossaryAliasCreateRequest request
+    ) {
+        return service.createGlossaryAlias(termId, request);
+    }
+
+    @DeleteMapping("/glossary/aliases/{aliasId}")
+    public void deleteGlossaryAlias(@PathVariable UUID aliasId) {
+        service.deleteGlossaryAlias(aliasId);
     }
 
     @GetMapping("/documents/{documentId}/preview/raw-vs-cleaned")
