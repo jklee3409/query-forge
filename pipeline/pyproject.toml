@@ -7,11 +7,14 @@ name = "query-forge-pipeline"
 version = "0.1.0"
 description = "Offline research pipeline scaffold for Query Forge"
 requires-python = ">=3.12"
-dependencies = []
+dependencies = [
+    "beautifulsoup4>=4.14.2",
+    "PyYAML>=6.0.3",
+    "requests>=2.32.5",
+]
 
 [project.scripts]
 query-forge-pipeline = "cli:main"
 
 [tool.setuptools]
 py-modules = ["cli"]
-
