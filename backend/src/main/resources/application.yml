@@ -29,3 +29,17 @@ query-forge:
   config-dir: ${QUERY_FORGE_CONFIG_DIR:../configs/app}
   prompt-root: ${PROMPT_ROOT:../configs/prompts}
   experiment-root: ${EXPERIMENT_ROOT:../configs/experiments}
+  admin:
+    pipeline:
+      repo-root: ${QUERY_FORGE_REPO_ROOT:..}
+      python-command: ${QUERY_FORGE_PYTHON:python}
+      logs-dir: ${QUERY_FORGE_LOG_DIR:data/logs/admin-pipeline}
+      source-config-dir: ${QUERY_FORGE_SOURCE_CONFIG_DIR:configs/app/sources}
+      chunking-config: ${QUERY_FORGE_CHUNKING_CONFIG:configs/app/chunking.yml}
+      raw-output-path: ${QUERY_FORGE_RAW_OUTPUT:data/raw/spring_docs_raw.jsonl}
+      sections-output-path: ${QUERY_FORGE_SECTIONS_OUTPUT:data/processed/spring_docs_sections.jsonl}
+      chunks-output-path: ${QUERY_FORGE_CHUNKS_OUTPUT:data/processed/chunks.jsonl}
+      glossary-output-path: ${QUERY_FORGE_GLOSSARY_OUTPUT:data/processed/glossary_terms.jsonl}
+      relations-output-path: ${QUERY_FORGE_RELATIONS_OUTPUT:data/processed/chunk_neighbors.sql}
+      visualization-output-path: ${QUERY_FORGE_VISUALIZATION_OUTPUT:data/processed/chunking_visualization.md}
+      max-log-chars: ${QUERY_FORGE_MAX_LOG_CHARS:12000}
