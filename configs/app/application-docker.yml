@@ -1,0 +1,11 @@
+spring:
+  datasource:
+    url: jdbc:postgresql://${POSTGRES_HOST:postgres}:${POSTGRES_PORT:5432}/${POSTGRES_DB:query_forge}
+    username: ${POSTGRES_USER:query_forge}
+    password: ${POSTGRES_PASSWORD:query_forge}
+
+query-forge:
+  data-root: /app/data
+  prompt-root: /app/configs/prompts
+  experiment-root: /app/configs/experiments
+

@@ -1,0 +1,17 @@
+experiment_key: exp4
+category: evaluation
+description: Scaffold-only placeholder for retrieval and answer evaluation.
+generation_strategy: C
+enable_code_mixed: false
+enable_rule_filter: true
+enable_llm_self_eval: true
+enable_retrieval_utility: true
+enable_diversity: true
+enable_anti_copy: true
+memory_top_n: 5
+rewrite_candidate_count: 3
+rewrite_threshold: 0.05
+retrieval_top_k: 20
+rerank_top_n: 5
+use_session_context: true
+

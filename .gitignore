@@ -1,0 +1,69 @@
+# IDE / editor
+.idea/
+.vscode/
+*.iml
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+configs/app/*-local.yml
+configs/app/*-local.yaml
+configs/experiments/*.local.yml
+configs/experiments/*.local.yaml
+
+# Java / Gradle
+.gradle/
+**/.gradle/
+**/build/
+**/out/
+**/.settings/
+**/.classpath
+**/.project
+backend/.java/
+
+# Python
+.venv/
+venv/
+env/
+**/__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.hypothesis/
+.tox/
+.nox/
+.coverage
+.coverage.*
+htmlcov/
+*.egg-info/
+
+# Logs / temp
+*.log
+*.pid
+*.tmp
+*.temp
+*.hprof
+tmp/
+temp/
+
+# Data artifacts
+data/raw/*
+!data/raw/.gitkeep
+data/processed/*
+!data/processed/.gitkeep
+data/synthetic/*
+!data/synthetic/.gitkeep
+data/eval/*
+!data/eval/.gitkeep
+data/reports/*
+!data/reports/.gitkeep

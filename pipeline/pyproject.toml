@@ -1,0 +1,17 @@
+[build-system]
+requires = ["setuptools>=69"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "query-forge-pipeline"
+version = "0.1.0"
+description = "Offline research pipeline scaffold for Query Forge"
+requires-python = ">=3.12"
+dependencies = []
+
+[project.scripts]
+query-forge-pipeline = "cli:main"
+
+[tool.setuptools]
+py-modules = ["cli"]
+
