@@ -1,7 +1,7 @@
 EXPERIMENT ?= scaffold
 GRADLEW ?= ./backend/gradlew
 
-.PHONY: up down logs backend-test run-backend collect-docs preprocess generate-queries gate-queries build-memory build-eval-dataset eval-retrieval eval-answer
+.PHONY: up down logs backend-test run-backend collect-docs preprocess chunk-docs import-corpus generate-queries gate-queries build-memory build-eval-dataset eval-retrieval eval-answer
 
 up:
 	docker compose up -d postgres
@@ -24,6 +24,12 @@ collect-docs:
 preprocess:
 	python pipeline/cli.py preprocess --experiment $(EXPERIMENT)
 
+chunk-docs:
+	python pipeline/cli.py chunk-docs --experiment $(EXPERIMENT)
+
+import-corpus:
+	python pipeline/cli.py import-corpus --experiment $(EXPERIMENT)
+
 generate-queries:
 	python pipeline/cli.py generate-queries --experiment $(EXPERIMENT)
 
@@ -41,4 +47,3 @@ eval-retrieval:
 
 eval-answer:
 	python pipeline/cli.py eval-answer --experiment $(EXPERIMENT)
-

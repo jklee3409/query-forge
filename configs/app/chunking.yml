@@ -1,0 +1,62 @@
+chunking:
+  target_min_tokens: 400
+  target_max_tokens: 900
+  overlap_min_tokens: 80
+  overlap_target_tokens: 100
+  overlap_max_tokens: 120
+  base_min_tokens_after_first: 300
+  base_max_tokens: 780
+  preferred_chunk_tokens: 640
+  max_segment_tokens: 110
+  short_chunk_merge_threshold: 260
+  overlap_label: "Overlap context from previous chunk:"
+  visualization:
+    max_documents: 3
+    max_chunks_per_document: 3
+    max_glossary_terms: 12
+
+glossary:
+  keep_in_english_default: true
+  cli_command_prefixes:
+    - ./gradlew
+    - gradle
+    - mvn
+    - java
+    - jar
+    - spring
+    - docker
+    - docker-compose
+    - curl
+    - http
+    - kubectl
+    - helm
+    - psql
+  spring_products:
+    - canonical_form: Spring Boot
+      aliases: [spring boot]
+    - canonical_form: Spring Framework
+      aliases: [spring framework]
+    - canonical_form: Spring Security
+      aliases: [spring security]
+    - canonical_form: Spring Data
+      aliases: [spring data]
+    - canonical_form: Spring Data JPA
+      aliases: [spring data jpa]
+    - canonical_form: Spring Data Commons
+      aliases: [spring data commons]
+    - canonical_form: Spring MVC
+      aliases: [spring mvc]
+    - canonical_form: Spring WebFlux
+      aliases: [spring webflux]
+    - canonical_form: Spring Integration
+      aliases: [spring integration]
+    - canonical_form: Spring Batch
+      aliases: [spring batch]
+    - canonical_form: Spring AI
+      aliases: [spring ai]
+    - canonical_form: Spring Actuator
+      aliases: [spring actuator, actuator]
+    - canonical_form: Spring Initializr
+      aliases: [spring initializr]
+    - canonical_form: Spring Cloud
+      aliases: [spring cloud]
