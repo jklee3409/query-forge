@@ -96,6 +96,7 @@ class ImportOptions:
     source_ids: set[str]
     document_ids: set[str]
     run_type: str
+    external_run_id: str | None
 
 
 def build_options(args: Any) -> ImportOptions:
@@ -118,6 +119,7 @@ def build_options(args: Any) -> ImportOptions:
         source_ids=set(args.source_id or []),
         document_ids=set(args.document_id or []),
         run_type=str(args.run_type),
+        external_run_id=getattr(args, "external_run_id", None),
     )
 
 

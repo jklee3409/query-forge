@@ -59,6 +59,7 @@ def build_arg_parser() -> argparse.ArgumentParser:
     parser.add_argument("--trigger-type", default="manual", choices=["manual", "scheduled", "api"])
     parser.add_argument("--created-by", default=None)
     parser.add_argument("--run-type", default="import", choices=["import", "full_ingest"])
+    parser.add_argument("--external-run-id", default=None)
     parser.add_argument("--source-id", action="append", default=None)
     parser.add_argument("--document-id", action="append", default=None)
     parser.add_argument("--log-level", default="INFO")
@@ -97,7 +98,7 @@ def run_import(options: ImportOptions) -> dict[str, Any]:
     data_connection = connect(options, autocommit=False)
 
     try:
-        if not options.dry_run:
+        if not options.dry_run and options.external_run_id is None:
             meta_connection = connect(options, autocommit=True)
             recorder = RunRecorder(meta_connection)
             run_id = recorder.create_run(
@@ -107,6 +108,8 @@ def run_import(options: ImportOptions) -> dict[str, Any]:
                 config_snapshot=config_snapshot_json(options),
                 created_by=options.created_by,
             )
+        elif options.external_run_id is not None:
+            run_id = options.external_run_id
 
         step_summaries: dict[str, Any] = {}
 

@@ -8,6 +8,7 @@ from pathlib import Path
 from collectors.spring_docs_collector import collect_documents
 from loaders.import_corpus_to_postgres import run_import
 from preprocess.chunk_docs import build_chunks_and_glossary
+from preprocess.extract_glossary import build_glossary_only
 from preprocess.normalize_docs import normalize_documents
 from loaders.common import build_options
 
@@ -16,6 +17,7 @@ COMMANDS = (
     "collect-docs",
     "preprocess",
     "chunk-docs",
+    "glossary-docs",
     "import-corpus",
     "generate-queries",
     "gate-queries",
@@ -39,6 +41,7 @@ def build_parser() -> argparse.ArgumentParser:
     collect.add_argument("--limit", type=int, default=None)
     collect.add_argument("--source-id", action="append", default=None)
     collect.add_argument("--show-examples", action="store_true")
+    collect.add_argument("--run-id", default=None)
 
     preprocess = subparsers.add_parser("preprocess")
     preprocess.add_argument("--experiment", default="scaffold")
@@ -46,6 +49,7 @@ def build_parser() -> argparse.ArgumentParser:
     preprocess.add_argument("--output", default="data/processed/spring_docs_sections.jsonl")
     preprocess.add_argument("--limit", type=int, default=None)
     preprocess.add_argument("--show-examples", action="store_true")
+    preprocess.add_argument("--run-id", default=None)
 
     chunk_docs = subparsers.add_parser("chunk-docs")
     chunk_docs.add_argument("--experiment", default="scaffold")
@@ -57,6 +61,16 @@ def build_parser() -> argparse.ArgumentParser:
     chunk_docs.add_argument("--config", default="configs/app/chunking.yml")
     chunk_docs.add_argument("--limit-documents", type=int, default=None)
     chunk_docs.add_argument("--show-examples", action="store_true")
+    chunk_docs.add_argument("--run-id", default=None)
+
+    glossary_docs = subparsers.add_parser("glossary-docs")
+    glossary_docs.add_argument("--experiment", default="scaffold")
+    glossary_docs.add_argument("--input", default="data/processed/spring_docs_sections.jsonl")
+    glossary_docs.add_argument("--output-glossary", default="data/processed/glossary_terms.jsonl")
+    glossary_docs.add_argument("--config", default="configs/app/chunking.yml")
+    glossary_docs.add_argument("--limit-documents", type=int, default=None)
+    glossary_docs.add_argument("--show-examples", action="store_true")
+    glossary_docs.add_argument("--run-id", default=None)
 
     import_corpus = subparsers.add_parser("import-corpus")
     import_corpus.add_argument("--experiment", default="scaffold")
@@ -76,9 +90,11 @@ def build_parser() -> argparse.ArgumentParser:
     import_corpus.add_argument("--trigger-type", default="manual")
     import_corpus.add_argument("--created-by", default=None)
     import_corpus.add_argument("--run-type", default="import")
+    import_corpus.add_argument("--external-run-id", default=None)
     import_corpus.add_argument("--source-id", action="append", default=None)
     import_corpus.add_argument("--document-id", action="append", default=None)
     import_corpus.add_argument("--log-level", default="INFO")
+    import_corpus.add_argument("--run-id", default=None)
 
     for command in (
         "generate-queries",
@@ -106,6 +122,8 @@ def main() -> int:
             source_ids=set(args.source_id) if args.source_id else None,
             show_examples=args.show_examples,
         )
+        if args.run_id:
+            summary["run_id"] = args.run_id
         print(json.dumps(summary, ensure_ascii=False, indent=2))
         return 0
 
@@ -116,6 +134,8 @@ def main() -> int:
             limit=args.limit,
             show_examples=args.show_examples,
         )
+        if args.run_id:
+            summary["run_id"] = args.run_id
         print(json.dumps(summary, ensure_ascii=False, indent=2))
         return 0
 
@@ -130,11 +150,28 @@ def main() -> int:
             limit_documents=args.limit_documents,
             show_examples=args.show_examples,
         )
+        if args.run_id:
+            summary["run_id"] = args.run_id
+        print(json.dumps(summary, ensure_ascii=False, indent=2))
+        return 0
+
+    if args.command == "glossary-docs":
+        summary = build_glossary_only(
+            input_path=Path(args.input),
+            output_glossary_path=Path(args.output_glossary),
+            config_path=Path(args.config),
+            limit_documents=args.limit_documents,
+            show_examples=args.show_examples,
+        )
+        if args.run_id:
+            summary["run_id"] = args.run_id
         print(json.dumps(summary, ensure_ascii=False, indent=2))
         return 0
 
     if args.command == "import-corpus":
         summary = run_import(build_options(args))
+        if args.run_id:
+            summary["run_id"] = args.run_id
         print(json.dumps(summary, ensure_ascii=False, indent=2))
         return 0
 
