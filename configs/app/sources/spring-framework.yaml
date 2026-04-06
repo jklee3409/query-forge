@@ -1,0 +1,17 @@
+source_id: spring-framework-reference
+product: spring-framework
+start_urls:
+  - https://docs.spring.io/spring-framework/reference/index.html
+allow_prefixes:
+  - https://docs.spring.io/spring-framework/reference/
+deny_url_patterns:
+  - /reference/pdf/
+  - /reference/htmlsingle/
+  - /api/
+request_delay_seconds: 0.2
+max_depth: 8
+metadata:
+  provider: spring
+  doc_family: reference
+  collection_format: html
+
