@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="ko" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title th:text="${pageTitle}">문서 Documents</title>
+    <link rel="stylesheet" th:href="@{/admin/admin.css}">
+    <script defer th:src="@{/admin/admin.js}"></script>
+</head>
+<body>
+<div class="admin-shell">
+    <aside th:replace="~{admin/fragments/chrome :: sidebar(${navKey})}"></aside>
+    <div class="admin-main">
+        <header th:replace="~{admin/fragments/chrome :: topbar(${pageTitle}, ${pageSubtitle})}"></header>
+        <main class="admin-content">
+            <div th:replace="~{admin/fragments/chrome :: pageHeader(${pageTitle}, ${pageSubtitle})}"></div>
+
+            <form class="filter-bar" data-persist-key="documents-filters" method="get" th:action="@{/admin/documents}">
+                <div class="filter-field filter-field--small">
+                    <label for="product_name">제품 Product</label>
+                    <input id="product_name" name="product_name" placeholder="spring-framework" th:value="${param.product_name}">
+                </div>
+                <div class="filter-field filter-field--small">
+                    <label for="version_label">버전 Version</label>
+                    <input id="version_label" name="version_label" placeholder="7.0.6" th:value="${param.version_label}">
+                </div>
+                <div class="filter-field filter-field--small">
+                    <label for="source_id">Source ID</label>
+                    <input id="source_id" name="source_id" placeholder="spring-framework-reference" th:value="${param.source_id}">
+                </div>
+                <div class="filter-field">
+                    <label for="chunk_keyword">본문 검색 Keyword</label>
+                    <input id="chunk_keyword" name="chunk_keyword" placeholder="BeanFactory, @Transactional, application.yml" th:value="${param.chunk_keyword}">
+                </div>
+                <div class="form-actions">
+                    <button class="button button--primary" type="submit">필터 적용</button>
+                    <a class="button button--ghost" th:href="@{/admin/documents}">Reset</a>
+                </div>
+            </form>
+
+            <section class="table-shell">
+                <div class="table-header">
+                    <div class="table-title">문서 목록</div>
+                </div>
+                <div class="table-wrap" th:if="${!documents.isEmpty()}">
+                    <table class="data-table" data-sort-table>
+                        <thead>
+                        <tr>
+                            <th data-sort-key="documentId">Document ID</th>
+                            <th>제목 Title</th>
+                            <th data-sort-key="productName">제품</th>
+                            <th>URL</th>
+                            <th>Sections / Chunks</th>
+                            <th>상태</th>
+                        </tr>
+                        </thead>
+                        <tbody>
+                        <tr th:each="doc : ${documents}">
+                            <td><a class="mono-truncate" th:href="@{/admin/documents/{id}(id=${doc.documentId()})}" th:text="${doc.documentId()}">doc</a></td>
+                            <td>
+                                <div th:text="${doc.title()}">title</div>
+                                <div class="summary-card__meta line-clamp-2" th:text="${doc.sectionPathText()}">section</div>
+                            </td>
+                            <td>
+                                <div th:text="${doc.productName()}">spring-framework</div>
+                                <div class="summary-card__meta" th:text="${doc.versionLabel()}">7.0.6</div>
+                            </td>
+                            <td>
+                                <div class="mono-truncate" th:text="${doc.canonicalUrl()}">url</div>
+                                <div class="toolbar" style="margin-top:8px;">
+                                    <a class="button button--ghost" target="_blank" rel="noopener noreferrer" th:href="${doc.canonicalUrl()}">Open URL</a>
+                                    <button type="button" class="copy-button" th:attr="data-copy=${doc.canonicalUrl()}">Copy</button>
+                                </div>
+                            </td>
+                            <td>
+                                <div th:text="|Sections ${doc.sectionCount()}|">0</div>
+                                <div class="summary-card__meta" th:text="|Chunks ${doc.chunkCount()}|">0</div>
+                            </td>
+                            <td>
+                                <span class="status-badge" th:attr="data-status=${doc.active()} ? 'success' : 'cancelled'"
+                                      th:text="${doc.active()} ? '활성 Active' : '비활성 Inactive'">active</span>
+                            </td>
+                        </tr>
+                        </tbody>
+                    </table>
+                </div>
+                <div class="empty-state" th:if="${documents.isEmpty()}">
+                    조건에 맞는 문서가 없습니다.
+                </div>
+            </section>
+        </main>
+    </div>
+</div>
+</body>
+</html>

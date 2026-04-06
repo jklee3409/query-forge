@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="ko" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title th:text="${pageTitle}">실행 이력 Runs</title>
+    <link rel="stylesheet" th:href="@{/admin/admin.css}">
+    <script defer th:src="@{/admin/admin.js}"></script>
+</head>
+<body>
+<div class="admin-shell" data-poll-url="/api/admin/pipeline/runs?limit=10">
+    <aside th:replace="~{admin/fragments/chrome :: sidebar(${navKey})}"></aside>
+    <div class="admin-main">
+        <header th:replace="~{admin/fragments/chrome :: topbar(${pageTitle}, ${pageSubtitle})}"></header>
+        <main class="admin-content">
+            <div th:replace="~{admin/fragments/chrome :: pageHeader(${pageTitle}, ${pageSubtitle})}"></div>
+
+            <form class="filter-bar" data-persist-key="runs-filters" method="get" th:action="@{/admin/runs}">
+                <div class="filter-field filter-field--small">
+                    <label for="run_status">상태 Status</label>
+                    <select id="run_status" name="run_status">
+                        <option value="">전체</option>
+                        <option value="queued" th:selected="${runStatus == 'queued'}">queued</option>
+                        <option value="running" th:selected="${runStatus == 'running'}">running</option>
+                        <option value="success" th:selected="${runStatus == 'success'}">success</option>
+                        <option value="failed" th:selected="${runStatus == 'failed'}">failed</option>
+                        <option value="cancelled" th:selected="${runStatus == 'cancelled'}">cancelled</option>
+                    </select>
+                </div>
+                <div class="filter-field filter-field--small">
+                    <label for="run_type">유형 Type</label>
+                    <select id="run_type" name="run_type">
+                        <option value="">전체</option>
+                        <option value="collect" th:selected="${runType == 'collect'}">collect</option>
+                        <option value="normalize" th:selected="${runType == 'normalize'}">normalize</option>
+                        <option value="chunk" th:selected="${runType == 'chunk'}">chunk</option>
+                        <option value="glossary" th:selected="${runType == 'glossary'}">glossary</option>
+                        <option value="import" th:selected="${runType == 'import'}">import</option>
+                        <option value="full_ingest" th:selected="${runType == 'full_ingest'}">full_ingest</option>
+                    </select>
+                </div>
+                <div class="form-actions">
+                    <button class="button button--primary" type="submit">필터 적용</button>
+                    <a class="button button--ghost" th:href="@{/admin/runs}">Reset</a>
+                </div>
+            </form>
+
+            <section class="table-shell">
+                <div class="table-header">
+                    <div class="table-title">파이프라인 Runs</div>
+                    <form data-api-form data-method="POST" data-redirect="/admin/runs/{runId}"
+                          data-success-message="Full ingest run을 시작했습니다." data-confirm="전체 ingest를 시작할까요?"
+                          th:action="@{/api/admin/pipeline/full-ingest}">
+                        <input type="hidden" name="createdBy" value="admin-ui">
+                        <button class="button button--primary" type="submit">전체 실행 Full Ingest</button>
+                    </form>
+                </div>
+                <div class="table-wrap" th:if="${!runs.isEmpty()}">
+                    <table class="data-table" data-sort-table>
+                        <thead>
+                        <tr>
+                            <th data-sort-key="runId">Run ID</th>
+                            <th data-sort-key="runType">유형</th>
+                            <th data-sort-key="runStatus">상태</th>
+                            <th>생성자</th>
+                            <th>시작</th>
+                            <th>종료</th>
+                            <th>액션</th>
+                        </tr>
+                        </thead>
+                        <tbody>
+                        <tr th:each="run : ${runs}">
+                            <td><a class="mono-truncate" th:href="@{/admin/runs/{id}(id=${run.runId()})}" th:text="${run.runId()}">run</a></td>
+                            <td th:text="${run.runType()}">full_ingest</td>
+                            <td><span class="status-badge" th:attr="data-status=${run.runStatus()}" th:text="${run.runStatus()}">success</span></td>
+                            <td th:text="${run.createdBy()}">admin-ui</td>
+                            <td th:text="${run.startedAt() != null ? #temporals.format(run.startedAt(), 'yyyy-MM-dd HH:mm:ss') : '-'}">-</td>
+                            <td th:text="${run.finishedAt() != null ? #temporals.format(run.finishedAt(), 'yyyy-MM-dd HH:mm:ss') : '-'}">-</td>
+                            <td>
+                                <div class="toolbar">
+                                    <a class="button" th:href="@{/admin/runs/{id}(id=${run.runId()})}">상세 보기</a>
+                                    <form data-api-form data-method="POST" data-redirect="/admin/runs/{runId}" data-success-message="Run을 다시 시작했습니다."
+                                          th:action="@{/api/admin/pipeline/runs/{id}/retry(id=${run.runId()})}">
+                                        <button class="button button--ghost" type="submit">Retry</button>
+                                    </form>
+                                </div>
+                            </td>
+                        </tr>
+                        </tbody>
+                    </table>
+                </div>
+                <div class="empty-state" th:if="${runs.isEmpty()}">
+                    조건에 맞는 run이 없습니다.
+                </div>
+            </section>
+        </main>
+    </div>
+</div>
+</body>
+</html>

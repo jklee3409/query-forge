@@ -1,0 +1,132 @@
+<!DOCTYPE html>
+<html lang="ko" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title th:text="${document.title()}">문서 상세</title>
+    <link rel="stylesheet" th:href="@{/admin/admin.css}">
+    <script defer th:src="@{/admin/admin.js}"></script>
+</head>
+<body>
+<div class="admin-shell">
+    <aside th:replace="~{admin/fragments/chrome :: sidebar(${navKey})}"></aside>
+    <div class="admin-main">
+        <header th:replace="~{admin/fragments/chrome :: topbar(${pageTitle}, ${pageSubtitle})}"></header>
+        <main class="admin-content">
+            <div th:replace="~{admin/fragments/chrome :: pageHeader(${document.title()}, ${document.canonicalUrl()})}"></div>
+
+            <section class="detail-card">
+                <div class="detail-grid">
+                    <div class="detail-item">
+                        <div class="detail-item__label">Document ID</div>
+                        <div class="detail-item__value mono" th:text="${document.documentId()}">doc</div>
+                    </div>
+                    <div class="detail-item">
+                        <div class="detail-item__label">제품 Product</div>
+                        <div class="detail-item__value" th:text="|${document.productName()} / ${document.versionLabel()}|">spring-framework</div>
+                    </div>
+                    <div class="detail-item">
+                        <div class="detail-item__label">Import Run</div>
+                        <div class="detail-item__value">
+                            <a class="mono-truncate" th:href="@{/admin/runs/{id}(id=${document.importRunId()})}" th:text="${document.importRunId()}">run</a>
+                        </div>
+                    </div>
+                    <div class="detail-item">
+                        <div class="detail-item__label">Heading Hierarchy</div>
+                        <div class="detail-item__value line-clamp-2" th:text="${document.headingHierarchyJson()}">hierarchy</div>
+                    </div>
+                </div>
+                <div class="toolbar" style="margin-top:16px;">
+                    <a class="button button--ghost" target="_blank" rel="noopener noreferrer" th:href="${document.canonicalUrl()}">Open Raw URL</a>
+                    <form data-api-form data-method="POST" data-redirect="/admin/runs/{runId}" data-success-message="이 문서 re-normalize를 시작했습니다."
+                          th:action="@{/api/admin/pipeline/normalize}">
+                        <input type="hidden" name="documentIds" th:value="${document.documentId()}">
+                        <input type="hidden" name="createdBy" value="admin-ui">
+                        <button class="button" type="submit">이 문서만 Re-normalize</button>
+                    </form>
+                    <form data-api-form data-method="POST" data-redirect="/admin/runs/{runId}" data-success-message="이 문서 re-chunk를 시작했습니다."
+                          th:action="@{/api/admin/pipeline/chunk}">
+                        <input type="hidden" name="documentIds" th:value="${document.documentId()}">
+                        <input type="hidden" name="createdBy" value="admin-ui">
+                        <button class="button button--primary" type="submit">이 문서만 Re-chunk</button>
+                    </form>
+                </div>
+            </section>
+
+            <div class="tabs" style="margin-top:20px;">
+                <a href="#overview" class="tab-link">Overview</a>
+                <a href="#raw-cleaned" class="tab-link">Raw vs Cleaned</a>
+                <a href="#sections-chunks" class="tab-link">Sections & Chunks</a>
+                <a href="#run-history" class="tab-link">Run History</a>
+            </div>
+
+            <section id="overview" class="panel">
+                <div class="table-title">Overview</div>
+                <div class="text-surface" style="margin-top:12px;" th:text="${document.sectionPathText()}">section path</div>
+            </section>
+
+            <section id="raw-cleaned" class="panel" style="margin-top:20px;">
+                <div class="table-title">Raw vs Cleaned</div>
+                <div class="diff-grid" style="margin-top:14px;">
+                    <div class="diff-panel">
+                        <div class="detail-item__label">Raw Text</div>
+                        <div class="text-surface" th:text="${rawPreview.rawText()}">raw</div>
+                    </div>
+                    <div class="diff-panel">
+                        <div class="detail-item__label">Cleaned Text</div>
+                        <div class="text-surface" th:text="${rawPreview.cleanedText()}">cleaned</div>
+                    </div>
+                </div>
+                <div class="detail-item__label" style="margin-top:16px;">Removed Boilerplate</div>
+                <div class="text-surface" th:text="${rawPreview.removedBoilerplateExcerpt()}">removed</div>
+            </section>
+
+            <section id="sections-chunks" class="card-grid" style="margin-top:20px;">
+                <article class="panel">
+                    <div class="table-title">Sections</div>
+                    <div class="section-list" style="margin-top:14px;">
+                        <div class="section-card" th:each="section : ${sections}">
+                            <div class="detail-item__label" th:text="${section.headingText()}">heading</div>
+                            <div class="summary-card__meta mono-truncate" th:text="${section.sectionPathText()}">path</div>
+                            <div class="badge-row" style="margin-top:10px;">
+                                <span class="plain-badge plain-badge--code" th:text="|code ${section.codeBlockCount()}|">code</span>
+                                <span class="plain-badge plain-badge--table" th:text="|table ${section.tableCount()}|">table</span>
+                                <span class="plain-badge plain-badge--list" th:text="|list ${section.listCount()}|">list</span>
+                            </div>
+                        </div>
+                    </div>
+                </article>
+
+                <article class="panel">
+                    <div class="table-title">Chunks & Boundary Preview</div>
+                    <div class="boundary-list" style="margin-top:14px;">
+                        <div class="boundary-item" th:each="boundary : ${chunkBoundaryPreview.boundaries()}">
+                            <div class="detail-item__label" th:text="${boundary.chunkId()}">chunk</div>
+                            <div class="summary-card__meta" th:text="${boundary.sectionPathText()}">path</div>
+                            <div class="badge-row" style="margin-top:8px;">
+                                <span class="plain-badge" th:text="|start ${boundary.startChar()}|">0</span>
+                                <span class="plain-badge" th:text="|end ${boundary.endChar()}|">0</span>
+                                <span class="plain-badge" th:text="|tokens ${boundary.tokenLen()}|">0</span>
+                            </div>
+                        </div>
+                    </div>
+                </article>
+            </section>
+
+            <section id="run-history" class="panel" style="margin-top:20px;">
+                <div class="table-title">Run History</div>
+                <div class="detail-list" style="margin-top:14px;" th:if="${!relatedRuns.isEmpty()}">
+                    <div class="timeline-card" th:each="run : ${relatedRuns}">
+                        <a class="mono-truncate" th:href="@{/admin/runs/{id}(id=${run.runId()})}" th:text="${run.runId()}">run</a>
+                        <div class="badge-row" style="margin-top:8px;">
+                            <span class="status-badge" th:attr="data-status=${run.runStatus()}" th:text="${run.runStatus()}">success</span>
+                            <span class="plain-badge" th:text="${run.runType()}">import</span>
+                        </div>
+                    </div>
+                </div>
+            </section>
+        </main>
+    </div>
+</div>
+</body>
+</html>

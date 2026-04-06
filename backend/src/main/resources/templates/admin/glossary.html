@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="ko" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title th:text="${pageTitle}">용어 사전 Glossary</title>
+    <link rel="stylesheet" th:href="@{/admin/admin.css}">
+    <script defer th:src="@{/admin/admin.js}"></script>
+</head>
+<body>
+<div class="admin-shell">
+    <aside th:replace="~{admin/fragments/chrome :: sidebar(${navKey})}"></aside>
+    <div class="admin-main">
+        <header th:replace="~{admin/fragments/chrome :: topbar(${pageTitle}, ${pageSubtitle})}"></header>
+        <main class="admin-content">
+            <div th:replace="~{admin/fragments/chrome :: pageHeader(${pageTitle}, ${pageSubtitle})}"></div>
+
+            <form class="filter-bar" data-persist-key="glossary-filters" method="get" th:action="@{/admin/glossary}">
+                <div class="filter-field filter-field--small">
+                    <label for="product_name">제품 Product</label>
+                    <input id="product_name" name="product_name" placeholder="spring-boot" th:value="${param.product_name}">
+                </div>
+                <div class="filter-field filter-field--small">
+                    <label for="term_type">용어 Type</label>
+                    <input id="term_type" name="term_type" placeholder="annotation, config_key, artifact" th:value="${param.term_type}">
+                </div>
+                <div class="filter-field filter-field--small">
+                    <label for="keep_in_english">Keep in English</label>
+                    <select id="keep_in_english" name="keep_in_english">
+                        <option value="">전체</option>
+                        <option value="true" th:selected="${param.keep_in_english == 'true'}">true</option>
+                        <option value="false" th:selected="${param.keep_in_english == 'false'}">false</option>
+                    </select>
+                </div>
+                <div class="filter-field">
+                    <label for="keyword">검색 Keyword</label>
+                    <input id="keyword" name="keyword" placeholder="@Transactional, application.yml, HikariCP" th:value="${param.keyword}">
+                </div>
+                <div class="form-actions">
+                    <button class="button button--primary" type="submit">필터 적용</button>
+                    <a class="button button--ghost" th:href="@{/admin/glossary}">Reset</a>
+                </div>
+            </form>
+
+            <div class="split-layout">
+                <section class="table-shell">
+                    <div class="table-header">
+                        <div class="table-title">Glossary Terms</div>
+                    </div>
+                    <div class="table-wrap" th:if="${!terms.isEmpty()}">
+                        <table class="data-table" data-sort-table>
+                            <thead>
+                            <tr>
+                                <th data-sort-key="canonicalForm">Canonical Form</th>
+                                <th data-sort-key="termType">Term Type</th>
+                                <th>정책</th>
+                                <th>Evidence</th>
+                            </tr>
+                            </thead>
+                            <tbody>
+                            <tr th:each="term : ${terms}">
+                                <td>
+                                    <a th:href="@{/admin/glossary/{id}(id=${term.termId()})}" th:text="${term.canonicalForm()}">term</a>
+                                    <div class="summary-card__meta mono-truncate" th:text="${term.normalizedForm()}">normalized</div>
+                                </td>
+                                <td>
+                                    <span class="plain-badge" th:text="${term.termType()}">annotation</span>
+                                </td>
+                                <td>
+                                    <div class="badge-row">
+                                        <span class="status-badge" th:attr="data-status=${term.keepInEnglish()} ? 'success' : 'queued'"
+                                              th:text="${term.keepInEnglish()} ? '영문 유지' : '번역 허용'">영문 유지</span>
+                                        <span class="status-badge" th:attr="data-status=${term.active()} ? 'success' : 'cancelled'"
+                                              th:text="${term.active()} ? '활성' : '비활성'">활성</span>
+                                    </div>
+                                </td>
+                                <td th:text="${term.evidenceCount()}">0</td>
+                            </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    <div class="empty-state" th:if="${terms.isEmpty()}">
+                        조건에 맞는 용어가 없습니다.
+                    </div>
+                </section>
+
+                <section class="panel">
+                    <div class="table-title">Top Terms Preview</div>
+                    <div class="detail-list" style="margin-top:14px;" th:if="${!topTerms.isEmpty()}">
+                        <div class="snippet-card" th:each="term : ${topTerms}">
+                            <div class="toolbar">
+                                <a th:href="@{/admin/glossary/{id}(id=${term.termId()})}" th:text="${term.canonicalForm()}">term</a>
+                                <span class="plain-badge" th:text="${term.termType()}">annotation</span>
+                            </div>
+                            <div class="summary-card__meta" style="margin-top:8px;" th:text="|evidence ${term.evidenceCount()}|">evidence</div>
+                            <div class="evidence-snippet" style="margin-top:10px;" th:each="snippet : ${term.provenanceSnippets()}" th:text="${snippet}">snippet</div>
+                        </div>
+                    </div>
+                </section>
+            </div>
+        </main>
+    </div>
+</div>
+</body>
+</html>

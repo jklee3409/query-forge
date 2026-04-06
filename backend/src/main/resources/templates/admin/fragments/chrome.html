@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="ko" xmlns:th="http://www.thymeleaf.org">
+<body>
+<aside th:fragment="sidebar(navKey)" class="admin-sidebar">
+    <div class="admin-sidebar__brand">
+        <div class="admin-sidebar__logo">QF</div>
+        <div>
+            <div class="admin-sidebar__title">Query Forge</div>
+            <div class="admin-sidebar__subtitle">Admin Backoffice</div>
+        </div>
+    </div>
+
+    <nav class="admin-nav">
+        <a th:href="@{/admin}" class="admin-nav__link" th:classappend="${navKey == 'dashboard'} ? ' is-active'">
+            <span>대시보드 Dashboard</span>
+        </a>
+        <a th:href="@{/admin/sources}" class="admin-nav__link" th:classappend="${navKey == 'sources'} ? ' is-active'">
+            <span>문서 Sources</span>
+        </a>
+        <a th:href="@{/admin/runs}" class="admin-nav__link" th:classappend="${navKey == 'runs'} ? ' is-active'">
+            <span>실행 이력 Runs</span>
+        </a>
+        <a th:href="@{/admin/documents}" class="admin-nav__link" th:classappend="${navKey == 'documents'} ? ' is-active'">
+            <span>문서 Documents</span>
+        </a>
+        <a th:href="@{/admin/chunks}" class="admin-nav__link" th:classappend="${navKey == 'chunks'} ? ' is-active'">
+            <span>청크 Chunks</span>
+        </a>
+        <a th:href="@{/admin/glossary}" class="admin-nav__link" th:classappend="${navKey == 'glossary'} ? ' is-active'">
+            <span>용어 사전 Glossary</span>
+        </a>
+        <a th:href="@{/admin/ingest-wizard}" class="admin-nav__link" th:classappend="${navKey == 'wizard'} ? ' is-active'">
+            <span>실행 마법사 Wizard</span>
+        </a>
+    </nav>
+
+    <div class="admin-sidebar__section">
+        <div class="admin-sidebar__section-title">다음 단계 Placeholder</div>
+        <div class="admin-nav__link is-disabled">합성 질의 Synthetic</div>
+        <div class="admin-nav__link is-disabled">Quality Gating</div>
+        <div class="admin-nav__link is-disabled">Query Rewrite</div>
+    </div>
+</aside>
+
+<header th:fragment="topbar(title, subtitle)" class="admin-topbar">
+    <button type="button" class="admin-topbar__menu" data-sidebar-toggle>Menu</button>
+    <div class="admin-topbar__meta">
+        <div class="admin-topbar__title" th:text="${title}">대시보드 Dashboard</div>
+        <div class="admin-topbar__subtitle" th:text="${subtitle}">subtitle</div>
+    </div>
+    <div class="admin-topbar__actions">
+        <a th:href="@{/admin/ingest-wizard}" class="button button--primary">전체 실행 Full Ingest</a>
+    </div>
+</header>
+
+<div th:fragment="pageHeader(title, subtitle)" class="page-header">
+    <div>
+        <h1 class="page-header__title" th:text="${title}">제목</h1>
+        <p class="page-header__subtitle" th:text="${subtitle}">설명</p>
+    </div>
+</div>
+</body>
+</html>
