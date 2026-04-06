@@ -65,7 +65,10 @@ data/processed/*
 !data/processed/README.md
 data/synthetic/*
 !data/synthetic/.gitkeep
+!data/synthetic/README.md
 data/eval/*
 !data/eval/.gitkeep
+!data/eval/README.md
 data/reports/*
 !data/reports/.gitkeep
+!data/reports/README.md
