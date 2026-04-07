@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title th:text="${pageTitle}">실행 마법사</title>
+    <title th:text="${pageTitle}">실행 안내</title>
     <link rel="stylesheet" th:href="@{/admin/admin.css}">
     <script defer th:src="@{/admin/admin.js}"></script>
 </head>
@@ -15,10 +15,10 @@
         <main class="admin-content">
             <div th:replace="~{admin/fragments/chrome :: pageHeader(${pageTitle}, ${pageSubtitle})}"></div>
 
-            <form class="detail-list" data-api-form data-method="POST" data-redirect="/admin/runs/{runId}" data-success-message="Full ingest를 시작했습니다."
-                  data-confirm="선택한 source와 옵션으로 전체 ingest를 시작할까요?" th:action="@{/api/admin/pipeline/full-ingest}">
+            <form class="detail-list" data-api-form data-method="POST" data-redirect="/admin/runs/{runId}" data-success-message="전체 실행을 시작했습니다."
+                  data-confirm="선택한 원본과 옵션으로 전체 실행을 시작할까요?" th:action="@{/api/admin/pipeline/full-ingest}">
                 <section class="panel">
-                    <div class="table-title">1. Source 선택</div>
+                    <div class="table-title">1. 실행 대상 원본 선택</div>
                     <div class="badge-row" style="margin-top:14px;">
                         <label class="plain-badge" th:each="source : ${sources}">
                             <input type="checkbox" name="sourceIds" th:value="${source.sourceId()}" th:checked="${source.enabled()}">
@@ -29,86 +29,88 @@
 
                 <section class="card-grid">
                     <article class="panel">
-                        <div class="table-title">2. Collect 옵션</div>
+                        <div class="table-title">2. 문서 분류/저장 구조</div>
                         <div class="detail-list" style="margin-top:12px;">
                             <div class="detail-item">
-                                <div class="detail-item__label">Config Directory</div>
-                                <div class="detail-item__value mono" th:text="${pipelineProperties.sourceConfigDir()}">configs/app/sources</div>
+                                <div class="detail-item__label">분류 기준</div>
+                                <div class="detail-item__value mono">source / version / document</div>
                             </div>
                             <div class="detail-item">
-                                <div class="detail-item__label">산출물</div>
-                                <div class="detail-item__value mono" th:text="${pipelineProperties.rawOutputPath()}">data/raw/...</div>
+                                <div class="detail-item__label">문서 단위 저장소</div>
+                                <div class="detail-item__value mono" th:text="${pipelineProperties.artifactStoreDir()}">data/artifacts/corpus-docs</div>
+                            </div>
+                            <div class="detail-item">
+                                <div class="detail-item__label">집계 스냅샷</div>
+                                <div class="detail-item__value mono" th:text="${pipelineProperties.rawOutputPath()}">data/raw/spring_docs_raw.jsonl</div>
                             </div>
                         </div>
                     </article>
 
                     <article class="panel">
-                        <div class="table-title">3. Normalize 옵션</div>
+                        <div class="table-title">3. 단계별 실행</div>
                         <div class="detail-list" style="margin-top:12px;">
                             <div class="detail-item">
-                                <div class="detail-item__label">산출물</div>
-                                <div class="detail-item__value mono" th:text="${pipelineProperties.sectionsOutputPath()}">data/processed/...</div>
+                                <div class="detail-item__label">정제 입력/출력</div>
+                                <div class="detail-item__value mono" th:text="${pipelineProperties.sectionsOutputPath()}">data/processed/spring_docs_sections.jsonl</div>
                             </div>
                             <div class="detail-item">
-                                <div class="detail-item__label">주의사항</div>
-                                <div class="detail-item__value">collector raw JSONL 기준으로 section-level normalization을 수행합니다.</div>
-                            </div>
-                        </div>
-                    </article>
-
-                    <article class="panel">
-                        <div class="table-title">4. Chunking 옵션</div>
-                        <div class="detail-list" style="margin-top:12px;">
-                            <div class="detail-item">
-                                <div class="detail-item__label">Chunk Config</div>
+                                <div class="detail-item__label">청킹 설정</div>
                                 <div class="detail-item__value mono" th:text="${pipelineProperties.chunkingConfig()}">configs/app/chunking.yml</div>
                             </div>
                             <div class="detail-item">
-                                <div class="detail-item__label">산출물</div>
+                                <div class="detail-item__label">청크 출력</div>
                                 <div class="detail-item__value mono" th:text="${pipelineProperties.chunksOutputPath()}">data/processed/chunks.jsonl</div>
                             </div>
-                        </div>
-                    </article>
-
-                    <article class="panel">
-                        <div class="table-title">5. Glossary 옵션</div>
-                        <div class="detail-list" style="margin-top:12px;">
                             <div class="detail-item">
-                                <div class="detail-item__label">산출물</div>
+                                <div class="detail-item__label">용어 출력</div>
                                 <div class="detail-item__value mono" th:text="${pipelineProperties.glossaryOutputPath()}">data/processed/glossary_terms.jsonl</div>
                             </div>
-                            <div class="detail-item">
-                                <div class="detail-item__label">주의사항</div>
-                                <div class="detail-item__value">class/interface, annotation, config key, cli, artifact, product term을 재추출합니다.</div>
-                            </div>
                         </div>
                     </article>
 
                     <article class="panel">
-                        <div class="table-title">6. Import 옵션</div>
+                        <div class="table-title">4. 로그/상태 확인</div>
                         <div class="detail-list" style="margin-top:12px;">
                             <div class="detail-item">
-                                <div class="detail-item__label">정책</div>
-                                <div class="detail-item__value">upsert 기반 idempotent import, 동일 run 동시 실행 방지</div>
+                                <div class="detail-item__label">파이프라인 로그 경로</div>
+                                <div class="detail-item__value mono" th:text="${pipelineProperties.logsDir()}">data/logs/admin-pipeline</div>
                             </div>
                             <div class="detail-item">
-                                <div class="detail-item__label">로그</div>
-                                <div class="detail-item__value mono" th:text="${pipelineProperties.logsDir()}">data/logs/admin-pipeline</div>
+                                <div class="detail-item__label">확인 방법</div>
+                                <div class="detail-item__value">실행 상세 화면에서 단계별 로그를 새로고침해 현재 문서 진행 상황을 확인합니다.</div>
                             </div>
                         </div>
                     </article>
 
                     <article class="panel">
-                        <div class="table-title">7. 실행 시작</div>
+                        <div class="table-title">5. 다음 단계 연동</div>
+                        <div class="detail-list" style="margin-top:12px;">
+                            <div class="detail-item">
+                                <div class="detail-item__label">합성 질의 생성</div>
+                                <div class="detail-item__value">청크/용어 산출물 기반으로 연동 예정</div>
+                            </div>
+                            <div class="detail-item">
+                                <div class="detail-item__label">품질 게이팅</div>
+                                <div class="detail-item__value">실행 이력과 단계 로그를 품질 판단 근거로 재사용</div>
+                            </div>
+                            <div class="detail-item">
+                                <div class="detail-item__label">질의 재작성</div>
+                                <div class="detail-item__value">용어 사전 정책과 연결해 후속 파이프라인 구성</div>
+                            </div>
+                        </div>
+                    </article>
+
+                    <article class="panel">
+                        <div class="table-title">6. 실행 시작</div>
                         <div class="form-row" style="margin-top:12px;">
-                            <label for="createdBy">Created By</label>
+                            <label for="createdBy">실행자</label>
                             <input id="createdBy" name="createdBy" value="admin-ui">
                         </div>
                         <div class="form-row">
-                            <label><input type="checkbox" name="dryRun"> dry-run</label>
+                            <label><input type="checkbox" name="dryRun"> 점검 실행(저장 없음)</label>
                         </div>
                         <div class="form-actions">
-                            <button class="button button--primary" type="submit">전체 실행 Full Ingest</button>
+                            <button class="button button--primary" type="submit">전체 실행 시작</button>
                         </div>
                     </article>
                 </section>

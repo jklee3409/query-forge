@@ -5,6 +5,7 @@ import hashlib
 import json
 import logging
 import re
+import time
 from pathlib import Path
 from typing import Any
 
@@ -401,6 +402,7 @@ def normalize_documents(
 
     processed_sections = 0
     processed_documents = 0
+    started_at = time.monotonic()
     example_raw: dict[str, Any] | None = None
     example_processed: dict[str, Any] | None = None
 
@@ -426,9 +428,10 @@ def normalize_documents(
                 example_processed = example_processed or section
 
             LOGGER.info(
-                "Normalized document %s -> %s sections",
+                "[normalize] document=%s sections=%s processed=%s",
                 raw_record["document_id"],
                 len(normalized_sections),
+                processed_documents,
             )
 
     if show_examples and example_raw and example_processed:
@@ -442,6 +445,7 @@ def normalize_documents(
         "output_path": str(output_path),
         "documents_processed": processed_documents,
         "sections_written": processed_sections,
+        "elapsed_seconds": round(time.monotonic() - started_at, 2),
     }
 
 

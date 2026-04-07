@@ -130,7 +130,7 @@ public class PipelineAdminService {
                     runId,
                     corpusAdminService.getRunDetail(runId).run().runType(),
                     "cancel_requested",
-                    "활성 프로세스는 없지만 취소 요청 상태를 기록했습니다."
+                    "실행 중인 프로세스는 없지만 취소 요청 상태를 기록했습니다."
             );
         }
 
@@ -232,7 +232,7 @@ public class PipelineAdminService {
                 runId,
                 runType,
                 "queued",
-                "파이프라인 실행을 큐에 등록했습니다."
+                "파이프라인 실행이 대기열에 등록되었습니다."
         );
     }
 
@@ -242,6 +242,8 @@ public class PipelineAdminService {
         runSummary.put("step_count", context.steps.size());
         runSummary.put("artifacts", context.artifacts.toSummary());
         runSummary.put("source_scope", scope.toSourceScope());
+        runSummary.put("document_scope_count", context.currentDocumentIds.size());
+        runSummary.put("document_scope", context.currentDocumentIds);
         StepPlan activeStep = null;
 
         try {
@@ -434,10 +436,10 @@ public class PipelineAdminService {
 
     private String shortCircuitMessage(String runType) {
         return switch (runType) {
-            case "normalize" -> "요청한 문서는 이미 최신 정제 산출물이 있어 normalize를 건너뛰었습니다.";
-            case "chunk" -> "요청한 문서는 이미 최신 chunk 산출물이 있어 chunk를 건너뛰었습니다.";
-            case "glossary" -> "요청한 문서는 이미 최신 glossary 산출물이 있어 glossary를 건너뛰었습니다.";
-            case "import" -> "가져올 수 있는 최신 문서 산출물이 없어 import를 건너뛰었습니다.";
+            case "normalize" -> "요청한 문서는 이미 최신 정제 산출물이 있어 정제 단계를 건너뛰었습니다.";
+            case "chunk" -> "요청한 문서는 이미 최신 청킹 산출물이 있어 청킹 단계를 건너뛰었습니다.";
+            case "glossary" -> "요청한 문서는 이미 최신 용어 산출물이 있어 용어 추출 단계를 건너뛰었습니다.";
+            case "import" -> "가져올 최신 문서 산출물이 없어 적재 단계를 건너뛰었습니다.";
             default -> "실행할 작업이 없습니다.";
         };
     }
@@ -928,3 +930,4 @@ public class PipelineAdminService {
     ) {
     }
 }
+

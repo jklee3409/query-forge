@@ -37,8 +37,8 @@ public class AdminUiController {
         model.addAttribute("navKey", "dashboard");
         model.addAttribute("dashboard", pipelineAdminService.getDashboardStats());
         model.addAttribute("sources", corpusAdminService.listSources());
-        model.addAttribute("pageTitle", "대시보드 Dashboard");
-        model.addAttribute("pageSubtitle", "현재 corpus 상태와 최근 파이프라인 실행 결과를 한눈에 확인합니다.");
+        model.addAttribute("pageTitle", "대시보드");
+        model.addAttribute("pageSubtitle", "현재 코퍼스 상태와 최근 파이프라인 실행 결과를 확인합니다.");
         return "admin/dashboard";
     }
 
@@ -46,8 +46,8 @@ public class AdminUiController {
     public String sources(Model model) {
         model.addAttribute("navKey", "sources");
         model.addAttribute("sources", corpusAdminService.listSources());
-        model.addAttribute("pageTitle", "문서 Sources");
-        model.addAttribute("pageSubtitle", "수집 대상 source를 관리하고, 선택한 source만 수집 실행할 수 있습니다.");
+        model.addAttribute("pageTitle", "수집 원본");
+        model.addAttribute("pageSubtitle", "수집 대상을 관리하고 선택한 원본만 수집 실행할 수 있습니다.");
         return "admin/sources";
     }
 
@@ -64,8 +64,8 @@ public class AdminUiController {
         model.addAttribute("runs", runs);
         model.addAttribute("runStatus", runStatus);
         model.addAttribute("runType", runType);
-        model.addAttribute("pageTitle", "실행 이력 Runs");
-        model.addAttribute("pageSubtitle", "collect -> normalize -> chunk -> glossary -> import 상태와 로그를 검수합니다.");
+        model.addAttribute("pageTitle", "실행 이력");
+        model.addAttribute("pageSubtitle", "수집, 정제, 청킹, 용어 추출, 적재 단계의 상태와 로그를 확인합니다.");
         return "admin/runs";
     }
 
@@ -75,8 +75,8 @@ public class AdminUiController {
         model.addAttribute("navKey", "runs");
         model.addAttribute("runDetail", detail);
         model.addAttribute("runLogs", pipelineAdminService.getRunLogs(runId));
-        model.addAttribute("pageTitle", "Run Detail");
-        model.addAttribute("pageSubtitle", "실행 단계, 로그, 산출물 경로를 확인합니다.");
+        model.addAttribute("pageTitle", "실행 상세");
+        model.addAttribute("pageSubtitle", "단계별 진행과 로그를 보고 새로고침으로 실시간 상태를 확인합니다.");
         return "admin/run-detail";
     }
 
@@ -98,8 +98,8 @@ public class AdminUiController {
                 productName, versionLabel, sourceId, documentId, headingKeyword, chunkKeyword, null, activeOnly, limit, offset
         ));
         model.addAttribute("sources", corpusAdminService.listSources());
-        model.addAttribute("pageTitle", "문서 Documents");
-        model.addAttribute("pageSubtitle", "수집/정제된 문서를 검수하고 개별 문서 단위 재실행을 시작합니다.");
+        model.addAttribute("pageTitle", "문서");
+        model.addAttribute("pageSubtitle", "수집/정제된 문서를 조회하고 문서 단위 재실행을 시작할 수 있습니다.");
         return "admin/documents";
     }
 
@@ -113,8 +113,8 @@ public class AdminUiController {
         model.addAttribute("chunks", corpusAdminService.listDocumentChunks(documentId, null, null, 200, 0));
         model.addAttribute("chunkBoundaryPreview", corpusAdminService.previewChunkBoundaries(documentId));
         model.addAttribute("relatedRuns", pipelineAdminService.listRuns(document.importRunId(), null, null, 20, 0));
-        model.addAttribute("pageTitle", "문서 상세 Document Detail");
-        model.addAttribute("pageSubtitle", "원문, 정제 결과, 섹션 구조, chunk 분할 결과를 함께 검수합니다.");
+        model.addAttribute("pageTitle", "문서 상세");
+        model.addAttribute("pageSubtitle", "원문, 정제 결과, 섹션 구조, 청크 경계를 한 번에 검토합니다.");
         return "admin/document-detail";
     }
 
@@ -137,8 +137,8 @@ public class AdminUiController {
         model.addAttribute("chunks", corpusAdminService.listChunks(
                 productName, versionLabel, sourceId, documentId, chunkKeyword, codePresence, minTokenLen, maxTokenLen, null, activeOnly, limit, offset
         ));
-        model.addAttribute("pageTitle", "청크 Chunks");
-        model.addAttribute("pageSubtitle", "chunk boundary, 길이, structural signal, neighbor relation을 검수합니다.");
+        model.addAttribute("pageTitle", "청크");
+        model.addAttribute("pageSubtitle", "청크 경계, 길이, 구조 신호, 이웃 관계를 점검합니다.");
         return "admin/chunks";
     }
 
@@ -151,8 +151,8 @@ public class AdminUiController {
         model.addAttribute("neighbors", corpusAdminService.listChunkNeighbors(chunkId));
         model.addAttribute("previousChunk", chunk.previousChunkId() != null ? corpusAdminService.getChunk(chunk.previousChunkId()) : null);
         model.addAttribute("nextChunk", chunk.nextChunkId() != null ? corpusAdminService.getChunk(chunk.nextChunkId()) : null);
-        model.addAttribute("pageTitle", "청크 상세 Chunk Detail");
-        model.addAttribute("pageSubtitle", "prev/current/next context와 neighbor relation을 같이 확인합니다.");
+        model.addAttribute("pageTitle", "청크 상세");
+        model.addAttribute("pageSubtitle", "이전/현재/다음 맥락과 이웃 관계를 함께 확인합니다.");
         return "admin/chunk-detail";
     }
 
@@ -174,8 +174,8 @@ public class AdminUiController {
                 productName, versionLabel, sourceId, termType, keepInEnglish, null, activeOnly, keyword, limit, offset
         ));
         model.addAttribute("topTerms", corpusAdminService.previewTopTerms(10, productName, termType, keepInEnglish));
-        model.addAttribute("pageTitle", "용어 사전 Glossary");
-        model.addAttribute("pageSubtitle", "canonical form, alias, evidence, keep_in_english 정책을 검수합니다.");
+        model.addAttribute("pageTitle", "용어 사전");
+        model.addAttribute("pageSubtitle", "표준 용어, 별칭, 근거 문장을 확인하고 정책을 조정합니다.");
         return "admin/glossary";
     }
 
@@ -185,8 +185,8 @@ public class AdminUiController {
         model.addAttribute("navKey", "glossary");
         model.addAttribute("termDetail", termDetail);
         model.addAttribute("evidence", corpusAdminService.listGlossaryEvidence(termId));
-        model.addAttribute("pageTitle", "용어 상세 Glossary Detail");
-        model.addAttribute("pageSubtitle", "용어 정책과 evidence provenance를 확인하고 수동 수정합니다.");
+        model.addAttribute("pageTitle", "용어 상세");
+        model.addAttribute("pageSubtitle", "용어 정책과 근거 정보를 검토하고 수정합니다.");
         return "admin/glossary-detail";
     }
 
@@ -195,8 +195,8 @@ public class AdminUiController {
         model.addAttribute("navKey", "wizard");
         model.addAttribute("sources", corpusAdminService.listSources());
         model.addAttribute("pipelineProperties", pipelineProperties);
-        model.addAttribute("pageTitle", "실행 마법사 Ingest Wizard");
-        model.addAttribute("pageSubtitle", "source 선택부터 import 옵션까지 한 번에 확인하고 전체 ingest를 시작합니다.");
+        model.addAttribute("pageTitle", "실행 안내");
+        model.addAttribute("pageSubtitle", "원본 선택부터 로그 확인까지 한 화면에서 점검하고 전체 실행합니다.");
         return "admin/ingest-wizard";
     }
 }

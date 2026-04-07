@@ -46,6 +46,12 @@
     shell?.classList.toggle("is-sidebar-open");
   });
 
+  document.querySelectorAll("[data-refresh-page]").forEach((button) => {
+    button.addEventListener("click", () => {
+      window.location.reload();
+    });
+  });
+
   document.querySelectorAll("[data-copy]").forEach((button) => {
     button.addEventListener("click", async () => {
       const target = button.getAttribute("data-copy");

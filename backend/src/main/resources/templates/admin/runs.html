@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title th:text="${pageTitle}">실행 이력 Runs</title>
+    <title th:text="${pageTitle}">실행 이력</title>
     <link rel="stylesheet" th:href="@{/admin/admin.css}">
     <script defer th:src="@{/admin/admin.js}"></script>
 </head>
@@ -17,7 +17,7 @@
 
             <form class="filter-bar" data-persist-key="runs-filters" method="get" th:action="@{/admin/runs}">
                 <div class="filter-field filter-field--small">
-                    <label for="run_status">상태 Status</label>
+                    <label for="run_status">상태</label>
                     <select id="run_status" name="run_status">
                         <option value="">전체</option>
                         <option value="queued" th:selected="${runStatus == 'queued'}">queued</option>
@@ -28,7 +28,7 @@
                     </select>
                 </div>
                 <div class="filter-field filter-field--small">
-                    <label for="run_type">유형 Type</label>
+                    <label for="run_type">유형</label>
                     <select id="run_type" name="run_type">
                         <option value="">전체</option>
                         <option value="collect" th:selected="${runType == 'collect'}">collect</option>
@@ -41,31 +41,31 @@
                 </div>
                 <div class="form-actions">
                     <button class="button button--primary" type="submit">필터 적용</button>
-                    <a class="button button--ghost" th:href="@{/admin/runs}">Reset</a>
+                    <a class="button button--ghost" th:href="@{/admin/runs}">초기화</a>
                 </div>
             </form>
 
             <section class="table-shell">
                 <div class="table-header">
-                    <div class="table-title">파이프라인 Runs</div>
+                    <div class="table-title">파이프라인 실행 이력</div>
                     <form data-api-form data-method="POST" data-redirect="/admin/runs/{runId}"
-                          data-success-message="Full ingest run을 시작했습니다." data-confirm="전체 ingest를 시작할까요?"
+                          data-success-message="전체 실행을 시작했습니다." data-confirm="전체 실행을 시작할까요?"
                           th:action="@{/api/admin/pipeline/full-ingest}">
                         <input type="hidden" name="createdBy" value="admin-ui">
-                        <button class="button button--primary" type="submit">전체 실행 Full Ingest</button>
+                        <button class="button button--primary" type="submit">전체 실행</button>
                     </form>
                 </div>
                 <div class="table-wrap" th:if="${!runs.isEmpty()}">
                     <table class="data-table" data-sort-table>
                         <thead>
                         <tr>
-                            <th data-sort-key="runId">Run ID</th>
+                            <th data-sort-key="runId">실행 ID</th>
                             <th data-sort-key="runType">유형</th>
                             <th data-sort-key="runStatus">상태</th>
-                            <th>생성자</th>
+                            <th>실행자</th>
                             <th>시작</th>
                             <th>종료</th>
-                            <th>액션</th>
+                            <th>작업</th>
                         </tr>
                         </thead>
                         <tbody>
@@ -78,10 +78,10 @@
                             <td th:text="${run.finishedAt() != null ? #temporals.format(run.finishedAt(), 'yyyy-MM-dd HH:mm:ss') : '-'}">-</td>
                             <td>
                                 <div class="toolbar">
-                                    <a class="button" th:href="@{/admin/runs/{id}(id=${run.runId()})}">상세 보기</a>
-                                    <form data-api-form data-method="POST" data-redirect="/admin/runs/{runId}" data-success-message="Run을 다시 시작했습니다."
+                                    <a class="button" th:href="@{/admin/runs/{id}(id=${run.runId()})}">상세</a>
+                                    <form data-api-form data-method="POST" data-redirect="/admin/runs/{runId}" data-success-message="실행을 다시 시작했습니다."
                                           th:action="@{/api/admin/pipeline/runs/{id}/retry(id=${run.runId()})}">
-                                        <button class="button button--ghost" type="submit">Retry</button>
+                                        <button class="button button--ghost" type="submit">재실행</button>
                                     </form>
                                 </div>
                             </td>
@@ -90,7 +90,7 @@
                     </table>
                 </div>
                 <div class="empty-state" th:if="${runs.isEmpty()}">
-                    조건에 맞는 run이 없습니다.
+                    조건에 맞는 실행 이력이 없습니다.
                 </div>
             </section>
         </main>

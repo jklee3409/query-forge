@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title th:text="${pageTitle}">문서 Sources</title>
+    <title th:text="${pageTitle}">수집 원본</title>
     <link rel="stylesheet" th:href="@{/admin/admin.css}">
     <script defer th:src="@{/admin/admin.js}"></script>
 </head>
@@ -16,10 +16,10 @@
             <div th:replace="~{admin/fragments/chrome :: pageHeader(${pageTitle}, ${pageSubtitle})}"></div>
 
             <section class="panel" style="margin-bottom:20px;">
-                <div class="table-title">수집 실행 Run Collect</div>
-                <p class="page-header__subtitle">선택한 source를 기준으로 collector를 비동기 실행합니다. 동시에 두 개 이상의 pipeline run은 허용하지 않습니다.</p>
-                <form class="form-actions" data-api-form data-method="POST" data-redirect="/admin/runs/{runId}" data-success-message="Collect run을 시작했습니다."
-                      data-confirm="선택한 source에 대해 collect를 실행할까요?" th:action="@{/api/admin/pipeline/collect}">
+                <div class="table-title">수집 실행</div>
+                <p class="page-header__subtitle">선택한 원본에 대해 수집 단계를 실행합니다. 한 번에 하나의 파이프라인만 실행됩니다.</p>
+                <form class="form-actions" data-api-form data-method="POST" data-redirect="/admin/runs/{runId}" data-success-message="수집 실행을 시작했습니다."
+                      data-confirm="선택한 원본에 대해 수집을 실행할까요?" th:action="@{/api/admin/pipeline/collect}">
                     <input type="hidden" name="createdBy" value="admin-ui">
                     <div th:each="source : ${sources}">
                         <label class="plain-badge">
@@ -27,26 +27,26 @@
                             <span th:text="${source.sourceId()}">spring-framework-reference</span>
                         </label>
                     </div>
-                    <button class="button button--primary" type="submit">선택 Source 수집 실행</button>
+                    <button class="button button--primary" type="submit">선택 원본 수집 실행</button>
                 </form>
             </section>
 
             <section class="table-shell">
                 <div class="table-header">
-                    <div class="table-title">Source 목록</div>
-                    <a class="button" th:href="@{/admin/ingest-wizard}">전체 실행 Wizard</a>
+                    <div class="table-title">원본 목록</div>
+                    <a class="button" th:href="@{/admin/ingest-wizard}">전체 실행 안내</a>
                 </div>
                 <div class="table-wrap">
                     <table class="data-table" data-sort-table>
                         <thead>
                         <tr>
-                            <th data-sort-key="sourceId">Source ID</th>
-                            <th data-sort-key="product">제품 Product</th>
-                            <th>기본 URL</th>
-                            <th>패턴</th>
+                            <th data-sort-key="sourceId">원본 ID</th>
+                            <th data-sort-key="product">제품</th>
+                            <th>기준 URL</th>
+                            <th>포함/제외 규칙</th>
                             <th>상태</th>
                             <th>문서 수</th>
-                            <th>액션</th>
+                            <th>작업</th>
                         </tr>
                         </thead>
                         <tbody>
@@ -57,13 +57,13 @@
                             </td>
                             <td>
                                 <div th:text="${source.productName()}">spring-framework</div>
-                                <div class="summary-card__meta" th:text="${source.defaultVersion() != null ? source.defaultVersion() : 'version n/a'}">version</div>
+                                <div class="summary-card__meta" th:text="${source.defaultVersion() != null ? source.defaultVersion() : '버전 없음'}">version</div>
                             </td>
                             <td>
                                 <div class="mono-truncate" th:text="${source.baseUrl()}">https://docs.spring.io</div>
                                 <div class="toolbar" style="margin-top:8px;">
-                                    <a class="button button--ghost" target="_blank" rel="noopener noreferrer" th:href="${source.baseUrl()}">Open URL</a>
-                                    <button type="button" class="copy-button" th:attr="data-copy=${source.baseUrl()}">Copy</button>
+                                    <a class="button button--ghost" target="_blank" rel="noopener noreferrer" th:href="${source.baseUrl()}">URL 열기</a>
+                                    <button type="button" class="copy-button" th:attr="data-copy=${source.baseUrl()}">복사</button>
                                 </div>
                             </td>
                             <td>
@@ -72,7 +72,7 @@
                             </td>
                             <td>
                                 <span class="status-badge" th:attr="data-status=${source.enabled()} ? 'success' : 'cancelled'"
-                                      th:text="${source.enabled()} ? '활성 Enabled' : '비활성 Disabled'">활성</span>
+                                      th:text="${source.enabled()} ? '활성' : '비활성'">활성</span>
                             </td>
                             <td>
                                 <div th:text="|활성 ${source.activeDocuments()}|">0</div>
@@ -80,10 +80,10 @@
                             </td>
                             <td>
                                 <div class="toolbar">
-                                    <form data-api-form data-method="PATCH" data-reload="true" data-success-message="Source 상태를 갱신했습니다."
+                                    <form data-api-form data-method="PATCH" data-reload="true" data-success-message="원본 상태를 변경했습니다."
                                           th:action="@{/api/admin/corpus/sources/{id}(id=${source.sourceId()})}">
                                         <input type="hidden" name="enabled" th:value="${!source.enabled()}">
-                                        <button class="button" type="submit" th:text="${source.enabled()} ? '비활성 Disable' : '활성 Enable'">토글</button>
+                                        <button class="button" type="submit" th:text="${source.enabled()} ? '비활성화' : '활성화'">변경</button>
                                     </form>
                                 </div>
                             </td>

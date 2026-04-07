@@ -6,50 +6,50 @@
         <div class="admin-sidebar__logo">QF</div>
         <div>
             <div class="admin-sidebar__title">Query Forge</div>
-            <div class="admin-sidebar__subtitle">Admin Backoffice</div>
+            <div class="admin-sidebar__subtitle">관리자 화면</div>
         </div>
     </div>
 
     <nav class="admin-nav">
         <a th:href="@{/admin}" class="admin-nav__link" th:classappend="${navKey == 'dashboard'} ? ' is-active'">
-            <span>대시보드 Dashboard</span>
+            <span>대시보드</span>
         </a>
         <a th:href="@{/admin/sources}" class="admin-nav__link" th:classappend="${navKey == 'sources'} ? ' is-active'">
-            <span>문서 Sources</span>
+            <span>수집 원본</span>
         </a>
         <a th:href="@{/admin/runs}" class="admin-nav__link" th:classappend="${navKey == 'runs'} ? ' is-active'">
-            <span>실행 이력 Runs</span>
+            <span>실행 이력</span>
         </a>
         <a th:href="@{/admin/documents}" class="admin-nav__link" th:classappend="${navKey == 'documents'} ? ' is-active'">
-            <span>문서 Documents</span>
+            <span>문서</span>
         </a>
         <a th:href="@{/admin/chunks}" class="admin-nav__link" th:classappend="${navKey == 'chunks'} ? ' is-active'">
-            <span>청크 Chunks</span>
+            <span>청크</span>
         </a>
         <a th:href="@{/admin/glossary}" class="admin-nav__link" th:classappend="${navKey == 'glossary'} ? ' is-active'">
-            <span>용어 사전 Glossary</span>
+            <span>용어 사전</span>
         </a>
         <a th:href="@{/admin/ingest-wizard}" class="admin-nav__link" th:classappend="${navKey == 'wizard'} ? ' is-active'">
-            <span>실행 마법사 Wizard</span>
+            <span>실행 안내</span>
         </a>
     </nav>
 
     <div class="admin-sidebar__section">
-        <div class="admin-sidebar__section-title">다음 단계 Placeholder</div>
-        <div class="admin-nav__link is-disabled">합성 질의 Synthetic</div>
-        <div class="admin-nav__link is-disabled">Quality Gating</div>
-        <div class="admin-nav__link is-disabled">Query Rewrite</div>
+        <div class="admin-sidebar__section-title">다음 단계 연동 예정</div>
+        <div class="admin-nav__link is-disabled">합성 질의 생성</div>
+        <div class="admin-nav__link is-disabled">품질 게이팅</div>
+        <div class="admin-nav__link is-disabled">질의 재작성</div>
     </div>
 </aside>
 
 <header th:fragment="topbar(title, subtitle)" class="admin-topbar">
-    <button type="button" class="admin-topbar__menu" data-sidebar-toggle>Menu</button>
+    <button type="button" class="admin-topbar__menu" data-sidebar-toggle>메뉴</button>
     <div class="admin-topbar__meta">
-        <div class="admin-topbar__title" th:text="${title}">대시보드 Dashboard</div>
+        <div class="admin-topbar__title" th:text="${title}">대시보드</div>
         <div class="admin-topbar__subtitle" th:text="${subtitle}">subtitle</div>
     </div>
     <div class="admin-topbar__actions">
-        <a th:href="@{/admin/ingest-wizard}" class="button button--primary">전체 실행 Full Ingest</a>
+        <a th:href="@{/admin/ingest-wizard}" class="button button--primary">전체 실행</a>
     </div>
 </header>
 

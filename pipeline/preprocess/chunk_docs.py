@@ -5,6 +5,7 @@ import hashlib
 import json
 import logging
 import re
+import time
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -863,9 +864,10 @@ def extract_glossary_terms(
 ) -> list[dict[str, Any]]:
     candidates: dict[tuple[str, str], dict[str, Any]] = {}
 
-    for sections in documents.values():
+    for document_id, sections in documents.items():
+        LOGGER.info("[glossary] scanning document=%s sections=%s", document_id, len(sections))
         for section in sections:
-            document_id = str(section["document_id"])
+            section_document_id = str(section["document_id"])
             section_id = str(section["section_id"])
             source_product = section.get("product")
             cleaned_text = str(section.get("cleaned_text", ""))
@@ -886,7 +888,7 @@ def extract_glossary_terms(
                         canonical_form=product_term.canonical_form,
                         alias_candidates=product_term.aliases,
                         source_product=source_product,
-                        document_id=document_id,
+                        document_id=section_document_id,
                         section_id=section_id,
                         keep_in_english=settings.keep_in_english_default,
                     )
@@ -899,7 +901,7 @@ def extract_glossary_terms(
                         canonical_form=annotation,
                         alias_candidates=[annotation.removeprefix("@")],
                         source_product=source_product,
-                        document_id=document_id,
+                        document_id=section_document_id,
                         section_id=section_id,
                         keep_in_english=True,
                     )
@@ -911,7 +913,7 @@ def extract_glossary_terms(
                         canonical_form=config_key,
                         alias_candidates=None,
                         source_product=source_product,
-                        document_id=document_id,
+                        document_id=section_document_id,
                         section_id=section_id,
                         keep_in_english=True,
                     )
@@ -923,7 +925,7 @@ def extract_glossary_terms(
                         canonical_form=dependency,
                         alias_candidates=None,
                         source_product=source_product,
-                        document_id=document_id,
+                        document_id=section_document_id,
                         section_id=section_id,
                         keep_in_english=True,
                     )
@@ -935,7 +937,7 @@ def extract_glossary_terms(
                         canonical_form=starter,
                         alias_candidates=None,
                         source_product=source_product,
-                        document_id=document_id,
+                        document_id=section_document_id,
                         section_id=section_id,
                         keep_in_english=True,
                     )
@@ -948,7 +950,7 @@ def extract_glossary_terms(
                         canonical_form=qualified_type,
                         alias_candidates=[short_name],
                         source_product=source_product,
-                        document_id=document_id,
+                        document_id=section_document_id,
                         section_id=section_id,
                         keep_in_english=True,
                     )
@@ -960,7 +962,7 @@ def extract_glossary_terms(
                         canonical_form=match,
                         alias_candidates=None,
                         source_product=source_product,
-                        document_id=document_id,
+                        document_id=section_document_id,
                         section_id=section_id,
                         keep_in_english=True,
                     )
@@ -972,7 +974,7 @@ def extract_glossary_terms(
                         canonical_form=inline_type,
                         alias_candidates=None,
                         source_product=source_product,
-                        document_id=document_id,
+                        document_id=section_document_id,
                         section_id=section_id,
                         keep_in_english=True,
                     )
@@ -989,7 +991,7 @@ def extract_glossary_terms(
                             canonical_form=command,
                             alias_candidates=None,
                             source_product=source_product,
-                            document_id=document_id,
+                            document_id=section_document_id,
                             section_id=section_id,
                             keep_in_english=True,
                         )
@@ -1106,6 +1108,7 @@ def build_chunks_and_glossary(
     limit_documents: int | None = None,
     show_examples: bool = False,
 ) -> dict[str, Any]:
+    started_at = time.monotonic()
     settings = load_settings(config_path)
     documents, sections_read = read_sections_by_document(
         input_path=input_path,
@@ -1151,6 +1154,7 @@ def build_chunks_and_glossary(
         "average_chunks_per_document": (
             round(len(chunk_records) / len(documents), 2) if documents else 0.0
         ),
+        "elapsed_seconds": round(time.monotonic() - started_at, 2),
     }
 
     render_visualization_markdown(

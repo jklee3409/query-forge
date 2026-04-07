@@ -267,6 +267,7 @@ def collect_documents(
     seen_content_hashes: set[str] = set()
     seen_document_ids: set[str] = set()
     records_written = 0
+    started_at = time.monotonic()
     example_record: dict[str, Any] | None = None
 
     with output_path.open("w", encoding="utf-8") as sink:
@@ -276,7 +277,15 @@ def collect_documents(
                 continue
             visited_urls.add(url)
 
-            LOGGER.info("Fetching %s", url)
+            LOGGER.info(
+                "[collect] source=%s depth=%s queued=%s visited=%s written=%s url=%s",
+                config.source_id,
+                depth,
+                len(queue),
+                len(visited_urls),
+                records_written,
+                url,
+            )
             response = session.get(url, timeout=(10, 30))
             response.raise_for_status()
 
@@ -317,14 +326,28 @@ def collect_documents(
             sink.write(json.dumps(record, ensure_ascii=False) + "\n")
             records_written += 1
             example_record = example_record or record
+            elapsed_seconds = max(time.monotonic() - started_at, 1e-6)
+            docs_per_minute = records_written / elapsed_seconds * 60.0
+            LOGGER.info(
+                "[collect] document=%s source=%s version=%s written=%s rate=%.2f docs/min title=%s",
+                record["document_id"],
+                record["source_id"],
+                record.get("version_if_available") or "n/a",
+                records_written,
+                docs_per_minute,
+                record.get("title") or "",
+            )
 
             time.sleep(config.request_delay_seconds)
 
+    total_elapsed_seconds = max(time.monotonic() - started_at, 1e-6)
     summary = {
         "output_path": str(output_path),
         "records_written": records_written,
         "urls_seen": len(visited_urls),
         "source_count": len(configs),
+        "elapsed_seconds": round(total_elapsed_seconds, 2),
+        "records_per_minute": round(records_written / total_elapsed_seconds * 60.0, 2),
     }
 
     if show_examples and example_record:

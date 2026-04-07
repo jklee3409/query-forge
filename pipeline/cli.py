@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import sys
 from pathlib import Path
 
@@ -28,6 +29,18 @@ COMMANDS = (
 )
 
 
+LOGGER = logging.getLogger(__name__)
+
+
+def configure_cli_logging(level: str, command: str) -> None:
+    logging.basicConfig(
+        level=getattr(logging, str(level).upper(), logging.INFO),
+        format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
+    )
+    logging.getLogger("urllib3").setLevel(logging.WARNING)
+    LOGGER.info("[pipeline] command=%s started", command)
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Query Forge offline pipeline scaffold"
@@ -41,6 +54,7 @@ def build_parser() -> argparse.ArgumentParser:
     collect.add_argument("--limit", type=int, default=None)
     collect.add_argument("--source-id", action="append", default=None)
     collect.add_argument("--show-examples", action="store_true")
+    collect.add_argument("--log-level", default="INFO")
     collect.add_argument("--run-id", default=None)
 
     preprocess = subparsers.add_parser("preprocess")
@@ -49,6 +63,7 @@ def build_parser() -> argparse.ArgumentParser:
     preprocess.add_argument("--output", default="data/processed/spring_docs_sections.jsonl")
     preprocess.add_argument("--limit", type=int, default=None)
     preprocess.add_argument("--show-examples", action="store_true")
+    preprocess.add_argument("--log-level", default="INFO")
     preprocess.add_argument("--run-id", default=None)
 
     chunk_docs = subparsers.add_parser("chunk-docs")
@@ -61,6 +76,7 @@ def build_parser() -> argparse.ArgumentParser:
     chunk_docs.add_argument("--config", default="configs/app/chunking.yml")
     chunk_docs.add_argument("--limit-documents", type=int, default=None)
     chunk_docs.add_argument("--show-examples", action="store_true")
+    chunk_docs.add_argument("--log-level", default="INFO")
     chunk_docs.add_argument("--run-id", default=None)
 
     glossary_docs = subparsers.add_parser("glossary-docs")
@@ -70,6 +86,7 @@ def build_parser() -> argparse.ArgumentParser:
     glossary_docs.add_argument("--config", default="configs/app/chunking.yml")
     glossary_docs.add_argument("--limit-documents", type=int, default=None)
     glossary_docs.add_argument("--show-examples", action="store_true")
+    glossary_docs.add_argument("--log-level", default="INFO")
     glossary_docs.add_argument("--run-id", default=None)
 
     import_corpus = subparsers.add_parser("import-corpus")
@@ -113,6 +130,7 @@ def build_parser() -> argparse.ArgumentParser:
 def main() -> int:
     parser = build_parser()
     args = parser.parse_args()
+    configure_cli_logging(getattr(args, "log_level", "INFO"), args.command)
 
     if args.command == "collect-docs":
         summary = collect_documents(
@@ -124,6 +142,7 @@ def main() -> int:
         )
         if args.run_id:
             summary["run_id"] = args.run_id
+        LOGGER.info("[pipeline] command=%s finished summary=%s", args.command, summary)
         print(json.dumps(summary, ensure_ascii=False, indent=2))
         return 0
 
@@ -136,6 +155,7 @@ def main() -> int:
         )
         if args.run_id:
             summary["run_id"] = args.run_id
+        LOGGER.info("[pipeline] command=%s finished summary=%s", args.command, summary)
         print(json.dumps(summary, ensure_ascii=False, indent=2))
         return 0
 
@@ -152,6 +172,7 @@ def main() -> int:
         )
         if args.run_id:
             summary["run_id"] = args.run_id
+        LOGGER.info("[pipeline] command=%s finished summary=%s", args.command, summary)
         print(json.dumps(summary, ensure_ascii=False, indent=2))
         return 0
 
@@ -165,6 +186,7 @@ def main() -> int:
         )
         if args.run_id:
             summary["run_id"] = args.run_id
+        LOGGER.info("[pipeline] command=%s finished summary=%s", args.command, summary)
         print(json.dumps(summary, ensure_ascii=False, indent=2))
         return 0
 
@@ -172,6 +194,7 @@ def main() -> int:
         summary = run_import(build_options(args))
         if args.run_id:
             summary["run_id"] = args.run_id
+        LOGGER.info("[pipeline] command=%s finished summary=%s", args.command, summary)
         print(json.dumps(summary, ensure_ascii=False, indent=2))
         return 0
 

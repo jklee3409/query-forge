@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import time
 from pathlib import Path
 
 from preprocess.chunk_docs import (
@@ -31,13 +32,16 @@ def build_glossary_only(
     limit_documents: int | None = None,
     show_examples: bool = False,
 ) -> dict[str, object]:
+    started_at = time.monotonic()
     settings = load_settings(config_path)
     documents, sections_read = read_sections_by_document(
         input_path=input_path,
         limit_documents=limit_documents,
     )
+    LOGGER.info("[glossary] documents=%s sections=%s", len(documents), sections_read)
     glossary_terms = extract_glossary_terms(documents, settings.glossary)
     write_jsonl(output_glossary_path, glossary_terms)
+    LOGGER.info("[glossary] glossary_terms=%s output=%s", len(glossary_terms), output_glossary_path)
 
     if show_examples and glossary_terms:
         print("=== GLOSSARY EXAMPLE ===")
@@ -50,6 +54,7 @@ def build_glossary_only(
         "documents_processed": len(documents),
         "sections_read": sections_read,
         "glossary_terms_written": len(glossary_terms),
+        "elapsed_seconds": round(time.monotonic() - started_at, 2),
     }
 
 
