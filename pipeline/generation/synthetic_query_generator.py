@@ -259,11 +259,6 @@ def _select_answerability_target(
     return "single", [chunk.chunk_id]
 
 
-def _strategy_table(strategy: str) -> str:
-    lowered = strategy.lower()
-    return f"synthetic_queries_raw_{lowered}"
-
-
 def _insert_query_row(
     connection: psycopg.Connection[Any],
     *,
@@ -275,15 +270,21 @@ def _insert_query_row(
         INSERT INTO {table_name} (
             synthetic_query_id,
             experiment_run_id,
+            generation_method_id,
+            generation_batch_id,
             chunk_id_source,
+            source_chunk_group_id,
             target_doc_id,
             target_chunk_ids,
             answerability_type,
             query_text,
+            normalized_query_text,
             query_language,
+            language_profile,
             query_type,
             generation_strategy,
             prompt_asset_id,
+            prompt_template_version,
             prompt_version,
             prompt_hash,
             source_summary,
@@ -294,15 +295,21 @@ def _insert_query_row(
         ) VALUES (
             %(synthetic_query_id)s,
             %(experiment_run_id)s,
+            %(generation_method_id)s,
+            %(generation_batch_id)s,
             %(chunk_id_source)s,
+            %(source_chunk_group_id)s,
             %(target_doc_id)s,
             %(target_chunk_ids)s,
             %(answerability_type)s,
             %(query_text)s,
+            %(normalized_query_text)s,
             %(query_language)s,
+            %(language_profile)s,
             %(query_type)s,
             %(generation_strategy)s,
             %(prompt_asset_id)s,
+            %(prompt_template_version)s,
             %(prompt_version)s,
             %(prompt_hash)s,
             %(source_summary)s,
@@ -317,12 +324,85 @@ def _insert_query_row(
             source_summary = EXCLUDED.source_summary,
             glossary_terms = EXCLUDED.glossary_terms,
             llm_output = EXCLUDED.llm_output,
-            metadata = EXCLUDED.metadata
+            metadata = EXCLUDED.metadata,
+            generation_method_id = EXCLUDED.generation_method_id,
+            generation_batch_id = EXCLUDED.generation_batch_id,
+            normalized_query_text = EXCLUDED.normalized_query_text,
+            language_profile = EXCLUDED.language_profile,
+            prompt_template_version = EXCLUDED.prompt_template_version
         """
     ).format(table_name=sql.Identifier(table_name))
 
     with connection.cursor() as cursor:
         cursor.execute(statement, payload)
+
+
+def _insert_source_link(
+    connection: psycopg.Connection[Any],
+    *,
+    synthetic_query_id: str,
+    source_doc_id: str,
+    source_chunk_id: str,
+    source_chunk_group_id: str | None,
+    source_role: str,
+) -> None:
+    with connection.cursor() as cursor:
+        cursor.execute(
+            """
+            INSERT INTO synthetic_query_source_link (
+                synthetic_query_id,
+                source_doc_id,
+                source_chunk_id,
+                source_chunk_group_id,
+                source_role,
+                metadata_json
+            ) VALUES (
+                %s, %s, %s, %s, %s, %s
+            )
+            ON CONFLICT (synthetic_query_id, source_chunk_id, source_role) DO UPDATE
+            SET source_doc_id = EXCLUDED.source_doc_id,
+                source_chunk_group_id = EXCLUDED.source_chunk_group_id,
+                metadata_json = EXCLUDED.metadata_json
+            """,
+            (
+                synthetic_query_id,
+                source_doc_id,
+                source_chunk_id,
+                source_chunk_group_id,
+                source_role,
+                Jsonb({"linked_by": "generate-queries"}),
+            ),
+        )
+
+
+def _normalize_query_text(text: str) -> str:
+    return " ".join(text.strip().lower().split())
+
+
+def _language_profile(strategy: str, query_type: str) -> str:
+    if strategy == "D" or query_type == "code_mixed":
+        return "code_mixed"
+    return "ko"
+
+
+def _resolve_generation_method_id(
+    connection: psycopg.Connection[Any],
+    method_code: str,
+) -> str | None:
+    with connection.cursor() as cursor:
+        cursor.execute(
+            """
+            SELECT generation_method_id
+            FROM synthetic_query_generation_method
+            WHERE method_code = %s
+            """,
+            (method_code,),
+        )
+        row = cursor.fetchone()
+    if row is None:
+        return None
+    value = row["generation_method_id"] if isinstance(row, dict) else row[0]
+    return str(value) if value is not None else None
 
 
 def _resolve_prompt_files(
@@ -392,6 +472,10 @@ def run_generation(
         rng = random.Random(config.random_seed)
 
         strategy = config.generation_strategy
+        generation_batch_id = str(config.raw.get("generation_batch_id") or "").strip() or None
+        method_id_cache: dict[str, str | None] = {
+            strategy: _resolve_generation_method_id(connection, strategy)
+        }
         strategy_rows = 0
         query_type_counter: Counter[str] = Counter()
         answerability_counter: Counter[str] = Counter()
@@ -415,6 +499,8 @@ def run_generation(
                 generation_strategy = strategy
                 if config.enable_code_mixed and query_type == "code_mixed":
                     generation_strategy = "D"
+                if generation_strategy not in method_id_cache:
+                    method_id_cache[generation_strategy] = _resolve_generation_method_id(connection, generation_strategy)
                 query_text, source_summary, trace_payload = _make_strategy_text(
                     strategy=generation_strategy if generation_strategy != "D" else "C",
                     query_type=query_type,
@@ -429,6 +515,8 @@ def run_generation(
                     query_text = query_text.replace("방법", "how to")
                     trace_payload["code_mixed_enabled"] = True
 
+                normalized_query_text = _normalize_query_text(query_text)
+                language_profile = _language_profile(generation_strategy, query_type)
                 synthetic_query_id = _stable_id(
                     [
                         config.experiment_key,
@@ -444,21 +532,40 @@ def run_generation(
                 payload = {
                     "synthetic_query_id": synthetic_query_id,
                     "experiment_run_id": run_context.experiment_run_id,
+                    "generation_method_id": method_id_cache.get(generation_strategy),
+                    "generation_batch_id": generation_batch_id,
                     "chunk_id_source": chunk.chunk_id,
+                    "source_chunk_group_id": None,
                     "target_doc_id": chunk.document_id,
                     "target_chunk_ids": Jsonb(target_chunk_ids),
                     "answerability_type": answerability_type,
                     "query_text": query_text,
+                    "normalized_query_text": normalized_query_text,
                     "query_language": "ko",
+                    "language_profile": language_profile,
                     "query_type": query_type,
                     "generation_strategy": generation_strategy,
                     "prompt_asset_id": query_prompt.prompt_asset_id,
+                    "prompt_template_version": query_prompt.version,
                     "prompt_version": query_prompt.version,
                     "prompt_hash": query_prompt.content_hash,
                     "source_summary": source_summary,
                     "source_chunk_ids": Jsonb(target_chunk_ids),
                     "glossary_terms": Jsonb(chunk_glossary_terms),
-                    "llm_output": Jsonb(trace_payload),
+                    "llm_output": Jsonb(
+                        {
+                            "queries": [
+                                {
+                                    "text": query_text,
+                                    "query_type": query_type,
+                                    "language_profile": language_profile,
+                                    "grounding_terms": chunk_glossary_terms[:8],
+                                    "notes": "generated by strategy scaffold",
+                                }
+                            ],
+                            "trace": trace_payload,
+                        }
+                    ),
                     "metadata": Jsonb(
                         {
                             "query_type_label": QUERY_TYPE_LABELS_KO.get(query_type, query_type),
@@ -466,15 +573,19 @@ def run_generation(
                             "product_name": chunk.product_name,
                             "version_label": chunk.version_label,
                             "summary_prompt_version": summary_prompt.version,
+                            "generation_batch_id": generation_batch_id,
                         }
                     ),
                 }
 
                 _insert_query_row(connection, table_name="synthetic_queries_raw", payload=payload)
-                _insert_query_row(
+                _insert_source_link(
                     connection,
-                    table_name=_strategy_table(generation_strategy),
-                    payload=payload,
+                    synthetic_query_id=synthetic_query_id,
+                    source_doc_id=chunk.document_id,
+                    source_chunk_id=chunk.chunk_id,
+                    source_chunk_group_id=None,
+                    source_role="primary",
                 )
                 strategy_rows += 1
                 query_type_counter[query_type] += 1

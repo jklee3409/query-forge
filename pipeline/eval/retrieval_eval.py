@@ -350,6 +350,10 @@ def run_retrieval_eval(
                     "mode": mode,
                     **metrics,
                     "rewrite_applied": bool(rewrite_info["rewrite_applied"]),
+                    "confidence_delta": float(
+                        rewrite_info.get("best_candidate_confidence", 0.0)
+                        - rewrite_info.get("raw_confidence", 0.0)
+                    ),
                     "latency_ms": elapsed_ms,
                 }
                 mode_scores[mode].append(row)
@@ -360,6 +364,7 @@ def run_retrieval_eval(
                         "rewrite_applied": bool(rewrite_info["rewrite_applied"]),
                         "raw_confidence": rewrite_info["raw_confidence"],
                         "best_candidate_confidence": rewrite_info["best_candidate_confidence"],
+                        "confidence_delta": rewrite_info["best_candidate_confidence"] - rewrite_info["raw_confidence"],
                         "final_query": rewrite_info["final_query"],
                         "rewrite_reason": rewrite_info["rewrite_reason"],
                         "raw_mrr": raw_metrics_by_sample.get(sample.sample_id, {}).get("mrr@10", 0.0),
@@ -436,12 +441,20 @@ def run_retrieval_eval(
                     if row["mode_mrr"] < row["raw_mrr"]:
                         bad_rewrite_cases += 1
             bad_rewrite_rate = bad_rewrite_cases / rewrite_total if rewrite_total else 0.0
+            rewrite_rejection_rate = (
+                sum(1 for row in rows if not row["rewrite_applied"]) / len(rows)
+                if mode in {"rewrite_always", "selective_rewrite", "selective_rewrite_with_session"}
+                else 0.0
+            )
+            avg_confidence_delta = _mean([float(row.get("confidence_delta", 0.0)) for row in rows])
 
             summary_rows.append(
                 {
                     "mode": mode,
                     **aggregates,
                     "adoption_rate": adoption_rate,
+                    "rewrite_rejection_rate": rewrite_rejection_rate,
+                    "avg_confidence_delta": avg_confidence_delta,
                     "rewrite_gain_mrr": aggregates["mrr@10"] - raw_baseline_mrr,
                     "rewrite_gain_ndcg": aggregates["ndcg@10"] - raw_baseline_ndcg,
                     "bad_rewrite_rate": bad_rewrite_rate,
@@ -493,7 +506,20 @@ def run_retrieval_eval(
             json.dumps(summary_payload, ensure_ascii=False, indent=2),
             encoding="utf-8",
         )
-        _write_csv(summary_csv_path, summary_rows, ["mode", *METRIC_KEYS, "adoption_rate", "rewrite_gain_mrr", "rewrite_gain_ndcg", "bad_rewrite_rate"])
+        _write_csv(
+            summary_csv_path,
+            summary_rows,
+            [
+                "mode",
+                *METRIC_KEYS,
+                "adoption_rate",
+                "rewrite_rejection_rate",
+                "avg_confidence_delta",
+                "rewrite_gain_mrr",
+                "rewrite_gain_ndcg",
+                "bad_rewrite_rate",
+            ],
+        )
         _write_csv(category_csv_path, category_rows, ["mode", "category", *METRIC_KEYS])
         _write_csv(latency_csv_path, latency_rows, ["mode", "avg_latency_ms", "p95_latency_ms"])
 

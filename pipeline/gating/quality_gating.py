@@ -241,11 +241,11 @@ def _llm_self_eval(query: RawQueryRow, source_chunk: ChunkItem) -> dict[str, int
     else:
         korean_score = 5 if naturalness >= 0.55 else 4 if naturalness >= 0.35 else 3 if naturalness >= 0.20 else 2
     scores = {
-        "grounded": 5 if overlap >= 0.10 else 4,
-        "answerable": 4 if query.answerability_type == "single" else 3,
-        "user_like": 5 if 8 <= length <= 80 else 4 if 4 <= length <= 100 else 3,
+        "groundedness": 5 if overlap >= 0.10 else 4,
+        "answerability": 4 if query.answerability_type == "single" else 3,
+        "user_likeness": 5 if 8 <= length <= 80 else 4 if 4 <= length <= 100 else 3,
         "korean_naturalness": korean_score,
-        "copy_control": 5 if overlap <= 0.30 else 4 if overlap <= 0.45 else 3 if overlap <= 0.65 else 2,
+        "anti_copy": 5 if overlap <= 0.30 else 4 if overlap <= 0.45 else 3 if overlap <= 0.65 else 2,
     }
     return scores
 
@@ -253,13 +253,38 @@ def _llm_self_eval(query: RawQueryRow, source_chunk: ChunkItem) -> dict[str, int
 def _llm_pass(scores: dict[str, int]) -> bool:
     return all(
         [
-            scores["grounded"] >= 4,
-            scores["answerable"] >= 3,
-            scores["user_like"] >= 3,
+            scores["groundedness"] >= 4,
+            scores["answerability"] >= 3,
+            scores["user_likeness"] >= 3,
             scores["korean_naturalness"] >= 3,
-            scores["copy_control"] >= 3,
+            scores["anti_copy"] >= 3,
         ]
     )
+
+
+def _first_rejection_stage(
+    *,
+    rule_enabled: bool,
+    llm_enabled: bool,
+    utility_enabled: bool,
+    diversity_enabled: bool,
+    passed_rule: bool,
+    passed_llm: bool,
+    passed_utility: bool,
+    passed_diversity: bool,
+    passed_final_score: bool,
+) -> str:
+    if rule_enabled and not passed_rule:
+        return "rule_filter"
+    if llm_enabled and not passed_llm:
+        return "llm_self_eval"
+    if utility_enabled and not passed_utility:
+        return "retrieval_utility"
+    if diversity_enabled and not passed_diversity:
+        return "diversity_dedup"
+    if not passed_final_score:
+        return "final_score"
+    return "approved"
 
 
 def _rule_pass(query: RawQueryRow, source_chunk: ChunkItem) -> tuple[bool, list[str]]:
@@ -364,6 +389,7 @@ def run_quality_gating(
         )
 
         strategies = _strategies_for_gating(config)
+        gating_batch_id = str(config.raw.get("gating_batch_id") or "").strip() or None
         configured_run_id = config.raw.get("source_generation_run_id")
         generation_run_id = str(configured_run_id).strip() if configured_run_id else None
         if not generation_run_id:
@@ -382,6 +408,16 @@ def run_quality_gating(
         decision_counter: Counter[str] = Counter()
         rejection_counter: Counter[str] = Counter()
         preview_rows: list[dict[str, Any]] = []
+        stage_counter: Counter[str] = Counter(
+            {
+                "generated": len(raw_queries),
+                "rule_filter": 0,
+                "llm_self_eval": 0,
+                "retrieval_utility": 0,
+                "diversity_dedup": 0,
+                "final_approved": 0,
+            }
+        )
 
         for query in raw_queries:
             source_chunk = chunk_index.get(query.chunk_id_source)
@@ -435,6 +471,17 @@ def run_quality_gating(
                 diversity_pass=passed_diversity if config.enable_diversity else True,
                 final_pass=passed_final_score,
             )
+            rejected_stage = _first_rejection_stage(
+                rule_enabled=config.enable_rule_filter,
+                llm_enabled=config.enable_llm_self_eval,
+                utility_enabled=config.enable_retrieval_utility,
+                diversity_enabled=config.enable_diversity,
+                passed_rule=passed_rule,
+                passed_llm=passed_llm,
+                passed_utility=passed_utility,
+                passed_diversity=passed_diversity,
+                passed_final_score=passed_final_score,
+            )
 
             rejection_reasons = list(rule_reasons)
             if config.enable_llm_self_eval and not passed_llm:
@@ -446,11 +493,25 @@ def run_quality_gating(
             if not passed_final_score:
                 rejection_reasons.append("final_score_failed")
 
+            rule_stage_pass = passed_rule if config.enable_rule_filter else True
+            llm_stage_pass = passed_llm if config.enable_llm_self_eval else True
+            utility_stage_pass = passed_utility if config.enable_retrieval_utility else True
+            diversity_stage_pass = passed_diversity if config.enable_diversity else True
+            if rule_stage_pass:
+                stage_counter["rule_filter"] += 1
+            if rule_stage_pass and llm_stage_pass:
+                stage_counter["llm_self_eval"] += 1
+            if rule_stage_pass and llm_stage_pass and utility_stage_pass:
+                stage_counter["retrieval_utility"] += 1
+            if rule_stage_pass and llm_stage_pass and utility_stage_pass and diversity_stage_pass:
+                stage_counter["diversity_dedup"] += 1
+
             if passed:
                 accepted_by_chunk[query.chunk_id_source].append(query_embedding)
                 accepted_by_doc[query.target_doc_id].append(query_embedding)
                 accepted_global.append(query_embedding)
                 decision_counter["accepted"] += 1
+                stage_counter["final_approved"] += 1
             else:
                 decision_counter["rejected"] += 1
                 for reason in rejection_reasons:
@@ -469,6 +530,7 @@ def run_quality_gating(
                     INSERT INTO synthetic_queries_gated (
                         gated_query_id,
                         synthetic_query_id,
+                        gating_batch_id,
                         gating_preset,
                         passed_rule_filter,
                         passed_llm_self_eval,
@@ -479,14 +541,17 @@ def run_quality_gating(
                         utility_score,
                         novelty_score,
                         final_score,
+                        rejected_stage,
+                        rejected_reason,
                         rejection_reasons,
                         metadata
                     ) VALUES (
                         %s, %s, %s, %s, %s, %s, %s, %s,
-                        %s, %s, %s, %s, %s, %s
+                        %s, %s, %s, %s, %s, %s, %s, %s
                     )
                     ON CONFLICT (synthetic_query_id, gating_preset) DO UPDATE
-                    SET passed_rule_filter = EXCLUDED.passed_rule_filter,
+                    SET gating_batch_id = EXCLUDED.gating_batch_id,
+                        passed_rule_filter = EXCLUDED.passed_rule_filter,
                         passed_llm_self_eval = EXCLUDED.passed_llm_self_eval,
                         passed_retrieval_utility = EXCLUDED.passed_retrieval_utility,
                         passed_diversity = EXCLUDED.passed_diversity,
@@ -495,12 +560,15 @@ def run_quality_gating(
                         utility_score = EXCLUDED.utility_score,
                         novelty_score = EXCLUDED.novelty_score,
                         final_score = EXCLUDED.final_score,
+                        rejected_stage = EXCLUDED.rejected_stage,
+                        rejected_reason = EXCLUDED.rejected_reason,
                         rejection_reasons = EXCLUDED.rejection_reasons,
                         metadata = EXCLUDED.metadata
                     """,
                     (
                         gated_query_id,
                         query.synthetic_query_id,
+                        gating_batch_id,
                         config.gating_preset,
                         passed_rule if config.enable_rule_filter else None,
                         passed_llm if config.enable_llm_self_eval else None,
@@ -518,15 +586,144 @@ def run_quality_gating(
                         utility_score,
                         novelty_score,
                         final_score,
+                        None if passed else rejected_stage,
+                        None if passed or not rejection_reasons else rejection_reasons[0],
                         Jsonb(rejection_reasons),
                         Jsonb(
                             {
                                 "generation_strategy": query.generation_strategy,
                                 "experiment_run_id": run_context.experiment_run_id,
+                                "gating_batch_id": gating_batch_id,
+                                "rejected_stage": None if passed else rejected_stage,
                             }
                         ),
                     ),
                 )
+                if gating_batch_id:
+                    cursor.execute(
+                        """
+                        INSERT INTO synthetic_query_gating_result (
+                            gating_batch_id,
+                            synthetic_query_id,
+                            query_text,
+                            query_type,
+                            language_profile,
+                            generation_strategy,
+                            rule_pass,
+                            llm_eval_score,
+                            utility_score,
+                            diversity_pass,
+                            novelty_score,
+                            final_score,
+                            accepted,
+                            rejected_stage,
+                            rejected_reason,
+                            llm_scores,
+                            stage_payload_json
+                        ) VALUES (
+                            %s, %s, %s, %s, %s, %s, %s, %s,
+                            %s, %s, %s, %s, %s, %s, %s, %s, %s
+                        )
+                        ON CONFLICT (gating_batch_id, synthetic_query_id) DO UPDATE
+                        SET query_text = EXCLUDED.query_text,
+                            query_type = EXCLUDED.query_type,
+                            language_profile = EXCLUDED.language_profile,
+                            generation_strategy = EXCLUDED.generation_strategy,
+                            rule_pass = EXCLUDED.rule_pass,
+                            llm_eval_score = EXCLUDED.llm_eval_score,
+                            utility_score = EXCLUDED.utility_score,
+                            diversity_pass = EXCLUDED.diversity_pass,
+                            novelty_score = EXCLUDED.novelty_score,
+                            final_score = EXCLUDED.final_score,
+                            accepted = EXCLUDED.accepted,
+                            rejected_stage = EXCLUDED.rejected_stage,
+                            rejected_reason = EXCLUDED.rejected_reason,
+                            llm_scores = EXCLUDED.llm_scores,
+                            stage_payload_json = EXCLUDED.stage_payload_json
+                        """,
+                        (
+                            gating_batch_id,
+                            query.synthetic_query_id,
+                            query.query_text,
+                            query.query_type,
+                            "code_mixed" if query.query_type == "code_mixed" else "ko",
+                            query.generation_strategy,
+                            passed_rule if config.enable_rule_filter else None,
+                            llm_avg,
+                            utility_score,
+                            passed_diversity if config.enable_diversity else None,
+                            novelty_score,
+                            final_score,
+                            passed,
+                            None if passed else rejected_stage,
+                            None if passed or not rejection_reasons else rejection_reasons[0],
+                            Jsonb(llm_scores),
+                            Jsonb(
+                                {
+                                    "rule_reasons": rule_reasons,
+                                    "all_rejection_reasons": rejection_reasons,
+                                    "preset": config.gating_preset,
+                                }
+                            ),
+                        ),
+                    )
+                    cursor.execute(
+                        """
+                        INSERT INTO synthetic_query_gating_history (
+                            gating_batch_id,
+                            synthetic_query_id,
+                            stage_name,
+                            stage_order,
+                            passed,
+                            score,
+                            reason,
+                            payload_json
+                        )
+                        SELECT %s, %s, x.stage_name, x.stage_order, x.passed, x.score, x.reason, x.payload_json
+                        FROM (
+                            VALUES
+                                ('rule_filter', 1, %s, NULL::double precision, %s, %s),
+                                ('llm_self_eval', 2, %s, %s, %s, %s),
+                                ('retrieval_utility', 3, %s, %s, %s, %s),
+                                ('diversity_dedup', 4, %s, %s, %s, %s),
+                                ('final_score', 5, %s, %s, %s, %s),
+                                ('approved', 6, %s, %s, %s, %s)
+                        ) AS x(stage_name, stage_order, passed, score, reason, payload_json)
+                        """,
+                        (
+                            gating_batch_id,
+                            query.synthetic_query_id,
+                            rule_stage_pass,
+                            ",".join(rule_reasons) if rule_reasons else None,
+                            Jsonb({"enabled": config.enable_rule_filter}),
+                            llm_stage_pass,
+                            llm_avg,
+                            None if llm_stage_pass else "llm_self_eval_failed",
+                            Jsonb({"scores": llm_scores, "enabled": config.enable_llm_self_eval}),
+                            utility_stage_pass,
+                            utility_score,
+                            None if utility_stage_pass else "utility_failed",
+                            Jsonb({"threshold": config.utility_threshold, "enabled": config.enable_retrieval_utility}),
+                            diversity_stage_pass,
+                            novelty_score,
+                            None if diversity_stage_pass else "diversity_failed",
+                            Jsonb(
+                                {
+                                    "same_chunk_threshold": config.diversity_threshold_same_chunk,
+                                    "same_doc_threshold": config.diversity_threshold_same_doc,
+                                    "enabled": config.enable_diversity,
+                                }
+                            ),
+                            passed_final_score,
+                            final_score,
+                            None if passed_final_score else "final_score_failed",
+                            Jsonb({"threshold": config.final_score_threshold}),
+                            passed,
+                            final_score,
+                            None if passed else rejected_stage,
+                            Jsonb({"preset": config.gating_preset}),
+                        ),
+                    )
 
             if len(preview_rows) < 20:
                 preview_rows.append(
@@ -550,6 +747,7 @@ def run_quality_gating(
             "accepted_queries": decision_counter["accepted"],
             "rejected_queries": decision_counter["rejected"],
             "rejection_reasons": dict(rejection_counter),
+            "stage_funnel": dict(stage_counter),
             "self_eval_prompt": {
                 "id": self_eval_prompt.prompt_name,
                 "version": self_eval_prompt.version,
@@ -558,6 +756,84 @@ def run_quality_gating(
             },
             "preview": preview_rows,
         }
+        if gating_batch_id:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    "DELETE FROM quality_gating_stage_result WHERE gating_batch_id = %s",
+                    (gating_batch_id,),
+                )
+                stage_rows = [
+                    ("generated", 0, stage_counter["generated"], stage_counter["generated"], 0, {"stage": "generated"}),
+                    (
+                        "rule_filter",
+                        1,
+                        stage_counter["generated"],
+                        stage_counter["rule_filter"],
+                        max(0, stage_counter["generated"] - stage_counter["rule_filter"]),
+                        {"enabled": config.enable_rule_filter},
+                    ),
+                    (
+                        "llm_self_eval",
+                        2,
+                        stage_counter["rule_filter"],
+                        stage_counter["llm_self_eval"],
+                        max(0, stage_counter["rule_filter"] - stage_counter["llm_self_eval"]),
+                        {"enabled": config.enable_llm_self_eval},
+                    ),
+                    (
+                        "retrieval_utility",
+                        3,
+                        stage_counter["llm_self_eval"],
+                        stage_counter["retrieval_utility"],
+                        max(0, stage_counter["llm_self_eval"] - stage_counter["retrieval_utility"]),
+                        {"enabled": config.enable_retrieval_utility},
+                    ),
+                    (
+                        "diversity_dedup",
+                        4,
+                        stage_counter["retrieval_utility"],
+                        stage_counter["diversity_dedup"],
+                        max(0, stage_counter["retrieval_utility"] - stage_counter["diversity_dedup"]),
+                        {"enabled": config.enable_diversity},
+                    ),
+                    (
+                        "final_approved",
+                        5,
+                        stage_counter["diversity_dedup"],
+                        stage_counter["final_approved"],
+                        max(0, stage_counter["diversity_dedup"] - stage_counter["final_approved"]),
+                        {"threshold": config.final_score_threshold},
+                    ),
+                ]
+                for stage_name, stage_order, input_count, passed_count, rejected_count, metrics in stage_rows:
+                    cursor.execute(
+                        """
+                        INSERT INTO quality_gating_stage_result (
+                            gating_batch_id,
+                            stage_name,
+                            stage_order,
+                            input_count,
+                            passed_count,
+                            rejected_count,
+                            metrics_json
+                        ) VALUES (%s, %s, %s, %s, %s, %s, %s)
+                        ON CONFLICT (gating_batch_id, stage_name) DO UPDATE
+                        SET stage_order = EXCLUDED.stage_order,
+                            input_count = EXCLUDED.input_count,
+                            passed_count = EXCLUDED.passed_count,
+                            rejected_count = EXCLUDED.rejected_count,
+                            metrics_json = EXCLUDED.metrics_json
+                        """,
+                        (
+                            gating_batch_id,
+                            stage_name,
+                            stage_order,
+                            input_count,
+                            passed_count,
+                            rejected_count,
+                            Jsonb(metrics),
+                        ),
+                    )
         recorder.finish_run(run_context, status="completed", metrics=summary)
         connection.commit()
         return summary

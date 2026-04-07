@@ -41,12 +41,16 @@ class DocumentImportResult:
     source_stats: ImportStats
     document_stats: ImportStats
     section_stats: ImportStats
+    fingerprint_stats: ImportStats
+    dedupe_summary: dict[str, int]
 
     def to_dict(self) -> dict[str, Any]:
         return {
             "sources": self.source_stats.to_dict(),
             "documents": self.document_stats.to_dict(),
             "sections": self.section_stats.to_dict(),
+            "fingerprints": self.fingerprint_stats.to_dict(),
+            "dedupe_summary": self.dedupe_summary,
         }
 
 
@@ -234,6 +238,83 @@ def fetch_active_documents_by_url(
         return {str(row["canonical_url"]): str(row["document_id"]) for row in cursor.fetchall()}
 
 
+def normalize_title_for_fingerprint(value: str | None) -> str:
+    if value is None:
+        return ""
+    return " ".join(value.strip().lower().split())
+
+
+def fetch_existing_fingerprints_by_url(
+    connection: psycopg.Connection[Any],
+    canonical_urls: list[str],
+) -> dict[tuple[str, str, str], dict[str, Any]]:
+    if not canonical_urls:
+        return {}
+    with connection.cursor() as cursor:
+        cursor.execute(
+            """
+            SELECT fingerprint_id,
+                   canonical_url,
+                   title_normalized,
+                   normalized_text_hash,
+                   raw_text_hash,
+                   source_id,
+                   version_label,
+                   latest_document_id,
+                   metadata_json
+            FROM document_content_fingerprint
+            WHERE canonical_url = ANY(%s)
+            """,
+            (canonical_urls,),
+        )
+        rows = cursor.fetchall()
+    keyed: dict[tuple[str, str, str], dict[str, Any]] = {}
+    for row in rows:
+        key = (
+            str(row["canonical_url"]),
+            str(row["normalized_text_hash"]),
+            str(row["version_label"] or ""),
+        )
+        keyed[key] = row
+    return keyed
+
+
+def fetch_existing_fingerprints_by_title_hash(
+    connection: psycopg.Connection[Any],
+    title_hash_pairs: list[tuple[str, str]],
+) -> dict[tuple[str, str], dict[str, Any]]:
+    if not title_hash_pairs:
+        return {}
+    with connection.cursor() as cursor:
+        cursor.execute(
+            """
+            SELECT fingerprint_id,
+                   canonical_url,
+                   title_normalized,
+                   normalized_text_hash,
+                   raw_text_hash,
+                   source_id,
+                   version_label,
+                   latest_document_id,
+                   metadata_json
+            FROM document_content_fingerprint
+            WHERE (title_normalized, normalized_text_hash) IN (
+                SELECT key_pair.title_normalized, key_pair.normalized_text_hash
+                FROM UNNEST(%s::text[], %s::text[]) AS key_pair(title_normalized, normalized_text_hash)
+            )
+            """,
+            (
+                [item[0] for item in title_hash_pairs],
+                [item[1] for item in title_hash_pairs],
+            ),
+        )
+        rows = cursor.fetchall()
+    return {
+        (str(row["title_normalized"]), str(row["normalized_text_hash"])): row
+        for row in rows
+    }
+
+
 def rows_equal_document(existing: dict[str, Any], candidate: dict[str, Any]) -> bool:
     return all(
         [
@@ -307,17 +388,55 @@ def import_documents(
         connection,
         [row["canonical_url"] for row in document_rows if row["canonical_url"]],
     )
+    existing_fingerprints_by_url = fetch_existing_fingerprints_by_url(
+        connection,
+        [row["canonical_url"] for row in document_rows if row["canonical_url"]],
+    )
+    existing_fingerprints_by_title_hash = fetch_existing_fingerprints_by_title_hash(
+        connection,
+        [
+            (
+                normalize_title_for_fingerprint(str(row.get("title") or "")),
+                str(row["cleaned_checksum"]),
+            )
+            for row in document_rows
+        ],
+    )
 
     document_stats = ImportStats()
     section_stats = ImportStats()
+    fingerprint_stats = ImportStats()
+    dedupe_summary = {
+        "duplicate_url_skipped": 0,
+        "same_title_hash_skipped": 0,
+        "unchanged_content_skipped": 0,
+    }
     document_upserts: list[tuple[Any, ...]] = []
     section_upserts: list[tuple[Any, ...]] = []
     supersede_updates: list[tuple[str, str]] = []
+    fingerprint_upserts: list[tuple[Any, ...]] = []
 
     for row in document_rows:
         existing = existing_documents.get(row["document_id"])
         if existing and rows_equal_document(existing, row):
             document_stats.skipped += 1
+            dedupe_summary["unchanged_content_skipped"] += 1
+            continue
+
+        title_normalized = normalize_title_for_fingerprint(str(row.get("title") or ""))
+        version_key = str(row.get("version_label") or "")
+        canonical_key = (str(row["canonical_url"]), str(row["cleaned_checksum"]), version_key)
+        title_hash_key = (title_normalized, str(row["cleaned_checksum"]))
+        canonical_dup = existing_fingerprints_by_url.get(canonical_key)
+        title_hash_dup = existing_fingerprints_by_title_hash.get(title_hash_key)
+
+        if canonical_dup and str(canonical_dup.get("latest_document_id") or "") != str(row["document_id"]):
+            document_stats.skipped += 1
+            dedupe_summary["duplicate_url_skipped"] += 1
+            continue
+        if title_hash_dup and str(title_hash_dup.get("latest_document_id") or "") != str(row["document_id"]):
+            document_stats.skipped += 1
+            dedupe_summary["same_title_hash_skipped"] += 1
             continue
 
         if existing:
@@ -354,6 +473,33 @@ def import_documents(
                 jsonb(row["metadata_json"]),
             )
         )
+        fingerprint_upserts.append(
+            (
+                str(row["canonical_url"]),
+                title_normalized,
+                str(row["cleaned_checksum"]),
+                str(row["raw_checksum"]),
+                str(row["source_id"]),
+                row["version_label"],
+                str(row["document_id"]),
+                jsonb(
+                    {
+                        "import_run_id": import_run_id,
+                        "product_name": row["product_name"],
+                    }
+                ),
+            )
+        )
+        if canonical_dup:
+            fingerprint_stats.updated += 1
+        else:
+            fingerprint_stats.inserted += 1
+        existing_fingerprints_by_url[canonical_key] = {
+            "latest_document_id": row["document_id"],
+        }
+        existing_fingerprints_by_title_hash[title_hash_key] = {
+            "latest_document_id": row["document_id"],
+        }
 
     for row in section_rows:
         existing = existing_sections.get(row["section_id"])
@@ -385,7 +531,13 @@ def import_documents(
         )
 
     if options.dry_run:
-        return DocumentImportResult(source_stats, document_stats, section_stats)
+        return DocumentImportResult(
+            source_stats,
+            document_stats,
+            section_stats,
+            fingerprint_stats,
+            dedupe_summary,
+        )
 
     if supersede_updates:
         with connection.cursor() as cursor:
@@ -473,4 +625,38 @@ def import_documents(
             for batch in batch_iterable(section_upserts, options.batch_size):
                 cursor.executemany(sql, batch)
 
-    return DocumentImportResult(source_stats, document_stats, section_stats)
+    if fingerprint_upserts:
+        sql = """
+            INSERT INTO document_content_fingerprint (
+                canonical_url,
+                title_normalized,
+                normalized_text_hash,
+                raw_text_hash,
+                source_id,
+                version_label,
+                latest_document_id,
+                metadata_json,
+                created_at,
+                updated_at
+            ) VALUES (
+                %s, %s, %s, %s, %s, %s, %s, %s, NOW(), NOW()
+            )
+            ON CONFLICT (canonical_url, normalized_text_hash, version_label) DO UPDATE
+            SET title_normalized = EXCLUDED.title_normalized,
+                raw_text_hash = EXCLUDED.raw_text_hash,
+                source_id = EXCLUDED.source_id,
+                latest_document_id = EXCLUDED.latest_document_id,
+                metadata_json = EXCLUDED.metadata_json,
+                updated_at = NOW()
+        """
+        with connection.cursor() as cursor:
+            for batch in batch_iterable(fingerprint_upserts, options.batch_size):
+                cursor.executemany(sql, batch)
+
+    return DocumentImportResult(
+        source_stats,
+        document_stats,
+        section_stats,
+        fingerprint_stats,
+        dedupe_summary,
+    )

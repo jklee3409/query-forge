@@ -336,6 +336,60 @@ public class PipelineAdminRepository {
                 """
         );
         long glossaryTermCount = queryForLong("SELECT COUNT(*) FROM corpus_glossary_terms WHERE is_active = TRUE");
+        long duplicateUrlSkippedCount = queryForLong(
+                """
+                SELECT COALESCE(
+                    SUM(
+                        COALESCE(
+                            NULLIF(metrics_json ->> 'duplicate_url_skipped', '')::BIGINT,
+                            NULLIF(metrics_json -> 'dedupe_summary' ->> 'duplicate_url_skipped', '')::BIGINT,
+                            0
+                        )
+                    ),
+                    0
+                )
+                FROM corpus_run_steps rs
+                JOIN corpus_runs r ON r.run_id = rs.run_id
+                WHERE rs.step_name = 'import_docs'
+                  AND r.created_at >= NOW() - INTERVAL '30 days'
+                """
+        );
+        long sameHashSkippedCount = queryForLong(
+                """
+                SELECT COALESCE(
+                    SUM(
+                        COALESCE(
+                            NULLIF(metrics_json ->> 'same_title_hash_skipped', '')::BIGINT,
+                            NULLIF(metrics_json -> 'dedupe_summary' ->> 'same_title_hash_skipped', '')::BIGINT,
+                            0
+                        )
+                    ),
+                    0
+                )
+                FROM corpus_run_steps rs
+                JOIN corpus_runs r ON r.run_id = rs.run_id
+                WHERE rs.step_name = 'import_docs'
+                  AND r.created_at >= NOW() - INTERVAL '30 days'
+                """
+        );
+        long unchangedSkippedCount = queryForLong(
+                """
+                SELECT COALESCE(
+                    SUM(
+                        COALESCE(
+                            NULLIF(metrics_json ->> 'unchanged_content_skipped', '')::BIGINT,
+                            NULLIF(metrics_json -> 'dedupe_summary' ->> 'unchanged_content_skipped', '')::BIGINT,
+                            0
+                        )
+                    ),
+                    0
+                )
+                FROM corpus_run_steps rs
+                JOIN corpus_runs r ON r.run_id = rs.run_id
+                WHERE rs.step_name = 'import_docs'
+                  AND r.created_at >= NOW() - INTERVAL '30 days'
+                """
+        );
         long recentRunSuccessCount = queryForLong(
                 """
                 SELECT COUNT(*)
@@ -413,6 +467,9 @@ public class PipelineAdminRepository {
                 activeDocumentCount,
                 activeChunkCount,
                 glossaryTermCount,
+                duplicateUrlSkippedCount,
+                sameHashSkippedCount,
+                unchangedSkippedCount,
                 recentRunSuccessCount,
                 recentRunFailureCount,
                 productStats,
