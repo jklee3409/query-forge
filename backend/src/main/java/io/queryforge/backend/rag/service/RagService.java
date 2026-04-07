@@ -17,6 +17,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashSet;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -78,7 +79,8 @@ public class RagService {
 
         stageStart = System.nanoTime();
         List<RagRepository.RetrievalDoc> rawRetrieved = repository.findTopChunksByEmbedding(rawEmbeddingLiteral, retrievalTopK);
-        double rawConfidence = confidence(rawRetrieved, memoryCandidates.isEmpty() ? 0.0 : memoryCandidates.getFirst().similarity());
+        double rawDense = memoryCandidates.isEmpty() ? 0.0 : memoryCandidates.getFirst().similarity();
+        double rawConfidence = confidence(rawRetrieved, rawDense);
         repository.insertRetrievalResults(onlineQueryId, null, "raw", rawRetrieved, mode);
         long rawRetrievalLatency = elapsedMs(stageStart);
 
@@ -94,7 +96,7 @@ public class RagService {
             GeneratedCandidate generated = generatedCandidates.get(index);
             String embeddingLiteral = embeddingService.toHalfvecLiteral(embeddingService.embed(generated.query()));
             List<RagRepository.RetrievalDoc> candidateRetrieved = repository.findTopChunksByEmbedding(embeddingLiteral, retrievalTopK);
-            double confidence = confidence(candidateRetrieved, memoryCandidates.isEmpty() ? 0.0 : memoryCandidates.getFirst().similarity());
+            double confidence = confidence(candidateRetrieved, rawDense);
             UUID candidateId = repository.createRewriteCandidate(
                     onlineQueryId,
                     index + 1,
@@ -122,10 +124,11 @@ public class RagService {
         );
         if (decision.selectedCandidateId() != null) {
             for (GeneratedCandidate candidate : scoredCandidates) {
+                boolean adopted = candidate.rewriteCandidateId().equals(decision.selectedCandidateId());
                 repository.markRewriteCandidateAdopted(
                         candidate.rewriteCandidateId(),
-                        candidate.rewriteCandidateId().equals(decision.selectedCandidateId()),
-                        candidate.rewriteCandidateId().equals(decision.selectedCandidateId()) ? null : decision.rejectedReason()
+                        adopted,
+                        adopted ? null : decision.rejectedReason()
                 );
             }
         } else {
@@ -171,6 +174,74 @@ public class RagService {
                 decision.rejectedReason(),
                 objectMapper.valueToTree(latencyBreakdown)
         );
+
+        double selectedConfidence = confidence(decision.finalRetrieved(), rawDense);
+        boolean gatingApplied = !"raw_only".equals(mode) && !"memory_only_ungated".equals(mode);
+        boolean selectiveRewrite = mode.startsWith("selective_rewrite");
+        boolean useSessionContext = "selective_rewrite_with_session".equals(mode);
+        UUID rewriteLogId = repository.createOnlineRewriteLog(
+                onlineQueryId,
+                null,
+                rawQuery,
+                decision.finalQuery(),
+                mode,
+                generationMethodCodes(memoryCandidates),
+                generationBatchIds(memoryCandidates),
+                gatingApplied,
+                gatingPreset,
+                decision.rewriteApplied(),
+                selectiveRewrite,
+                useSessionContext,
+                rawConfidence,
+                selectedConfidence,
+                selectedConfidence - rawConfidence,
+                decision.selectedReason(),
+                decision.rejectedReason(),
+                objectMapper.valueToTree(Map.of(
+                        "retrieval_top_k", retrievalTopK,
+                        "rerank_top_n", rerankTopN,
+                        "memory_top_n", memoryTopN,
+                        "rewrite_candidate_count", candidateCount,
+                        "rewrite_threshold", threshold,
+                        "latency_breakdown", latencyBreakdown
+                ))
+        );
+
+        for (int index = 0; index < memoryCandidates.size(); index++) {
+            RagRepository.MemoryCandidate memoryCandidate = memoryCandidates.get(index);
+            repository.insertMemoryRetrievalLog(
+                    rewriteLogId,
+                    onlineQueryId,
+                    index + 1,
+                    memoryCandidate,
+                    objectMapper.valueToTree(Map.of(
+                            "gating_preset", gatingPreset,
+                            "generation_batch_id", memoryCandidate.generationBatchId() == null ? "" : memoryCandidate.generationBatchId().toString()
+                    ))
+            );
+        }
+
+        for (int index = 0; index < scoredCandidates.size(); index++) {
+            GeneratedCandidate candidate = scoredCandidates.get(index);
+            boolean selected = decision.selectedCandidateId() != null && decision.selectedCandidateId().equals(candidate.rewriteCandidateId());
+            repository.insertRewriteCandidateLog(
+                    rewriteLogId,
+                    onlineQueryId,
+                    candidate.rewriteCandidateId(),
+                    index + 1,
+                    candidate.label(),
+                    candidate.query(),
+                    candidate.confidence(),
+                    selected,
+                    selected ? null : decision.rejectedReason(),
+                    objectMapper.valueToTree(candidate.retrieved()),
+                    scoreBreakdown(candidate.retrieved(), memoryCandidates),
+                    objectMapper.valueToTree(Map.of(
+                            "mode", mode,
+                            "selected_reason", decision.selectedReason()
+                    ))
+            );
+        }
 
         return new RagDtos.AskResponse(
                 onlineQueryId,
@@ -394,24 +465,22 @@ public class RagService {
         List<GeneratedCandidate> base = List.of(
                 new GeneratedCandidate(
                         "explicit_standalone",
-                        (contextualPrefix.isBlank()
-                                ? rawQuery
-                                : contextualPrefix + " 이후 맥락에서 " + rawQuery)
-                                + "를 독립 질문으로 명확히 재작성해 주세요.",
+                        (contextualPrefix.isBlank() ? rawQuery : contextualPrefix + " 이후 맥락에서 " + rawQuery)
+                                + "를 독립 검색 질의로 명확하게 다시 작성",
                         List.of(),
                         0.0,
                         null
                 ),
                 new GeneratedCandidate(
                         "product_version_anchored",
-                        rawQuery + " 관련해서 문서 용어를 유지해 설명해 주세요: " + memoryAnchor,
+                        rawQuery + " 관련 제품/설정 키워드 보강 " + memoryAnchor,
                         List.of(),
                         0.0,
                         null
                 ),
                 new GeneratedCandidate(
                         "error_or_task_focused",
-                        rawQuery + "가 실패할 때 점검할 설정/절차를 중심으로 알려주세요.",
+                        rawQuery + " 실패 원인이나 해결 절차 중심으로 재작성",
                         List.of(),
                         0.0,
                         null
@@ -479,9 +548,12 @@ public class RagService {
         ObjectNode node = objectMapper.createObjectNode();
         double dense = memories.isEmpty() ? 0.0 : memories.getFirst().similarity();
         node.put("r1", retrieved.isEmpty() ? 0.0 : normalizeScore(retrieved.getFirst().score()));
-        node.put("r3", retrieved.isEmpty()
-                ? 0.0
-                : retrieved.stream().limit(3).mapToDouble(item -> normalizeScore(item.score())).average().orElse(0.0));
+        node.put(
+                "r3",
+                retrieved.isEmpty()
+                        ? 0.0
+                        : retrieved.stream().limit(3).mapToDouble(item -> normalizeScore(item.score())).average().orElse(0.0)
+        );
         node.put("dense", normalizeScore(dense));
         return node;
     }
@@ -491,6 +563,30 @@ public class RagService {
         for (RagRepository.MemoryCandidate memory : memories) {
             array.add(memory.memoryId().toString());
         }
+        return array;
+    }
+
+    private JsonNode generationMethodCodes(List<RagRepository.MemoryCandidate> memories) {
+        LinkedHashSet<String> unique = new LinkedHashSet<>();
+        for (RagRepository.MemoryCandidate memory : memories) {
+            if (memory.generationStrategy() != null && !memory.generationStrategy().isBlank()) {
+                unique.add(memory.generationStrategy().trim().toUpperCase(Locale.ROOT));
+            }
+        }
+        ArrayNode array = objectMapper.createArrayNode();
+        unique.forEach(array::add);
+        return array;
+    }
+
+    private JsonNode generationBatchIds(List<RagRepository.MemoryCandidate> memories) {
+        LinkedHashSet<String> unique = new LinkedHashSet<>();
+        for (RagRepository.MemoryCandidate memory : memories) {
+            if (memory.generationBatchId() != null) {
+                unique.add(memory.generationBatchId().toString());
+            }
+        }
+        ArrayNode array = objectMapper.createArrayNode();
+        unique.forEach(array::add);
         return array;
     }
 
@@ -515,7 +611,7 @@ public class RagService {
             }
         }
         if (builder.length() == 0) {
-            builder.append("관련 문서를 찾았지만 확신 있는 근거를 충분히 확보하지 못했습니다.");
+            builder.append("관련 문서를 찾았지만 질문에 직접 대응하는 근거를 충분히 찾지 못했습니다.");
         }
         return new AnswerDraft(builder.toString(), List.copyOf(docs), List.copyOf(chunks));
     }

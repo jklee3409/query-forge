@@ -41,7 +41,9 @@ public class RagRepository {
             String queryText,
             String targetDocId,
             JsonNode targetChunkIds,
-            double similarity
+            double similarity,
+            String generationStrategy,
+            UUID generationBatchId
     ) {
     }
 
@@ -137,9 +139,12 @@ public class RagRepository {
                        m.query_text,
                        m.target_doc_id,
                        m.target_chunk_ids::text AS target_chunk_ids,
-                       1 - (m.query_embedding <=> CAST(:embedding AS halfvec)) AS similarity
+                       1 - (m.query_embedding <=> CAST(:embedding AS halfvec)) AS similarity,
+                       m.generation_strategy,
+                       r.generation_batch_id
                 FROM memory_entries m
                 JOIN synthetic_queries_gated g ON g.gated_query_id = m.source_gated_query_id
+                LEFT JOIN synthetic_queries_raw r ON r.synthetic_query_id = g.synthetic_query_id
                 WHERE m.query_embedding IS NOT NULL
                   AND (:gatingPreset IS NULL OR g.gating_preset = :gatingPreset)
                 ORDER BY m.query_embedding <=> CAST(:embedding AS halfvec)
@@ -156,7 +161,9 @@ public class RagRepository {
                         rs.getString("query_text"),
                         rs.getString("target_doc_id"),
                         readJson(rs, "target_chunk_ids"),
-                        rs.getDouble("similarity")
+                        rs.getDouble("similarity"),
+                        rs.getString("generation_strategy"),
+                        readUuid(rs, "generation_batch_id")
                 )
         );
     }
@@ -481,6 +488,208 @@ public class RagRepository {
                         .addValue("selectedReason", selectedReason)
                         .addValue("rejectedReason", rejectedReason)
                         .addValue("latencyBreakdown", latencyBreakdown.toString())
+        );
+    }
+
+    @Transactional
+    public UUID createOnlineRewriteLog(
+            UUID onlineQueryId,
+            UUID runId,
+            String rawQuery,
+            String finalQuery,
+            String rewriteStrategy,
+            JsonNode generationMethodCodes,
+            JsonNode generationBatchIds,
+            boolean gatingApplied,
+            String gatingPreset,
+            boolean rewriteApplied,
+            Boolean selectiveRewrite,
+            Boolean useSessionContext,
+            Double rawConfidence,
+            Double selectedConfidence,
+            Double confidenceDelta,
+            String decisionReason,
+            String rejectionReason,
+            JsonNode metadata
+    ) {
+        UUID rewriteLogId = UUID.randomUUID();
+        String sql = """
+                INSERT INTO online_query_rewrite_log (
+                    rewrite_log_id,
+                    online_query_id,
+                    run_id,
+                    raw_query,
+                    final_query,
+                    rewrite_strategy,
+                    generation_method_codes,
+                    generation_batch_ids,
+                    gating_applied,
+                    gating_preset,
+                    rewrite_applied,
+                    selective_rewrite,
+                    use_session_context,
+                    raw_confidence,
+                    selected_confidence,
+                    confidence_delta,
+                    decision_reason,
+                    rejection_reason,
+                    metadata_json
+                ) VALUES (
+                    :rewriteLogId,
+                    :onlineQueryId,
+                    :runId,
+                    :rawQuery,
+                    :finalQuery,
+                    :rewriteStrategy,
+                    CAST(:generationMethodCodes AS jsonb),
+                    CAST(:generationBatchIds AS jsonb),
+                    :gatingApplied,
+                    :gatingPreset,
+                    :rewriteApplied,
+                    :selectiveRewrite,
+                    :useSessionContext,
+                    :rawConfidence,
+                    :selectedConfidence,
+                    :confidenceDelta,
+                    :decisionReason,
+                    :rejectionReason,
+                    CAST(:metadata AS jsonb)
+                )
+                """;
+        jdbcTemplate.update(
+                sql,
+                new MapSqlParameterSource()
+                        .addValue("rewriteLogId", rewriteLogId)
+                        .addValue("onlineQueryId", onlineQueryId)
+                        .addValue("runId", runId)
+                        .addValue("rawQuery", rawQuery)
+                        .addValue("finalQuery", finalQuery)
+                        .addValue("rewriteStrategy", rewriteStrategy)
+                        .addValue("generationMethodCodes", Objects.requireNonNullElse(generationMethodCodes, objectMapper.createArrayNode()).toString())
+                        .addValue("generationBatchIds", Objects.requireNonNullElse(generationBatchIds, objectMapper.createArrayNode()).toString())
+                        .addValue("gatingApplied", gatingApplied)
+                        .addValue("gatingPreset", gatingPreset)
+                        .addValue("rewriteApplied", rewriteApplied)
+                        .addValue("selectiveRewrite", selectiveRewrite)
+                        .addValue("useSessionContext", useSessionContext)
+                        .addValue("rawConfidence", rawConfidence)
+                        .addValue("selectedConfidence", selectedConfidence)
+                        .addValue("confidenceDelta", confidenceDelta)
+                        .addValue("decisionReason", decisionReason)
+                        .addValue("rejectionReason", rejectionReason)
+                        .addValue("metadata", Objects.requireNonNullElse(metadata, objectMapper.createObjectNode()).toString())
+        );
+        return rewriteLogId;
+    }
+
+    @Transactional
+    public void insertRewriteCandidateLog(
+            UUID rewriteLogId,
+            UUID onlineQueryId,
+            UUID rewriteCandidateId,
+            int candidateRank,
+            String candidateLabel,
+            String candidateQuery,
+            Double confidenceScore,
+            boolean selected,
+            String rejectionReason,
+            JsonNode retrievalTopKDocs,
+            JsonNode scoreBreakdown,
+            JsonNode metadata
+    ) {
+        String sql = """
+                INSERT INTO rewrite_candidate_log (
+                    rewrite_log_id,
+                    online_query_id,
+                    rewrite_candidate_id,
+                    candidate_rank,
+                    candidate_label,
+                    candidate_query,
+                    confidence_score,
+                    selected,
+                    rejection_reason,
+                    retrieval_top_k_docs,
+                    score_breakdown,
+                    metadata_json
+                ) VALUES (
+                    :rewriteLogId,
+                    :onlineQueryId,
+                    :rewriteCandidateId,
+                    :candidateRank,
+                    :candidateLabel,
+                    :candidateQuery,
+                    :confidenceScore,
+                    :selected,
+                    :rejectionReason,
+                    CAST(:retrievalTopKDocs AS jsonb),
+                    CAST(:scoreBreakdown AS jsonb),
+                    CAST(:metadata AS jsonb)
+                )
+                """;
+        jdbcTemplate.update(
+                sql,
+                new MapSqlParameterSource()
+                        .addValue("rewriteLogId", rewriteLogId)
+                        .addValue("onlineQueryId", onlineQueryId)
+                        .addValue("rewriteCandidateId", rewriteCandidateId)
+                        .addValue("candidateRank", candidateRank)
+                        .addValue("candidateLabel", candidateLabel)
+                        .addValue("candidateQuery", candidateQuery)
+                        .addValue("confidenceScore", confidenceScore)
+                        .addValue("selected", selected)
+                        .addValue("rejectionReason", rejectionReason)
+                        .addValue("retrievalTopKDocs", Objects.requireNonNullElse(retrievalTopKDocs, objectMapper.createArrayNode()).toString())
+                        .addValue("scoreBreakdown", Objects.requireNonNullElse(scoreBreakdown, objectMapper.createObjectNode()).toString())
+                        .addValue("metadata", Objects.requireNonNullElse(metadata, objectMapper.createObjectNode()).toString())
+        );
+    }
+
+    @Transactional
+    public void insertMemoryRetrievalLog(
+            UUID rewriteLogId,
+            UUID onlineQueryId,
+            int retrievalRank,
+            MemoryCandidate candidate,
+            JsonNode metadata
+    ) {
+        String sql = """
+                INSERT INTO memory_retrieval_log (
+                    rewrite_log_id,
+                    online_query_id,
+                    memory_id,
+                    retrieval_rank,
+                    similarity,
+                    query_text,
+                    target_doc_id,
+                    target_chunk_ids,
+                    generation_strategy,
+                    metadata_json
+                ) VALUES (
+                    :rewriteLogId,
+                    :onlineQueryId,
+                    :memoryId,
+                    :retrievalRank,
+                    :similarity,
+                    :queryText,
+                    :targetDocId,
+                    CAST(:targetChunkIds AS jsonb),
+                    :generationStrategy,
+                    CAST(:metadata AS jsonb)
+                )
+                """;
+        jdbcTemplate.update(
+                sql,
+                new MapSqlParameterSource()
+                        .addValue("rewriteLogId", rewriteLogId)
+                        .addValue("onlineQueryId", onlineQueryId)
+                        .addValue("memoryId", candidate.memoryId())
+                        .addValue("retrievalRank", retrievalRank)
+                        .addValue("similarity", candidate.similarity())
+                        .addValue("queryText", candidate.queryText())
+                        .addValue("targetDocId", candidate.targetDocId())
+                        .addValue("targetChunkIds", Objects.requireNonNullElse(candidate.targetChunkIds(), objectMapper.createArrayNode()).toString())
+                        .addValue("generationStrategy", candidate.generationStrategy())
+                        .addValue("metadata", Objects.requireNonNullElse(metadata, objectMapper.createObjectNode()).toString())
         );
     }
 
