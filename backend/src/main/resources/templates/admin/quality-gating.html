@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="ko" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title th:text="${pageTitle}">퀄리티 게이팅 관리</title>
+    <link rel="stylesheet" th:href="@{/admin/admin.css}">
+    <script defer th:src="@{/admin/admin.js}"></script>
+    <script defer th:src="@{/admin/console.js}"></script>
+</head>
+<body data-admin-page="gating">
+<div class="admin-shell">
+    <aside th:replace="~{admin/fragments/chrome :: sidebar(${navKey})}"></aside>
+    <div class="admin-main">
+        <header th:replace="~{admin/fragments/chrome :: topbar(${pageTitle}, ${pageSubtitle})}"></header>
+        <main class="admin-content">
+            <div th:replace="~{admin/fragments/chrome :: pageHeader(${pageTitle}, ${pageSubtitle})}"></div>
+
+            <section class="panel">
+                <div class="table-title">게이팅 실행</div>
+                <form class="filter-bar" id="gating-run-form">
+                    <div class="filter-field">
+                        <label for="gating-method-code">생성 방식</label>
+                        <select id="gating-method-code" name="methodCode"></select>
+                    </div>
+                    <div class="filter-field">
+                        <label for="gating-generation-batch-id">생성 배치</label>
+                        <select id="gating-generation-batch-id" name="generationBatchId"></select>
+                    </div>
+                    <div class="filter-field">
+                        <label for="gating-preset">게이팅 프리셋</label>
+                        <select id="gating-preset" name="gatingPreset">
+                            <option value="ungated">ungated</option>
+                            <option value="rule_only">rule_only</option>
+                            <option value="rule_plus_llm">rule_plus_llm</option>
+                            <option value="full_gating" selected>full_gating</option>
+                        </select>
+                    </div>
+                    <div class="filter-field filter-field--small">
+                        <label><input type="checkbox" name="enableRuleFilter" checked> Rule</label>
+                        <label><input type="checkbox" name="enableLlmSelfEval" checked> LLM</label>
+                        <label><input type="checkbox" name="enableRetrievalUtility" checked> Utility</label>
+                        <label><input type="checkbox" name="enableDiversity" checked> Diversity</label>
+                    </div>
+                    <div class="filter-field--small">
+                        <button type="submit" class="button button--primary">게이팅 실행</button>
+                    </div>
+                </form>
+            </section>
+
+            <section class="table-shell" style="margin-top: 16px;">
+                <div class="table-header">
+                    <div class="table-title">게이팅 배치 이력</div>
+                    <button class="button" data-refresh-page>새로고침</button>
+                </div>
+                <div class="table-wrap">
+                    <table class="data-table" id="gating-batches-table">
+                        <thead>
+                        <tr>
+                            <th>게이팅 배치 ID</th>
+                            <th>프리셋</th>
+                            <th>방식</th>
+                            <th>상태</th>
+                            <th>처리 수</th>
+                            <th>승인 수</th>
+                            <th>생존율</th>
+                            <th>퍼널</th>
+                        </tr>
+                        </thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
+            </section>
+
+            <section class="summary-grid" id="gating-funnel-cards" style="margin-top: 16px;"></section>
+
+            <section class="table-shell" style="margin-top: 16px;">
+                <div class="table-header">
+                    <div class="table-title">합성 질의별 게이팅 결과</div>
+                </div>
+                <div class="table-wrap">
+                    <table class="data-table" id="gating-results-table">
+                        <thead>
+                        <tr>
+                            <th>질의 ID</th>
+                            <th>질의 문장</th>
+                            <th>유형</th>
+                            <th>Rule</th>
+                            <th>LLM</th>
+                            <th>Utility</th>
+                            <th>Diversity</th>
+                            <th>Final Score</th>
+                            <th>승인</th>
+                        </tr>
+                        </thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
+            </section>
+        </main>
+    </div>
+</div>
+</body>
+</html>
+

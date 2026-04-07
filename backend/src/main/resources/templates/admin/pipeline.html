@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="ko" xmlns:th="http://www.thymeleaf.org">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title th:text="${pageTitle}">문서 파이프라인 관리</title>
+    <link rel="stylesheet" th:href="@{/admin/admin.css}">
+    <script defer th:src="@{/admin/admin.js}"></script>
+    <script defer th:src="@{/admin/console.js}"></script>
+</head>
+<body data-admin-page="pipeline">
+<div class="admin-shell">
+    <aside th:replace="~{admin/fragments/chrome :: sidebar(${navKey})}"></aside>
+    <div class="admin-main">
+        <header th:replace="~{admin/fragments/chrome :: topbar(${pageTitle}, ${pageSubtitle})}"></header>
+        <main class="admin-content">
+            <div th:replace="~{admin/fragments/chrome :: pageHeader(${pageTitle}, ${pageSubtitle})}"></div>
+
+            <section class="summary-grid" id="pipeline-summary-cards"></section>
+
+            <section class="panel" style="margin-top: 16px;">
+                <div class="table-title">실행 제어</div>
+                <p class="page-header__subtitle">단계별 실행 또는 전체 실행을 선택할 수 있습니다.</p>
+                <div class="toolbar" style="margin-top: 12px;">
+                    <button class="button button--primary" data-pipeline-run="collect">문서 수집 실행</button>
+                    <button class="button button--primary" data-pipeline-run="normalize">문서 정제 실행</button>
+                    <button class="button button--primary" data-pipeline-run="chunk">청킹 실행</button>
+                    <button class="button button--primary" data-pipeline-run="glossary">어휘 추출 실행</button>
+                    <button class="button" data-pipeline-run="full_ingest">전체 파이프라인 실행</button>
+                </div>
+            </section>
+
+            <section class="table-shell" style="margin-top: 16px;">
+                <div class="table-header">
+                    <div class="table-title">파이프라인 실행 이력</div>
+                    <button class="button" data-refresh-page>새로고침</button>
+                </div>
+                <div class="table-wrap">
+                    <table class="data-table" id="pipeline-runs-table">
+                        <thead>
+                        <tr>
+                            <th>실행 ID</th>
+                            <th>실행 유형</th>
+                            <th>시작 시간</th>
+                            <th>종료 시간</th>
+                            <th>상태</th>
+                            <th>처리 건수</th>
+                            <th>에러</th>
+                        </tr>
+                        </thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
+            </section>
+
+            <section class="table-shell" style="margin-top: 16px;">
+                <div class="table-header">
+                    <div class="table-title">문서/청크/용어 조회</div>
+                </div>
+                <form class="filter-bar" id="pipeline-doc-filter-form">
+                    <div class="filter-field">
+                        <label for="pipeline-source-id">문서 소스</label>
+                        <select id="pipeline-source-id" name="source_id"></select>
+                    </div>
+                    <div class="filter-field">
+                        <label for="pipeline-version-label">버전</label>
+                        <input id="pipeline-version-label" name="version_label" placeholder="예: 6.1">
+                    </div>
+                    <div class="filter-field">
+                        <label for="pipeline-doc-keyword">문서 키워드</label>
+                        <input id="pipeline-doc-keyword" name="document_id" placeholder="document_id">
+                    </div>
+                    <div class="filter-field--small">
+                        <button type="submit" class="button button--primary">조회</button>
+                    </div>
+                </form>
+                <div class="table-wrap">
+                    <table class="data-table" id="pipeline-documents-table">
+                        <thead>
+                        <tr>
+                            <th>문서 ID</th>
+                            <th>제목</th>
+                            <th>소스</th>
+                            <th>버전</th>
+                            <th>섹션 수</th>
+                            <th>청크 수</th>
+                            <th>상세</th>
+                        </tr>
+                        </thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
+            </section>
+
+            <section class="panel" style="margin-top: 16px;" id="pipeline-document-detail-panel"></section>
+        </main>
+    </div>
+</div>
+</body>
+</html>
+

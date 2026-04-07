@@ -6,59 +6,46 @@
         <div class="admin-sidebar__logo">QF</div>
         <div>
             <div class="admin-sidebar__title">Query Forge</div>
-            <div class="admin-sidebar__subtitle">관리자 화면</div>
+            <div class="admin-sidebar__subtitle">관리자 콘솔</div>
         </div>
     </div>
 
     <nav class="admin-nav">
-        <a th:href="@{/admin}" class="admin-nav__link" th:classappend="${navKey == 'dashboard'} ? ' is-active'">
-            <span>대시보드</span>
+        <a th:href="@{/admin/pipeline}" class="admin-nav__link" th:classappend="${navKey == 'pipeline'} ? ' is-active'">
+            <span>문서 파이프라인 관리</span>
         </a>
-        <a th:href="@{/admin/sources}" class="admin-nav__link" th:classappend="${navKey == 'sources'} ? ' is-active'">
-            <span>수집 소스</span>
+        <a th:href="@{/admin/synthetic-queries}" class="admin-nav__link" th:classappend="${navKey == 'synthetic'} ? ' is-active'">
+            <span>합성 질의 생성/조회</span>
         </a>
-        <a th:href="@{/admin/runs}" class="admin-nav__link" th:classappend="${navKey == 'runs'} ? ' is-active'">
-            <span>파이프라인 실행</span>
+        <a th:href="@{/admin/quality-gating}" class="admin-nav__link" th:classappend="${navKey == 'gating'} ? ' is-active'">
+            <span>퀄리티 게이팅 관리</span>
         </a>
-        <a th:href="@{/admin/documents}" class="admin-nav__link" th:classappend="${navKey == 'documents'} ? ' is-active'">
-            <span>문서</span>
-        </a>
-        <a th:href="@{/admin/chunks}" class="admin-nav__link" th:classappend="${navKey == 'chunks'} ? ' is-active'">
-            <span>청크</span>
-        </a>
-        <a th:href="@{/admin/glossary}" class="admin-nav__link" th:classappend="${navKey == 'glossary'} ? ' is-active'">
-            <span>용어 사전</span>
-        </a>
-        <a th:href="@{/admin/ingest-wizard}" class="admin-nav__link" th:classappend="${navKey == 'wizard'} ? ' is-active'">
-            <span>수집/전처리 실행</span>
-        </a>
-        <a th:href="@{/admin/experiments}" class="admin-nav__link" th:classappend="${navKey == 'experiments'} ? ' is-active'">
-            <span>실험/평가 모니터링</span>
+        <a th:href="@{/admin/rag-tests}" class="admin-nav__link" th:classappend="${navKey == 'rag-tests'} ? ' is-active'">
+            <span>RAG 성능/품질 테스트</span>
         </a>
     </nav>
 
     <div class="admin-sidebar__section">
-        <div class="admin-sidebar__section-title">서비스 빠른 이동</div>
-        <a th:href="@{/}" class="admin-nav__link">사용자 채팅</a>
-        <a th:href="@{/admin/experiments}" class="admin-nav__link">리포트 비교</a>
+        <div class="admin-sidebar__section-title">빠른 이동</div>
+        <a th:href="@{/}" class="admin-nav__link">사용자 채팅 화면</a>
     </div>
 </aside>
 
 <header th:fragment="topbar(title, subtitle)" class="admin-topbar">
     <button type="button" class="admin-topbar__menu" data-sidebar-toggle>메뉴</button>
     <div class="admin-topbar__meta">
-        <div class="admin-topbar__title" th:text="${title}">대시보드</div>
+        <div class="admin-topbar__title" th:text="${title}">관리자 콘솔</div>
         <div class="admin-topbar__subtitle" th:text="${subtitle}">subtitle</div>
     </div>
     <div class="admin-topbar__actions">
-        <a th:href="@{/admin/ingest-wizard}" class="button button--primary">전체 실행</a>
+        <a th:href="@{/admin/pipeline}" class="button button--primary">기본 페이지</a>
     </div>
 </header>
 
 <div th:fragment="pageHeader(title, subtitle)" class="page-header">
     <div>
         <h1 class="page-header__title" th:text="${title}">페이지 제목</h1>
-        <p class="page-header__subtitle" th:text="${subtitle}">설명</p>
+        <p class="page-header__subtitle" th:text="${subtitle}">페이지 설명</p>
     </div>
 </div>
 </body>

@@ -16,6 +16,7 @@ import org.testcontainers.utility.DockerImageName;
 import static org.hamcrest.Matchers.containsString;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.redirectedUrl;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
 @SpringBootTest
@@ -45,42 +46,39 @@ class AdminUiSmokeTest {
     private MockMvc mockMvc;
 
     @Test
-    void majorAdminPagesRenderSharedLayout() throws Exception {
+    void adminPagesRenderAndLegacyRoutesRedirect() throws Exception {
         mockMvc.perform(get("/admin"))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrl("/admin/pipeline"));
+
+        mockMvc.perform(get("/admin/pipeline"))
                 .andExpect(status().isOk())
                 .andExpect(content().string(containsString("admin-shell")))
-                .andExpect(content().string(containsString("admin-sidebar")))
-                .andExpect(content().string(containsString("대시보드 Dashboard")));
+                .andExpect(content().string(containsString("문서 파이프라인 관리")));
+
+        mockMvc.perform(get("/admin/synthetic-queries"))
+                .andExpect(status().isOk())
+                .andExpect(content().string(containsString("합성 질의 생성/조회")));
+
+        mockMvc.perform(get("/admin/quality-gating"))
+                .andExpect(status().isOk())
+                .andExpect(content().string(containsString("퀄리티 게이팅 관리")));
+
+        mockMvc.perform(get("/admin/rag-tests"))
+                .andExpect(status().isOk())
+                .andExpect(content().string(containsString("RAG 성능/품질 테스트")));
 
         mockMvc.perform(get("/admin/documents"))
-                .andExpect(status().isOk())
-                .andExpect(content().string(containsString("문서 Documents")))
-                .andExpect(content().string(containsString("filter-bar")));
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrl("/admin/pipeline"));
 
-        mockMvc.perform(get("/admin/documents/doc_fixture_1"))
-                .andExpect(status().isOk())
-                .andExpect(content().string(containsString("Raw vs Cleaned")))
-                .andExpect(content().string(containsString("Sections & Chunks")))
-                .andExpect(content().string(containsString("Run History")));
-
-        mockMvc.perform(get("/admin/chunks/chk_fixture_1"))
-                .andExpect(status().isOk())
-                .andExpect(content().string(containsString("Prev / Current / Next")))
-                .andExpect(content().string(containsString("Relation List")));
-
-        mockMvc.perform(get("/admin/runs/11111111-1111-1111-1111-111111111111"))
-                .andExpect(status().isOk())
-                .andExpect(content().string(containsString("Step 상태 / 소요시간")))
-                .andExpect(content().string(containsString("Config Snapshot")));
-
-        mockMvc.perform(get("/admin/glossary/22222222-2222-2222-2222-222222222222"))
-                .andExpect(status().isOk())
-                .andExpect(content().string(containsString("Term Policy")))
-                .andExpect(content().string(containsString("Evidence Snippets")));
+        mockMvc.perform(get("/admin/sources"))
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrl("/admin/pipeline"));
 
         mockMvc.perform(get("/admin/ingest-wizard"))
-                .andExpect(status().isOk())
-                .andExpect(content().string(containsString("실행 마법사 Ingest Wizard")))
-                .andExpect(content().string(containsString("전체 실행 Full Ingest")));
+                .andExpect(status().is3xxRedirection())
+                .andExpect(redirectedUrl("/admin/pipeline"));
     }
 }
+
