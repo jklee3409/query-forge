@@ -19,6 +19,7 @@ public class SourceCatalogService {
     private final AdminPipelineProperties properties;
     private final PipelineAdminRepository repository;
     private final Yaml yaml = new Yaml();
+    private volatile Path repoRoot;
 
     public SourceCatalogService(
             AdminPipelineProperties properties,
@@ -29,7 +30,7 @@ public class SourceCatalogService {
     }
 
     public void syncSourcesFromConfig() {
-        Path sourceDir = repoRoot().resolve(properties.sourceConfigDir()).normalize();
+        Path sourceDir = resolveWithinRepo(properties.sourceConfigDir(), "source config directory");
         if (!Files.isDirectory(sourceDir)) {
             return;
         }
@@ -47,7 +48,16 @@ public class SourceCatalogService {
     }
 
     public Path repoRoot() {
-        return Path.of(properties.repoRoot()).toAbsolutePath().normalize();
+        Path current = repoRoot;
+        if (current == null) {
+            current = ProjectPathResolver.resolveRepoRoot(properties.repoRoot());
+            repoRoot = current;
+        }
+        return current;
+    }
+
+    public Path resolveWithinRepo(String configuredPath, String label) {
+        return ProjectPathResolver.resolveWithinRepo(repoRoot(), configuredPath, label);
     }
 
     @SuppressWarnings("unchecked")

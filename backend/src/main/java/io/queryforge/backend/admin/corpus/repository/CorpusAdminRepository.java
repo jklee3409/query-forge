@@ -58,15 +58,20 @@ public class CorpusAdminRepository {
                 LEFT JOIN LATERAL (
                     SELECT jsonb_agg(
                                jsonb_build_object(
-                                   'version_label', version_label,
-                                   'document_count', COUNT(*),
-                                   'active_count', COUNT(*) FILTER (WHERE is_active)
+                                   'version_label', version_counts.version_label,
+                                   'document_count', version_counts.document_count,
+                                   'active_count', version_counts.active_count
                                )
-                               ORDER BY version_label
+                               ORDER BY version_counts.version_label
                            ) AS version_stats
-                    FROM corpus_documents cd
-                    WHERE cd.source_id = cs.source_id
-                    GROUP BY cd.source_id
+                    FROM (
+                        SELECT cd.version_label,
+                               COUNT(*) AS document_count,
+                               COUNT(*) FILTER (WHERE cd.is_active) AS active_count
+                        FROM corpus_documents cd
+                        WHERE cd.source_id = cs.source_id
+                        GROUP BY cd.version_label
+                    ) version_counts
                 ) version_stats ON TRUE
                 ORDER BY cs.product_name, cs.source_id
                 """;
@@ -203,11 +208,12 @@ public class CorpusAdminRepository {
         MapSqlParameterSource params = new MapSqlParameterSource();
         appendDocumentFilters(sql, params, productName, versionLabel, sourceId, documentId, headingKeyword, chunkKeyword, runId, activeOnly);
         sql.append("""
-                 GROUP BY d.document_id, d.source_id, d.product_name, d.version_label, d.canonical_url, d.title,
-                          d.section_path_text, d.language_code, d.content_type, d.is_active, d.import_run_id,
-                          d.collected_at, d.normalized_at, d.updated_at
-                 ORDER BY d.updated_at DESC, d.document_id
-                 LIMIT :limit OFFSET :offset
+
+                GROUP BY d.document_id, d.source_id, d.product_name, d.version_label, d.canonical_url, d.title,
+                         d.section_path_text, d.language_code, d.content_type, d.is_active, d.import_run_id,
+                         d.collected_at, d.normalized_at, d.updated_at
+                ORDER BY d.updated_at DESC, d.document_id
+                LIMIT :limit OFFSET :offset
                 """);
         params.addValue("limit", normalizeLimit(limit));
         params.addValue("offset", normalizeOffset(offset));
@@ -335,6 +341,7 @@ public class CorpusAdminRepository {
                 activeOnly
         );
         sql.append("""
+
                 ORDER BY c.document_id, c.chunk_index_in_document
                 LIMIT :limit OFFSET :offset
                 """);
@@ -434,6 +441,7 @@ public class CorpusAdminRepository {
         MapSqlParameterSource params = new MapSqlParameterSource();
         appendGlossaryFilters(sql, params, productName, versionLabel, sourceId, termType, keepInEnglish, runId, activeOnly, keyword);
         sql.append("""
+
                 ORDER BY gt.evidence_count DESC, gt.canonical_form
                 LIMIT :limit OFFSET :offset
                 """);

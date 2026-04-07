@@ -23,8 +23,8 @@ import org.testcontainers.utility.DockerImageName;
 
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.Instant;
-import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -82,7 +82,11 @@ class PipelineAdminIntegrationTest {
         assertThat(runDetail.path("steps")).hasSize(5);
         assertThat(runDetail.at("/steps/0/stepStatus").asText()).isEqualTo("success");
         assertThat(runDetail.at("/steps/4/stepStatus").asText()).isEqualTo("success");
-        assertThat(runDetail.at("/steps/0/stdoutLogPath").asText()).contains("collect.stdout.log");
+        String repoRoot = detectRepoRoot().toString();
+        assertThat(runDetail.at("/steps/0/stdoutLogPath").asText())
+                .startsWith(repoRoot)
+                .contains("collect.stdout.log");
+        assertThat(runDetail.at("/steps/0/outputArtifactPath").asText()).startsWith(repoRoot);
 
         mockMvc.perform(get("/api/admin/pipeline/runs/{runId}/logs", runId))
                 .andExpect(status().isOk())
@@ -103,6 +107,18 @@ class PipelineAdminIntegrationTest {
             Thread.sleep(150L);
         }
         throw new AssertionError("Run did not complete successfully in time.");
+    }
+
+    private Path detectRepoRoot() {
+        Path current = Path.of("").toAbsolutePath().normalize();
+        if (Files.exists(current.resolve("pipeline/cli.py"))) {
+            return current;
+        }
+        Path parent = current.getParent();
+        if (parent != null && Files.exists(parent.resolve("pipeline/cli.py"))) {
+            return parent;
+        }
+        throw new AssertionError("Failed to detect query-forge repo root for integration test.");
     }
 
     @TestConfiguration

@@ -358,8 +358,10 @@ public class PipelineAdminService {
 
     private ArtifactContext prepareArtifacts(UUID runId, String runType, Scope scope) {
         Path repoRoot = sourceCatalogService.repoRoot();
-        Path workspace = repoRoot.resolve("data/tmp/admin-runs").resolve(runId.toString());
-        Path logsDirectory = repoRoot.resolve(properties.logsDir()).resolve(runId.toString());
+        Path workspaceRoot = sourceCatalogService.resolveWithinRepo("data/tmp/admin-runs", "admin run workspace");
+        Path logsRoot = sourceCatalogService.resolveWithinRepo(properties.logsDir(), "admin pipeline logs directory");
+        Path workspace = workspaceRoot.resolve(runId.toString()).normalize();
+        Path logsDirectory = logsRoot.resolve(runId.toString()).normalize();
         try {
             Files.createDirectories(workspace);
             Files.createDirectories(logsDirectory);
@@ -367,12 +369,12 @@ public class PipelineAdminService {
             throw new IllegalStateException("Failed to prepare run workspace.", exception);
         }
 
-        Path rawCanonical = repoRoot.resolve(properties.rawOutputPath());
-        Path sectionsCanonical = repoRoot.resolve(properties.sectionsOutputPath());
-        Path chunksCanonical = repoRoot.resolve(properties.chunksOutputPath());
-        Path glossaryCanonical = repoRoot.resolve(properties.glossaryOutputPath());
-        Path relationsCanonical = repoRoot.resolve(properties.relationsOutputPath());
-        Path visualizationCanonical = repoRoot.resolve(properties.visualizationOutputPath());
+        Path rawCanonical = sourceCatalogService.resolveWithinRepo(properties.rawOutputPath(), "raw output artifact");
+        Path sectionsCanonical = sourceCatalogService.resolveWithinRepo(properties.sectionsOutputPath(), "sections output artifact");
+        Path chunksCanonical = sourceCatalogService.resolveWithinRepo(properties.chunksOutputPath(), "chunks output artifact");
+        Path glossaryCanonical = sourceCatalogService.resolveWithinRepo(properties.glossaryOutputPath(), "glossary output artifact");
+        Path relationsCanonical = sourceCatalogService.resolveWithinRepo(properties.relationsOutputPath(), "relations output artifact");
+        Path visualizationCanonical = sourceCatalogService.resolveWithinRepo(properties.visualizationOutputPath(), "visualization output artifact");
 
         boolean scopedWorkspace = !scope.documentIds().isEmpty()
                 && !"collect".equals(runType)
@@ -586,7 +588,7 @@ public class PipelineAdminService {
     private List<String> baseCommand(String subCommand) {
         List<String> command = new ArrayList<>();
         command.add(properties.pythonCommand());
-        command.add("pipeline/cli.py");
+        command.add(sourceCatalogService.resolveWithinRepo("pipeline/cli.py", "pipeline CLI entrypoint").toString());
         command.add(subCommand);
         return command;
     }
@@ -669,7 +671,7 @@ public class PipelineAdminService {
         if (sourceIds.isEmpty()) {
             return List.of();
         }
-        Path rawPath = sourceCatalogService.repoRoot().resolve(properties.rawOutputPath());
+        Path rawPath = sourceCatalogService.resolveWithinRepo(properties.rawOutputPath(), "raw output artifact");
         if (!Files.exists(rawPath)) {
             return List.of();
         }
@@ -793,7 +795,7 @@ public class PipelineAdminService {
     }
 
     private Path resolveRepoRelative(String relative) {
-        return sourceCatalogService.repoRoot().resolve(relative).normalize();
+        return sourceCatalogService.resolveWithinRepo(relative, "repo-relative path");
     }
 
     @FunctionalInterface

@@ -31,7 +31,7 @@ query-forge:
   experiment-root: ${EXPERIMENT_ROOT:../configs/experiments}
   admin:
     pipeline:
-      repo-root: ${QUERY_FORGE_REPO_ROOT:..}
+      repo-root: ${QUERY_FORGE_REPO_ROOT:.}
       python-command: ${QUERY_FORGE_PYTHON:python}
       logs-dir: ${QUERY_FORGE_LOG_DIR:data/logs/admin-pipeline}
       source-config-dir: ${QUERY_FORGE_SOURCE_CONFIG_DIR:configs/app/sources}

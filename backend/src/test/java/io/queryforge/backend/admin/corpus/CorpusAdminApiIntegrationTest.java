@@ -44,6 +44,20 @@ class CorpusAdminApiIntegrationTest {
     private MockMvc mockMvc;
 
     @Test
+    void sourceListEndpointReturnsAggregatedVersionStats() throws Exception {
+        mockMvc.perform(get("/api/admin/corpus/sources"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].sourceId").value("spring-framework-reference"))
+                .andExpect(jsonPath("$[0].totalDocuments").value(2))
+                .andExpect(jsonPath("$[0].activeDocuments").value(2))
+                .andExpect(jsonPath("$[0].versionStats.length()").value(1))
+                .andExpect(jsonPath("$[0].versionStats[0].version_label").value("7.0.6"))
+                .andExpect(jsonPath("$[0].versionStats[0].document_count").value(2))
+                .andExpect(jsonPath("$[0].versionStats[0].active_count").value(2));
+    }
+
+    @Test
     void documentHierarchyAndPreviewEndpointsWork() throws Exception {
         mockMvc.perform(get("/api/admin/corpus/documents")
                         .param("document_id", "doc_fixture_1"))
@@ -74,6 +88,21 @@ class CorpusAdminApiIntegrationTest {
         mockMvc.perform(get("/api/admin/corpus/chunks/chk_fixture_1/neighbors"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[0].targetChunkId").value("chk_fixture_2"));
+    }
+
+    @Test
+    void chunkAndGlossaryListEndpointsSupportActiveOnlyFilter() throws Exception {
+        mockMvc.perform(get("/api/admin/corpus/chunks")
+                        .param("active_only", "true"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(3))
+                .andExpect(jsonPath("$[0].chunkId").value("chk_fixture_1"));
+
+        mockMvc.perform(get("/api/admin/corpus/glossary")
+                        .param("active_only", "true"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].canonicalForm").value("@Value"));
     }
 
     @Test
