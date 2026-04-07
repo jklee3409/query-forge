@@ -3,6 +3,7 @@ package io.queryforge.backend.admin.pipeline.controller;
 import io.queryforge.backend.admin.corpus.model.CorpusAdminDtos;
 import io.queryforge.backend.admin.pipeline.model.PipelineAdminDtos;
 import io.queryforge.backend.admin.pipeline.service.PipelineAdminService;
+import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -16,13 +17,10 @@ import java.util.UUID;
 
 @RestController
 @RequestMapping("/api/admin/pipeline")
+@RequiredArgsConstructor
 public class PipelineAdminController {
 
     private final PipelineAdminService service;
-
-    public PipelineAdminController(PipelineAdminService service) {
-        this.service = service;
-    }
 
     @GetMapping("/dashboard")
     public PipelineAdminDtos.DashboardStats dashboard() {

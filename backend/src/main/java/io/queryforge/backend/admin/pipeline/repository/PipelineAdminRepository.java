@@ -2,47 +2,47 @@ package io.queryforge.backend.admin.pipeline.repository;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.queryforge.backend.admin.persistence.entity.CorpusRunEntity;
+import io.queryforge.backend.admin.persistence.entity.CorpusRunStepEntity;
+import io.queryforge.backend.admin.persistence.entity.CorpusSourceEntity;
+import io.queryforge.backend.admin.persistence.repository.CorpusRunJpaRepository;
+import io.queryforge.backend.admin.persistence.repository.CorpusRunStepJpaRepository;
+import io.queryforge.backend.admin.persistence.repository.CorpusSourceJpaRepository;
 import io.queryforge.backend.admin.pipeline.model.PipelineAdminDtos;
-import org.springframework.jdbc.core.RowMapper;
-import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
-import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.PersistenceContext;
+import jakarta.persistence.Query;
+import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Repository;
+import org.springframework.transaction.annotation.Transactional;
 
-import java.sql.ResultSet;
-import java.sql.SQLException;
 import java.sql.Timestamp;
 import java.time.Instant;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
 @Repository
+@RequiredArgsConstructor
+@Transactional(readOnly = true)
 public class PipelineAdminRepository {
 
-    private final NamedParameterJdbcTemplate jdbcTemplate;
     private final ObjectMapper objectMapper;
+    private final CorpusRunJpaRepository runRepository;
+    private final CorpusRunStepJpaRepository runStepRepository;
+    private final CorpusSourceJpaRepository sourceRepository;
 
-    public PipelineAdminRepository(
-            NamedParameterJdbcTemplate jdbcTemplate,
-            ObjectMapper objectMapper
-    ) {
-        this.jdbcTemplate = jdbcTemplate;
-        this.objectMapper = objectMapper;
-    }
+    @PersistenceContext
+    private EntityManager entityManager;
 
     public Optional<UUID> findActiveRunId() {
-        String sql = """
-                SELECT run_id
-                FROM corpus_runs
-                WHERE run_status IN ('queued', 'running')
-                ORDER BY created_at DESC
-                LIMIT 1
-                """;
-        List<UUID> runIds = jdbcTemplate.query(sql, (rs, rowNum) -> readUuid(rs, "run_id"));
-        return runIds.stream().findFirst();
+        return runRepository.findFirstByRunStatusInOrderByCreatedAtDesc(List.of("queued", "running"))
+                .map(CorpusRunEntity::getRunId);
     }
 
+    @Transactional
     public void createRun(
             UUID runId,
             String runType,
@@ -51,43 +51,23 @@ public class PipelineAdminRepository {
             Map<String, Object> configSnapshot,
             String createdBy
     ) {
-        String sql = """
-                INSERT INTO corpus_runs (
-                    run_id,
-                    run_type,
-                    run_status,
-                    trigger_type,
-                    source_scope,
-                    config_snapshot,
-                    summary_json,
-                    created_by,
-                    created_at,
-                    updated_at
-                ) VALUES (
-                    :runId,
-                    :runType,
-                    'queued',
-                    :triggerType,
-                    CAST(:sourceScope AS jsonb),
-                    CAST(:configSnapshot AS jsonb),
-                    '{}'::jsonb,
-                    :createdBy,
-                    NOW(),
-                    NOW()
-                )
-                """;
-        jdbcTemplate.update(
-                sql,
-                new MapSqlParameterSource()
-                        .addValue("runId", runId)
-                        .addValue("runType", runType)
-                        .addValue("triggerType", triggerType)
-                        .addValue("sourceScope", writeJson(sourceScope))
-                        .addValue("configSnapshot", writeJson(configSnapshot))
-                        .addValue("createdBy", createdBy)
-        );
+        CorpusRunEntity run = CorpusRunEntity.builder()
+                .runId(runId)
+                .runType(runType)
+                .runStatus("queued")
+                .triggerType(triggerType)
+                .sourceScope(writeJson(sourceScope))
+                .configSnapshot(writeJson(configSnapshot))
+                .summaryJson("{}")
+                .createdBy(createdBy)
+                .build();
+        Instant now = Instant.now();
+        run.setCreatedAt(now);
+        run.setUpdatedAt(now);
+        runRepository.save(run);
     }
 
+    @Transactional
     public void createStep(
             UUID stepId,
             UUID runId,
@@ -96,61 +76,46 @@ public class PipelineAdminRepository {
             String inputArtifactPath,
             String outputArtifactPath
     ) {
-        String sql = """
-                INSERT INTO corpus_run_steps (
-                    step_id,
-                    run_id,
-                    step_name,
-                    step_order,
-                    step_status,
-                    input_artifact_path,
-                    output_artifact_path,
-                    metrics_json,
-                    created_at,
-                    updated_at
-                ) VALUES (
-                    :stepId,
-                    :runId,
-                    :stepName,
-                    :stepOrder,
-                    'queued',
-                    :inputArtifactPath,
-                    :outputArtifactPath,
-                    '{}'::jsonb,
-                    NOW(),
-                    NOW()
-                )
-                """;
-        jdbcTemplate.update(
-                sql,
-                new MapSqlParameterSource()
-                        .addValue("stepId", stepId)
-                        .addValue("runId", runId)
-                        .addValue("stepName", stepName)
-                        .addValue("stepOrder", stepOrder)
-                        .addValue("inputArtifactPath", inputArtifactPath)
-                        .addValue("outputArtifactPath", outputArtifactPath)
-        );
+        CorpusRunEntity runRef = entityManager.getReference(CorpusRunEntity.class, runId);
+        CorpusRunStepEntity step = CorpusRunStepEntity.builder()
+                .stepId(stepId)
+                .run(runRef)
+                .stepName(stepName)
+                .stepOrder(stepOrder)
+                .stepStatus("queued")
+                .inputArtifactPath(inputArtifactPath)
+                .outputArtifactPath(outputArtifactPath)
+                .metricsJson("{}")
+                .build();
+        Instant now = Instant.now();
+        step.setCreatedAt(now);
+        step.setUpdatedAt(now);
+        runStepRepository.save(step);
     }
 
+    @Transactional
     public void markRunRunning(UUID runId) {
-        String sql = """
+        executeUpdate(
+                """
                 UPDATE corpus_runs
                 SET run_status = 'running',
                     started_at = COALESCE(started_at, NOW()),
                     updated_at = NOW()
                 WHERE run_id = :runId
-                """;
-        jdbcTemplate.update(sql, new MapSqlParameterSource("runId", runId));
+                """,
+                params("runId", runId)
+        );
     }
 
+    @Transactional
     public void finishRun(
             UUID runId,
             String runStatus,
             Map<String, Object> summaryJson,
             String errorMessage
     ) {
-        String sql = """
+        executeUpdate(
+                """
                 UPDATE corpus_runs
                 SET run_status = :runStatus,
                     summary_json = CAST(:summaryJson AS jsonb),
@@ -162,34 +127,38 @@ public class PipelineAdminRepository {
                     END,
                     updated_at = NOW()
                 WHERE run_id = :runId
-                """;
-        jdbcTemplate.update(
-                sql,
-                new MapSqlParameterSource()
-                        .addValue("runId", runId)
-                        .addValue("runStatus", runStatus)
-                        .addValue("summaryJson", writeJson(summaryJson))
-                        .addValue("errorMessage", errorMessage)
+                """,
+                params(
+                        "runId", runId,
+                        "runStatus", runStatus,
+                        "summaryJson", writeJson(summaryJson),
+                        "errorMessage", errorMessage
+                )
         );
     }
 
+    @Transactional
     public void requestRunCancellation(UUID runId) {
-        String sql = """
+        executeUpdate(
+                """
                 UPDATE corpus_runs
                 SET cancel_requested_at = NOW(),
                     updated_at = NOW()
                 WHERE run_id = :runId
-                """;
-        jdbcTemplate.update(sql, new MapSqlParameterSource("runId", runId));
+                """,
+                params("runId", runId)
+        );
     }
 
+    @Transactional
     public void markStepRunning(
             UUID stepId,
             String commandLine,
             String stdoutLogPath,
             String stderrLogPath
     ) {
-        String sql = """
+        executeUpdate(
+                """
                 UPDATE corpus_run_steps
                 SET step_status = 'running',
                     command_line = :commandLine,
@@ -198,17 +167,17 @@ public class PipelineAdminRepository {
                     started_at = COALESCE(started_at, NOW()),
                     updated_at = NOW()
                 WHERE step_id = :stepId
-                """;
-        jdbcTemplate.update(
-                sql,
-                new MapSqlParameterSource()
-                        .addValue("stepId", stepId)
-                        .addValue("commandLine", commandLine)
-                        .addValue("stdoutLogPath", stdoutLogPath)
-                        .addValue("stderrLogPath", stderrLogPath)
+                """,
+                params(
+                        "stepId", stepId,
+                        "commandLine", commandLine,
+                        "stdoutLogPath", stdoutLogPath,
+                        "stderrLogPath", stderrLogPath
+                )
         );
     }
 
+    @Transactional
     public void finishStep(
             UUID stepId,
             String stepStatus,
@@ -218,7 +187,8 @@ public class PipelineAdminRepository {
             String stderrExcerpt,
             String outputArtifactPath
     ) {
-        String sql = """
+        executeUpdate(
+                """
                 UPDATE corpus_run_steps
                 SET step_status = :stepStatus,
                     metrics_json = CAST(:metricsJson AS jsonb),
@@ -229,22 +199,23 @@ public class PipelineAdminRepository {
                     finished_at = COALESCE(finished_at, NOW()),
                     updated_at = NOW()
                 WHERE step_id = :stepId
-                """;
-        jdbcTemplate.update(
-                sql,
-                new MapSqlParameterSource()
-                        .addValue("stepId", stepId)
-                        .addValue("stepStatus", stepStatus)
-                        .addValue("metricsJson", writeJson(metricsJson))
-                        .addValue("errorMessage", errorMessage)
-                        .addValue("stdoutExcerpt", stdoutExcerpt)
-                        .addValue("stderrExcerpt", stderrExcerpt)
-                        .addValue("outputArtifactPath", outputArtifactPath)
+                """,
+                params(
+                        "stepId", stepId,
+                        "stepStatus", stepStatus,
+                        "metricsJson", writeJson(metricsJson),
+                        "errorMessage", errorMessage,
+                        "stdoutExcerpt", stdoutExcerpt,
+                        "stderrExcerpt", stderrExcerpt,
+                        "outputArtifactPath", outputArtifactPath
+                )
         );
     }
 
+    @Transactional
     public void cancelQueuedSteps(UUID runId) {
-        String sql = """
+        executeUpdate(
+                """
                 UPDATE corpus_run_steps
                 SET step_status = 'cancelled',
                     error_message = COALESCE(error_message, 'Cancellation requested by user.'),
@@ -252,10 +223,12 @@ public class PipelineAdminRepository {
                     updated_at = NOW()
                 WHERE run_id = :runId
                   AND step_status = 'queued'
-                """;
-        jdbcTemplate.update(sql, new MapSqlParameterSource("runId", runId));
+                """,
+                params("runId", runId)
+        );
     }
 
+    @Transactional
     public void upsertSourceDefinition(
             String sourceId,
             String sourceType,
@@ -267,67 +240,41 @@ public class PipelineAdminRepository {
             String defaultVersion,
             boolean enabled
     ) {
-        String sql = """
-                INSERT INTO corpus_sources (
-                    source_id,
-                    source_type,
-                    product_name,
-                    source_name,
-                    base_url,
-                    include_patterns,
-                    exclude_patterns,
-                    default_version,
-                    enabled,
-                    created_at,
-                    updated_at
-                ) VALUES (
-                    :sourceId,
-                    :sourceType,
-                    :productName,
-                    :sourceName,
-                    :baseUrl,
-                    CAST(:includePatterns AS jsonb),
-                    CAST(:excludePatterns AS jsonb),
-                    :defaultVersion,
-                    :enabled,
-                    NOW(),
-                    NOW()
-                )
-                ON CONFLICT (source_id) DO UPDATE
-                SET source_type = EXCLUDED.source_type,
-                    product_name = EXCLUDED.product_name,
-                    source_name = EXCLUDED.source_name,
-                    base_url = EXCLUDED.base_url,
-                    include_patterns = EXCLUDED.include_patterns,
-                    exclude_patterns = EXCLUDED.exclude_patterns,
-                    default_version = COALESCE(corpus_sources.default_version, EXCLUDED.default_version),
-                    updated_at = NOW()
-                """;
-        jdbcTemplate.update(
-                sql,
-                new MapSqlParameterSource()
-                        .addValue("sourceId", sourceId)
-                        .addValue("sourceType", sourceType)
-                        .addValue("productName", productName)
-                        .addValue("sourceName", sourceName)
-                        .addValue("baseUrl", baseUrl)
-                        .addValue("includePatterns", writeJson(includePatterns))
-                        .addValue("excludePatterns", writeJson(excludePatterns))
-                        .addValue("defaultVersion", defaultVersion)
-                        .addValue("enabled", enabled)
-        );
+        CorpusSourceEntity source = sourceRepository.findById(sourceId).orElseGet(() -> {
+            CorpusSourceEntity entity = new CorpusSourceEntity();
+            entity.setSourceId(sourceId);
+            entity.setCreatedAt(Instant.now());
+            return entity;
+        });
+        source.setSourceType(sourceType);
+        source.setProductName(productName);
+        source.setSourceName(sourceName);
+        source.setBaseUrl(baseUrl);
+        source.setIncludePatterns(writeJson(includePatterns));
+        source.setExcludePatterns(writeJson(excludePatterns));
+        if (source.getDefaultVersion() == null) {
+            source.setDefaultVersion(defaultVersion);
+        }
+        source.setEnabled(enabled);
+        source.setUpdatedAt(Instant.now());
+        sourceRepository.save(source);
     }
 
+    @Transactional
     public void markStaleRunsFailed() {
-        String runSql = """
+        executeUpdate(
+                """
                 UPDATE corpus_runs
                 SET run_status = 'failed',
                     finished_at = NOW(),
                     error_message = COALESCE(error_message, 'Application restarted before pipeline completion.'),
                     updated_at = NOW()
                 WHERE run_status IN ('queued', 'running')
-                """;
-        String stepSql = """
+                """,
+                Map.of()
+        );
+        executeUpdate(
+                """
                 UPDATE corpus_run_steps
                 SET step_status = CASE
                         WHEN step_status = 'success' THEN step_status
@@ -343,83 +290,76 @@ public class PipelineAdminRepository {
                       AND error_message = 'Application restarted before pipeline completion.'
                 )
                   AND step_status IN ('queued', 'running')
-                """;
-        jdbcTemplate.update(runSql, new MapSqlParameterSource());
-        jdbcTemplate.update(stepSql, new MapSqlParameterSource());
+                """,
+                Map.of()
+        );
     }
 
     public PipelineAdminDtos.DashboardStats fetchDashboardStats() {
-        long sourceCount = jdbcTemplate.queryForObject(
-                "SELECT COUNT(*) FROM corpus_sources",
-                new MapSqlParameterSource(),
-                Long.class
-        );
-        long activeDocumentCount = jdbcTemplate.queryForObject(
-                "SELECT COUNT(*) FROM corpus_documents WHERE is_active = TRUE",
-                new MapSqlParameterSource(),
-                Long.class
-        );
-        long activeChunkCount = jdbcTemplate.queryForObject(
+        long sourceCount = queryForLong("SELECT COUNT(*) FROM corpus_sources");
+        long activeDocumentCount = queryForLong("SELECT COUNT(*) FROM corpus_documents WHERE is_active = TRUE");
+        long activeChunkCount = queryForLong(
                 """
                 SELECT COUNT(*)
                 FROM corpus_chunks c
                 JOIN corpus_documents d ON d.document_id = c.document_id
                 WHERE d.is_active = TRUE
-                """,
-                new MapSqlParameterSource(),
-                Long.class
+                """
         );
-        long glossaryTermCount = jdbcTemplate.queryForObject(
-                "SELECT COUNT(*) FROM corpus_glossary_terms WHERE is_active = TRUE",
-                new MapSqlParameterSource(),
-                Long.class
-        );
-        long recentRunSuccessCount = jdbcTemplate.queryForObject(
+        long glossaryTermCount = queryForLong("SELECT COUNT(*) FROM corpus_glossary_terms WHERE is_active = TRUE");
+        long recentRunSuccessCount = queryForLong(
                 """
                 SELECT COUNT(*)
                 FROM corpus_runs
                 WHERE created_at >= NOW() - INTERVAL '7 days'
                   AND run_status = 'success'
-                """,
-                new MapSqlParameterSource(),
-                Long.class
+                """
         );
-        long recentRunFailureCount = jdbcTemplate.queryForObject(
+        long recentRunFailureCount = queryForLong(
                 """
                 SELECT COUNT(*)
                 FROM corpus_runs
                 WHERE created_at >= NOW() - INTERVAL '7 days'
                   AND run_status = 'failed'
-                """,
-                new MapSqlParameterSource(),
-                Long.class
+                """
         );
 
-        List<PipelineAdminDtos.ProductDocumentStat> productStats = jdbcTemplate.query(
+        List<Object[]> productRows = queryRows(
                 """
                 SELECT product_name, COUNT(*) AS document_count
                 FROM corpus_documents
                 WHERE is_active = TRUE
                 GROUP BY product_name
                 ORDER BY COUNT(*) DESC, product_name
-                """,
-                (rs, rowNum) -> new PipelineAdminDtos.ProductDocumentStat(
-                        rs.getString("product_name"),
-                        rs.getLong("document_count")
-                )
+                """
         );
+        List<PipelineAdminDtos.ProductDocumentStat> productStats = productRows.stream()
+                .map(row -> new PipelineAdminDtos.ProductDocumentStat(
+                        stringValue(row[0]),
+                        longValue(row[1])
+                ))
+                .toList();
 
-        List<PipelineAdminDtos.RecentRunStat> recentRuns = jdbcTemplate.query(
+        List<Object[]> recentRunRows = queryRows(
                 """
                 SELECT run_id, run_type, run_status, started_at, finished_at, created_by
                 FROM corpus_runs
                 ORDER BY created_at DESC
                 LIMIT 10
-                """,
-                recentRunRowMapper()
+                """
         );
+        List<PipelineAdminDtos.RecentRunStat> recentRuns = recentRunRows.stream()
+                .map(row -> new PipelineAdminDtos.RecentRunStat(
+                        uuidValue(row[0]),
+                        stringValue(row[1]),
+                        stringValue(row[2]),
+                        instantValue(row[3]),
+                        instantValue(row[4]),
+                        stringValue(row[5])
+                ))
+                .toList();
 
-        List<PipelineAdminDtos.FailedStepStat> failedSteps = jdbcTemplate.query(
+        List<Object[]> failedStepRows = queryRows(
                 """
                 SELECT rs.run_id, rs.step_id, rs.step_name, rs.error_message, rs.finished_at
                 FROM corpus_run_steps rs
@@ -427,9 +367,17 @@ public class PipelineAdminRepository {
                 WHERE rs.step_status = 'failed'
                 ORDER BY COALESCE(rs.finished_at, r.updated_at) DESC
                 LIMIT 10
-                """,
-                failedStepRowMapper()
+                """
         );
+        List<PipelineAdminDtos.FailedStepStat> failedSteps = failedStepRows.stream()
+                .map(row -> new PipelineAdminDtos.FailedStepStat(
+                        uuidValue(row[0]),
+                        uuidValue(row[1]),
+                        stringValue(row[2]),
+                        stringValue(row[3]),
+                        instantValue(row[4])
+                ))
+                .toList();
 
         return new PipelineAdminDtos.DashboardStats(
                 sourceCount,
@@ -444,25 +392,28 @@ public class PipelineAdminRepository {
         );
     }
 
-    private RowMapper<PipelineAdminDtos.RecentRunStat> recentRunRowMapper() {
-        return (rs, rowNum) -> new PipelineAdminDtos.RecentRunStat(
-                readUuid(rs, "run_id"),
-                rs.getString("run_type"),
-                rs.getString("run_status"),
-                readInstant(rs, "started_at"),
-                readInstant(rs, "finished_at"),
-                rs.getString("created_by")
-        );
+    private void executeUpdate(String sql, Map<String, Object> parameters) {
+        Query query = entityManager.createNativeQuery(sql);
+        parameters.forEach(query::setParameter);
+        query.executeUpdate();
     }
 
-    private RowMapper<PipelineAdminDtos.FailedStepStat> failedStepRowMapper() {
-        return (rs, rowNum) -> new PipelineAdminDtos.FailedStepStat(
-                readUuid(rs, "run_id"),
-                readUuid(rs, "step_id"),
-                rs.getString("step_name"),
-                rs.getString("error_message"),
-                readInstant(rs, "finished_at")
-        );
+    private Map<String, Object> params(Object... keyValuePairs) {
+        Map<String, Object> parameters = new LinkedHashMap<>();
+        for (int index = 0; index < keyValuePairs.length; index += 2) {
+            parameters.put(String.valueOf(keyValuePairs[index]), keyValuePairs[index + 1]);
+        }
+        return parameters;
+    }
+
+    private long queryForLong(String sql) {
+        Object value = entityManager.createNativeQuery(sql).getSingleResult();
+        return longValue(value);
+    }
+
+    @SuppressWarnings("unchecked")
+    private List<Object[]> queryRows(String sql) {
+        return entityManager.createNativeQuery(sql).getResultList();
     }
 
     private String writeJson(Object value) {
@@ -473,19 +424,43 @@ public class PipelineAdminRepository {
         }
     }
 
-    private UUID readUuid(ResultSet rs, String column) throws SQLException {
-        Object value = rs.getObject(column);
+    private UUID uuidValue(Object value) {
         if (value == null) {
             return null;
         }
         if (value instanceof UUID uuid) {
             return uuid;
         }
-        return UUID.fromString(value.toString());
+        return UUID.fromString(String.valueOf(value));
     }
 
-    private Instant readInstant(ResultSet rs, String column) throws SQLException {
-        Timestamp timestamp = rs.getTimestamp(column);
-        return timestamp != null ? timestamp.toInstant() : null;
+    private Instant instantValue(Object value) {
+        if (value == null) {
+            return null;
+        }
+        if (value instanceof Instant instant) {
+            return instant;
+        }
+        if (value instanceof Timestamp timestamp) {
+            return timestamp.toInstant();
+        }
+        if (value instanceof java.time.OffsetDateTime offsetDateTime) {
+            return offsetDateTime.toInstant();
+        }
+        throw new IllegalArgumentException("Unsupported timestamp value: " + value.getClass());
+    }
+
+    private long longValue(Object value) {
+        if (value == null) {
+            return 0L;
+        }
+        if (value instanceof Number number) {
+            return number.longValue();
+        }
+        return Long.parseLong(String.valueOf(value));
+    }
+
+    private String stringValue(Object value) {
+        return value == null ? null : String.valueOf(value);
     }
 }

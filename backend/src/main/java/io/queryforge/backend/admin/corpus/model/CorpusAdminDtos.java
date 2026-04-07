@@ -1,6 +1,7 @@
 package io.queryforge.backend.admin.corpus.model;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import lombok.Builder;
 
 import java.time.Instant;
 import java.util.List;
@@ -286,11 +287,13 @@ public final class CorpusAdminDtos {
     ) {
     }
 
+    @Builder
     public record SourceUpdateRequest(
             Boolean enabled
     ) {
     }
 
+    @Builder
     public record GlossaryTermPatchRequest(
             Boolean keepInEnglish,
             Boolean active,
@@ -298,6 +301,7 @@ public final class CorpusAdminDtos {
     ) {
     }
 
+    @Builder
     public record GlossaryAliasCreateRequest(
             String aliasText,
             String aliasLanguage,

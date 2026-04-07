@@ -2,6 +2,7 @@ package io.queryforge.backend.admin.corpus.controller;
 
 import io.queryforge.backend.admin.corpus.model.CorpusAdminDtos;
 import io.queryforge.backend.admin.corpus.service.CorpusAdminService;
+import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -17,13 +18,10 @@ import java.util.UUID;
 
 @RestController
 @RequestMapping("/api/admin/corpus")
+@RequiredArgsConstructor
 public class CorpusAdminController {
 
     private final CorpusAdminService service;
-
-    public CorpusAdminController(CorpusAdminService service) {
-        this.service = service;
-    }
 
     @GetMapping("/sources")
     public List<CorpusAdminDtos.SourceSummary> listSources() {

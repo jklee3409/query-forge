@@ -5,7 +5,9 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import io.queryforge.backend.admin.corpus.model.CorpusAdminDtos;
 import io.queryforge.backend.admin.corpus.repository.CorpusAdminRepository;
 import io.queryforge.backend.admin.pipeline.service.SourceCatalogService;
+import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
@@ -13,21 +15,13 @@ import java.util.List;
 import java.util.UUID;
 
 @Service
+@RequiredArgsConstructor
+@Transactional(readOnly = true)
 public class CorpusAdminService {
 
     private final CorpusAdminRepository repository;
     private final ObjectMapper objectMapper;
     private final SourceCatalogService sourceCatalogService;
-
-    public CorpusAdminService(
-            CorpusAdminRepository repository,
-            ObjectMapper objectMapper,
-            SourceCatalogService sourceCatalogService
-    ) {
-        this.repository = repository;
-        this.objectMapper = objectMapper;
-        this.sourceCatalogService = sourceCatalogService;
-    }
 
     public List<CorpusAdminDtos.SourceSummary> listSources() {
         sourceCatalogService.syncSourcesFromConfig();
@@ -255,6 +249,7 @@ public class CorpusAdminService {
         return objectMapper.valueToTree(value);
     }
 
+    @Transactional
     public List<CorpusAdminDtos.GlossaryAliasDto> updateGlossaryTerm(
             UUID termId,
             CorpusAdminDtos.GlossaryTermPatchRequest request
@@ -268,6 +263,7 @@ public class CorpusAdminService {
         return repository.findGlossaryAliases(termId);
     }
 
+    @Transactional
     public CorpusAdminDtos.GlossaryTermDetail createGlossaryAlias(
             UUID termId,
             CorpusAdminDtos.GlossaryAliasCreateRequest request
@@ -281,10 +277,12 @@ public class CorpusAdminService {
         return getGlossaryTerm(termId);
     }
 
+    @Transactional
     public void deleteGlossaryAlias(UUID aliasId) {
         repository.deleteGlossaryAlias(aliasId);
     }
 
+    @Transactional
     public CorpusAdminDtos.SourceSummary updateSourceEnabled(String sourceId, boolean enabled) {
         repository.updateSourceEnabled(sourceId, enabled);
         return repository.findSources().stream()

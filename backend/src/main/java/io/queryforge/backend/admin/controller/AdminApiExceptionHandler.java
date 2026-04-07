@@ -1,24 +1,24 @@
 package io.queryforge.backend.admin.controller;
 
 import org.springframework.http.HttpStatus;
-import org.springframework.http.ResponseEntity;
+import org.springframework.http.ProblemDetail;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
-
-import java.util.Map;
 
 @RestControllerAdvice(basePackages = "io.queryforge.backend.admin")
 public class AdminApiExceptionHandler {
 
     @ExceptionHandler(IllegalStateException.class)
-    public ResponseEntity<Map<String, String>> handleIllegalState(IllegalStateException exception) {
-        return ResponseEntity.status(HttpStatus.CONFLICT)
-                .body(Map.of("error", exception.getMessage()));
+    public ProblemDetail handleIllegalState(IllegalStateException exception) {
+        ProblemDetail detail = ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, exception.getMessage());
+        detail.setTitle("요청 충돌");
+        return detail;
     }
 
     @ExceptionHandler(IllegalArgumentException.class)
-    public ResponseEntity<Map<String, String>> handleIllegalArgument(IllegalArgumentException exception) {
-        return ResponseEntity.badRequest()
-                .body(Map.of("error", exception.getMessage()));
+    public ProblemDetail handleIllegalArgument(IllegalArgumentException exception) {
+        ProblemDetail detail = ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, exception.getMessage());
+        detail.setTitle("잘못된 요청");
+        return detail;
     }
 }

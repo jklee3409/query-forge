@@ -3,10 +3,12 @@ package io.queryforge.backend.admin.corpus.repository;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.queryforge.backend.admin.corpus.model.CorpusAdminDtos;
+import lombok.RequiredArgsConstructor;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Repository;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.sql.ResultSet;
 import java.sql.SQLException;
@@ -17,20 +19,14 @@ import java.util.List;
 import java.util.UUID;
 
 @Repository
+@RequiredArgsConstructor
+@Transactional(readOnly = true)
 public class CorpusAdminRepository {
 
     private static final String OVERLAP_LABEL = "Overlap context from previous chunk:";
 
     private final NamedParameterJdbcTemplate jdbcTemplate;
     private final ObjectMapper objectMapper;
-
-    public CorpusAdminRepository(
-            NamedParameterJdbcTemplate jdbcTemplate,
-            ObjectMapper objectMapper
-    ) {
-        this.jdbcTemplate = jdbcTemplate;
-        this.objectMapper = objectMapper;
-    }
 
     public List<CorpusAdminDtos.SourceSummary> findSources() {
         String sql = """
@@ -506,6 +502,7 @@ public class CorpusAdminRepository {
         return jdbcTemplate.query(sql, new MapSqlParameterSource("termId", termId), glossaryEvidenceRowMapper());
     }
 
+    @Transactional
     public void updateSourceEnabled(String sourceId, boolean enabled) {
         String sql = """
                 UPDATE corpus_sources
@@ -521,6 +518,7 @@ public class CorpusAdminRepository {
         );
     }
 
+    @Transactional
     public void updateGlossaryTerm(
             UUID termId,
             Boolean keepInEnglish,
@@ -548,6 +546,7 @@ public class CorpusAdminRepository {
         jdbcTemplate.update(sql.toString(), params);
     }
 
+    @Transactional
     public UUID insertGlossaryAlias(
             UUID termId,
             String aliasText,
@@ -585,6 +584,7 @@ public class CorpusAdminRepository {
         return aliasId;
     }
 
+    @Transactional
     public void deleteGlossaryAlias(UUID aliasId) {
         String sql = "DELETE FROM corpus_glossary_aliases WHERE alias_id = :aliasId";
         jdbcTemplate.update(sql, new MapSqlParameterSource("aliasId", aliasId));

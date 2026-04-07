@@ -2,6 +2,7 @@ package io.queryforge.backend.admin.pipeline.service;
 
 import io.queryforge.backend.admin.pipeline.config.AdminPipelineProperties;
 import io.queryforge.backend.admin.pipeline.repository.PipelineAdminRepository;
+import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.yaml.snakeyaml.Yaml;
 
@@ -14,20 +15,13 @@ import java.util.List;
 import java.util.Map;
 
 @Service
+@RequiredArgsConstructor
 public class SourceCatalogService {
 
     private final AdminPipelineProperties properties;
     private final PipelineAdminRepository repository;
     private final Yaml yaml = new Yaml();
     private volatile Path repoRoot;
-
-    public SourceCatalogService(
-            AdminPipelineProperties properties,
-            PipelineAdminRepository repository
-    ) {
-        this.properties = properties;
-        this.repository = repository;
-    }
 
     public void syncSourcesFromConfig() {
         Path sourceDir = resolveWithinRepo(properties.sourceConfigDir(), "source config directory");

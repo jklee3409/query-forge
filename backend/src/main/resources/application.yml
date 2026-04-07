@@ -11,6 +11,10 @@ spring:
   thymeleaf:
     cache: false
     check-template-location: false
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: validate
 
 server:
   port: ${SERVER_PORT:8080}

@@ -3,7 +3,9 @@ package io.queryforge.backend.admin.pipeline.service;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.queryforge.backend.admin.pipeline.config.AdminPipelineProperties;
+import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -26,21 +28,13 @@ import java.util.UUID;
 import java.util.stream.Collectors;
 
 @Service
+@RequiredArgsConstructor
+@Transactional(readOnly = true)
 public class DocumentArtifactStoreService {
 
     private final AdminPipelineProperties properties;
     private final SourceCatalogService sourceCatalogService;
     private final ObjectMapper objectMapper;
-
-    public DocumentArtifactStoreService(
-            AdminPipelineProperties properties,
-            SourceCatalogService sourceCatalogService,
-            ObjectMapper objectMapper
-    ) {
-        this.properties = properties;
-        this.sourceCatalogService = sourceCatalogService;
-        this.objectMapper = objectMapper;
-    }
 
     public List<String> resolveAllDocumentIds() {
         return loadManifests().values().stream()
@@ -121,6 +115,7 @@ public class DocumentArtifactStoreService {
         writeLines(outputPath, lines);
     }
 
+    @Transactional
     public PersistResult persistRawArtifacts(Path workspaceRawPath, UUID runId) {
         if (!Files.exists(workspaceRawPath)) {
             writeLines(workspaceRawPath, List.of());
@@ -178,6 +173,7 @@ public class DocumentArtifactStoreService {
         return new PersistResult(changedDocumentIds, rowsByDocument.size(), changedDocumentIds.size());
     }
 
+    @Transactional
     public PersistResult persistNormalizedArtifacts(Path workspaceSectionsPath, UUID runId) {
         if (!Files.exists(workspaceSectionsPath)) {
             writeLines(workspaceSectionsPath, List.of());
@@ -217,6 +213,7 @@ public class DocumentArtifactStoreService {
         return new PersistResult(processedDocumentIds, groupedLines.size(), processedDocumentIds.size());
     }
 
+    @Transactional
     public PersistResult persistChunkArtifacts(
             Path workspaceChunksPath,
             Path workspaceGlossaryPath,
@@ -276,6 +273,7 @@ public class DocumentArtifactStoreService {
         return new PersistResult(processedDocumentIds, chunkLinesByDocument.size(), processedDocumentIds.size());
     }
 
+    @Transactional
     public PersistResult persistGlossaryArtifacts(Path workspaceGlossaryPath, UUID runId) {
         if (!Files.exists(workspaceGlossaryPath)) {
             writeLines(workspaceGlossaryPath, List.of());

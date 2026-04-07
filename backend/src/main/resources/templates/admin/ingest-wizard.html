@@ -37,11 +37,11 @@
                             </div>
                             <div class="detail-item">
                                 <div class="detail-item__label">문서 단위 저장소</div>
-                                <div class="detail-item__value mono" th:text="${pipelineProperties.artifactStoreDir()}">data/artifacts/corpus-docs</div>
+                                <div class="detail-item__value mono" th:text="${pipelineProperties.artifactStoreDir}">data/artifacts/corpus-docs</div>
                             </div>
                             <div class="detail-item">
                                 <div class="detail-item__label">집계 스냅샷</div>
-                                <div class="detail-item__value mono" th:text="${pipelineProperties.rawOutputPath()}">data/raw/spring_docs_raw.jsonl</div>
+                                <div class="detail-item__value mono" th:text="${pipelineProperties.rawOutputPath}">data/raw/spring_docs_raw.jsonl</div>
                             </div>
                         </div>
                     </article>
@@ -51,19 +51,19 @@
                         <div class="detail-list" style="margin-top:12px;">
                             <div class="detail-item">
                                 <div class="detail-item__label">정제 입력/출력</div>
-                                <div class="detail-item__value mono" th:text="${pipelineProperties.sectionsOutputPath()}">data/processed/spring_docs_sections.jsonl</div>
+                                <div class="detail-item__value mono" th:text="${pipelineProperties.sectionsOutputPath}">data/processed/spring_docs_sections.jsonl</div>
                             </div>
                             <div class="detail-item">
                                 <div class="detail-item__label">청킹 설정</div>
-                                <div class="detail-item__value mono" th:text="${pipelineProperties.chunkingConfig()}">configs/app/chunking.yml</div>
+                                <div class="detail-item__value mono" th:text="${pipelineProperties.chunkingConfig}">configs/app/chunking.yml</div>
                             </div>
                             <div class="detail-item">
                                 <div class="detail-item__label">청크 출력</div>
-                                <div class="detail-item__value mono" th:text="${pipelineProperties.chunksOutputPath()}">data/processed/chunks.jsonl</div>
+                                <div class="detail-item__value mono" th:text="${pipelineProperties.chunksOutputPath}">data/processed/chunks.jsonl</div>
                             </div>
                             <div class="detail-item">
                                 <div class="detail-item__label">용어 출력</div>
-                                <div class="detail-item__value mono" th:text="${pipelineProperties.glossaryOutputPath()}">data/processed/glossary_terms.jsonl</div>
+                                <div class="detail-item__value mono" th:text="${pipelineProperties.glossaryOutputPath}">data/processed/glossary_terms.jsonl</div>
                             </div>
                         </div>
                     </article>
@@ -73,7 +73,7 @@
                         <div class="detail-list" style="margin-top:12px;">
                             <div class="detail-item">
                                 <div class="detail-item__label">파이프라인 로그 경로</div>
-                                <div class="detail-item__value mono" th:text="${pipelineProperties.logsDir()}">data/logs/admin-pipeline</div>
+                                <div class="detail-item__value mono" th:text="${pipelineProperties.logsDir}">data/logs/admin-pipeline</div>
                             </div>
                             <div class="detail-item">
                                 <div class="detail-item__label">확인 방법</div>

@@ -8,8 +8,10 @@ import io.queryforge.backend.admin.pipeline.config.AdminPipelineProperties;
 import io.queryforge.backend.admin.pipeline.model.PipelineAdminDtos;
 import io.queryforge.backend.admin.pipeline.repository.PipelineAdminRepository;
 import jakarta.annotation.PostConstruct;
+import lombok.RequiredArgsConstructor;
 import org.springframework.boot.autoconfigure.jdbc.DataSourceProperties;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -28,6 +30,8 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 @Service
+@RequiredArgsConstructor
+@Transactional(readOnly = true)
 public class PipelineAdminService {
 
     private final AdminPipelineProperties properties;
@@ -41,28 +45,6 @@ public class PipelineAdminService {
     private final ObjectMapper objectMapper;
     private final Map<UUID, ManagedRunContext> managedRuns = new ConcurrentHashMap<>();
 
-    public PipelineAdminService(
-            AdminPipelineProperties properties,
-            DataSourceProperties dataSourceProperties,
-            PipelineAdminRepository repository,
-            CorpusAdminService corpusAdminService,
-            SourceCatalogService sourceCatalogService,
-            DocumentArtifactStoreService artifactStoreService,
-            PipelineCommandRunner commandRunner,
-            ExecutorService adminPipelineExecutor,
-            ObjectMapper objectMapper
-    ) {
-        this.properties = properties;
-        this.dataSourceProperties = dataSourceProperties;
-        this.repository = repository;
-        this.corpusAdminService = corpusAdminService;
-        this.sourceCatalogService = sourceCatalogService;
-        this.artifactStoreService = artifactStoreService;
-        this.commandRunner = commandRunner;
-        this.executorService = adminPipelineExecutor;
-        this.objectMapper = objectMapper;
-    }
-
     @PostConstruct
     void recoverStaleRuns() {
         repository.markStaleRunsFailed();
@@ -74,30 +56,37 @@ public class PipelineAdminService {
         return repository.fetchDashboardStats();
     }
 
+    @Transactional
     public PipelineAdminDtos.PipelineRunActionResponse startCollect(PipelineAdminDtos.PipelineRunRequest request) {
         return startRun("collect", request);
     }
 
+    @Transactional
     public PipelineAdminDtos.PipelineRunActionResponse startNormalize(PipelineAdminDtos.PipelineRunRequest request) {
         return startRun("normalize", request);
     }
 
+    @Transactional
     public PipelineAdminDtos.PipelineRunActionResponse startChunk(PipelineAdminDtos.PipelineRunRequest request) {
         return startRun("chunk", request);
     }
 
+    @Transactional
     public PipelineAdminDtos.PipelineRunActionResponse startGlossary(PipelineAdminDtos.PipelineRunRequest request) {
         return startRun("glossary", request);
     }
 
+    @Transactional
     public PipelineAdminDtos.PipelineRunActionResponse startImport(PipelineAdminDtos.PipelineRunRequest request) {
         return startRun("import", request);
     }
 
+    @Transactional
     public PipelineAdminDtos.PipelineRunActionResponse startFullIngest(PipelineAdminDtos.PipelineRunRequest request) {
         return startRun("full_ingest", request);
     }
 
+    @Transactional
     public PipelineAdminDtos.PipelineRunActionResponse retryRun(UUID runId) {
         CorpusAdminDtos.RunDetail detail = corpusAdminService.getRunDetail(runId);
         Map<String, Object> sourceScope = objectMapper.convertValue(
@@ -122,6 +111,7 @@ public class PipelineAdminService {
         return startRun(detail.run().runType(), request);
     }
 
+    @Transactional
     public PipelineAdminDtos.PipelineRunActionResponse cancelRun(UUID runId) {
         ManagedRunContext context = managedRuns.get(runId);
         if (context == null) {

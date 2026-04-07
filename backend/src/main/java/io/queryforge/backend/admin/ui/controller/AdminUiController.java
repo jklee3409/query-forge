@@ -4,6 +4,7 @@ import io.queryforge.backend.admin.corpus.model.CorpusAdminDtos;
 import io.queryforge.backend.admin.corpus.service.CorpusAdminService;
 import io.queryforge.backend.admin.pipeline.config.AdminPipelineProperties;
 import io.queryforge.backend.admin.pipeline.service.PipelineAdminService;
+import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Controller;
 import org.springframework.ui.Model;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -16,21 +17,12 @@ import java.util.UUID;
 
 @Controller
 @RequestMapping("/admin")
+@RequiredArgsConstructor
 public class AdminUiController {
 
     private final PipelineAdminService pipelineAdminService;
     private final CorpusAdminService corpusAdminService;
     private final AdminPipelineProperties pipelineProperties;
-
-    public AdminUiController(
-            PipelineAdminService pipelineAdminService,
-            CorpusAdminService corpusAdminService,
-            AdminPipelineProperties pipelineProperties
-    ) {
-        this.pipelineAdminService = pipelineAdminService;
-        this.corpusAdminService = corpusAdminService;
-        this.pipelineProperties = pipelineProperties;
-    }
 
     @GetMapping
     public String dashboard(Model model) {

@@ -1,6 +1,7 @@
 package io.queryforge.backend.admin.pipeline.model;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import lombok.Builder;
 
 import java.time.Instant;
 import java.util.List;
@@ -11,6 +12,7 @@ public final class PipelineAdminDtos {
     private PipelineAdminDtos() {
     }
 
+    @Builder
     public record PipelineRunRequest(
             List<String> sourceIds,
             List<String> documentIds,
@@ -22,6 +24,7 @@ public final class PipelineAdminDtos {
     ) {
     }
 
+    @Builder
     public record PipelineRunActionResponse(
             UUID runId,
             String runType,
