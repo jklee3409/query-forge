@@ -111,7 +111,7 @@
 
             <section class="table-shell" style="margin-top: 16px;">
                 <div class="table-header">
-                    <div class="table-title">상세 결과(질의 단위)</div>
+                    <div class="table-title">질의 단위 상세 결과</div>
                 </div>
                 <div class="table-wrap">
                     <table class="data-table" id="rag-details-table">
@@ -120,8 +120,8 @@
                             <th>sample_id</th>
                             <th>카테고리</th>
                             <th>원본 질의</th>
-                            <th>재작성 질의</th>
-                            <th>재작성 적용</th>
+                            <th>최종 질의</th>
+                            <th>rewrite</th>
                             <th>hit</th>
                             <th>기여 지표</th>
                         </tr>
@@ -130,6 +130,31 @@
                     </table>
                 </div>
             </section>
+
+            <section class="table-shell" style="margin-top: 16px;">
+                <div class="table-header">
+                    <div class="table-title">Rewrite 디버그 로그</div>
+                </div>
+                <div class="table-wrap">
+                    <table class="data-table" id="rag-rewrite-logs-table">
+                        <thead>
+                        <tr>
+                            <th>rewrite_log_id</th>
+                            <th>raw_query</th>
+                            <th>final_query</th>
+                            <th>전략</th>
+                            <th>적용</th>
+                            <th>delta</th>
+                            <th>결정 사유</th>
+                            <th>상세</th>
+                        </tr>
+                        </thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
+            </section>
+
+            <section class="panel" style="margin-top: 16px;" id="rag-rewrite-detail-panel"></section>
         </main>
     </div>
 </div>

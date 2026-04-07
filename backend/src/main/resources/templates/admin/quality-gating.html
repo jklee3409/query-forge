@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title th:text="${pageTitle}">퀄리티 게이팅 관리</title>
+    <title th:text="${pageTitle}">Quality Gating 관리</title>
     <link rel="stylesheet" th:href="@{/admin/admin.css}">
     <script defer th:src="@{/admin/admin.js}"></script>
     <script defer th:src="@{/admin/console.js}"></script>
@@ -64,7 +64,7 @@
                             <th>처리 수</th>
                             <th>승인 수</th>
                             <th>생존율</th>
-                            <th>퍼널</th>
+                            <th>열람</th>
                         </tr>
                         </thead>
                         <tbody></tbody>
@@ -76,7 +76,7 @@
 
             <section class="table-shell" style="margin-top: 16px;">
                 <div class="table-header">
-                    <div class="table-title">합성 질의별 게이팅 결과</div>
+                    <div class="table-title">질의별 게이팅 결과</div>
                 </div>
                 <div class="table-wrap">
                     <table class="data-table" id="gating-results-table">
@@ -90,6 +90,8 @@
                             <th>Utility</th>
                             <th>Diversity</th>
                             <th>Final Score</th>
+                            <th>탈락 단계</th>
+                            <th>탈락 사유</th>
                             <th>승인</th>
                         </tr>
                         </thead>
@@ -102,4 +104,3 @@
 </div>
 </body>
 </html>
-

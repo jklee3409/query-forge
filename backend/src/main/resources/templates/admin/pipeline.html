@@ -20,12 +20,12 @@
 
             <section class="panel" style="margin-top: 16px;">
                 <div class="table-title">실행 제어</div>
-                <p class="page-header__subtitle">단계별 실행 또는 전체 실행을 선택할 수 있습니다.</p>
+                <p class="page-header__subtitle">단계별 또는 전체 파이프라인 실행을 선택할 수 있습니다.</p>
                 <div class="toolbar" style="margin-top: 12px;">
                     <button class="button button--primary" data-pipeline-run="collect">문서 수집 실행</button>
                     <button class="button button--primary" data-pipeline-run="normalize">문서 정제 실행</button>
                     <button class="button button--primary" data-pipeline-run="chunk">청킹 실행</button>
-                    <button class="button button--primary" data-pipeline-run="glossary">어휘 추출 실행</button>
+                    <button class="button button--primary" data-pipeline-run="glossary">용어 추출 실행</button>
                     <button class="button" data-pipeline-run="full_ingest">전체 파이프라인 실행</button>
                 </div>
             </section>
@@ -41,11 +41,11 @@
                         <tr>
                             <th>실행 ID</th>
                             <th>실행 유형</th>
-                            <th>시작 시간</th>
-                            <th>종료 시간</th>
+                            <th>시작 시각</th>
+                            <th>종료 시각</th>
                             <th>상태</th>
                             <th>처리 건수</th>
-                            <th>에러</th>
+                            <th>오류</th>
                         </tr>
                         </thead>
                         <tbody></tbody>
@@ -55,7 +55,7 @@
 
             <section class="table-shell" style="margin-top: 16px;">
                 <div class="table-header">
-                    <div class="table-title">문서/청크/용어 조회</div>
+                    <div class="table-title">문서/청크 조회</div>
                 </div>
                 <form class="filter-bar" id="pipeline-doc-filter-form">
                     <div class="filter-field">
@@ -67,7 +67,7 @@
                         <input id="pipeline-version-label" name="version_label" placeholder="예: 6.1">
                     </div>
                     <div class="filter-field">
-                        <label for="pipeline-doc-keyword">문서 키워드</label>
+                        <label for="pipeline-doc-keyword">문서 ID</label>
                         <input id="pipeline-doc-keyword" name="document_id" placeholder="document_id">
                     </div>
                     <div class="filter-field--small">
@@ -98,4 +98,3 @@
 </div>
 </body>
 </html>
-

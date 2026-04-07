@@ -6,7 +6,7 @@
         <div class="admin-sidebar__logo">QF</div>
         <div>
             <div class="admin-sidebar__title">Query Forge</div>
-            <div class="admin-sidebar__subtitle">관리자 콘솔</div>
+            <div class="admin-sidebar__subtitle">연구 관리자 콘솔</div>
         </div>
     </div>
 
@@ -18,7 +18,7 @@
             <span>합성 질의 생성/조회</span>
         </a>
         <a th:href="@{/admin/quality-gating}" class="admin-nav__link" th:classappend="${navKey == 'gating'} ? ' is-active'">
-            <span>퀄리티 게이팅 관리</span>
+            <span>Quality Gating 관리</span>
         </a>
         <a th:href="@{/admin/rag-tests}" class="admin-nav__link" th:classappend="${navKey == 'rag-tests'} ? ' is-active'">
             <span>RAG 성능/품질 테스트</span>
@@ -27,14 +27,14 @@
 
     <div class="admin-sidebar__section">
         <div class="admin-sidebar__section-title">빠른 이동</div>
-        <a th:href="@{/}" class="admin-nav__link">사용자 채팅 화면</a>
+        <a th:href="@{/}" class="admin-nav__link">채팅 화면</a>
     </div>
 </aside>
 
 <header th:fragment="topbar(title, subtitle)" class="admin-topbar">
     <button type="button" class="admin-topbar__menu" data-sidebar-toggle>메뉴</button>
     <div class="admin-topbar__meta">
-        <div class="admin-topbar__title" th:text="${title}">관리자 콘솔</div>
+        <div class="admin-topbar__title" th:text="${title}">연구 관리자 콘솔</div>
         <div class="admin-topbar__subtitle" th:text="${subtitle}">subtitle</div>
     </div>
     <div class="admin-topbar__actions">
@@ -50,4 +50,3 @@
 </div>
 </body>
 </html>
-
