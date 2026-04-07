@@ -65,6 +65,11 @@ public class AdminConsoleController {
         return service.getSyntheticStats(methodCode, batchId);
     }
 
+    @GetMapping("/dashboard/stats")
+    public AdminConsoleDtos.AdminDashboardStats dashboardStats() {
+        return service.getDashboardStats();
+    }
+
     @GetMapping("/gating/batches")
     public List<AdminConsoleDtos.GatingBatchRow> gatingBatches(
             @RequestParam(name = "limit", required = false) Integer limit
@@ -134,5 +139,17 @@ public class AdminConsoleController {
     public AdminConsoleDtos.RagCompareResponse ragCompare(@RequestParam("dataset_id") UUID datasetId) {
         return service.compareRagRuns(datasetId);
     }
-}
 
+    @GetMapping("/rewrite/logs")
+    public List<AdminConsoleDtos.RewriteDebugRow> rewriteLogs(
+            @RequestParam(name = "limit", required = false) Integer limit,
+            @RequestParam(name = "offset", required = false) Integer offset
+    ) {
+        return service.listRewriteDebugRows(limit, offset);
+    }
+
+    @GetMapping("/rewrite/logs/{rewriteLogId}")
+    public AdminConsoleDtos.RewriteDebugDetail rewriteLogDetail(@PathVariable UUID rewriteLogId) {
+        return service.getRewriteDebugDetail(rewriteLogId);
+    }
+}

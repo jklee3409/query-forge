@@ -174,6 +174,56 @@ public class AdminConsoleRepository {
     }
 
     @Transactional
+    public void syncSyntheticQueryBatchProvenance(UUID batchId, UUID sourceGenerationRunId) {
+        String updateRawSql = """
+                UPDATE synthetic_queries_raw r
+                SET generation_batch_id = :batchId,
+                    generation_method_id = b.generation_method_id,
+                    prompt_template_version = COALESCE(r.prompt_template_version, r.prompt_version),
+                    language_profile = COALESCE(r.language_profile, CASE WHEN r.query_type = 'code_mixed' THEN 'code_mixed' ELSE 'ko' END),
+                    normalized_query_text = COALESCE(r.normalized_query_text, lower(regexp_replace(trim(r.query_text), '\\s+', ' ', 'g')))
+                FROM synthetic_query_generation_batch b
+                WHERE b.batch_id = :batchId
+                  AND r.experiment_run_id = :sourceGenerationRunId
+                """;
+        jdbcTemplate.update(
+                updateRawSql,
+                new MapSqlParameterSource()
+                        .addValue("batchId", batchId)
+                        .addValue("sourceGenerationRunId", sourceGenerationRunId)
+        );
+
+        String linkSql = """
+                INSERT INTO synthetic_query_source_link (
+                    synthetic_query_id,
+                    source_doc_id,
+                    source_chunk_id,
+                    source_role,
+                    metadata_json
+                )
+                SELECT r.synthetic_query_id,
+                       r.target_doc_id,
+                       r.chunk_id_source,
+                       'primary',
+                       jsonb_build_object(
+                           'generation_batch_id', :batchId::text,
+                           'source_generation_run_id', :sourceGenerationRunId::text
+                       )
+                FROM synthetic_queries_raw r
+                WHERE r.experiment_run_id = :sourceGenerationRunId
+                ON CONFLICT (synthetic_query_id, source_chunk_id, source_role) DO UPDATE
+                SET source_doc_id = EXCLUDED.source_doc_id,
+                    metadata_json = EXCLUDED.metadata_json
+                """;
+        jdbcTemplate.update(
+                linkSql,
+                new MapSqlParameterSource()
+                        .addValue("batchId", batchId)
+                        .addValue("sourceGenerationRunId", sourceGenerationRunId)
+        );
+    }
+
+    @Transactional
     public void failGenerationBatch(UUID batchId, String errorMessage, JsonNode resultPayload) {
         String sql = """
                 UPDATE synthetic_query_generation_batch
@@ -301,7 +351,8 @@ public class AdminConsoleRepository {
                        ) AS gated
                 FROM synthetic_queries_raw r
                 LEFT JOIN synthetic_query_generation_batch b
-                  ON b.source_generation_run_id = r.experiment_run_id
+                  ON b.batch_id = r.generation_batch_id
+                  OR (r.generation_batch_id IS NULL AND b.source_generation_run_id = r.experiment_run_id)
                 WHERE 1=1
                 """
         );
@@ -355,6 +406,8 @@ public class AdminConsoleRepository {
                        r.query_text,
                        r.query_type,
                        r.generation_strategy,
+                       r.generation_batch_id,
+                       r.language_profile,
                        jsonb_build_object(
                            'chunk_id', c.chunk_id,
                            'document_id', c.document_id,
@@ -362,8 +415,26 @@ public class AdminConsoleRepository {
                            'chunk_index_in_document', c.chunk_index_in_document,
                            'section_path_text', c.section_path_text
                        )::text AS source_chunk,
+                       COALESCE(
+                           (
+                               SELECT jsonb_agg(
+                                   jsonb_build_object(
+                                       'source_doc_id', l.source_doc_id,
+                                       'source_chunk_id', l.source_chunk_id,
+                                       'source_role', l.source_role,
+                                       'source_chunk_group_id', l.source_chunk_group_id,
+                                       'metadata', l.metadata_json
+                                   )
+                                   ORDER BY l.created_at
+                               )
+                               FROM synthetic_query_source_link l
+                               WHERE l.synthetic_query_id = r.synthetic_query_id
+                           ),
+                           '[]'::jsonb
+                       )::text AS source_links,
                        r.source_summary,
                        r.glossary_terms::text AS glossary_terms,
+                       r.prompt_template_version,
                        r.prompt_version,
                        r.prompt_hash,
                        r.llm_output::text AS raw_output,
@@ -381,9 +452,13 @@ public class AdminConsoleRepository {
                         rs.getString("query_text"),
                         rs.getString("query_type"),
                         rs.getString("generation_strategy"),
+                        readUuid(rs, "generation_batch_id"),
+                        rs.getString("language_profile"),
                         readJson(rs, "source_chunk"),
+                        readJson(rs, "source_links"),
                         rs.getString("source_summary"),
                         readJson(rs, "glossary_terms"),
+                        rs.getString("prompt_template_version"),
                         rs.getString("prompt_version"),
                         rs.getString("prompt_hash"),
                         readJson(rs, "raw_output"),
@@ -490,6 +565,34 @@ public class AdminConsoleRepository {
         return new AdminConsoleDtos.SyntheticStatsResponse(byMethod, byBatch, byType, byVersion);
     }
 
+    public AdminConsoleDtos.AdminDashboardStats findAdminDashboardStats() {
+        long sourceCount = queryLong("SELECT COUNT(*) FROM corpus_sources");
+        long activeDocumentCount = queryLong("SELECT COUNT(*) FROM corpus_documents WHERE is_active = TRUE");
+        long chunkCount = queryLong(
+                """
+                SELECT COUNT(*)
+                FROM corpus_chunks c
+                JOIN corpus_documents d ON d.document_id = c.document_id
+                WHERE d.is_active = TRUE
+                """
+        );
+        long glossaryCount = queryLong("SELECT COUNT(*) FROM corpus_glossary_terms WHERE is_active = TRUE");
+        long syntheticCount = queryLong("SELECT COUNT(*) FROM synthetic_queries_raw");
+        long gatedAcceptedCount = queryLong("SELECT COUNT(*) FROM synthetic_queries_gated WHERE final_decision = TRUE");
+        long memoryCount = queryLong("SELECT COUNT(*) FROM memory_entries");
+        long ragRunCount = queryLong("SELECT COUNT(*) FROM rag_test_run");
+        return new AdminConsoleDtos.AdminDashboardStats(
+                sourceCount,
+                activeDocumentCount,
+                chunkCount,
+                glossaryCount,
+                syntheticCount,
+                gatedAcceptedCount,
+                memoryCount,
+                ragRunCount
+        );
+    }
+
     @Transactional
     public UUID createGatingBatch(
             String gatingPreset,
@@ -567,6 +670,202 @@ public class AdminConsoleRepository {
                         .addValue("rejectedCount", rejectedCount)
                         .addValue("rejectionSummary", rejectionSummary.toString())
         );
+    }
+
+    @Transactional
+    public void syncGatingBatchResults(UUID gatingBatchId, UUID sourceGatingRunId) {
+        MapSqlParameterSource params = new MapSqlParameterSource()
+                .addValue("gatingBatchId", gatingBatchId)
+                .addValue("sourceGatingRunId", sourceGatingRunId.toString());
+
+        String cleanupResultSql = "DELETE FROM synthetic_query_gating_result WHERE gating_batch_id = :gatingBatchId";
+        jdbcTemplate.update(cleanupResultSql, params);
+        String cleanupHistorySql = "DELETE FROM synthetic_query_gating_history WHERE gating_batch_id = :gatingBatchId";
+        jdbcTemplate.update(cleanupHistorySql, params);
+        String cleanupStageSql = "DELETE FROM quality_gating_stage_result WHERE gating_batch_id = :gatingBatchId";
+        jdbcTemplate.update(cleanupStageSql, params);
+
+        String insertResultSql = """
+                INSERT INTO synthetic_query_gating_result (
+                    gating_batch_id,
+                    synthetic_query_id,
+                    query_text,
+                    query_type,
+                    language_profile,
+                    generation_strategy,
+                    rule_pass,
+                    llm_eval_score,
+                    utility_score,
+                    diversity_pass,
+                    novelty_score,
+                    final_score,
+                    accepted,
+                    rejected_stage,
+                    rejected_reason,
+                    llm_scores,
+                    stage_payload_json,
+                    created_at
+                )
+                SELECT :gatingBatchId,
+                       r.synthetic_query_id,
+                       r.query_text,
+                       r.query_type,
+                       COALESCE(r.language_profile, CASE WHEN r.query_type = 'code_mixed' THEN 'code_mixed' ELSE 'ko' END),
+                       r.generation_strategy,
+                       g.passed_rule_filter,
+                       COALESCE(
+                           (
+                               SELECT AVG((value)::double precision)
+                               FROM jsonb_each_text(COALESCE(g.llm_scores -> 'scores', g.llm_scores)) llm(value_key, value)
+                               WHERE value ~ '^[0-9]+(\\.[0-9]+)?$'
+                           ) / 5.0,
+                           NULL
+                       ) AS llm_eval_score,
+                       g.utility_score,
+                       g.passed_diversity,
+                       g.novelty_score,
+                       g.final_score,
+                       g.final_decision,
+                       COALESCE(
+                           g.rejected_stage,
+                           CASE
+                               WHEN COALESCE(g.passed_rule_filter, TRUE) = FALSE THEN 'rule_filter'
+                               WHEN COALESCE(g.passed_llm_self_eval, TRUE) = FALSE THEN 'llm_self_eval'
+                               WHEN COALESCE(g.passed_retrieval_utility, TRUE) = FALSE THEN 'retrieval_utility'
+                               WHEN COALESCE(g.passed_diversity, TRUE) = FALSE THEN 'diversity_dedup'
+                               WHEN COALESCE(g.final_decision, FALSE) = FALSE THEN 'final_score'
+                               ELSE 'approved'
+                           END
+                       ) AS rejected_stage,
+                       COALESCE(g.rejected_reason, NULLIF(g.rejection_reasons ->> 0, '')) AS rejected_reason,
+                       COALESCE(g.llm_scores, '{}'::jsonb),
+                       jsonb_build_object(
+                           'passed_rule_filter', g.passed_rule_filter,
+                           'passed_llm_self_eval', g.passed_llm_self_eval,
+                           'passed_retrieval_utility', g.passed_retrieval_utility,
+                           'passed_diversity', g.passed_diversity,
+                           'rejection_reasons', g.rejection_reasons
+                       ),
+                       g.created_at
+                FROM synthetic_queries_gated g
+                JOIN synthetic_queries_raw r
+                  ON r.synthetic_query_id = g.synthetic_query_id
+                WHERE g.metadata ->> 'experiment_run_id' = :sourceGatingRunId
+                """;
+        jdbcTemplate.update(insertResultSql, params);
+
+        String updateRawGatedSql = """
+                UPDATE synthetic_queries_gated g
+                SET gating_batch_id = :gatingBatchId,
+                    rejected_stage = COALESCE(
+                        g.rejected_stage,
+                        CASE
+                            WHEN COALESCE(g.passed_rule_filter, TRUE) = FALSE THEN 'rule_filter'
+                            WHEN COALESCE(g.passed_llm_self_eval, TRUE) = FALSE THEN 'llm_self_eval'
+                            WHEN COALESCE(g.passed_retrieval_utility, TRUE) = FALSE THEN 'retrieval_utility'
+                            WHEN COALESCE(g.passed_diversity, TRUE) = FALSE THEN 'diversity_dedup'
+                            WHEN COALESCE(g.final_decision, FALSE) = FALSE THEN 'final_score'
+                            ELSE 'approved'
+                        END
+                    ),
+                    rejected_reason = COALESCE(g.rejected_reason, NULLIF(g.rejection_reasons ->> 0, ''))
+                WHERE g.metadata ->> 'experiment_run_id' = :sourceGatingRunId
+                """;
+        jdbcTemplate.update(updateRawGatedSql, params);
+
+        String historySql = """
+                INSERT INTO synthetic_query_gating_history (
+                    gating_batch_id,
+                    synthetic_query_id,
+                    stage_name,
+                    stage_order,
+                    passed,
+                    score,
+                    reason,
+                    payload_json
+                )
+                SELECT :gatingBatchId,
+                       result.synthetic_query_id,
+                       stage.stage_name,
+                       stage.stage_order,
+                       stage.passed,
+                       stage.score,
+                       stage.reason,
+                       stage.payload
+                FROM synthetic_query_gating_result result
+                CROSS JOIN LATERAL (
+                    VALUES
+                        ('rule_filter', 1, COALESCE(result.rule_pass, TRUE), NULL::double precision, CASE WHEN COALESCE(result.rule_pass, TRUE) THEN NULL ELSE result.rejected_reason END, jsonb_build_object('stage', 'rule_filter')),
+                        ('llm_self_eval', 2, COALESCE((result.stage_payload_json ->> 'passed_llm_self_eval')::boolean, TRUE), result.llm_eval_score, CASE WHEN COALESCE((result.stage_payload_json ->> 'passed_llm_self_eval')::boolean, TRUE) THEN NULL ELSE result.rejected_reason END, jsonb_build_object('stage', 'llm_self_eval')),
+                        ('retrieval_utility', 3, COALESCE((result.stage_payload_json ->> 'passed_retrieval_utility')::boolean, TRUE), result.utility_score, CASE WHEN COALESCE((result.stage_payload_json ->> 'passed_retrieval_utility')::boolean, TRUE) THEN NULL ELSE result.rejected_reason END, jsonb_build_object('stage', 'retrieval_utility')),
+                        ('diversity_dedup', 4, COALESCE(result.diversity_pass, TRUE), result.novelty_score, CASE WHEN COALESCE(result.diversity_pass, TRUE) THEN NULL ELSE result.rejected_reason END, jsonb_build_object('stage', 'diversity_dedup')),
+                        ('final_score', 5, result.accepted, result.final_score, CASE WHEN result.accepted THEN NULL ELSE result.rejected_reason END, jsonb_build_object('stage', 'final_score'))
+                ) AS stage(stage_name, stage_order, passed, score, reason, payload)
+                WHERE result.gating_batch_id = :gatingBatchId
+                """;
+        jdbcTemplate.update(historySql, params);
+
+        String stageResultSql = """
+                INSERT INTO quality_gating_stage_result (
+                    gating_batch_id,
+                    stage_name,
+                    stage_order,
+                    input_count,
+                    passed_count,
+                    rejected_count,
+                    metrics_json
+                )
+                VALUES
+                    (
+                        :gatingBatchId, 'generated', 0,
+                        (SELECT COUNT(*) FROM synthetic_query_gating_result WHERE gating_batch_id = :gatingBatchId),
+                        (SELECT COUNT(*) FROM synthetic_query_gating_result WHERE gating_batch_id = :gatingBatchId),
+                        0,
+                        '{}'::jsonb
+                    ),
+                    (
+                        :gatingBatchId, 'rule_filter', 1,
+                        (SELECT COUNT(*) FROM synthetic_query_gating_result WHERE gating_batch_id = :gatingBatchId),
+                        (SELECT COUNT(*) FROM synthetic_query_gating_result WHERE gating_batch_id = :gatingBatchId AND COALESCE(rule_pass, TRUE)),
+                        (SELECT COUNT(*) FROM synthetic_query_gating_result WHERE gating_batch_id = :gatingBatchId AND COALESCE(rule_pass, TRUE) = FALSE),
+                        '{}'::jsonb
+                    ),
+                    (
+                        :gatingBatchId, 'llm_self_eval', 2,
+                        (SELECT COUNT(*) FROM synthetic_query_gating_result WHERE gating_batch_id = :gatingBatchId AND COALESCE(rule_pass, TRUE)),
+                        (SELECT COUNT(*) FROM synthetic_query_gating_result WHERE gating_batch_id = :gatingBatchId AND COALESCE(rule_pass, TRUE) AND COALESCE((stage_payload_json ->> 'passed_llm_self_eval')::boolean, TRUE)),
+                        (SELECT COUNT(*) FROM synthetic_query_gating_result WHERE gating_batch_id = :gatingBatchId AND COALESCE(rule_pass, TRUE) AND COALESCE((stage_payload_json ->> 'passed_llm_self_eval')::boolean, TRUE) = FALSE),
+                        '{}'::jsonb
+                    ),
+                    (
+                        :gatingBatchId, 'retrieval_utility', 3,
+                        (SELECT COUNT(*) FROM synthetic_query_gating_result WHERE gating_batch_id = :gatingBatchId AND COALESCE(rule_pass, TRUE) AND COALESCE((stage_payload_json ->> 'passed_llm_self_eval')::boolean, TRUE)),
+                        (SELECT COUNT(*) FROM synthetic_query_gating_result WHERE gating_batch_id = :gatingBatchId AND COALESCE(rule_pass, TRUE) AND COALESCE((stage_payload_json ->> 'passed_llm_self_eval')::boolean, TRUE) AND COALESCE((stage_payload_json ->> 'passed_retrieval_utility')::boolean, TRUE)),
+                        (SELECT COUNT(*) FROM synthetic_query_gating_result WHERE gating_batch_id = :gatingBatchId AND COALESCE(rule_pass, TRUE) AND COALESCE((stage_payload_json ->> 'passed_llm_self_eval')::boolean, TRUE) AND COALESCE((stage_payload_json ->> 'passed_retrieval_utility')::boolean, TRUE) = FALSE),
+                        '{}'::jsonb
+                    ),
+                    (
+                        :gatingBatchId, 'diversity_dedup', 4,
+                        (SELECT COUNT(*) FROM synthetic_query_gating_result WHERE gating_batch_id = :gatingBatchId AND COALESCE(rule_pass, TRUE) AND COALESCE((stage_payload_json ->> 'passed_llm_self_eval')::boolean, TRUE) AND COALESCE((stage_payload_json ->> 'passed_retrieval_utility')::boolean, TRUE)),
+                        (SELECT COUNT(*) FROM synthetic_query_gating_result WHERE gating_batch_id = :gatingBatchId AND COALESCE(rule_pass, TRUE) AND COALESCE((stage_payload_json ->> 'passed_llm_self_eval')::boolean, TRUE) AND COALESCE((stage_payload_json ->> 'passed_retrieval_utility')::boolean, TRUE) AND COALESCE(diversity_pass, TRUE)),
+                        (SELECT COUNT(*) FROM synthetic_query_gating_result WHERE gating_batch_id = :gatingBatchId AND COALESCE(rule_pass, TRUE) AND COALESCE((stage_payload_json ->> 'passed_llm_self_eval')::boolean, TRUE) AND COALESCE((stage_payload_json ->> 'passed_retrieval_utility')::boolean, TRUE) AND COALESCE(diversity_pass, TRUE) = FALSE),
+                        '{}'::jsonb
+                    ),
+                    (
+                        :gatingBatchId, 'final_approved', 5,
+                        (SELECT COUNT(*) FROM synthetic_query_gating_result WHERE gating_batch_id = :gatingBatchId AND COALESCE(rule_pass, TRUE) AND COALESCE((stage_payload_json ->> 'passed_llm_self_eval')::boolean, TRUE) AND COALESCE((stage_payload_json ->> 'passed_retrieval_utility')::boolean, TRUE) AND COALESCE(diversity_pass, TRUE)),
+                        (SELECT COUNT(*) FROM synthetic_query_gating_result WHERE gating_batch_id = :gatingBatchId AND accepted),
+                        (SELECT COUNT(*) FROM synthetic_query_gating_result WHERE gating_batch_id = :gatingBatchId AND NOT accepted),
+                        '{}'::jsonb
+                    )
+                ON CONFLICT (gating_batch_id, stage_name) DO UPDATE
+                SET stage_order = EXCLUDED.stage_order,
+                    input_count = EXCLUDED.input_count,
+                    passed_count = EXCLUDED.passed_count,
+                    rejected_count = EXCLUDED.rejected_count,
+                    metrics_json = EXCLUDED.metrics_json
+                """;
+        jdbcTemplate.update(stageResultSql, params);
     }
 
     @Transactional
@@ -648,62 +947,64 @@ public class AdminConsoleRepository {
     public AdminConsoleDtos.GatingFunnelResponse findGatingFunnel(UUID gatingBatchId) {
         AdminConsoleDtos.GatingBatchRow batch = findGatingBatch(gatingBatchId)
                 .orElseThrow(() -> new IllegalArgumentException("gating batch not found: " + gatingBatchId));
-        if (batch.sourceGatingRunId() == null) {
-            return new AdminConsoleDtos.GatingFunnelResponse(
-                    batch.gatingBatchId(),
-                    batch.methodCode(),
-                    batch.gatingPreset(),
-                    0,
-                    0,
-                    0,
-                    0,
-                    0,
-                    0
-            );
-        }
-        MapSqlParameterSource params = new MapSqlParameterSource()
-                .addValue("sourceGatingRunId", batch.sourceGatingRunId().toString())
-                .addValue("sourceGenerationRunId", batch.sourceGenerationRunId())
-                .addValue("methodCode", batch.methodCode());
-        String methodFilter = batch.methodCode() == null ? "" : " AND r.generation_strategy = :methodCode ";
-
-        Long generatedTotal = jdbcTemplate.queryForObject(
+        MapSqlParameterSource params = new MapSqlParameterSource("gatingBatchId", gatingBatchId);
+        int generatedTotal = intValue(jdbcTemplate.queryForObject(
                 """
-                SELECT COUNT(*)
-                FROM synthetic_queries_raw r
-                WHERE (:sourceGenerationRunId IS NULL OR r.experiment_run_id = :sourceGenerationRunId)
-                """ + methodFilter,
+                SELECT passed_count
+                FROM quality_gating_stage_result
+                WHERE gating_batch_id = :gatingBatchId
+                  AND stage_name = 'generated'
+                """,
                 params,
-                Long.class
-        );
-        String baseWhere = """
-                FROM synthetic_queries_gated g
-                JOIN synthetic_queries_raw r
-                  ON r.synthetic_query_id = g.synthetic_query_id
-                WHERE g.metadata ->> 'experiment_run_id' = :sourceGatingRunId
-                """ + methodFilter;
+                Integer.class
+        ));
         int passedRule = intValue(jdbcTemplate.queryForObject(
-                "SELECT COUNT(*) " + baseWhere + " AND COALESCE(g.passed_rule_filter, TRUE)",
+                """
+                SELECT passed_count
+                FROM quality_gating_stage_result
+                WHERE gating_batch_id = :gatingBatchId
+                  AND stage_name = 'rule_filter'
+                """,
                 params,
                 Integer.class
         ));
         int passedLlm = intValue(jdbcTemplate.queryForObject(
-                "SELECT COUNT(*) " + baseWhere + " AND COALESCE(g.passed_rule_filter, TRUE) AND COALESCE(g.passed_llm_self_eval, TRUE)",
+                """
+                SELECT passed_count
+                FROM quality_gating_stage_result
+                WHERE gating_batch_id = :gatingBatchId
+                  AND stage_name = 'llm_self_eval'
+                """,
                 params,
                 Integer.class
         ));
         int passedUtility = intValue(jdbcTemplate.queryForObject(
-                "SELECT COUNT(*) " + baseWhere + " AND COALESCE(g.passed_rule_filter, TRUE) AND COALESCE(g.passed_llm_self_eval, TRUE) AND COALESCE(g.passed_retrieval_utility, TRUE)",
+                """
+                SELECT passed_count
+                FROM quality_gating_stage_result
+                WHERE gating_batch_id = :gatingBatchId
+                  AND stage_name = 'retrieval_utility'
+                """,
                 params,
                 Integer.class
         ));
         int passedDiversity = intValue(jdbcTemplate.queryForObject(
-                "SELECT COUNT(*) " + baseWhere + " AND COALESCE(g.passed_rule_filter, TRUE) AND COALESCE(g.passed_llm_self_eval, TRUE) AND COALESCE(g.passed_retrieval_utility, TRUE) AND COALESCE(g.passed_diversity, TRUE)",
+                """
+                SELECT passed_count
+                FROM quality_gating_stage_result
+                WHERE gating_batch_id = :gatingBatchId
+                  AND stage_name = 'diversity_dedup'
+                """,
                 params,
                 Integer.class
         ));
         int finalAccepted = intValue(jdbcTemplate.queryForObject(
-                "SELECT COUNT(*) " + baseWhere + " AND g.final_decision = TRUE",
+                """
+                SELECT passed_count
+                FROM quality_gating_stage_result
+                WHERE gating_batch_id = :gatingBatchId
+                  AND stage_name = 'final_approved'
+                """,
                 params,
                 Integer.class
         ));
@@ -711,7 +1012,7 @@ public class AdminConsoleRepository {
                 batch.gatingBatchId(),
                 batch.methodCode(),
                 batch.gatingPreset(),
-                generatedTotal == null ? 0 : generatedTotal.intValue(),
+                generatedTotal,
                 passedRule,
                 passedLlm,
                 passedUtility,
@@ -726,44 +1027,37 @@ public class AdminConsoleRepository {
             Integer limit,
             Integer offset
     ) {
-        AdminConsoleDtos.GatingBatchRow batch = findGatingBatch(gatingBatchId)
+        findGatingBatch(gatingBatchId)
                 .orElseThrow(() -> new IllegalArgumentException("gating batch not found: " + gatingBatchId));
-        if (batch.sourceGatingRunId() == null) {
-            return List.of();
-        }
         StringBuilder sql = new StringBuilder(
                 """
-                SELECT r.synthetic_query_id,
-                       r.query_text,
-                       r.query_type,
-                       r.generation_strategy,
-                       g.passed_rule_filter,
-                       g.passed_llm_self_eval,
-                       g.passed_retrieval_utility,
-                       g.passed_diversity,
-                       g.utility_score,
-                       g.novelty_score,
-                       g.final_score,
-                       g.final_decision,
-                       g.llm_scores::text AS llm_scores,
-                       g.rejection_reasons::text AS rejection_reasons
-                FROM synthetic_queries_gated g
-                JOIN synthetic_queries_raw r
-                  ON r.synthetic_query_id = g.synthetic_query_id
-                WHERE g.metadata ->> 'experiment_run_id' = :sourceGatingRunId
+                SELECT gr.synthetic_query_id,
+                       gr.query_text,
+                       gr.query_type,
+                       gr.generation_strategy,
+                       gr.rule_pass,
+                       COALESCE((gr.stage_payload_json ->> 'passed_llm_self_eval')::boolean, TRUE) AS llm_pass,
+                       COALESCE((gr.stage_payload_json ->> 'passed_retrieval_utility')::boolean, TRUE) AS utility_pass,
+                       gr.diversity_pass,
+                       gr.utility_score,
+                       gr.novelty_score,
+                       gr.final_score,
+                       gr.accepted,
+                       gr.rejected_stage,
+                       gr.rejected_reason,
+                       gr.llm_scores::text AS llm_scores,
+                       gr.stage_payload_json -> 'rejection_reasons' AS rejection_reasons
+                FROM synthetic_query_gating_result gr
+                WHERE gr.gating_batch_id = :gatingBatchId
                 """
         );
-        MapSqlParameterSource params = new MapSqlParameterSource("sourceGatingRunId", batch.sourceGatingRunId().toString());
-        if (batch.methodCode() != null) {
-            sql.append(" AND r.generation_strategy = :methodCode");
-            params.addValue("methodCode", batch.methodCode());
-        }
+        MapSqlParameterSource params = new MapSqlParameterSource("gatingBatchId", gatingBatchId);
         if (queryType != null && !queryType.isBlank()) {
-            sql.append(" AND r.query_type = :queryType");
+            sql.append(" AND gr.query_type = :queryType");
             params.addValue("queryType", queryType.trim());
         }
         sql.append("""
-                ORDER BY g.created_at DESC
+                ORDER BY gr.created_at DESC
                 LIMIT :limit OFFSET :offset
                 """);
         params.addValue("limit", normalizeLimit(limit, 300));
@@ -776,14 +1070,16 @@ public class AdminConsoleRepository {
                         rs.getString("query_text"),
                         rs.getString("query_type"),
                         rs.getString("generation_strategy"),
-                        rs.getObject("passed_rule_filter", Boolean.class),
-                        rs.getObject("passed_llm_self_eval", Boolean.class),
-                        rs.getObject("passed_retrieval_utility", Boolean.class),
-                        rs.getObject("passed_diversity", Boolean.class),
+                        rs.getObject("rule_pass", Boolean.class),
+                        rs.getObject("llm_pass", Boolean.class),
+                        rs.getObject("utility_pass", Boolean.class),
+                        rs.getObject("diversity_pass", Boolean.class),
                         rs.getObject("utility_score", Double.class),
                         rs.getObject("novelty_score", Double.class),
                         rs.getObject("final_score", Double.class),
-                        rs.getBoolean("final_decision"),
+                        rs.getBoolean("accepted"),
+                        rs.getString("rejected_stage"),
+                        rs.getString("rejected_reason"),
                         readJson(rs, "llm_scores"),
                         readJson(rs, "rejection_reasons")
                 )
@@ -1112,6 +1408,8 @@ public class AdminConsoleRepository {
             Double ndcgAt10,
             Double latencyAvgMs,
             Double rewriteAcceptanceRate,
+            Double rewriteRejectionRate,
+            Double averageConfidenceDelta,
             JsonNode answerMetrics,
             JsonNode metricsJson
     ) {
@@ -1124,6 +1422,8 @@ public class AdminConsoleRepository {
                     ndcg_at_10,
                     latency_avg_ms,
                     rewrite_acceptance_rate,
+                    rewrite_rejection_rate,
+                    average_confidence_delta,
                     answer_metrics,
                     metrics_json
                 ) VALUES (
@@ -1134,6 +1434,8 @@ public class AdminConsoleRepository {
                     :ndcgAt10,
                     :latencyAvgMs,
                     :rewriteAcceptanceRate,
+                    :rewriteRejectionRate,
+                    :averageConfidenceDelta,
                     CAST(:answerMetrics AS jsonb),
                     CAST(:metricsJson AS jsonb)
                 )
@@ -1144,6 +1446,8 @@ public class AdminConsoleRepository {
                     ndcg_at_10 = EXCLUDED.ndcg_at_10,
                     latency_avg_ms = EXCLUDED.latency_avg_ms,
                     rewrite_acceptance_rate = EXCLUDED.rewrite_acceptance_rate,
+                    rewrite_rejection_rate = EXCLUDED.rewrite_rejection_rate,
+                    average_confidence_delta = EXCLUDED.average_confidence_delta,
                     answer_metrics = EXCLUDED.answer_metrics,
                     metrics_json = EXCLUDED.metrics_json
                 """;
@@ -1157,6 +1461,8 @@ public class AdminConsoleRepository {
                         .addValue("ndcgAt10", ndcgAt10)
                         .addValue("latencyAvgMs", latencyAvgMs)
                         .addValue("rewriteAcceptanceRate", rewriteAcceptanceRate)
+                        .addValue("rewriteRejectionRate", rewriteRejectionRate)
+                        .addValue("averageConfidenceDelta", averageConfidenceDelta)
                         .addValue("answerMetrics", answerMetrics.toString())
                         .addValue("metricsJson", metricsJson.toString())
         );
@@ -1354,6 +1660,8 @@ public class AdminConsoleRepository {
                     'ndcg_at_10', ndcg_at_10,
                     'latency_avg_ms', latency_avg_ms,
                     'rewrite_acceptance_rate', rewrite_acceptance_rate,
+                    'rewrite_rejection_rate', rewrite_rejection_rate,
+                    'average_confidence_delta', average_confidence_delta,
                     'answer_metrics', answer_metrics,
                     'metrics_json', metrics_json
                 )::text AS payload
@@ -1398,6 +1706,137 @@ public class AdminConsoleRepository {
                 new MapSqlParameterSource("datasetId", datasetId),
                 (rs, rowNum) -> mapRagTestRunRow(rs)
         );
+    }
+
+    public List<AdminConsoleDtos.RewriteDebugRow> findRewriteDebugRows(Integer limit, Integer offset) {
+        String sql = """
+                SELECT rewrite_log_id,
+                       online_query_id,
+                       raw_query,
+                       final_query,
+                       rewrite_strategy,
+                       rewrite_applied,
+                       gating_preset,
+                       raw_confidence,
+                       selected_confidence,
+                       confidence_delta,
+                       decision_reason,
+                       rejection_reason,
+                       created_at
+                FROM online_query_rewrite_log
+                ORDER BY created_at DESC
+                LIMIT :limit OFFSET :offset
+                """;
+        return jdbcTemplate.query(
+                sql,
+                new MapSqlParameterSource()
+                        .addValue("limit", normalizeLimit(limit, 200))
+                        .addValue("offset", normalizeOffset(offset)),
+                (rs, rowNum) -> new AdminConsoleDtos.RewriteDebugRow(
+                        readUuid(rs, "rewrite_log_id"),
+                        readUuid(rs, "online_query_id"),
+                        rs.getString("raw_query"),
+                        rs.getString("final_query"),
+                        rs.getString("rewrite_strategy"),
+                        rs.getBoolean("rewrite_applied"),
+                        rs.getString("gating_preset"),
+                        rs.getObject("raw_confidence", Double.class),
+                        rs.getObject("selected_confidence", Double.class),
+                        rs.getObject("confidence_delta", Double.class),
+                        rs.getString("decision_reason"),
+                        rs.getString("rejection_reason"),
+                        readInstant(rs, "created_at")
+                )
+        );
+    }
+
+    public Optional<AdminConsoleDtos.RewriteDebugDetail> findRewriteDebugDetail(UUID rewriteLogId) {
+        String rowSql = """
+                SELECT rewrite_log_id,
+                       online_query_id,
+                       raw_query,
+                       final_query,
+                       rewrite_strategy,
+                       rewrite_applied,
+                       gating_preset,
+                       raw_confidence,
+                       selected_confidence,
+                       confidence_delta,
+                       decision_reason,
+                       rejection_reason,
+                       created_at
+                FROM online_query_rewrite_log
+                WHERE rewrite_log_id = :rewriteLogId
+                """;
+        List<AdminConsoleDtos.RewriteDebugRow> rows = jdbcTemplate.query(
+                rowSql,
+                new MapSqlParameterSource("rewriteLogId", rewriteLogId),
+                (rs, rowNum) -> new AdminConsoleDtos.RewriteDebugRow(
+                        readUuid(rs, "rewrite_log_id"),
+                        readUuid(rs, "online_query_id"),
+                        rs.getString("raw_query"),
+                        rs.getString("final_query"),
+                        rs.getString("rewrite_strategy"),
+                        rs.getBoolean("rewrite_applied"),
+                        rs.getString("gating_preset"),
+                        rs.getObject("raw_confidence", Double.class),
+                        rs.getObject("selected_confidence", Double.class),
+                        rs.getObject("confidence_delta", Double.class),
+                        rs.getString("decision_reason"),
+                        rs.getString("rejection_reason"),
+                        readInstant(rs, "created_at")
+                )
+        );
+        if (rows.isEmpty()) {
+            return Optional.empty();
+        }
+        String memorySql = """
+                SELECT COALESCE(
+                    jsonb_agg(
+                        jsonb_build_object(
+                            'memory_retrieval_log_id', memory_retrieval_log_id,
+                            'memory_id', memory_id,
+                            'retrieval_rank', retrieval_rank,
+                            'similarity', similarity,
+                            'query_text', query_text,
+                            'target_doc_id', target_doc_id,
+                            'target_chunk_ids', target_chunk_ids,
+                            'generation_strategy', generation_strategy,
+                            'metadata', metadata_json
+                        )
+                        ORDER BY retrieval_rank
+                    ),
+                    '[]'::jsonb
+                )::text AS payload
+                FROM memory_retrieval_log
+                WHERE rewrite_log_id = :rewriteLogId
+                """;
+        String candidateSql = """
+                SELECT COALESCE(
+                    jsonb_agg(
+                        jsonb_build_object(
+                            'candidate_log_id', candidate_log_id,
+                            'rewrite_candidate_id', rewrite_candidate_id,
+                            'candidate_rank', candidate_rank,
+                            'candidate_label', candidate_label,
+                            'candidate_query', candidate_query,
+                            'confidence_score', confidence_score,
+                            'selected', selected,
+                            'rejection_reason', rejection_reason,
+                            'retrieval_top_k_docs', retrieval_top_k_docs,
+                            'score_breakdown', score_breakdown,
+                            'metadata', metadata_json
+                        )
+                        ORDER BY candidate_rank
+                    ),
+                    '[]'::jsonb
+                )::text AS payload
+                FROM rewrite_candidate_log
+                WHERE rewrite_log_id = :rewriteLogId
+                """;
+        JsonNode memory = readJson(jdbcTemplate.queryForObject(memorySql, new MapSqlParameterSource("rewriteLogId", rewriteLogId), String.class));
+        JsonNode candidates = readJson(jdbcTemplate.queryForObject(candidateSql, new MapSqlParameterSource("rewriteLogId", rewriteLogId), String.class));
+        return Optional.of(new AdminConsoleDtos.RewriteDebugDetail(rows.getFirst(), memory, candidates));
     }
 
     public JsonNode aggregateCategoryDistributionFromSamples() {
@@ -1513,6 +1952,11 @@ public class AdminConsoleRepository {
 
     private int intValue(Integer value) {
         return value == null ? 0 : value;
+    }
+
+    private long queryLong(String sql) {
+        Long value = jdbcTemplate.queryForObject(sql, new MapSqlParameterSource(), Long.class);
+        return value == null ? 0L : value;
     }
 
     private UUID readUuid(ResultSet rs, String column) throws SQLException {

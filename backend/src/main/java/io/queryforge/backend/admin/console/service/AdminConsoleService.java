@@ -66,6 +66,10 @@ public class AdminConsoleService {
         return repository.findSyntheticStats(methodCode, batchId);
     }
 
+    public AdminConsoleDtos.AdminDashboardStats getDashboardStats() {
+        return repository.findAdminDashboardStats();
+    }
+
     @Transactional
     public AdminConsoleDtos.SyntheticGenerationBatchRow runSyntheticGeneration(AdminConsoleDtos.SyntheticBatchRunRequest request) {
         String methodCode = normalizeMethodCode(request.methodCode());
@@ -88,6 +92,7 @@ public class AdminConsoleService {
                 defaultCreatedBy(request.createdBy()),
                 objectMapper.valueToTree(config)
         );
+        config.put("generation_batch_id", batchId.toString());
         writeExperimentConfig(experimentName, config);
 
         RagDtos.ExperimentCommandResponse response = experimentPipelineService.run(
@@ -106,6 +111,9 @@ public class AdminConsoleService {
                 generatedCount,
                 response.summary()
         );
+        if (sourceRunId != null) {
+            repository.syncSyntheticQueryBatchProvenance(batchId, sourceRunId);
+        }
         return repository.findGenerationBatch(batchId)
                 .orElseThrow(() -> new IllegalStateException("generation batch not found after completion: " + batchId));
     }
@@ -161,6 +169,7 @@ public class AdminConsoleService {
         config.put("enable_llm_self_eval", stageConfig.get("enable_llm_self_eval"));
         config.put("enable_retrieval_utility", stageConfig.get("enable_retrieval_utility"));
         config.put("enable_diversity", stageConfig.get("enable_diversity"));
+        config.put("gating_batch_id", gatingBatchId.toString());
         if (sourceGenerationRunId != null) {
             config.put("source_generation_run_id", sourceGenerationRunId.toString());
         }
@@ -187,6 +196,9 @@ public class AdminConsoleService {
                 rejected,
                 rejectionReasons.isMissingNode() ? objectMapper.createObjectNode() : rejectionReasons
         );
+        if (sourceGatingRunId != null) {
+            repository.syncGatingBatchResults(gatingBatchId, sourceGatingRunId);
+        }
         return repository.findGatingBatch(gatingBatchId)
                 .orElseThrow(() -> new IllegalStateException("gating batch not found after completion: " + gatingBatchId));
     }
@@ -217,6 +229,15 @@ public class AdminConsoleService {
 
     public AdminConsoleDtos.RagCompareResponse compareRagRuns(UUID datasetId) {
         return new AdminConsoleDtos.RagCompareResponse(datasetId, repository.findRagTestRunsByDataset(datasetId));
+    }
+
+    public List<AdminConsoleDtos.RewriteDebugRow> listRewriteDebugRows(Integer limit, Integer offset) {
+        return repository.findRewriteDebugRows(limit, offset);
+    }
+
+    public AdminConsoleDtos.RewriteDebugDetail getRewriteDebugDetail(UUID rewriteLogId) {
+        return repository.findRewriteDebugDetail(rewriteLogId)
+                .orElseThrow(() -> new IllegalArgumentException("rewrite log not found: " + rewriteLogId));
     }
 
     @Transactional
@@ -312,6 +333,8 @@ public class AdminConsoleService {
             Double ndcg = nullableDouble(summaryRow.path("ndcg@10"));
             Double latency = nullableDouble(latencyRow.path("avg_latency_ms"));
             Double adoption = nullableDouble(summaryRow.path("adoption_rate"));
+            Double rejectionRate = nullableDouble(summaryRow.path("rewrite_rejection_rate"));
+            Double avgConfidenceDelta = nullableDouble(summaryRow.path("avg_confidence_delta"));
 
             Map<String, Object> metrics = new LinkedHashMap<>();
             metrics.put("retrieval", retrievalSummary);
@@ -326,6 +349,8 @@ public class AdminConsoleService {
                     ndcg,
                     latency,
                     adoption,
+                    rejectionRate,
+                    avgConfidenceDelta,
                     answerMetrics.isMissingNode() ? objectMapper.createObjectNode() : answerMetrics,
                     objectMapper.valueToTree(metrics)
             );

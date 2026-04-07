@@ -135,9 +135,13 @@ public final class AdminConsoleDtos {
             String queryText,
             String queryType,
             String generationMethod,
+            UUID generationBatchId,
+            String languageProfile,
             JsonNode sourceChunk,
+            JsonNode sourceLinks,
             String sourceSummary,
             JsonNode glossaryTerms,
+            String promptTemplateVersion,
             String promptVersion,
             String promptHash,
             JsonNode rawOutput,
@@ -209,6 +213,8 @@ public final class AdminConsoleDtos {
             Double noveltyScore,
             Double finalScore,
             boolean finalDecision,
+            String rejectedStage,
+            String rejectedReason,
             JsonNode llmScores,
             JsonNode rejectionReasons
     ) {
@@ -301,6 +307,42 @@ public final class AdminConsoleDtos {
     public record RagCompareResponse(
             UUID datasetId,
             List<RagTestRunRow> runs
+    ) {
+    }
+
+    public record AdminDashboardStats(
+            long sourceCount,
+            long activeDocumentCount,
+            long chunkCount,
+            long glossaryCount,
+            long syntheticQueryCount,
+            long gatedAcceptedCount,
+            long memoryCount,
+            long ragRunCount
+    ) {
+    }
+
+    public record RewriteDebugRow(
+            UUID rewriteLogId,
+            UUID onlineQueryId,
+            String rawQuery,
+            String finalQuery,
+            String rewriteStrategy,
+            boolean rewriteApplied,
+            String gatingPreset,
+            Double rawConfidence,
+            Double selectedConfidence,
+            Double confidenceDelta,
+            String decisionReason,
+            String rejectionReason,
+            Instant createdAt
+    ) {
+    }
+
+    public record RewriteDebugDetail(
+            RewriteDebugRow rewrite,
+            JsonNode memoryRetrievals,
+            JsonNode candidateLogs
     ) {
     }
 }
