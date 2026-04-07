@@ -1,0 +1,20 @@
+experiment_key: ungated
+category: gating
+description: Ungated baseline for synthetic query memory.
+generation_strategy: C
+enable_code_mixed: true
+enable_rule_filter: false
+enable_llm_self_eval: false
+enable_retrieval_utility: false
+enable_diversity: false
+enable_anti_copy: false
+gating_preset: ungated
+memory_top_n: 5
+rewrite_candidate_count: 3
+rewrite_threshold: 0.05
+retrieval_top_k: 20
+rerank_top_n: 5
+use_session_context: false
+avg_queries_per_chunk: 4.2
+random_seed: 13
+

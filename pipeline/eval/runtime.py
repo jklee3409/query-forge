@@ -1,0 +1,367 @@
+from __future__ import annotations
+
+import math
+from dataclasses import dataclass
+from typing import Any
+
+import psycopg
+
+try:
+    from common.embeddings import cosine_similarity, embed_text
+except ModuleNotFoundError:  # pragma: no cover
+    from pipeline.common.embeddings import cosine_similarity, embed_text
+
+
+@dataclass(slots=True)
+class EvalSample:
+    sample_id: str
+    split: str
+    query_text: str
+    dialog_context: dict[str, Any]
+    expected_doc_ids: list[str]
+    expected_chunk_ids: list[str]
+    query_category: str
+    single_or_multi_chunk: str | None
+
+
+@dataclass(slots=True)
+class ChunkItem:
+    chunk_id: str
+    document_id: str
+    text: str
+    embedding: list[float]
+
+
+@dataclass(slots=True)
+class MemoryItem:
+    memory_id: str
+    query_text: str
+    target_doc_id: str
+    target_chunk_ids: list[str]
+    gating_preset: str
+    embedding: list[float]
+
+
+@dataclass(slots=True)
+class RetrievalCandidate:
+    chunk_id: str
+    document_id: str
+    score: float
+    text: str
+
+
+@dataclass(slots=True)
+class RewriteOutcome:
+    final_query: str
+    rewrite_applied: bool
+    rewrite_reason: str
+    raw_confidence: float
+    best_candidate_confidence: float
+    memory_top_n: list[dict[str, Any]]
+    candidates: list[dict[str, Any]]
+
+
+def load_eval_samples(connection: psycopg.Connection[Any]) -> list[EvalSample]:
+    with connection.cursor() as cursor:
+        cursor.execute(
+            """
+            SELECT sample_id,
+                   split,
+                   user_query_ko,
+                   dialog_context,
+                   expected_doc_ids,
+                   expected_chunk_ids,
+                   query_category,
+                   single_or_multi_chunk
+            FROM eval_samples
+            WHERE split IN ('dev', 'test')
+            ORDER BY split, sample_id
+            """
+        )
+        rows = cursor.fetchall()
+    return [
+        EvalSample(
+            sample_id=str(row["sample_id"]),
+            split=str(row["split"]),
+            query_text=str(row["user_query_ko"]),
+            dialog_context=dict(row["dialog_context"] or {}),
+            expected_doc_ids=list(row["expected_doc_ids"] or []),
+            expected_chunk_ids=list(row["expected_chunk_ids"] or []),
+            query_category=str(row["query_category"]),
+            single_or_multi_chunk=row["single_or_multi_chunk"],
+        )
+        for row in rows
+    ]
+
+
+def load_chunk_items(connection: psycopg.Connection[Any]) -> list[ChunkItem]:
+    with connection.cursor() as cursor:
+        cursor.execute(
+            """
+            SELECT chunk_id, document_id, chunk_text
+            FROM corpus_chunks
+            ORDER BY document_id, chunk_index_in_document
+            """
+        )
+        rows = cursor.fetchall()
+    return [
+        ChunkItem(
+            chunk_id=str(row["chunk_id"]),
+            document_id=str(row["document_id"]),
+            text=str(row["chunk_text"]),
+            embedding=embed_text(str(row["chunk_text"])),
+        )
+        for row in rows
+    ]
+
+
+def load_memory_items(connection: psycopg.Connection[Any]) -> list[MemoryItem]:
+    with connection.cursor() as cursor:
+        cursor.execute(
+            """
+            SELECT m.memory_id,
+                   m.query_text,
+                   m.target_doc_id,
+                   m.target_chunk_ids,
+                   g.gating_preset
+            FROM memory_entries m
+            JOIN synthetic_queries_gated g ON g.gated_query_id = m.source_gated_query_id
+            ORDER BY m.created_at DESC
+            """
+        )
+        rows = cursor.fetchall()
+    return [
+        MemoryItem(
+            memory_id=str(row["memory_id"]),
+            query_text=str(row["query_text"]),
+            target_doc_id=str(row["target_doc_id"]),
+            target_chunk_ids=list(row["target_chunk_ids"] or []),
+            gating_preset=str(row["gating_preset"]),
+            embedding=embed_text(str(row["query_text"])),
+        )
+        for row in rows
+    ]
+
+
+def retrieve_top_k(
+    query_text: str,
+    chunks: list[ChunkItem],
+    *,
+    top_k: int,
+) -> list[RetrievalCandidate]:
+    query_embedding = embed_text(query_text)
+    scored = [
+        RetrievalCandidate(
+            chunk_id=chunk.chunk_id,
+            document_id=chunk.document_id,
+            score=cosine_similarity(query_embedding, chunk.embedding),
+            text=chunk.text,
+        )
+        for chunk in chunks
+    ]
+    scored.sort(key=lambda item: item.score, reverse=True)
+    return scored[:top_k]
+
+
+def memory_top_n(
+    query_text: str,
+    memories: list[MemoryItem],
+    *,
+    top_n: int,
+    preset_filter: str | None = None,
+) -> list[dict[str, Any]]:
+    query_embedding = embed_text(query_text)
+    scored = []
+    for memory in memories:
+        if preset_filter and memory.gating_preset != preset_filter:
+            continue
+        similarity = cosine_similarity(query_embedding, memory.embedding)
+        scored.append(
+            {
+                "memory_id": memory.memory_id,
+                "query_text": memory.query_text,
+                "target_doc_id": memory.target_doc_id,
+                "target_chunk_ids": memory.target_chunk_ids,
+                "similarity": similarity,
+            }
+        )
+    scored.sort(key=lambda item: item["similarity"], reverse=True)
+    return scored[:top_n]
+
+
+def build_rewrite_candidates(
+    raw_query: str,
+    memory_items: list[dict[str, Any]],
+    *,
+    session_context: dict[str, Any],
+    candidate_count: int,
+) -> list[dict[str, str]]:
+    top_memory_query = memory_items[0]["query_text"] if memory_items else raw_query
+    previous_entity = str(session_context.get("previous_assistant_summary") or "").strip()
+    previous_question = str(session_context.get("previous_user_question") or "").strip()
+
+    templates = [
+        {
+            "label": "explicit_standalone",
+            "query": f"{raw_query}를 스프링 기술 문서 기준으로 독립 질문 형태로 상세히 설명해 주세요.",
+        },
+        {
+            "label": "memory_anchored",
+            "query": f"{raw_query} 관련하여 {top_memory_query}",
+        },
+        {
+            "label": "task_or_error_focused",
+            "query": f"{raw_query}가 실패하거나 오류가 날 때 점검 순서를 알려주세요.",
+        },
+    ]
+    if previous_entity or previous_question:
+        templates[0]["query"] = f"{previous_question} 이후 맥락에서 {raw_query}를 독립 질문으로 재작성해 주세요. {previous_entity}".strip()
+    return templates[:candidate_count]
+
+
+def confidence_score(
+    retrieval: list[RetrievalCandidate],
+    dense_score: float,
+) -> float:
+    if not retrieval:
+        return 0.0
+    top1 = (retrieval[0].score + 1.0) / 2.0
+    top3_items = retrieval[:3]
+    top3 = sum((item.score + 1.0) / 2.0 for item in top3_items) / max(1, len(top3_items))
+    dense = (dense_score + 1.0) / 2.0
+    return (0.6 * top1) + (0.3 * top3) + (0.1 * dense)
+
+
+def run_selective_rewrite(
+    *,
+    raw_query: str,
+    session_context: dict[str, Any],
+    chunks: list[ChunkItem],
+    memories: list[MemoryItem],
+    memory_top_n_value: int,
+    candidate_count: int,
+    threshold: float,
+    retrieval_top_k: int,
+    preset_filter: str | None = None,
+    force_rewrite: bool = False,
+) -> tuple[RewriteOutcome, list[RetrievalCandidate]]:
+    memory_items = memory_top_n(
+        raw_query,
+        memories,
+        top_n=memory_top_n_value,
+        preset_filter=preset_filter,
+    )
+    raw_retrieval = retrieve_top_k(raw_query, chunks, top_k=retrieval_top_k)
+    raw_dense = memory_items[0]["similarity"] if memory_items else 0.0
+    raw_confidence = confidence_score(raw_retrieval, raw_dense)
+
+    candidate_templates = build_rewrite_candidates(
+        raw_query,
+        memory_items,
+        session_context=session_context,
+        candidate_count=candidate_count,
+    )
+    candidates: list[dict[str, Any]] = []
+    best_candidate = None
+    for template in candidate_templates:
+        retrieved = retrieve_top_k(template["query"], chunks, top_k=retrieval_top_k)
+        dense = memory_items[0]["similarity"] if memory_items else 0.0
+        score = confidence_score(retrieved, dense)
+        candidate = {
+            "label": template["label"],
+            "query": template["query"],
+            "confidence": score,
+            "retrieval": retrieved,
+        }
+        candidates.append(candidate)
+        if best_candidate is None or score > best_candidate["confidence"]:
+            best_candidate = candidate
+
+    if best_candidate is None:
+        return (
+            RewriteOutcome(
+                final_query=raw_query,
+                rewrite_applied=False,
+                rewrite_reason="no_candidate",
+                raw_confidence=raw_confidence,
+                best_candidate_confidence=raw_confidence,
+                memory_top_n=memory_items,
+                candidates=[],
+            ),
+            raw_retrieval,
+        )
+
+    delta = best_candidate["confidence"] - raw_confidence
+    should_apply = force_rewrite or (delta >= threshold)
+    final_query = best_candidate["query"] if should_apply else raw_query
+    final_retrieval = best_candidate["retrieval"] if should_apply else raw_retrieval
+    reason = (
+        "delta_above_threshold"
+        if should_apply and not force_rewrite
+        else "forced"
+        if should_apply
+        else "delta_below_threshold"
+    )
+
+    return (
+        RewriteOutcome(
+            final_query=final_query,
+            rewrite_applied=should_apply,
+            rewrite_reason=reason,
+            raw_confidence=raw_confidence,
+            best_candidate_confidence=best_candidate["confidence"],
+            memory_top_n=memory_items,
+            candidates=[
+                {
+                    "label": candidate["label"],
+                    "query": candidate["query"],
+                    "confidence": candidate["confidence"],
+                }
+                for candidate in candidates
+            ],
+        ),
+        final_retrieval,
+    )
+
+
+def retrieval_metrics(
+    *,
+    expected_chunk_ids: list[str],
+    expected_doc_ids: list[str],
+    retrieved: list[RetrievalCandidate],
+) -> dict[str, float]:
+    ranks = {candidate.chunk_id: index + 1 for index, candidate in enumerate(retrieved)}
+    doc_ranks: dict[str, int] = {}
+    for index, candidate in enumerate(retrieved, start=1):
+        if candidate.document_id not in doc_ranks:
+            doc_ranks[candidate.document_id] = index
+
+    hits = sum(1 for chunk_id in expected_chunk_ids if chunk_id in ranks and ranks[chunk_id] <= 5)
+    recall_at_5 = hits / max(1, len(expected_chunk_ids))
+    hit_at_5 = 1.0 if hits > 0 else 0.0
+
+    first_rank = min([ranks.get(chunk_id, 9999) for chunk_id in expected_chunk_ids] or [9999])
+    mrr_at_10 = 1.0 / first_rank if first_rank <= 10 else 0.0
+
+    dcg = 0.0
+    idcg = 0.0
+    for index, candidate in enumerate(retrieved[:10], start=1):
+        relevance = 0.0
+        if candidate.chunk_id in expected_chunk_ids:
+            relevance = 1.0
+        elif candidate.document_id in expected_doc_ids:
+            relevance = 0.5
+        if relevance > 0:
+            dcg += relevance / math.log2(index + 1)
+
+    for index in range(1, min(10, len(expected_chunk_ids)) + 1):
+        idcg += 1.0 / math.log2(index + 1)
+    ndcg_at_10 = dcg / idcg if idcg > 0 else 0.0
+
+    return {
+        "recall@5": recall_at_5,
+        "hit@5": hit_at_5,
+        "mrr@10": mrr_at_10,
+        "ndcg@10": ndcg_at_10,
+    }
+

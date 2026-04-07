@@ -191,4 +191,5 @@ public class AdminUiController {
         model.addAttribute("pageSubtitle", "원본 선택부터 로그 확인까지 한 화면에서 점검하고 전체 실행합니다.");
         return "admin/ingest-wizard";
     }
+
 }

@@ -4,10 +4,8 @@ import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.queryforge.backend.admin.persistence.entity.CorpusRunEntity;
 import io.queryforge.backend.admin.persistence.entity.CorpusRunStepEntity;
-import io.queryforge.backend.admin.persistence.entity.CorpusSourceEntity;
 import io.queryforge.backend.admin.persistence.repository.CorpusRunJpaRepository;
 import io.queryforge.backend.admin.persistence.repository.CorpusRunStepJpaRepository;
-import io.queryforge.backend.admin.persistence.repository.CorpusSourceJpaRepository;
 import io.queryforge.backend.admin.pipeline.model.PipelineAdminDtos;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
@@ -32,7 +30,6 @@ public class PipelineAdminRepository {
     private final ObjectMapper objectMapper;
     private final CorpusRunJpaRepository runRepository;
     private final CorpusRunStepJpaRepository runStepRepository;
-    private final CorpusSourceJpaRepository sourceRepository;
 
     @PersistenceContext
     private EntityManager entityManager;
@@ -240,24 +237,56 @@ public class PipelineAdminRepository {
             String defaultVersion,
             boolean enabled
     ) {
-        CorpusSourceEntity source = sourceRepository.findById(sourceId).orElseGet(() -> {
-            CorpusSourceEntity entity = new CorpusSourceEntity();
-            entity.setSourceId(sourceId);
-            entity.setCreatedAt(Instant.now());
-            return entity;
-        });
-        source.setSourceType(sourceType);
-        source.setProductName(productName);
-        source.setSourceName(sourceName);
-        source.setBaseUrl(baseUrl);
-        source.setIncludePatterns(writeJson(includePatterns));
-        source.setExcludePatterns(writeJson(excludePatterns));
-        if (source.getDefaultVersion() == null) {
-            source.setDefaultVersion(defaultVersion);
-        }
-        source.setEnabled(enabled);
-        source.setUpdatedAt(Instant.now());
-        sourceRepository.save(source);
+        executeUpdate(
+                """
+                INSERT INTO corpus_sources (
+                    source_id,
+                    source_type,
+                    product_name,
+                    source_name,
+                    base_url,
+                    include_patterns,
+                    exclude_patterns,
+                    default_version,
+                    enabled,
+                    created_at,
+                    updated_at
+                ) VALUES (
+                    :sourceId,
+                    :sourceType,
+                    :productName,
+                    :sourceName,
+                    :baseUrl,
+                    CAST(:includePatterns AS jsonb),
+                    CAST(:excludePatterns AS jsonb),
+                    :defaultVersion,
+                    :enabled,
+                    NOW(),
+                    NOW()
+                )
+                ON CONFLICT (source_id) DO UPDATE
+                SET source_type = EXCLUDED.source_type,
+                    product_name = EXCLUDED.product_name,
+                    source_name = EXCLUDED.source_name,
+                    base_url = EXCLUDED.base_url,
+                    include_patterns = EXCLUDED.include_patterns,
+                    exclude_patterns = EXCLUDED.exclude_patterns,
+                    default_version = COALESCE(corpus_sources.default_version, EXCLUDED.default_version),
+                    enabled = EXCLUDED.enabled,
+                    updated_at = NOW()
+                """,
+                params(
+                        "sourceId", sourceId,
+                        "sourceType", sourceType,
+                        "productName", productName,
+                        "sourceName", sourceName,
+                        "baseUrl", baseUrl,
+                        "includePatterns", writeJson(includePatterns),
+                        "excludePatterns", writeJson(excludePatterns),
+                        "defaultVersion", defaultVersion,
+                        "enabled", enabled
+                )
+        );
     }
 
     @Transactional

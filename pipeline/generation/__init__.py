@@ -1,0 +1,2 @@
+"""Synthetic query generation pipeline."""
+

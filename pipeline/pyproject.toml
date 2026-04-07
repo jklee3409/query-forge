@@ -23,4 +23,15 @@ py-modules = ["cli"]
 
 [tool.setuptools.packages.find]
 where = ["."]
-include = ["collectors*", "preprocess*", "loaders*", "tests*"]
+include = [
+    "collectors*",
+    "preprocess*",
+    "loaders*",
+    "common*",
+    "generation*",
+    "gating*",
+    "memory*",
+    "datasets*",
+    "eval*",
+    "tests*",
+]

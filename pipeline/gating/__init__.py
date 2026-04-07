@@ -1,0 +1,2 @@
+"""Quality gating pipeline."""
+

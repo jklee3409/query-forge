@@ -30,7 +30,7 @@
 
 - `admin_pipeline_api.md`
 
-## 이후 구현 예정
+### RAG / Experiments API
 
 - `POST /api/chat/ask`
 - `POST /api/rewrite/preview`
@@ -39,3 +39,8 @@
 - `GET /api/eval/retrieval`
 - `GET /api/eval/answer`
 - `POST /api/admin/reindex`
+- `POST /api/admin/experiments/run`
+
+상세 문서:
+
+- `rag_api.md`

@@ -1,6 +1,6 @@
 experiment_key: gen_b
 category: generation
-description: Scaffold-only placeholder for generation strategy B.
+description: Generation strategy B baseline (KO translation -> KO summary -> KO query).
 generation_strategy: B
 enable_code_mixed: false
 enable_rule_filter: false
@@ -8,10 +8,26 @@ enable_llm_self_eval: false
 enable_retrieval_utility: false
 enable_diversity: false
 enable_anti_copy: false
+gating_preset: ungated
 memory_top_n: 5
 rewrite_candidate_count: 3
 rewrite_threshold: 0.05
 retrieval_top_k: 20
 rerank_top_n: 5
 use_session_context: false
-
+avg_queries_per_chunk: 4.2
+query_type_distribution:
+  definition: 0.19
+  reason: 0.17
+  procedure: 0.21
+  comparison: 0.12
+  short_user: 0.12
+  code_mixed: 0.09
+  follow_up: 0.09
+answerability_distribution:
+  single: 0.70
+  near: 0.20
+  far: 0.10
+final_score_threshold: 0.75
+utility_threshold: 0.70
+random_seed: 12

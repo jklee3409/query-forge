@@ -7,11 +7,17 @@ import sys
 from pathlib import Path
 
 from collectors.spring_docs_collector import collect_documents
+from datasets.build_eval_dataset import run_eval_dataset_builder_from_env
+from eval.answer_eval import run_answer_eval_from_env
+from eval.retrieval_eval import run_retrieval_eval_from_env
+from gating.quality_gating import run_quality_gating_from_env
+from generation.synthetic_query_generator import run_generation_from_env
 from loaders.import_corpus_to_postgres import run_import
 from preprocess.chunk_docs import build_chunks_and_glossary
 from preprocess.extract_glossary import build_glossary_only
 from preprocess.normalize_docs import normalize_documents
 from loaders.common import build_options
+from memory.build_memory import run_memory_build_from_env
 
 
 COMMANDS = (
@@ -123,6 +129,7 @@ def build_parser() -> argparse.ArgumentParser:
     ):
         subparser = subparsers.add_parser(command)
         subparser.add_argument("--experiment", default="scaffold")
+        subparser.add_argument("--log-level", default="INFO")
 
     return parser
 
@@ -198,11 +205,43 @@ def main() -> int:
         print(json.dumps(summary, ensure_ascii=False, indent=2))
         return 0
 
-    print(
-        f"[TODO] '{args.command}' is not implemented in stage 2-3A. "
-        f"experiment={args.experiment}",
-        file=sys.stderr,
-    )
+    if args.command == "generate-queries":
+        summary = run_generation_from_env(args.experiment)
+        LOGGER.info("[pipeline] command=%s finished summary=%s", args.command, summary)
+        print(json.dumps(summary, ensure_ascii=False, indent=2))
+        return 0
+
+    if args.command == "gate-queries":
+        summary = run_quality_gating_from_env(args.experiment)
+        LOGGER.info("[pipeline] command=%s finished summary=%s", args.command, summary)
+        print(json.dumps(summary, ensure_ascii=False, indent=2))
+        return 0
+
+    if args.command == "build-memory":
+        summary = run_memory_build_from_env(args.experiment)
+        LOGGER.info("[pipeline] command=%s finished summary=%s", args.command, summary)
+        print(json.dumps(summary, ensure_ascii=False, indent=2))
+        return 0
+
+    if args.command == "build-eval-dataset":
+        summary = run_eval_dataset_builder_from_env(args.experiment)
+        LOGGER.info("[pipeline] command=%s finished summary=%s", args.command, summary)
+        print(json.dumps(summary, ensure_ascii=False, indent=2))
+        return 0
+
+    if args.command == "eval-retrieval":
+        summary = run_retrieval_eval_from_env(args.experiment)
+        LOGGER.info("[pipeline] command=%s finished summary=%s", args.command, summary)
+        print(json.dumps(summary, ensure_ascii=False, indent=2))
+        return 0
+
+    if args.command == "eval-answer":
+        summary = run_answer_eval_from_env(args.experiment)
+        LOGGER.info("[pipeline] command=%s finished summary=%s", args.command, summary)
+        print(json.dumps(summary, ensure_ascii=False, indent=2))
+        return 0
+
+    print(f"Unknown command: {args.command}", file=sys.stderr)
     return 2
 
 

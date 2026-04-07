@@ -15,10 +15,10 @@
             <span>대시보드</span>
         </a>
         <a th:href="@{/admin/sources}" class="admin-nav__link" th:classappend="${navKey == 'sources'} ? ' is-active'">
-            <span>수집 원본</span>
+            <span>수집 소스</span>
         </a>
         <a th:href="@{/admin/runs}" class="admin-nav__link" th:classappend="${navKey == 'runs'} ? ' is-active'">
-            <span>실행 이력</span>
+            <span>파이프라인 실행</span>
         </a>
         <a th:href="@{/admin/documents}" class="admin-nav__link" th:classappend="${navKey == 'documents'} ? ' is-active'">
             <span>문서</span>
@@ -30,15 +30,17 @@
             <span>용어 사전</span>
         </a>
         <a th:href="@{/admin/ingest-wizard}" class="admin-nav__link" th:classappend="${navKey == 'wizard'} ? ' is-active'">
-            <span>실행 안내</span>
+            <span>수집/전처리 실행</span>
+        </a>
+        <a th:href="@{/admin/experiments}" class="admin-nav__link" th:classappend="${navKey == 'experiments'} ? ' is-active'">
+            <span>실험/평가 모니터링</span>
         </a>
     </nav>
 
     <div class="admin-sidebar__section">
-        <div class="admin-sidebar__section-title">다음 단계 연동 예정</div>
-        <div class="admin-nav__link is-disabled">합성 질의 생성</div>
-        <div class="admin-nav__link is-disabled">품질 게이팅</div>
-        <div class="admin-nav__link is-disabled">질의 재작성</div>
+        <div class="admin-sidebar__section-title">서비스 빠른 이동</div>
+        <a th:href="@{/}" class="admin-nav__link">사용자 채팅</a>
+        <a th:href="@{/admin/experiments}" class="admin-nav__link">리포트 비교</a>
     </div>
 </aside>
 
@@ -55,9 +57,10 @@
 
 <div th:fragment="pageHeader(title, subtitle)" class="page-header">
     <div>
-        <h1 class="page-header__title" th:text="${title}">제목</h1>
+        <h1 class="page-header__title" th:text="${title}">페이지 제목</h1>
         <p class="page-header__subtitle" th:text="${subtitle}">설명</p>
     </div>
 </div>
 </body>
 </html>
+

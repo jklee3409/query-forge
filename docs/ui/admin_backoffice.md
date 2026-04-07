@@ -21,6 +21,7 @@
 - `/admin/glossary`: glossary 목록
 - `/admin/glossary/{termId}`: glossary 상세, policy 수정, alias CRUD, evidence
 - `/admin/ingest-wizard`: source 선택부터 full ingest 실행까지 안내형 마법사
+- `/admin/experiments`: 합성 질의 생성/게이팅/메모리/평가 실행 및 리포트 모니터링
 
 ## UI 설계 포인트
 
@@ -38,6 +39,8 @@
 - run 상태가 `queued/running`이면 page polling으로 자동 갱신
 - filter form은 localStorage에 최근 사용 값을 보관
 - destructive action은 공통 confirmation modal을 사용
+- 실험 화면은 단계별 버튼(`generate`, `gate`, `build-memory`, `build-eval`, `eval-retrieval`, `eval-answer`)으로 실행 제어
+- 실험 화면에서 최신 retrieval/answer report를 바로 확인 가능
 
 ## 현재 제한
 
