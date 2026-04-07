@@ -1,7 +1,6 @@
 package io.queryforge.backend.admin.pipeline.service;
 
 import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.queryforge.backend.admin.corpus.model.CorpusAdminDtos;
 import io.queryforge.backend.admin.corpus.service.CorpusAdminService;
@@ -36,6 +35,7 @@ public class PipelineAdminService {
     private final PipelineAdminRepository repository;
     private final CorpusAdminService corpusAdminService;
     private final SourceCatalogService sourceCatalogService;
+    private final DocumentArtifactStoreService artifactStoreService;
     private final PipelineCommandRunner commandRunner;
     private final ExecutorService executorService;
     private final ObjectMapper objectMapper;
@@ -47,6 +47,7 @@ public class PipelineAdminService {
             PipelineAdminRepository repository,
             CorpusAdminService corpusAdminService,
             SourceCatalogService sourceCatalogService,
+            DocumentArtifactStoreService artifactStoreService,
             PipelineCommandRunner commandRunner,
             ExecutorService adminPipelineExecutor,
             ObjectMapper objectMapper
@@ -56,6 +57,7 @@ public class PipelineAdminService {
         this.repository = repository;
         this.corpusAdminService = corpusAdminService;
         this.sourceCatalogService = sourceCatalogService;
+        this.artifactStoreService = artifactStoreService;
         this.commandRunner = commandRunner;
         this.executorService = adminPipelineExecutor;
         this.objectMapper = objectMapper;
@@ -182,8 +184,9 @@ public class PipelineAdminService {
 
         UUID runId = UUID.randomUUID();
         Scope scope = resolveScope(runType, request);
-        ArtifactContext artifacts = prepareArtifacts(runId, runType, scope);
-        List<StepPlan> steps = buildPlans(runId, runType, scope, artifacts);
+        ArtifactContext artifacts = prepareArtifacts(runId);
+        List<String> initialDocumentIds = resolveInitialDocumentIds(runType, scope);
+        materializeInitialInputs(runType, initialDocumentIds, artifacts);
 
         repository.createRun(
                 runId,
@@ -193,6 +196,23 @@ public class PipelineAdminService {
                 scope.toConfigSnapshot(artifacts),
                 normalizedCreatedBy(request.createdBy())
         );
+        if (shouldShortCircuit(runType, initialDocumentIds)) {
+            Map<String, Object> summary = new LinkedHashMap<>();
+            summary.put("step_count", 0);
+            summary.put("artifacts", artifacts.toSummary());
+            summary.put("source_scope", scope.toSourceScope());
+            summary.put("document_count", 0);
+            summary.put("message", shortCircuitMessage(runType));
+            repository.finishRun(runId, "success", summary, null);
+            return new PipelineAdminDtos.PipelineRunActionResponse(
+                    runId,
+                    runType,
+                    "success",
+                    shortCircuitMessage(runType)
+            );
+        }
+
+        List<StepPlan> steps = buildPlans(runId, runType, scope, artifacts);
         for (StepPlan step : steps) {
             repository.createStep(
                     step.stepId(),
@@ -204,7 +224,7 @@ public class PipelineAdminService {
             );
         }
 
-        ManagedRunContext context = new ManagedRunContext(runId, runType, steps, artifacts);
+        ManagedRunContext context = new ManagedRunContext(runId, runType, steps, artifacts, initialDocumentIds);
         managedRuns.put(runId, context);
         executorService.execute(() -> executeRun(context, scope));
 
@@ -231,6 +251,22 @@ public class PipelineAdminService {
                     cancelRemaining(context);
                     repository.finishRun(context.runId, "cancelled", runSummary, "Cancellation requested by user.");
                     return;
+                }
+
+                if (shouldSkipStep(step.stepName(), context.currentDocumentIds)) {
+                    Map<String, Object> metrics = skippedMetrics(step.stepName(), context.currentDocumentIds);
+                    repository.finishStep(
+                            step.stepId(),
+                            "success",
+                            metrics,
+                            null,
+                            "",
+                            "",
+                            step.outputArtifactPath()
+                    );
+                    runSummary.put(step.stepName(), metrics);
+                    activeStep = null;
+                    continue;
                 }
 
                 Path stdoutPath = context.artifacts.logsDirectory.resolve(step.stepName() + ".stdout.log");
@@ -292,6 +328,10 @@ public class PipelineAdminService {
                     return;
                 }
 
+                DocumentArtifactStoreService.PersistResult persistResult = applyStepOutputs(step.stepName(), context, scope);
+                metrics.put("documents_discovered", persistResult.discoveredDocumentCount());
+                metrics.put("documents_persisted", persistResult.persistedDocumentCount());
+                metrics.put("document_ids", persistResult.documentIds());
                 repository.finishStep(
                         step.stepId(),
                         "success",
@@ -302,6 +342,7 @@ public class PipelineAdminService {
                         step.outputArtifactPath()
                 );
                 runSummary.put(step.stepName(), metrics);
+                runSummary.put("current_document_ids", context.currentDocumentIds);
                 activeStep = null;
             }
 
@@ -344,7 +385,13 @@ public class PipelineAdminService {
         }
 
         LinkedHashSet<String> documentIds = new LinkedHashSet<>(normalizeValues(request.documentIds()));
-        documentIds.addAll(resolveDocumentIdsFromSources(explicitSourceIds));
+        if (documentIds.isEmpty() && !"collect".equals(runType) && !"full_ingest".equals(runType)) {
+            if (!explicitSourceIds.isEmpty()) {
+                documentIds.addAll(artifactStoreService.resolveDocumentIdsBySource(explicitSourceIds));
+            } else {
+                documentIds.addAll(artifactStoreService.resolveAllDocumentIds());
+            }
+        }
 
         return new Scope(
                 explicitSourceIds,
@@ -356,7 +403,119 @@ public class PipelineAdminService {
         );
     }
 
-    private ArtifactContext prepareArtifacts(UUID runId, String runType, Scope scope) {
+    private List<String> resolveInitialDocumentIds(String runType, Scope scope) {
+        return switch (runType) {
+            case "normalize" -> artifactStoreService.selectDocumentsForNormalize(scope.documentIds());
+            case "chunk" -> artifactStoreService.selectDocumentsForChunk(scope.documentIds());
+            case "glossary" -> artifactStoreService.selectDocumentsForGlossary(scope.documentIds());
+            case "import" -> artifactStoreService.selectDocumentsForImport(scope.documentIds());
+            default -> scope.documentIds();
+        };
+    }
+
+    private void materializeInitialInputs(String runType, List<String> documentIds, ArtifactContext artifacts) {
+        switch (runType) {
+            case "normalize" -> artifactStoreService.materializeRawArtifacts(documentIds, artifacts.rawPath);
+            case "chunk", "glossary" -> artifactStoreService.materializeNormalizedArtifacts(documentIds, artifacts.sectionsPath);
+            case "import" -> {
+                artifactStoreService.materializeRawArtifacts(documentIds, artifacts.rawPath);
+                artifactStoreService.materializeNormalizedArtifacts(documentIds, artifacts.sectionsPath);
+                artifactStoreService.materializeChunkArtifacts(documentIds, artifacts.chunksPath);
+                artifactStoreService.materializeGlossaryArtifacts(documentIds, artifacts.glossaryPath);
+            }
+            default -> {
+            }
+        }
+    }
+
+    private boolean shouldShortCircuit(String runType, List<String> initialDocumentIds) {
+        return !"collect".equals(runType) && !"full_ingest".equals(runType) && initialDocumentIds.isEmpty();
+    }
+
+    private String shortCircuitMessage(String runType) {
+        return switch (runType) {
+            case "normalize" -> "요청한 문서는 이미 최신 정제 산출물이 있어 normalize를 건너뛰었습니다.";
+            case "chunk" -> "요청한 문서는 이미 최신 chunk 산출물이 있어 chunk를 건너뛰었습니다.";
+            case "glossary" -> "요청한 문서는 이미 최신 glossary 산출물이 있어 glossary를 건너뛰었습니다.";
+            case "import" -> "가져올 수 있는 최신 문서 산출물이 없어 import를 건너뛰었습니다.";
+            default -> "실행할 작업이 없습니다.";
+        };
+    }
+
+    private boolean shouldSkipStep(String stepName, List<String> currentDocumentIds) {
+        if ("collect".equals(stepName)) {
+            return false;
+        }
+        if (currentDocumentIds.isEmpty()) {
+            return true;
+        }
+        if ("glossary".equals(stepName)) {
+            return artifactStoreService.selectDocumentsForGlossary(currentDocumentIds).isEmpty();
+        }
+        return false;
+    }
+
+    private Map<String, Object> skippedMetrics(String stepName, List<String> currentDocumentIds) {
+        Map<String, Object> metrics = new LinkedHashMap<>();
+        metrics.put("skipped", true);
+        metrics.put("reason", currentDocumentIds.isEmpty() ? "no_documents_pending" : "already_current");
+        metrics.put("document_count", currentDocumentIds.size());
+        metrics.put("step", stepName);
+        return metrics;
+    }
+
+    private DocumentArtifactStoreService.PersistResult applyStepOutputs(
+            String stepName,
+            ManagedRunContext context,
+            Scope scope
+    ) {
+        return switch (stepName) {
+            case "collect" -> {
+                DocumentArtifactStoreService.PersistResult persisted = artifactStoreService.persistRawArtifacts(context.artifacts.rawPath, context.runId);
+                List<String> nextDocumentIds = persisted.documentIds();
+                if (!scope.documentIds().isEmpty()) {
+                    nextDocumentIds = nextDocumentIds.stream().filter(scope.documentIds()::contains).toList();
+                }
+                context.currentDocumentIds = nextDocumentIds;
+                artifactStoreService.materializeRawArtifacts(nextDocumentIds, context.artifacts.rawPath);
+                yield new DocumentArtifactStoreService.PersistResult(
+                        nextDocumentIds,
+                        persisted.discoveredDocumentCount(),
+                        persisted.persistedDocumentCount()
+                );
+            }
+            case "normalize" -> {
+                DocumentArtifactStoreService.PersistResult persisted = artifactStoreService.persistNormalizedArtifacts(context.artifacts.sectionsPath, context.runId);
+                context.currentDocumentIds = persisted.documentIds();
+                yield persisted;
+            }
+            case "chunk" -> {
+                DocumentArtifactStoreService.PersistResult persisted = artifactStoreService.persistChunkArtifacts(
+                        context.artifacts.chunksPath,
+                        context.artifacts.glossaryPath,
+                        context.runId
+                );
+                context.currentDocumentIds = persisted.documentIds();
+                yield persisted;
+            }
+            case "glossary" -> {
+                DocumentArtifactStoreService.PersistResult persisted = artifactStoreService.persistGlossaryArtifacts(
+                        context.artifacts.glossaryPath,
+                        context.runId
+                );
+                context.currentDocumentIds = persisted.documentIds();
+                yield persisted;
+            }
+            case "import" -> new DocumentArtifactStoreService.PersistResult(
+                    context.currentDocumentIds,
+                    context.currentDocumentIds.size(),
+                    context.currentDocumentIds.size()
+            );
+            default -> DocumentArtifactStoreService.PersistResult.empty();
+        };
+    }
+
+    private ArtifactContext prepareArtifacts(UUID runId) {
         Path repoRoot = sourceCatalogService.repoRoot();
         Path workspaceRoot = sourceCatalogService.resolveWithinRepo("data/tmp/admin-runs", "admin run workspace");
         Path logsRoot = sourceCatalogService.resolveWithinRepo(properties.logsDir(), "admin pipeline logs directory");
@@ -369,43 +528,16 @@ public class PipelineAdminService {
             throw new IllegalStateException("Failed to prepare run workspace.", exception);
         }
 
-        Path rawCanonical = sourceCatalogService.resolveWithinRepo(properties.rawOutputPath(), "raw output artifact");
-        Path sectionsCanonical = sourceCatalogService.resolveWithinRepo(properties.sectionsOutputPath(), "sections output artifact");
-        Path chunksCanonical = sourceCatalogService.resolveWithinRepo(properties.chunksOutputPath(), "chunks output artifact");
-        Path glossaryCanonical = sourceCatalogService.resolveWithinRepo(properties.glossaryOutputPath(), "glossary output artifact");
-        Path relationsCanonical = sourceCatalogService.resolveWithinRepo(properties.relationsOutputPath(), "relations output artifact");
-        Path visualizationCanonical = sourceCatalogService.resolveWithinRepo(properties.visualizationOutputPath(), "visualization output artifact");
-
-        boolean scopedWorkspace = !scope.documentIds().isEmpty()
-                && !"collect".equals(runType)
-                && !"full_ingest".equals(runType);
-
-        Path rawInput = scopedWorkspace ? filterRawArtifact(rawCanonical, workspace.resolve("raw_scope.jsonl"), scope) : rawCanonical;
-        Path sectionsInput = scopedWorkspace ? filterJsonlByDocumentIds(sectionsCanonical, workspace.resolve("sections_scope.jsonl"), scope.documentIds()) : sectionsCanonical;
-        Path chunksInput = scopedWorkspace ? filterJsonlByDocumentIds(chunksCanonical, workspace.resolve("chunks_scope.jsonl"), scope.documentIds()) : chunksCanonical;
-        Path glossaryInput = scopedWorkspace ? filterGlossaryByDocumentIds(glossaryCanonical, workspace.resolve("glossary_scope.jsonl"), scope.documentIds()) : glossaryCanonical;
-
-        Path rawOutput = scopedWorkspace ? workspace.resolve("spring_docs_raw.jsonl") : rawCanonical;
-        Path sectionsOutput = scopedWorkspace ? workspace.resolve("spring_docs_sections.jsonl") : sectionsCanonical;
-        Path chunksOutput = scopedWorkspace ? workspace.resolve("chunks.jsonl") : chunksCanonical;
-        Path glossaryOutput = scopedWorkspace ? workspace.resolve("glossary_terms.jsonl") : glossaryCanonical;
-        Path relationsOutput = scopedWorkspace ? workspace.resolve("chunk_neighbors.sql") : relationsCanonical;
-        Path visualizationOutput = scopedWorkspace ? workspace.resolve("chunking_visualization.md") : visualizationCanonical;
-
         return new ArtifactContext(
                 repoRoot,
                 workspace,
                 logsDirectory,
-                rawInput,
-                sectionsInput,
-                chunksInput,
-                glossaryInput,
-                rawOutput,
-                sectionsOutput,
-                chunksOutput,
-                glossaryOutput,
-                relationsOutput,
-                visualizationOutput
+                workspace.resolve("spring_docs_raw.jsonl"),
+                workspace.resolve("spring_docs_sections.jsonl"),
+                workspace.resolve("chunks.jsonl"),
+                workspace.resolve("glossary_terms.jsonl"),
+                workspace.resolve("chunk_neighbors.sql"),
+                workspace.resolve("chunking_visualization.md")
         );
     }
 
@@ -417,8 +549,8 @@ public class PipelineAdminService {
                     "collect",
                     steps.size() + 1,
                     buildCollectCommand(runId, scope, artifacts),
-                    artifacts.rawInput.toString(),
-                    artifacts.rawOutput.toString()
+                    null,
+                    artifacts.rawPath.toString()
             ));
         }
         if ("normalize".equals(runType) || "full_ingest".equals(runType)) {
@@ -427,8 +559,8 @@ public class PipelineAdminService {
                     "normalize",
                     steps.size() + 1,
                     buildNormalizeCommand(runId, scope, artifacts),
-                    artifacts.rawInput.toString(),
-                    artifacts.sectionsOutput.toString()
+                    artifacts.rawPath.toString(),
+                    artifacts.sectionsPath.toString()
             ));
         }
         if ("chunk".equals(runType) || "full_ingest".equals(runType)) {
@@ -437,8 +569,8 @@ public class PipelineAdminService {
                     "chunk",
                     steps.size() + 1,
                     buildChunkCommand(runId, scope, artifacts),
-                    artifacts.sectionsInput.toString(),
-                    artifacts.chunksOutput.toString()
+                    artifacts.sectionsPath.toString(),
+                    artifacts.chunksPath.toString()
             ));
         }
         if ("glossary".equals(runType) || "full_ingest".equals(runType)) {
@@ -447,8 +579,8 @@ public class PipelineAdminService {
                     "glossary",
                     steps.size() + 1,
                     buildGlossaryCommand(runId, scope, artifacts),
-                    artifacts.sectionsInput.toString(),
-                    artifacts.glossaryOutput.toString()
+                    artifacts.sectionsPath.toString(),
+                    artifacts.glossaryPath.toString()
             ));
         }
         if ("import".equals(runType) || "full_ingest".equals(runType)) {
@@ -457,7 +589,7 @@ public class PipelineAdminService {
                     "import",
                     steps.size() + 1,
                     buildImportCommand(runId, scope, runType, artifacts),
-                    artifacts.sectionsInput.toString(),
+                    artifacts.sectionsPath.toString(),
                     "postgresql://corpus"
             ));
         }
@@ -469,7 +601,7 @@ public class PipelineAdminService {
         command.add("--config-dir");
         command.add(resolveRepoRelative(properties.sourceConfigDir()).toString());
         command.add("--output");
-        command.add(artifacts.rawOutput.toString());
+        command.add(artifacts.rawPath.toString());
         command.add("--run-id");
         command.add(runId.toString());
         if (scope.limit() != null) {
@@ -486,9 +618,9 @@ public class PipelineAdminService {
     private List<String> buildNormalizeCommand(UUID runId, Scope scope, ArtifactContext artifacts) {
         List<String> command = baseCommand("preprocess");
         command.add("--input");
-        command.add(artifacts.rawInput.toString());
+        command.add(artifacts.rawPath.toString());
         command.add("--output");
-        command.add(artifacts.sectionsOutput.toString());
+        command.add(artifacts.sectionsPath.toString());
         command.add("--run-id");
         command.add(runId.toString());
         if (scope.limit() != null) {
@@ -501,15 +633,15 @@ public class PipelineAdminService {
     private List<String> buildChunkCommand(UUID runId, Scope scope, ArtifactContext artifacts) {
         List<String> command = baseCommand("chunk-docs");
         command.add("--input");
-        command.add(artifacts.sectionsInput.toString());
+        command.add(artifacts.sectionsPath.toString());
         command.add("--output-chunks");
-        command.add(artifacts.chunksOutput.toString());
+        command.add(artifacts.chunksPath.toString());
         command.add("--output-glossary");
-        command.add(artifacts.glossaryOutput.toString());
+        command.add(artifacts.glossaryPath.toString());
         command.add("--output-relations-sql");
-        command.add(artifacts.relationsOutput.toString());
+        command.add(artifacts.relationsPath.toString());
         command.add("--output-visualization");
-        command.add(artifacts.visualizationOutput.toString());
+        command.add(artifacts.visualizationPath.toString());
         command.add("--config");
         command.add(resolveRepoRelative(properties.chunkingConfig()).toString());
         command.add("--run-id");
@@ -524,9 +656,9 @@ public class PipelineAdminService {
     private List<String> buildGlossaryCommand(UUID runId, Scope scope, ArtifactContext artifacts) {
         List<String> command = baseCommand("glossary-docs");
         command.add("--input");
-        command.add(artifacts.sectionsInput.toString());
+        command.add(artifacts.sectionsPath.toString());
         command.add("--output-glossary");
-        command.add(artifacts.glossaryOutput.toString());
+        command.add(artifacts.glossaryPath.toString());
         command.add("--config");
         command.add(resolveRepoRelative(properties.chunkingConfig()).toString());
         command.add("--run-id");
@@ -554,13 +686,13 @@ public class PipelineAdminService {
         command.add("--source-config-dir");
         command.add(resolveRepoRelative(properties.sourceConfigDir()).toString());
         command.add("--raw-input");
-        command.add(artifacts.rawInput.toString());
+        command.add(artifacts.rawPath.toString());
         command.add("--sections-input");
-        command.add(artifacts.sectionsInput.toString());
+        command.add(artifacts.sectionsPath.toString());
         command.add("--chunks-input");
-        command.add(artifacts.chunksInput.toString());
+        command.add(artifacts.chunksPath.toString());
         command.add("--glossary-input");
-        command.add(artifacts.glossaryInput.toString());
+        command.add(artifacts.glossaryPath.toString());
         command.add("--external-run-id");
         command.add(runId.toString());
         command.add("--run-type");
@@ -573,14 +705,6 @@ public class PipelineAdminService {
         command.add(runId.toString());
         if (scope.dryRun()) {
             command.add("--dry-run");
-        }
-        for (String sourceId : scope.sourceIds()) {
-            command.add("--source-id");
-            command.add(sourceId);
-        }
-        for (String documentId : scope.documentIds()) {
-            command.add("--document-id");
-            command.add(documentId);
         }
         return command;
     }
@@ -603,94 +727,6 @@ public class PipelineAdminService {
         String host = hostPortParts[0];
         int port = hostPortParts.length > 1 ? Integer.parseInt(hostPortParts[1]) : 5432;
         return new DatabaseTarget(host, port, database);
-    }
-
-    private Path filterRawArtifact(Path source, Path target, Scope scope) {
-        if (scope.documentIds().isEmpty() && scope.sourceIds().isEmpty()) {
-            return source;
-        }
-        return filterJsonl(source, target, line -> {
-            String documentId = line.path("document_id").asText();
-            String sourceId = line.path("source_id").asText();
-            boolean matchesDocument = scope.documentIds().isEmpty() || scope.documentIds().contains(documentId);
-            boolean matchesSource = scope.sourceIds().isEmpty() || scope.sourceIds().contains(sourceId);
-            return matchesDocument && matchesSource;
-        });
-    }
-
-    private Path filterJsonlByDocumentIds(Path source, Path target, List<String> documentIds) {
-        if (documentIds.isEmpty()) {
-            return source;
-        }
-        return filterJsonl(source, target, line -> documentIds.contains(line.path("document_id").asText()));
-    }
-
-    private Path filterGlossaryByDocumentIds(Path source, Path target, List<String> documentIds) {
-        if (documentIds.isEmpty()) {
-            return source;
-        }
-        return filterJsonl(source, target, line -> {
-            JsonNode documentNode = line.path("metadata").path("document_ids");
-            if (!documentNode.isArray()) {
-                return false;
-            }
-            for (JsonNode item : documentNode) {
-                if (documentIds.contains(item.asText())) {
-                    return true;
-                }
-            }
-            return false;
-        });
-    }
-
-    private Path filterJsonl(Path source, Path target, JsonlPredicate predicate) {
-        if (!Files.exists(source)) {
-            return source;
-        }
-        try {
-            Files.createDirectories(target.getParent());
-            List<String> lines = Files.readAllLines(source, StandardCharsets.UTF_8);
-            List<String> filtered = new ArrayList<>();
-            for (String line : lines) {
-                if (line.isBlank()) {
-                    continue;
-                }
-                JsonNode node = objectMapper.readTree(line);
-                if (predicate.test(node)) {
-                    filtered.add(line);
-                }
-            }
-            Files.write(target, filtered, StandardCharsets.UTF_8);
-            return target;
-        } catch (IOException exception) {
-            throw new IllegalStateException("Failed to filter artifact file: " + source, exception);
-        }
-    }
-
-    private List<String> resolveDocumentIdsFromSources(List<String> sourceIds) {
-        if (sourceIds.isEmpty()) {
-            return List.of();
-        }
-        Path rawPath = sourceCatalogService.resolveWithinRepo(properties.rawOutputPath(), "raw output artifact");
-        if (!Files.exists(rawPath)) {
-            return List.of();
-        }
-        try {
-            List<String> lines = Files.readAllLines(rawPath, StandardCharsets.UTF_8);
-            LinkedHashSet<String> documentIds = new LinkedHashSet<>();
-            for (String line : lines) {
-                if (line.isBlank()) {
-                    continue;
-                }
-                JsonNode node = objectMapper.readTree(line);
-                if (sourceIds.contains(node.path("source_id").asText())) {
-                    documentIds.add(node.path("document_id").asText());
-                }
-            }
-            return List.copyOf(documentIds);
-        } catch (IOException exception) {
-            throw new IllegalStateException("Failed to read raw artifact for source scoping.", exception);
-        }
     }
 
     private Map<String, Object> parseStepMetrics(String stdout) {
@@ -798,11 +834,6 @@ public class PipelineAdminService {
         return sourceCatalogService.resolveWithinRepo(relative, "repo-relative path");
     }
 
-    @FunctionalInterface
-    private interface JsonlPredicate {
-        boolean test(JsonNode line);
-    }
-
     private record Scope(
             List<String> sourceIds,
             List<String> documentIds,
@@ -824,10 +855,10 @@ public class PipelineAdminService {
             config.put("trigger_type", triggerType);
             config.put("created_by", createdBy);
             config.put("limit", limit);
-            config.put("raw_output_path", artifacts.rawOutput.toString());
-            config.put("sections_output_path", artifacts.sectionsOutput.toString());
-            config.put("chunks_output_path", artifacts.chunksOutput.toString());
-            config.put("glossary_output_path", artifacts.glossaryOutput.toString());
+            config.put("raw_output_path", artifacts.rawPath.toString());
+            config.put("sections_output_path", artifacts.sectionsPath.toString());
+            config.put("chunks_output_path", artifacts.chunksPath.toString());
+            config.put("glossary_output_path", artifacts.glossaryPath.toString());
             return config;
         }
     }
@@ -836,26 +867,22 @@ public class PipelineAdminService {
             Path repoRoot,
             Path workspace,
             Path logsDirectory,
-            Path rawInput,
-            Path sectionsInput,
-            Path chunksInput,
-            Path glossaryInput,
-            Path rawOutput,
-            Path sectionsOutput,
-            Path chunksOutput,
-            Path glossaryOutput,
-            Path relationsOutput,
-            Path visualizationOutput
+            Path rawPath,
+            Path sectionsPath,
+            Path chunksPath,
+            Path glossaryPath,
+            Path relationsPath,
+            Path visualizationPath
     ) {
         Map<String, Object> toSummary() {
             Map<String, Object> summary = new LinkedHashMap<>();
             summary.put("workspace", workspace.toString());
-            summary.put("raw_output_path", rawOutput.toString());
-            summary.put("sections_output_path", sectionsOutput.toString());
-            summary.put("chunks_output_path", chunksOutput.toString());
-            summary.put("glossary_output_path", glossaryOutput.toString());
-            summary.put("relations_output_path", relationsOutput.toString());
-            summary.put("visualization_output_path", visualizationOutput.toString());
+            summary.put("raw_output_path", rawPath.toString());
+            summary.put("sections_output_path", sectionsPath.toString());
+            summary.put("chunks_output_path", chunksPath.toString());
+            summary.put("glossary_output_path", glossaryPath.toString());
+            summary.put("relations_output_path", relationsPath.toString());
+            summary.put("visualization_output_path", visualizationPath.toString());
             return summary;
         }
     }
@@ -875,6 +902,7 @@ public class PipelineAdminService {
         private final String runType;
         private final List<StepPlan> steps;
         private final ArtifactContext artifacts;
+        private volatile List<String> currentDocumentIds;
         private final AtomicBoolean cancelRequested = new AtomicBoolean(false);
         private volatile ProcessHandle currentProcess;
 
@@ -882,12 +910,14 @@ public class PipelineAdminService {
                 UUID runId,
                 String runType,
                 List<StepPlan> steps,
-                ArtifactContext artifacts
+                ArtifactContext artifacts,
+                List<String> currentDocumentIds
         ) {
             this.runId = runId;
             this.runType = runType;
             this.steps = steps;
             this.artifacts = artifacts;
+            this.currentDocumentIds = new ArrayList<>(currentDocumentIds);
         }
     }
 

@@ -41,3 +41,10 @@
 
 - 기존 `chunk_docs.py`의 glossary extractor를 재사용하는 `pipeline/preprocess/extract_glossary.py`를 추가했다.
 - `/api/admin/pipeline/glossary`와 wizard step 5는 이 wrapper를 호출한다.
+## document artifact store
+
+- 관리자 GUI pipeline 은 canonical JSONL 을 직접 source of truth 로 쓰지 않고 `data/artifacts/corpus-docs/{sourceId}/{versionLabel}/{documentId}/` 를 기준 저장소로 사용한다.
+- 문서 디렉터리에는 `manifest.json`, `raw.json`, `sections.jsonl`, `chunks.jsonl`, `glossary_terms.jsonl` 이 저장된다.
+- `manifest.json` 은 각 단계 checksum 과 upstream checksum 을 기록해서 이미 raw 가 같으면 normalize 를 다시 돌리지 않고, sections 가 같으면 chunk/glossary 를 다시 돌리지 않는다.
+- `data/raw/*.jsonl`, `data/processed/*.jsonl` 은 artifact store 에서 합쳐서 재생성되는 aggregate snapshot 이다.
+- full ingest 에서 `chunk` step 이 glossary artifact 를 최신 상태로 만들었다면 뒤의 `glossary` step 은 자동으로 skip 된다.

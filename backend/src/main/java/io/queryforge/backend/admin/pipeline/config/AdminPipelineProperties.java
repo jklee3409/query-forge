@@ -7,6 +7,7 @@ public record AdminPipelineProperties(
         String repoRoot,
         String pythonCommand,
         String logsDir,
+        String artifactStoreDir,
         String sourceConfigDir,
         String chunkingConfig,
         String rawOutputPath,

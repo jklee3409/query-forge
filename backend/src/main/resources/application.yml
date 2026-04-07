@@ -34,6 +34,7 @@ query-forge:
       repo-root: ${QUERY_FORGE_REPO_ROOT:.}
       python-command: ${QUERY_FORGE_PYTHON:python}
       logs-dir: ${QUERY_FORGE_LOG_DIR:data/logs/admin-pipeline}
+      artifact-store-dir: ${QUERY_FORGE_ARTIFACT_STORE_DIR:data/artifacts/corpus-docs}
       source-config-dir: ${QUERY_FORGE_SOURCE_CONFIG_DIR:configs/app/sources}
       chunking-config: ${QUERY_FORGE_CHUNKING_CONFIG:configs/app/chunking.yml}
       raw-output-path: ${QUERY_FORGE_RAW_OUTPUT:data/raw/spring_docs_raw.jsonl}

@@ -59,3 +59,8 @@
 - `raw-vs-cleaned`: reads `corpus_documents.raw_text` and `cleaned_text`
 - `chunk-boundaries`: reconstructs chunk spans from ordered `corpus_chunks`
 - `top-terms`: reads `corpus_glossary_terms` plus `corpus_glossary_evidence`
+## Admin artifact store
+
+- 관리자 파이프라인은 import 전 단계 산출물을 `data/artifacts/corpus-docs/{sourceId}/{versionLabel}/{documentId}/` 에 문서별로 저장한다.
+- `manifest.json` 에 raw/normalized/chunked/glossary 단계의 checksum 과 upstream checksum 을 남겨서 중복 수집/정제/청킹을 방지한다.
+- `data/raw/*.jsonl`, `data/processed/*.jsonl` 은 이 artifact store 를 합친 aggregate snapshot 으로 유지된다.
