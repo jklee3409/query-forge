@@ -51,6 +51,7 @@ public class PipelineAdminService {
         sourceCatalogService.syncSourcesFromConfig();
     }
 
+    @Transactional
     public PipelineAdminDtos.DashboardStats getDashboardStats() {
         sourceCatalogService.syncSourcesFromConfig();
         return repository.fetchDashboardStats();

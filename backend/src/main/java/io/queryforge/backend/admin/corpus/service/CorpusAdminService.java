@@ -23,6 +23,7 @@ public class CorpusAdminService {
     private final ObjectMapper objectMapper;
     private final SourceCatalogService sourceCatalogService;
 
+    @Transactional
     public List<CorpusAdminDtos.SourceSummary> listSources() {
         sourceCatalogService.syncSourcesFromConfig();
         return repository.findSources();

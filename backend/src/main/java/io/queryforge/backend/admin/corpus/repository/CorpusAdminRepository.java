@@ -190,7 +190,7 @@ public class CorpusAdminRepository {
                        d.language_code,
                        d.content_type,
                        d.is_active,
-                       d.import_run_id,
+                       (to_jsonb(d) ->> 'import_run_id')::uuid AS import_run_id,
                        d.collected_at,
                        d.normalized_at,
                        d.updated_at,
@@ -206,7 +206,7 @@ public class CorpusAdminRepository {
         sql.append("""
 
                 GROUP BY d.document_id, d.source_id, d.product_name, d.version_label, d.canonical_url, d.title,
-                         d.section_path_text, d.language_code, d.content_type, d.is_active, d.import_run_id,
+                         d.section_path_text, d.language_code, d.content_type, d.is_active,
                          d.collected_at, d.normalized_at, d.updated_at
                 ORDER BY d.updated_at DESC, d.document_id
                 LIMIT :limit OFFSET :offset
@@ -235,9 +235,9 @@ public class CorpusAdminRepository {
                        collected_at,
                        normalized_at,
                        is_active,
-                       superseded_by_document_id,
-                       import_run_id,
-                       metadata_json::text AS metadata_json,
+                       to_jsonb(corpus_documents) ->> 'superseded_by_document_id' AS superseded_by_document_id,
+                       (to_jsonb(corpus_documents) ->> 'import_run_id')::uuid AS import_run_id,
+                       COALESCE(to_jsonb(corpus_documents) -> 'metadata_json', '{}'::jsonb)::text AS metadata_json,
                        created_at,
                        updated_at
                 FROM corpus_documents
@@ -667,7 +667,7 @@ public class CorpusAdminRepository {
             params.addValue("documentId", documentId);
         }
         if (runId != null) {
-            sql.append(" AND d.import_run_id = :runId");
+            sql.append(" AND (to_jsonb(d) ->> 'import_run_id')::uuid = :runId");
             params.addValue("runId", runId);
         }
         if (activeOnly) {
