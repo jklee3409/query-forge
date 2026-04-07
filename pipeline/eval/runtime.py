@@ -39,6 +39,7 @@ class MemoryItem:
     target_doc_id: str
     target_chunk_ids: list[str]
     gating_preset: str
+    generation_strategy: str
     embedding: list[float]
 
 
@@ -61,23 +62,48 @@ class RewriteOutcome:
     candidates: list[dict[str, Any]]
 
 
-def load_eval_samples(connection: psycopg.Connection[Any]) -> list[EvalSample]:
+def load_eval_samples(
+    connection: psycopg.Connection[Any],
+    *,
+    dataset_id: str | None = None,
+) -> list[EvalSample]:
     with connection.cursor() as cursor:
-        cursor.execute(
-            """
-            SELECT sample_id,
-                   split,
-                   user_query_ko,
-                   dialog_context,
-                   expected_doc_ids,
-                   expected_chunk_ids,
-                   query_category,
-                   single_or_multi_chunk
-            FROM eval_samples
-            WHERE split IN ('dev', 'test')
-            ORDER BY split, sample_id
-            """
-        )
+        if dataset_id:
+            cursor.execute(
+                """
+                SELECT es.sample_id,
+                       es.split,
+                       es.user_query_ko,
+                       es.dialog_context,
+                       es.expected_doc_ids,
+                       es.expected_chunk_ids,
+                       es.query_category,
+                       es.single_or_multi_chunk
+                FROM eval_samples es
+                JOIN eval_dataset_item edi
+                  ON edi.sample_id = es.sample_id
+                 AND edi.dataset_id = %s
+                 AND edi.active = TRUE
+                ORDER BY es.split, es.sample_id
+                """,
+                (dataset_id,),
+            )
+        else:
+            cursor.execute(
+                """
+                SELECT sample_id,
+                       split,
+                       user_query_ko,
+                       dialog_context,
+                       expected_doc_ids,
+                       expected_chunk_ids,
+                       query_category,
+                       single_or_multi_chunk
+                FROM eval_samples
+                WHERE split IN ('dev', 'test')
+                ORDER BY split, sample_id
+                """
+            )
         rows = cursor.fetchall()
     return [
         EvalSample(
@@ -123,7 +149,8 @@ def load_memory_items(connection: psycopg.Connection[Any]) -> list[MemoryItem]:
                    m.query_text,
                    m.target_doc_id,
                    m.target_chunk_ids,
-                   g.gating_preset
+                   g.gating_preset,
+                   m.generation_strategy
             FROM memory_entries m
             JOIN synthetic_queries_gated g ON g.gated_query_id = m.source_gated_query_id
             ORDER BY m.created_at DESC
@@ -137,6 +164,7 @@ def load_memory_items(connection: psycopg.Connection[Any]) -> list[MemoryItem]:
             target_doc_id=str(row["target_doc_id"]),
             target_chunk_ids=list(row["target_chunk_ids"] or []),
             gating_preset=str(row["gating_preset"]),
+            generation_strategy=str(row["generation_strategy"]),
             embedding=embed_text(str(row["query_text"])),
         )
         for row in rows
@@ -169,11 +197,15 @@ def memory_top_n(
     *,
     top_n: int,
     preset_filter: str | None = None,
+    strategy_filters: list[str] | None = None,
 ) -> list[dict[str, Any]]:
     query_embedding = embed_text(query_text)
+    strategy_set = {item.upper() for item in strategy_filters or [] if str(item).strip()}
     scored = []
     for memory in memories:
         if preset_filter and memory.gating_preset != preset_filter:
+            continue
+        if strategy_set and memory.generation_strategy.upper() not in strategy_set:
             continue
         similarity = cosine_similarity(query_embedding, memory.embedding)
         scored.append(
@@ -182,6 +214,7 @@ def memory_top_n(
                 "query_text": memory.query_text,
                 "target_doc_id": memory.target_doc_id,
                 "target_chunk_ids": memory.target_chunk_ids,
+                "generation_strategy": memory.generation_strategy,
                 "similarity": similarity,
             }
         )
@@ -243,6 +276,7 @@ def run_selective_rewrite(
     threshold: float,
     retrieval_top_k: int,
     preset_filter: str | None = None,
+    strategy_filters: list[str] | None = None,
     force_rewrite: bool = False,
 ) -> tuple[RewriteOutcome, list[RetrievalCandidate]]:
     memory_items = memory_top_n(
@@ -250,6 +284,7 @@ def run_selective_rewrite(
         memories,
         top_n=memory_top_n_value,
         preset_filter=preset_filter,
+        strategy_filters=strategy_filters,
     )
     raw_retrieval = retrieve_top_k(raw_query, chunks, top_k=retrieval_top_k)
     raw_dense = memory_items[0]["similarity"] if memory_items else 0.0
@@ -364,4 +399,3 @@ def retrieval_metrics(
         "mrr@10": mrr_at_10,
         "ndcg@10": ndcg_at_10,
     }
-

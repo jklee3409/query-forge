@@ -146,6 +146,7 @@ def _evaluate_mode(
     chunks: Any,
     memories: Any,
     config: Any,
+    memory_strategy_filters: list[str],
 ) -> tuple[dict[str, float], dict[str, Any], list[Any]]:
     if mode == "raw_only":
         retrieval = retrieve_top_k(sample.query_text, chunks, top_k=config.retrieval_top_k)
@@ -171,6 +172,7 @@ def _evaluate_mode(
             memories,
             top_n=config.memory_top_n,
             preset_filter="ungated",
+            strategy_filters=memory_strategy_filters,
         )
         final_query = top_memory[0]["query_text"] if top_memory else sample.query_text
         retrieval = retrieve_top_k(final_query, chunks, top_k=config.retrieval_top_k)
@@ -199,6 +201,7 @@ def _evaluate_mode(
             memories,
             top_n=config.memory_top_n,
             preset_filter=config.gating_preset,
+            strategy_filters=memory_strategy_filters,
         )
         final_query = top_memory[0]["query_text"] if top_memory else sample.query_text
         retrieval = retrieve_top_k(final_query, chunks, top_k=config.retrieval_top_k)
@@ -233,6 +236,7 @@ def _evaluate_mode(
         threshold=config.rewrite_threshold,
         retrieval_top_k=config.retrieval_top_k,
         preset_filter=config.gating_preset if mode != "rewrite_always" else None,
+        strategy_filters=memory_strategy_filters,
         force_rewrite=force_rewrite,
     )
     metrics = retrieval_metrics(
@@ -294,7 +298,20 @@ def run_retrieval_eval(
             run_label="eval-retrieval",
         )
 
-        samples = load_eval_samples(connection)
+        dataset_id = str(config.raw.get("dataset_id") or "").strip() or None
+        memory_strategy_filters = [
+            str(item).upper()
+            for item in (config.raw.get("memory_generation_strategies") or [])
+            if str(item).strip()
+        ]
+        configured_modes = [
+            str(item).strip()
+            for item in (config.raw.get("retrieval_modes") or [])
+            if str(item).strip()
+        ]
+        active_modes = [mode for mode in configured_modes if mode in MODES] or list(MODES)
+
+        samples = load_eval_samples(connection, dataset_id=dataset_id)
         chunks = load_chunk_items(connection)
         memories = load_memory_items(connection)
         raw_metrics_by_sample: dict[str, dict[str, float]] = {}
@@ -313,7 +330,7 @@ def run_retrieval_eval(
             )
 
         for sample in samples:
-            for mode in MODES:
+            for mode in active_modes:
                 started = time.perf_counter()
                 metrics, rewrite_info, retrieval = _evaluate_mode(
                     mode=mode,
@@ -321,6 +338,7 @@ def run_retrieval_eval(
                     chunks=chunks,
                     memories=memories,
                     config=config,
+                    memory_strategy_filters=memory_strategy_filters,
                 )
                 elapsed_ms = (time.perf_counter() - started) * 1000.0
                 latency_by_mode[mode].append(elapsed_ms)
@@ -348,6 +366,16 @@ def run_retrieval_eval(
                         "mode_mrr": metrics["mrr@10"],
                         "raw_ndcg": raw_metrics_by_sample.get(sample.sample_id, {}).get("ndcg@10", 0.0),
                         "mode_ndcg": metrics["ndcg@10"],
+                        "memory_top_n": rewrite_info.get("memory_top_n", []),
+                        "rewrite_candidates": rewrite_info.get("candidates", []),
+                        "retrieved_top_k": [
+                            {
+                                "chunk_id": item.chunk_id,
+                                "document_id": item.document_id,
+                                "score": item.score,
+                            }
+                            for item in retrieval[:5]
+                        ],
                     }
                 )
 
@@ -389,7 +417,10 @@ def run_retrieval_eval(
         category_rows: list[dict[str, Any]] = []
         latency_rows: list[dict[str, Any]] = []
 
-        for mode in MODES:
+        raw_baseline_mrr = _mean([float(row["mrr@10"]) for row in mode_scores.get("raw_only", [])])
+        raw_baseline_ndcg = _mean([float(row["ndcg@10"]) for row in mode_scores.get("raw_only", [])])
+
+        for mode in active_modes:
             rows = mode_scores.get(mode, [])
             if not rows:
                 continue
@@ -411,10 +442,8 @@ def run_retrieval_eval(
                     "mode": mode,
                     **aggregates,
                     "adoption_rate": adoption_rate,
-                    "rewrite_gain_mrr": aggregates["mrr@10"]
-                    - _mean([float(row["mrr@10"]) for row in mode_scores.get("raw_only", [])]),
-                    "rewrite_gain_ndcg": aggregates["ndcg@10"]
-                    - _mean([float(row["ndcg@10"]) for row in mode_scores.get("raw_only", [])]),
+                    "rewrite_gain_mrr": aggregates["mrr@10"] - raw_baseline_mrr,
+                    "rewrite_gain_ndcg": aggregates["ndcg@10"] - raw_baseline_ndcg,
                     "bad_rewrite_rate": bad_rewrite_rate,
                 }
             )
@@ -453,6 +482,9 @@ def run_retrieval_eval(
         summary_payload = {
             "experiment_key": config.experiment_key,
             "experiment_run_id": run_context.experiment_run_id,
+            "dataset_id": dataset_id,
+            "memory_generation_strategies": memory_strategy_filters,
+            "active_modes": active_modes,
             "summary": summary_rows,
             "category_summary": category_rows,
             "latency_summary": latency_rows,
@@ -556,4 +588,3 @@ def run_retrieval_eval_from_env(experiment: str) -> dict[str, Any]:
         db_user=defaults["db_user"],
         db_password=defaults["db_password"],
     )
-

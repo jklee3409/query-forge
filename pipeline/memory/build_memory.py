@@ -198,7 +198,8 @@ def run_memory_build(
             run_label="build-memory",
         )
 
-        source_run_id = _latest_gating_run_id(connection, config.gating_preset)
+        configured_gating_run_id = str(config.raw.get("source_gating_run_id") or "").strip() or None
+        source_run_id = configured_gating_run_id or _latest_gating_run_id(connection, config.gating_preset)
         rows = _load_gated_rows(
             connection,
             preset=config.gating_preset,
@@ -329,4 +330,3 @@ def run_memory_build_from_env(experiment: str) -> dict[str, Any]:
         db_user=defaults["db_user"],
         db_password=defaults["db_password"],
     )
-

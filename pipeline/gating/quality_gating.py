@@ -364,7 +364,10 @@ def run_quality_gating(
         )
 
         strategies = _strategies_for_gating(config)
-        generation_run_id = _latest_generation_run_id(connection, strategies)
+        configured_run_id = config.raw.get("source_generation_run_id")
+        generation_run_id = str(configured_run_id).strip() if configured_run_id else None
+        if not generation_run_id:
+            generation_run_id = _latest_generation_run_id(connection, strategies)
         raw_queries = _load_raw_queries(
             connection,
             strategies=strategies,

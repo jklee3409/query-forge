@@ -16,13 +16,27 @@ try:
     from common.experiment_run import ExperimentRunRecorder
     from common.text_utils import copy_ratio, extract_extractive_summary
     from loaders.common import connect, default_database_args
-    from eval.runtime import load_chunk_items, load_eval_samples, load_memory_items, run_selective_rewrite
+    from eval.runtime import (
+        RewriteOutcome,
+        load_chunk_items,
+        load_eval_samples,
+        load_memory_items,
+        retrieve_top_k,
+        run_selective_rewrite,
+    )
 except ModuleNotFoundError:  # pragma: no cover
     from pipeline.common.experiment_config import load_experiment_config
     from pipeline.common.experiment_run import ExperimentRunRecorder
     from pipeline.common.text_utils import copy_ratio, extract_extractive_summary
     from pipeline.loaders.common import connect, default_database_args
-    from pipeline.eval.runtime import load_chunk_items, load_eval_samples, load_memory_items, run_selective_rewrite
+    from pipeline.eval.runtime import (
+        RewriteOutcome,
+        load_chunk_items,
+        load_eval_samples,
+        load_memory_items,
+        retrieve_top_k,
+        run_selective_rewrite,
+    )
 
 
 LOGGER = logging.getLogger(__name__)
@@ -95,7 +109,16 @@ def run_answer_eval(
             run_label="eval-answer",
         )
 
-        samples = load_eval_samples(connection)
+        dataset_id = str(config.raw.get("dataset_id") or "").strip() or None
+        memory_strategy_filters = [
+            str(item).upper()
+            for item in (config.raw.get("memory_generation_strategies") or [])
+            if str(item).strip()
+        ]
+        rewrite_enabled = bool(config.raw.get("rewrite_enabled", True))
+        selective_rewrite = bool(config.raw.get("selective_rewrite", True))
+        gating_applied = bool(config.raw.get("gating_applied", True))
+        samples = load_eval_samples(connection, dataset_id=dataset_id)
         chunks = load_chunk_items(connection)
         chunk_index = {chunk.chunk_id: chunk for chunk in chunks}
         memories = load_memory_items(connection)
@@ -112,18 +135,31 @@ def run_answer_eval(
             )
 
         for sample in samples:
-            rewrite_outcome, retrieval = run_selective_rewrite(
-                raw_query=sample.query_text,
-                session_context=sample.dialog_context if config.use_session_context else {},
-                chunks=chunks,
-                memories=memories,
-                memory_top_n_value=config.memory_top_n,
-                candidate_count=config.rewrite_candidate_count,
-                threshold=config.rewrite_threshold,
-                retrieval_top_k=config.retrieval_top_k,
-                preset_filter=config.gating_preset,
-                force_rewrite=False,
-            )
+            if rewrite_enabled:
+                rewrite_outcome, retrieval = run_selective_rewrite(
+                    raw_query=sample.query_text,
+                    session_context=sample.dialog_context if config.use_session_context else {},
+                    chunks=chunks,
+                    memories=memories,
+                    memory_top_n_value=config.memory_top_n,
+                    candidate_count=config.rewrite_candidate_count,
+                    threshold=config.rewrite_threshold,
+                    retrieval_top_k=config.retrieval_top_k,
+                    preset_filter=config.gating_preset if gating_applied else "ungated",
+                    strategy_filters=memory_strategy_filters,
+                    force_rewrite=not selective_rewrite,
+                )
+            else:
+                retrieval = retrieve_top_k(sample.query_text, chunks, top_k=config.retrieval_top_k)
+                rewrite_outcome = RewriteOutcome(
+                    final_query=sample.query_text,
+                    rewrite_applied=False,
+                    rewrite_reason="rewrite_disabled",
+                    raw_confidence=0.0,
+                    best_candidate_confidence=0.0,
+                    memory_top_n=[],
+                    candidates=[],
+                )
             reranked = sorted(
                 retrieval[: config.rerank_top_n],
                 key=lambda item: (0.7 * item.score) + (0.3 * _overlap_ratio(sample.query_text, item.text)),
@@ -232,6 +268,10 @@ def run_answer_eval(
         summary_payload = {
             "experiment_key": config.experiment_key,
             "experiment_run_id": run_context.experiment_run_id,
+            "dataset_id": dataset_id,
+            "memory_generation_strategies": memory_strategy_filters,
+            "rewrite_enabled": rewrite_enabled,
+            "selective_rewrite": selective_rewrite,
             "summary": summary,
             "sample_count": len(sample_rows),
         }
@@ -313,4 +353,3 @@ def run_answer_eval_from_env(experiment: str) -> dict[str, Any]:
         db_user=defaults["db_user"],
         db_password=defaults["db_password"],
     )
-
