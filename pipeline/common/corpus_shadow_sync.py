@@ -132,7 +132,7 @@ def sync_shadow_tables(connection: psycopg.Connection[Any]) -> None:
             )
             SELECT c.chunk_id,
                    c.document_id,
-                   c.section_id,
+                   s.section_id,
                    c.chunk_index_in_document AS chunk_index_in_doc,
                    c.section_path_text AS section_path,
                    c.chunk_text AS content,
@@ -147,6 +147,8 @@ def sync_shadow_tables(connection: psycopg.Connection[Any]) -> None:
                    c.created_at,
                    c.updated_at
             FROM corpus_chunks c
+            JOIN corpus_documents d ON d.document_id = c.document_id
+            LEFT JOIN sections s ON s.section_id = c.section_id
             ON CONFLICT (chunk_id) DO UPDATE
             SET document_id = EXCLUDED.document_id,
                 section_id = EXCLUDED.section_id,
@@ -182,6 +184,8 @@ def sync_shadow_tables(connection: psycopg.Connection[Any]) -> None:
                    '{}'::jsonb AS metadata,
                    r.created_at
             FROM corpus_chunk_relations r
+            JOIN chunks source_chunk ON source_chunk.chunk_id = r.source_chunk_id
+            JOIN chunks target_chunk ON target_chunk.chunk_id = r.target_chunk_id
             WHERE r.relation_type IN ('near', 'far')
             ON CONFLICT (source_chunk_id, neighbor_chunk_id, neighbor_type) DO UPDATE
             SET distance = EXCLUDED.distance,
@@ -223,4 +227,3 @@ def sync_shadow_tables(connection: psycopg.Connection[Any]) -> None:
                 metadata = EXCLUDED.metadata
             """
         )
-

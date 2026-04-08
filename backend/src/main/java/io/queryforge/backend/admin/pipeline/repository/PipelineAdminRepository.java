@@ -3,9 +3,7 @@ package io.queryforge.backend.admin.pipeline.repository;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.queryforge.backend.admin.persistence.entity.CorpusRunEntity;
-import io.queryforge.backend.admin.persistence.entity.CorpusRunStepEntity;
 import io.queryforge.backend.admin.persistence.repository.CorpusRunJpaRepository;
-import io.queryforge.backend.admin.persistence.repository.CorpusRunStepJpaRepository;
 import io.queryforge.backend.admin.pipeline.model.PipelineAdminDtos;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
@@ -29,7 +27,6 @@ public class PipelineAdminRepository {
 
     private final ObjectMapper objectMapper;
     private final CorpusRunJpaRepository runRepository;
-    private final CorpusRunStepJpaRepository runStepRepository;
 
     @PersistenceContext
     private EntityManager entityManager;
@@ -48,20 +45,51 @@ public class PipelineAdminRepository {
             Map<String, Object> configSnapshot,
             String createdBy
     ) {
-        CorpusRunEntity run = CorpusRunEntity.builder()
-                .runId(runId)
-                .runType(runType)
-                .runStatus("queued")
-                .triggerType(triggerType)
-                .sourceScope(writeJson(sourceScope))
-                .configSnapshot(writeJson(configSnapshot))
-                .summaryJson("{}")
-                .createdBy(createdBy)
-                .build();
-        Instant now = Instant.now();
-        run.setCreatedAt(now);
-        run.setUpdatedAt(now);
-        runRepository.save(run);
+        executeUpdate(
+                """
+                INSERT INTO corpus_runs (
+                    run_id,
+                    run_type,
+                    run_status,
+                    trigger_type,
+                    source_scope,
+                    config_snapshot,
+                    summary_json,
+                    error_message,
+                    created_by,
+                    started_at,
+                    finished_at,
+                    duration_ms,
+                    cancel_requested_at,
+                    created_at,
+                    updated_at
+                ) VALUES (
+                    :runId,
+                    :runType,
+                    'queued',
+                    :triggerType,
+                    CAST(:sourceScope AS jsonb),
+                    CAST(:configSnapshot AS jsonb),
+                    '{}'::jsonb,
+                    NULL,
+                    :createdBy,
+                    NULL,
+                    NULL,
+                    NULL,
+                    NULL,
+                    NOW(),
+                    NOW()
+                )
+                """,
+                params(
+                        "runId", runId,
+                        "runType", runType,
+                        "triggerType", triggerType,
+                        "sourceScope", writeJson(sourceScope),
+                        "configSnapshot", writeJson(configSnapshot),
+                        "createdBy", createdBy
+                )
+        );
     }
 
     @Transactional
@@ -73,21 +101,57 @@ public class PipelineAdminRepository {
             String inputArtifactPath,
             String outputArtifactPath
     ) {
-        CorpusRunEntity runRef = entityManager.getReference(CorpusRunEntity.class, runId);
-        CorpusRunStepEntity step = CorpusRunStepEntity.builder()
-                .stepId(stepId)
-                .run(runRef)
-                .stepName(stepName)
-                .stepOrder(stepOrder)
-                .stepStatus("queued")
-                .inputArtifactPath(inputArtifactPath)
-                .outputArtifactPath(outputArtifactPath)
-                .metricsJson("{}")
-                .build();
-        Instant now = Instant.now();
-        step.setCreatedAt(now);
-        step.setUpdatedAt(now);
-        runStepRepository.save(step);
+        executeUpdate(
+                """
+                INSERT INTO corpus_run_steps (
+                    step_id,
+                    run_id,
+                    step_name,
+                    step_order,
+                    step_status,
+                    input_artifact_path,
+                    output_artifact_path,
+                    command_line,
+                    stdout_log_path,
+                    stderr_log_path,
+                    stdout_excerpt,
+                    stderr_excerpt,
+                    metrics_json,
+                    started_at,
+                    finished_at,
+                    error_message,
+                    created_at,
+                    updated_at
+                ) VALUES (
+                    :stepId,
+                    :runId,
+                    :stepName,
+                    :stepOrder,
+                    'queued',
+                    :inputArtifactPath,
+                    :outputArtifactPath,
+                    NULL,
+                    NULL,
+                    NULL,
+                    NULL,
+                    NULL,
+                    '{}'::jsonb,
+                    NULL,
+                    NULL,
+                    NULL,
+                    NOW(),
+                    NOW()
+                )
+                """,
+                params(
+                        "stepId", stepId,
+                        "runId", runId,
+                        "stepName", stepName,
+                        "stepOrder", stepOrder,
+                        "inputArtifactPath", inputArtifactPath,
+                        "outputArtifactPath", outputArtifactPath
+                )
+        );
     }
 
     @Transactional

@@ -178,6 +178,18 @@ def build_document_rows(
     return document_rows, section_rows
 
 
+def dedupe_section_rows(section_rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    deduped: list[dict[str, Any]] = []
+    seen_keys: set[tuple[str, str]] = set()
+    for row in section_rows:
+        key = (str(row["document_id"]), str(row["section_path_text"]))
+        if key in seen_keys:
+            continue
+        seen_keys.add(key)
+        deduped.append(row)
+    return deduped
+
+
 def fetch_existing_documents(
     connection: psycopg.Connection[Any],
     document_ids: list[str],
@@ -189,7 +201,8 @@ def fetch_existing_documents(
             """
             SELECT document_id, source_id, product_name, version_label, canonical_url, title,
                    section_path_text, heading_hierarchy_json, raw_checksum, cleaned_checksum,
-                   language_code, content_type, is_active, superseded_by_document_id,
+                   language_code, content_type, is_active,
+                   to_jsonb(corpus_documents) ->> 'superseded_by_document_id' AS superseded_by_document_id,
                    metadata_json
             FROM corpus_documents
             WHERE document_id = ANY(%s)
@@ -197,6 +210,28 @@ def fetch_existing_documents(
             (document_ids,),
         )
         return {str(row["document_id"]): row for row in cursor.fetchall()}
+
+
+def has_column(
+    connection: psycopg.Connection[Any],
+    table_name: str,
+    column_name: str,
+) -> bool:
+    with connection.cursor() as cursor:
+        cursor.execute(
+            """
+            SELECT EXISTS (
+                SELECT 1
+                FROM information_schema.columns
+                WHERE table_schema = current_schema()
+                  AND table_name = %s
+                  AND column_name = %s
+            ) AS exists_flag
+            """,
+            (table_name, column_name),
+        )
+        row = cursor.fetchone()
+        return bool(row["exists_flag"]) if row else False
 
 
 def fetch_existing_sections(
@@ -360,6 +395,12 @@ def import_documents(
     options: ImportOptions,
     import_run_id: str | None,
 ) -> DocumentImportResult:
+    supports_superseded_by_document_id = has_column(
+        connection,
+        "corpus_documents",
+        "superseded_by_document_id",
+    )
+
     raw_documents = load_raw_documents(options.raw_input_path)
     source_configs = load_sources(options.source_config_dir, options.source_ids or None)
     source_stats = ensure_source_rows(
@@ -381,6 +422,7 @@ def import_documents(
         source_configs=source_configs,
         import_run_id=import_run_id,
     )
+    section_rows = dedupe_section_rows(section_rows)
 
     existing_documents = fetch_existing_documents(connection, [row["document_id"] for row in document_rows])
     existing_sections = fetch_existing_sections(connection, [row["section_id"] for row in section_rows])
@@ -413,7 +455,8 @@ def import_documents(
     }
     document_upserts: list[tuple[Any, ...]] = []
     section_upserts: list[tuple[Any, ...]] = []
-    supersede_updates: list[tuple[str, str]] = []
+    supersede_updates_with_reference: list[tuple[str, str]] = []
+    supersede_updates_without_reference: list[tuple[str]] = []
     fingerprint_upserts: list[tuple[Any, ...]] = []
 
     for row in document_rows:
@@ -447,32 +490,34 @@ def import_documents(
         document_stats.preview_ids.append(row["document_id"])
         active_document_id = active_document_urls.get(row["canonical_url"])
         if active_document_id and active_document_id != row["document_id"]:
-            supersede_updates.append((row["document_id"], active_document_id))
+            if supports_superseded_by_document_id:
+                supersede_updates_with_reference.append((row["document_id"], active_document_id))
+            else:
+                supersede_updates_without_reference.append((active_document_id,))
 
-        document_upserts.append(
-            (
-                row["document_id"],
-                row["source_id"],
-                row["product_name"],
-                row["version_label"],
-                row["canonical_url"],
-                row["title"],
-                row["section_path_text"],
-                jsonb(row["heading_hierarchy_json"]),
-                row["raw_checksum"],
-                row["cleaned_checksum"],
-                row["raw_text"],
-                row["cleaned_text"],
-                row["language_code"],
-                row["content_type"],
-                row["collected_at"],
-                row["normalized_at"],
-                row["is_active"],
-                row["superseded_by_document_id"],
-                row["import_run_id"],
-                jsonb(row["metadata_json"]),
-            )
-        )
+        document_values: list[Any] = [
+            row["document_id"],
+            row["source_id"],
+            row["product_name"],
+            row["version_label"],
+            row["canonical_url"],
+            row["title"],
+            row["section_path_text"],
+            jsonb(row["heading_hierarchy_json"]),
+            row["raw_checksum"],
+            row["cleaned_checksum"],
+            row["raw_text"],
+            row["cleaned_text"],
+            row["language_code"],
+            row["content_type"],
+            row["collected_at"],
+            row["normalized_at"],
+            row["is_active"],
+        ]
+        if supports_superseded_by_document_id:
+            document_values.append(row["superseded_by_document_id"])
+        document_values.extend([row["import_run_id"], jsonb(row["metadata_json"])])
+        document_upserts.append(tuple(document_values))
         fingerprint_upserts.append(
             (
                 str(row["canonical_url"]),
@@ -539,7 +584,7 @@ def import_documents(
             dedupe_summary,
         )
 
-    if supersede_updates:
+    if supersede_updates_with_reference:
         with connection.cursor() as cursor:
             cursor.executemany(
                 """
@@ -549,46 +594,95 @@ def import_documents(
                     updated_at = NOW()
                 WHERE document_id = %s
                 """,
-                supersede_updates,
+                supersede_updates_with_reference,
+            )
+
+    if supersede_updates_without_reference:
+        with connection.cursor() as cursor:
+            cursor.executemany(
+                """
+                UPDATE corpus_documents
+                SET is_active = FALSE,
+                    updated_at = NOW()
+                WHERE document_id = %s
+                """,
+                supersede_updates_without_reference,
             )
 
     if document_upserts:
-        sql = """
-            INSERT INTO corpus_documents (
-                document_id, source_id, product_name, version_label, canonical_url, title,
-                section_path_text, heading_hierarchy_json, raw_checksum, cleaned_checksum,
-                raw_text, cleaned_text, language_code, content_type, collected_at,
-                normalized_at, is_active, superseded_by_document_id, import_run_id,
-                metadata_json, created_at, updated_at
-            ) VALUES (
-                %s, %s, %s, %s, %s, %s,
-                %s, %s, %s, %s,
-                %s, %s, %s, %s, %s,
-                %s, %s, %s, %s,
-                %s, NOW(), NOW()
-            )
-            ON CONFLICT (document_id) DO UPDATE
-            SET source_id = EXCLUDED.source_id,
-                product_name = EXCLUDED.product_name,
-                version_label = EXCLUDED.version_label,
-                canonical_url = EXCLUDED.canonical_url,
-                title = EXCLUDED.title,
-                section_path_text = EXCLUDED.section_path_text,
-                heading_hierarchy_json = EXCLUDED.heading_hierarchy_json,
-                raw_checksum = EXCLUDED.raw_checksum,
-                cleaned_checksum = EXCLUDED.cleaned_checksum,
-                raw_text = EXCLUDED.raw_text,
-                cleaned_text = EXCLUDED.cleaned_text,
-                language_code = EXCLUDED.language_code,
-                content_type = EXCLUDED.content_type,
-                collected_at = EXCLUDED.collected_at,
-                normalized_at = EXCLUDED.normalized_at,
-                is_active = EXCLUDED.is_active,
-                superseded_by_document_id = EXCLUDED.superseded_by_document_id,
-                import_run_id = EXCLUDED.import_run_id,
-                metadata_json = EXCLUDED.metadata_json,
-                updated_at = NOW()
-        """
+        if supports_superseded_by_document_id:
+            sql = """
+                INSERT INTO corpus_documents (
+                    document_id, source_id, product_name, version_label, canonical_url, title,
+                    section_path_text, heading_hierarchy_json, raw_checksum, cleaned_checksum,
+                    raw_text, cleaned_text, language_code, content_type, collected_at,
+                    normalized_at, is_active, superseded_by_document_id, import_run_id,
+                    metadata_json, created_at, updated_at
+                ) VALUES (
+                    %s, %s, %s, %s, %s, %s,
+                    %s, %s, %s, %s,
+                    %s, %s, %s, %s, %s,
+                    %s, %s, %s, %s,
+                    %s, NOW(), NOW()
+                )
+                ON CONFLICT (document_id) DO UPDATE
+                SET source_id = EXCLUDED.source_id,
+                    product_name = EXCLUDED.product_name,
+                    version_label = EXCLUDED.version_label,
+                    canonical_url = EXCLUDED.canonical_url,
+                    title = EXCLUDED.title,
+                    section_path_text = EXCLUDED.section_path_text,
+                    heading_hierarchy_json = EXCLUDED.heading_hierarchy_json,
+                    raw_checksum = EXCLUDED.raw_checksum,
+                    cleaned_checksum = EXCLUDED.cleaned_checksum,
+                    raw_text = EXCLUDED.raw_text,
+                    cleaned_text = EXCLUDED.cleaned_text,
+                    language_code = EXCLUDED.language_code,
+                    content_type = EXCLUDED.content_type,
+                    collected_at = EXCLUDED.collected_at,
+                    normalized_at = EXCLUDED.normalized_at,
+                    is_active = EXCLUDED.is_active,
+                    superseded_by_document_id = EXCLUDED.superseded_by_document_id,
+                    import_run_id = EXCLUDED.import_run_id,
+                    metadata_json = EXCLUDED.metadata_json,
+                    updated_at = NOW()
+            """
+        else:
+            sql = """
+                INSERT INTO corpus_documents (
+                    document_id, source_id, product_name, version_label, canonical_url, title,
+                    section_path_text, heading_hierarchy_json, raw_checksum, cleaned_checksum,
+                    raw_text, cleaned_text, language_code, content_type, collected_at,
+                    normalized_at, is_active, import_run_id,
+                    metadata_json, created_at, updated_at
+                ) VALUES (
+                    %s, %s, %s, %s, %s, %s,
+                    %s, %s, %s, %s,
+                    %s, %s, %s, %s, %s,
+                    %s, %s, %s,
+                    %s, NOW(), NOW()
+                )
+                ON CONFLICT (document_id) DO UPDATE
+                SET source_id = EXCLUDED.source_id,
+                    product_name = EXCLUDED.product_name,
+                    version_label = EXCLUDED.version_label,
+                    canonical_url = EXCLUDED.canonical_url,
+                    title = EXCLUDED.title,
+                    section_path_text = EXCLUDED.section_path_text,
+                    heading_hierarchy_json = EXCLUDED.heading_hierarchy_json,
+                    raw_checksum = EXCLUDED.raw_checksum,
+                    cleaned_checksum = EXCLUDED.cleaned_checksum,
+                    raw_text = EXCLUDED.raw_text,
+                    cleaned_text = EXCLUDED.cleaned_text,
+                    language_code = EXCLUDED.language_code,
+                    content_type = EXCLUDED.content_type,
+                    collected_at = EXCLUDED.collected_at,
+                    normalized_at = EXCLUDED.normalized_at,
+                    is_active = EXCLUDED.is_active,
+                    import_run_id = EXCLUDED.import_run_id,
+                    metadata_json = EXCLUDED.metadata_json,
+                    updated_at = NOW()
+            """
         with connection.cursor() as cursor:
             for batch in batch_iterable(document_upserts, options.batch_size):
                 cursor.executemany(sql, batch)

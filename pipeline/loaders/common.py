@@ -151,11 +151,20 @@ def default_database_args() -> dict[str, Any]:
 
 
 def load_jsonl(path: Path) -> list[dict[str, Any]]:
+    def sanitize(value: Any) -> Any:
+        if isinstance(value, str):
+            return value.replace("\x00", "")
+        if isinstance(value, list):
+            return [sanitize(item) for item in value]
+        if isinstance(value, dict):
+            return {key: sanitize(item) for key, item in value.items()}
+        return value
+
     rows: list[dict[str, Any]] = []
     with path.open("r", encoding="utf-8") as source:
         for line in source:
             if line.strip():
-                rows.append(json.loads(line))
+                rows.append(sanitize(json.loads(line)))
     return rows
 
 
@@ -237,9 +246,12 @@ class RunRecorder:
                     trigger_type,
                     source_scope,
                     config_snapshot,
+                    summary_json,
                     started_at,
-                    created_by
-                ) VALUES (%s, %s, 'running', %s, %s, %s, NOW(), %s)
+                    created_by,
+                    created_at,
+                    updated_at
+                ) VALUES (%s, %s, 'running', %s, %s, %s, '{}'::jsonb, NOW(), %s, NOW(), NOW())
                 """,
                 (
                     run_id,
@@ -295,8 +307,12 @@ class RunRecorder:
                     step_status,
                     input_artifact_path,
                     output_artifact_path,
+                    metrics_json,
                     started_at
-                ) VALUES (%s, %s, %s, %s, 'running', %s, %s, NOW())
+                    ,
+                    created_at,
+                    updated_at
+                ) VALUES (%s, %s, %s, %s, 'running', %s, %s, '{}'::jsonb, NOW(), NOW(), NOW())
                 """,
                 (
                     step_id,

@@ -136,12 +136,21 @@ def import_chunks(
 
     for row in sorted(chunk_rows, key=lambda item: (item["document_id"], item["chunk_index_in_doc"])):
         metadata = dict(row.get("metadata") or {})
-        primary_section_id = metadata.get("section_ids", [row.get("section_id")])[0]
-        chunk_index_in_section = chunk_index_per_section[primary_section_id]
-        chunk_index_per_section[primary_section_id] += 1
+        candidate_section_ids = [
+            str(value)
+            for value in metadata.get("section_ids", [row.get("section_id")])
+            if value is not None and str(value).strip()
+        ]
+        primary_section_id = next(
+            (section_id for section_id in candidate_section_ids if section_id in section_presence),
+            None,
+        )
+        section_bucket = primary_section_id or f"__missing__:{row['document_id']}"
+        chunk_index_in_section = chunk_index_per_section[section_bucket]
+        chunk_index_per_section[section_bucket] += 1
         overlap_from_prev_chars, _base_chunk_text = parse_overlap_from_chunk_text(str(row["content"]))
 
-        related_section_ids = metadata.get("section_ids", [])
+        related_section_ids = candidate_section_ids
         table_presence = any(section_presence.get(section_id, {}).get("table_count", 0) > 0 for section_id in related_section_ids)
         list_presence = any(section_presence.get(section_id, {}).get("list_count", 0) > 0 for section_id in related_section_ids)
 

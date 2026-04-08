@@ -418,8 +418,11 @@ def import_glossary(
                 INSERT INTO corpus_glossary_aliases (
                     alias_id, term_id, alias_text, alias_language, alias_type, import_run_id, created_at
                 ) VALUES (%s, %s, %s, %s, %s, %s, NOW())
-                ON CONFLICT (term_id, alias_text, alias_language) DO UPDATE
-                SET alias_type = EXCLUDED.alias_type,
+                ON CONFLICT (alias_id) DO UPDATE
+                SET term_id = EXCLUDED.term_id,
+                    alias_text = EXCLUDED.alias_text,
+                    alias_language = EXCLUDED.alias_language,
+                    alias_type = EXCLUDED.alias_type,
                     import_run_id = EXCLUDED.import_run_id
             """
             with connection.cursor() as cursor:

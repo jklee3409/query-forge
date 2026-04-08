@@ -217,83 +217,83 @@ CREATE INDEX IF NOT EXISTS idx_memory_retrieval_log_rewrite
 
 CREATE OR REPLACE VIEW document_source AS
 SELECT
-    source_id,
-    source_type,
-    product_name,
-    source_name,
-    base_url,
-    include_patterns,
-    exclude_patterns,
-    default_version,
-    enabled,
-    created_at,
-    updated_at
-FROM corpus_sources;
+    (to_jsonb(s) ->> 'source_id')::text AS source_id,
+    (to_jsonb(s) ->> 'source_type')::text AS source_type,
+    (to_jsonb(s) ->> 'product_name')::text AS product_name,
+    (to_jsonb(s) ->> 'source_name')::text AS source_name,
+    (to_jsonb(s) ->> 'base_url')::text AS base_url,
+    COALESCE(to_jsonb(s) -> 'include_patterns', '[]'::jsonb) AS include_patterns,
+    COALESCE(to_jsonb(s) -> 'exclude_patterns', '[]'::jsonb) AS exclude_patterns,
+    (to_jsonb(s) ->> 'default_version')::text AS default_version,
+    COALESCE((to_jsonb(s) ->> 'enabled')::boolean, TRUE) AS enabled,
+    (to_jsonb(s) ->> 'created_at')::timestamptz AS created_at,
+    (to_jsonb(s) ->> 'updated_at')::timestamptz AS updated_at
+FROM corpus_sources s;
 
 CREATE OR REPLACE VIEW collected_document AS
 SELECT
-    document_id,
-    source_id,
-    product_name,
-    version_label,
-    canonical_url,
-    title,
-    heading_hierarchy_json,
-    raw_checksum,
-    cleaned_checksum,
-    raw_text,
-    cleaned_text,
-    language_code,
-    is_active,
-    import_run_id,
-    metadata_json,
-    created_at,
-    updated_at
-FROM corpus_documents;
+    (to_jsonb(d) ->> 'document_id')::text AS document_id,
+    (to_jsonb(d) ->> 'source_id')::text AS source_id,
+    (to_jsonb(d) ->> 'product_name')::text AS product_name,
+    (to_jsonb(d) ->> 'version_label')::text AS version_label,
+    (to_jsonb(d) ->> 'canonical_url')::text AS canonical_url,
+    (to_jsonb(d) ->> 'title')::text AS title,
+    COALESCE(to_jsonb(d) -> 'heading_hierarchy_json', '[]'::jsonb) AS heading_hierarchy_json,
+    (to_jsonb(d) ->> 'raw_checksum')::text AS raw_checksum,
+    (to_jsonb(d) ->> 'cleaned_checksum')::text AS cleaned_checksum,
+    (to_jsonb(d) ->> 'raw_text')::text AS raw_text,
+    (to_jsonb(d) ->> 'cleaned_text')::text AS cleaned_text,
+    (to_jsonb(d) ->> 'language_code')::text AS language_code,
+    COALESCE((to_jsonb(d) ->> 'is_active')::boolean, TRUE) AS is_active,
+    NULLIF((to_jsonb(d) ->> 'import_run_id')::text, '')::uuid AS import_run_id,
+    COALESCE(to_jsonb(d) -> 'metadata_json', '{}'::jsonb) AS metadata_json,
+    (to_jsonb(d) ->> 'created_at')::timestamptz AS created_at,
+    (to_jsonb(d) ->> 'updated_at')::timestamptz AS updated_at
+FROM corpus_documents d;
 
 CREATE OR REPLACE VIEW normalized_document AS
 SELECT
-    d.document_id,
-    d.source_id,
-    d.product_name,
-    d.version_label,
-    d.canonical_url,
-    d.title,
-    d.cleaned_checksum AS normalized_text_hash,
-    d.cleaned_text,
-    d.metadata_json,
-    d.updated_at
+    (to_jsonb(d) ->> 'document_id')::text AS document_id,
+    (to_jsonb(d) ->> 'source_id')::text AS source_id,
+    (to_jsonb(d) ->> 'product_name')::text AS product_name,
+    (to_jsonb(d) ->> 'version_label')::text AS version_label,
+    (to_jsonb(d) ->> 'canonical_url')::text AS canonical_url,
+    (to_jsonb(d) ->> 'title')::text AS title,
+    (to_jsonb(d) ->> 'cleaned_checksum')::text AS normalized_text_hash,
+    (to_jsonb(d) ->> 'cleaned_text')::text AS cleaned_text,
+    COALESCE(to_jsonb(d) -> 'metadata_json', '{}'::jsonb) AS metadata_json,
+    (to_jsonb(d) ->> 'updated_at')::timestamptz AS updated_at
 FROM corpus_documents d;
 
 CREATE OR REPLACE VIEW pipeline_execution AS
 SELECT
-    run_id AS pipeline_execution_id,
-    run_type AS execution_type,
-    run_status AS execution_status,
-    trigger_type,
-    source_scope,
-    config_snapshot,
-    summary_json,
-    error_message,
-    started_at,
-    finished_at,
-    duration_ms,
-    created_by,
-    created_at
-FROM corpus_runs;
+    (to_jsonb(r) ->> 'run_id')::uuid AS pipeline_execution_id,
+    (to_jsonb(r) ->> 'run_type')::text AS execution_type,
+    (to_jsonb(r) ->> 'run_status')::text AS execution_status,
+    (to_jsonb(r) ->> 'trigger_type')::text AS trigger_type,
+    COALESCE(to_jsonb(r) -> 'source_scope', '{}'::jsonb) AS source_scope,
+    COALESCE(to_jsonb(r) -> 'config_snapshot', '{}'::jsonb) AS config_snapshot,
+    COALESCE(to_jsonb(r) -> 'summary_json', '{}'::jsonb) AS summary_json,
+    (to_jsonb(r) ->> 'error_message')::text AS error_message,
+    (to_jsonb(r) ->> 'started_at')::timestamptz AS started_at,
+    (to_jsonb(r) ->> 'finished_at')::timestamptz AS finished_at,
+    (to_jsonb(r) ->> 'duration_ms')::bigint AS duration_ms,
+    (to_jsonb(r) ->> 'created_by')::text AS created_by,
+    (to_jsonb(r) ->> 'created_at')::timestamptz AS created_at
+FROM corpus_runs r;
 
 CREATE OR REPLACE VIEW pipeline_execution_step AS
 SELECT
-    step_id AS pipeline_execution_step_id,
-    run_id AS pipeline_execution_id,
-    step_name,
-    step_order,
-    step_status,
-    input_artifact_path,
-    output_artifact_path,
-    metrics_json,
-    error_message,
-    started_at,
-    finished_at,
-    created_at
-FROM corpus_run_steps;
+    (to_jsonb(s) ->> 'step_id')::uuid AS pipeline_execution_step_id,
+    (to_jsonb(s) ->> 'run_id')::uuid AS pipeline_execution_id,
+    (to_jsonb(s) ->> 'step_name')::text AS step_name,
+    COALESCE((to_jsonb(s) ->> 'step_order')::integer, 0) AS step_order,
+    (to_jsonb(s) ->> 'step_status')::text AS step_status,
+    (to_jsonb(s) ->> 'input_artifact_path')::text AS input_artifact_path,
+    (to_jsonb(s) ->> 'output_artifact_path')::text AS output_artifact_path,
+    COALESCE(to_jsonb(s) -> 'metrics_json', '{}'::jsonb) AS metrics_json,
+    (to_jsonb(s) ->> 'error_message')::text AS error_message,
+    (to_jsonb(s) ->> 'started_at')::timestamptz AS started_at,
+    (to_jsonb(s) ->> 'finished_at')::timestamptz AS finished_at,
+    (to_jsonb(s) ->> 'created_at')::timestamptz AS created_at
+FROM corpus_run_steps s;
