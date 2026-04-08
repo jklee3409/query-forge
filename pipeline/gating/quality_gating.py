@@ -107,6 +107,22 @@ def _latest_generation_run_id(
     return str(value) if value is not None else None
 
 
+def _gating_batch_exists(
+    connection: psycopg.Connection[Any],
+    gating_batch_id: str,
+) -> bool:
+    with connection.cursor() as cursor:
+        cursor.execute(
+            """
+            SELECT 1
+            FROM quality_gating_batch
+            WHERE gating_batch_id = %s
+            """,
+            (gating_batch_id,),
+        )
+        return cursor.fetchone() is not None
+
+
 def _load_raw_queries(
     connection: psycopg.Connection[Any],
     *,
@@ -390,6 +406,12 @@ def run_quality_gating(
 
         strategies = _strategies_for_gating(config)
         gating_batch_id = str(config.raw.get("gating_batch_id") or "").strip() or None
+        if gating_batch_id and not _gating_batch_exists(connection, gating_batch_id):
+            LOGGER.warning(
+                "gating_batch_id=%s not found. storing gated rows with NULL batch id and deferring linkage by experiment_run_id",
+                gating_batch_id,
+            )
+            gating_batch_id = None
         configured_run_id = config.raw.get("source_generation_run_id")
         generation_run_id = str(configured_run_id).strip() if configured_run_id else None
         if not generation_run_id:
@@ -547,7 +569,7 @@ def run_quality_gating(
                         metadata
                     ) VALUES (
                         %s, %s, %s, %s, %s, %s, %s, %s,
-                        %s, %s, %s, %s, %s, %s, %s, %s
+                        %s, %s, %s, %s, %s, %s, %s, %s, %s
                     )
                     ON CONFLICT (synthetic_query_id, gating_preset) DO UPDATE
                     SET gating_batch_id = EXCLUDED.gating_batch_id,

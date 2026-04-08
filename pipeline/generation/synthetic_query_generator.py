@@ -405,6 +405,22 @@ def _resolve_generation_method_id(
     return str(value) if value is not None else None
 
 
+def _batch_exists(
+    connection: psycopg.Connection[Any],
+    batch_id: str,
+) -> bool:
+    with connection.cursor() as cursor:
+        cursor.execute(
+            """
+            SELECT 1
+            FROM synthetic_query_generation_batch
+            WHERE batch_id = %s
+            """,
+            (batch_id,),
+        )
+        return cursor.fetchone() is not None
+
+
 def _resolve_prompt_files(
     config: ExperimentConfig,
     prompt_root: Path,
@@ -473,6 +489,12 @@ def run_generation(
 
         strategy = config.generation_strategy
         generation_batch_id = str(config.raw.get("generation_batch_id") or "").strip() or None
+        if generation_batch_id and not _batch_exists(connection, generation_batch_id):
+            LOGGER.warning(
+                "generation_batch_id=%s not found. storing queries with NULL batch id and deferring linkage by experiment_run_id",
+                generation_batch_id,
+            )
+            generation_batch_id = None
         method_id_cache: dict[str, str | None] = {
             strategy: _resolve_generation_method_id(connection, strategy)
         }
