@@ -9,6 +9,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
 import java.io.IOException;
+import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
@@ -16,6 +17,8 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Set;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
 import java.util.stream.Stream;
 
 @Service
@@ -56,9 +59,15 @@ public class ExperimentPipelineService {
                 .directory(repoRoot.toFile());
         try {
             Process process = processBuilder.start();
-            String stdout = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
-            String stderr = new String(process.getErrorStream().readAllBytes(), StandardCharsets.UTF_8);
+            CompletableFuture<String> stdoutFuture = CompletableFuture.supplyAsync(
+                    () -> readStream(process.getInputStream())
+            );
+            CompletableFuture<String> stderrFuture = CompletableFuture.supplyAsync(
+                    () -> readStream(process.getErrorStream())
+            );
             int exitCode = process.waitFor();
+            String stdout = stdoutFuture.join();
+            String stderr = stderrFuture.join();
             JsonNode summary = parseSummary(stdout);
             return new RagDtos.ExperimentCommandResponse(
                     command,
@@ -71,6 +80,8 @@ public class ExperimentPipelineService {
         } catch (InterruptedException exception) {
             Thread.currentThread().interrupt();
             throw new IllegalStateException("failed to run experiment command", exception);
+        } catch (CompletionException exception) {
+            throw new IllegalStateException("failed to read experiment command output", exception);
         } catch (IOException exception) {
             throw new IllegalStateException("failed to run experiment command", exception);
         }
@@ -113,9 +124,14 @@ public class ExperimentPipelineService {
             return objectMapper.createObjectNode();
         }
         String trimmed = stdout.trim();
-        int jsonStart = trimmed.lastIndexOf('{');
-        if (jsonStart >= 0) {
-            String candidate = trimmed.substring(jsonStart);
+        try {
+            return objectMapper.readTree(trimmed);
+        } catch (Exception ignored) {
+        }
+        int jsonStart = trimmed.indexOf('{');
+        int jsonEnd = trimmed.lastIndexOf('}');
+        if (jsonStart >= 0 && jsonEnd > jsonStart) {
+            String candidate = trimmed.substring(jsonStart, jsonEnd + 1);
             try {
                 return objectMapper.readTree(candidate);
             } catch (Exception ignored) {
@@ -124,6 +140,14 @@ public class ExperimentPipelineService {
         ObjectNode fallback = objectMapper.createObjectNode();
         fallback.put("raw_stdout", trim(stdout));
         return fallback;
+    }
+
+    private String readStream(InputStream inputStream) {
+        try (InputStream stream = inputStream) {
+            return new String(stream.readAllBytes(), StandardCharsets.UTF_8);
+        } catch (IOException exception) {
+            throw new IllegalStateException("failed to read process output stream", exception);
+        }
     }
 
     private String trim(String text) {
