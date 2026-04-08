@@ -247,6 +247,60 @@ public class LlmJobRepository {
     }
 
     @Transactional
+    public List<UUID> recoverInterruptedJobs(int limit) {
+        String sql = """
+                WITH target AS (
+                    SELECT job_id
+                    FROM llm_job
+                    WHERE job_status IN ('running', 'pause_requested')
+                    ORDER BY updated_at ASC
+                    LIMIT :limit
+                    FOR UPDATE SKIP LOCKED
+                )
+                UPDATE llm_job job
+                SET job_status = 'queued',
+                    next_run_at = NOW(),
+                    finished_at = NULL,
+                    error_message = COALESCE(job.error_message, 'Recovered after backend restart.'),
+                    updated_at = NOW()
+                FROM target
+                WHERE job.job_id = target.job_id
+                RETURNING job.job_id
+                """;
+        return jdbcTemplate.query(
+                sql,
+                new MapSqlParameterSource("limit", Math.max(1, limit)),
+                (rs, rowNum) -> readUuid(rs, "job_id")
+        );
+    }
+
+    @Transactional
+    public List<UUID> finalizeCancelRequestedJobs(int limit) {
+        String sql = """
+                WITH target AS (
+                    SELECT job_id
+                    FROM llm_job
+                    WHERE job_status = 'cancel_requested'
+                    ORDER BY updated_at ASC
+                    LIMIT :limit
+                    FOR UPDATE SKIP LOCKED
+                )
+                UPDATE llm_job job
+                SET job_status = 'cancelled',
+                    finished_at = COALESCE(job.finished_at, NOW()),
+                    updated_at = NOW()
+                FROM target
+                WHERE job.job_id = target.job_id
+                RETURNING job.job_id
+                """;
+        return jdbcTemplate.query(
+                sql,
+                new MapSqlParameterSource("limit", Math.max(1, limit)),
+                (rs, rowNum) -> readUuid(rs, "job_id")
+        );
+    }
+
+    @Transactional
     public void markJobRunning(UUID jobId) {
         String sql = """
                 UPDATE llm_job
@@ -440,6 +494,20 @@ public class LlmJobRepository {
                 WHERE job_item_id = :jobItemId
                 """;
         jdbcTemplate.update(sql, new MapSqlParameterSource("jobItemId", jobItemId));
+    }
+
+    @Transactional
+    public void resetRunningItemsToQueued(UUID jobId) {
+        String sql = """
+                UPDATE llm_job_item
+                SET item_status = 'queued',
+                    started_at = NULL,
+                    finished_at = NULL,
+                    error_message = NULL
+                WHERE job_id = :jobId
+                  AND item_status = 'running'
+                """;
+        jdbcTemplate.update(sql, new MapSqlParameterSource("jobId", jobId));
     }
 
     @Transactional

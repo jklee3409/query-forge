@@ -41,7 +41,7 @@ public class PipelineAdminService {
     private final SourceCatalogService sourceCatalogService;
     private final DocumentArtifactStoreService artifactStoreService;
     private final PipelineCommandRunner commandRunner;
-    private final ExecutorService executorService;
+    private final ExecutorService adminPipelineExecutor;
     private final ObjectMapper objectMapper;
     private final Map<UUID, ManagedRunContext> managedRuns = new ConcurrentHashMap<>();
 
@@ -217,7 +217,7 @@ public class PipelineAdminService {
 
         ManagedRunContext context = new ManagedRunContext(runId, runType, steps, artifacts, initialDocumentIds);
         managedRuns.put(runId, context);
-        executorService.execute(() -> executeRun(context, scope));
+        adminPipelineExecutor.execute(() -> executeRun(context, scope));
 
         return new PipelineAdminDtos.PipelineRunActionResponse(
                 runId,

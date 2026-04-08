@@ -11,6 +11,8 @@ import io.queryforge.backend.rag.service.ExperimentPipelineService;
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -31,28 +33,53 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 
 @Service
 @RequiredArgsConstructor
 @Slf4j
 public class LlmJobService {
 
+    private static final int MAX_CONCURRENT_WORKERS = 3;
+
     private final LlmJobRepository llmJobRepository;
     private final AdminConsoleRepository adminConsoleRepository;
     private final ExperimentPipelineService experimentPipelineService;
     private final AdminPipelineProperties pipelineProperties;
     private final ObjectMapper objectMapper;
-    private final ExecutorService adminPipelineExecutor;
+    @Autowired
+    @Qualifier("llmJobExecutor")
+    private ExecutorService llmJobExecutor;
 
     private final ConcurrentLinkedDeque<UUID> queue = new ConcurrentLinkedDeque<>();
     private final Set<UUID> queuedIds = ConcurrentHashMap.newKeySet();
-    private final AtomicBoolean workerRunning = new AtomicBoolean(false);
+    private final AtomicInteger activeWorkers = new AtomicInteger(0);
 
     @PostConstruct
     void recoverQueuedJobs() {
-        for (UUID jobId : llmJobRepository.findQueuedJobIds(200)) {
+        List<UUID> cancelledJobs = llmJobRepository.finalizeCancelRequestedJobs(200);
+        for (UUID jobId : cancelledJobs) {
+            llmJobRepository.markRemainingItemsCancelled(jobId);
+            llmJobRepository.findJob(jobId).ifPresent(this::markRelatedCancelled);
+        }
+        if (!cancelledJobs.isEmpty()) {
+            log.warn("Recovered {} cancel_requested LLM jobs to cancelled state after restart.", cancelledJobs.size());
+        }
+
+        List<UUID> recoveredJobs = llmJobRepository.recoverInterruptedJobs(200);
+        for (UUID jobId : recoveredJobs) {
+            llmJobRepository.resetRunningItemsToQueued(jobId);
+        }
+        if (!recoveredJobs.isEmpty()) {
+            log.warn("Recovered {} interrupted LLM jobs to queued state after restart.", recoveredJobs.size());
+        }
+
+        List<UUID> queuedJobs = llmJobRepository.findQueuedJobIds(500);
+        for (UUID jobId : queuedJobs) {
             enqueue(jobId);
+        }
+        if (!queuedJobs.isEmpty()) {
+            log.info("Bootstrapped {} queued LLM jobs into in-memory queue.", queuedJobs.size());
         }
     }
 
@@ -166,6 +193,14 @@ public class LlmJobService {
     @Transactional
     public void cancelJob(UUID jobId) {
         llmJobRepository.requestCancel(jobId);
+        llmJobRepository.findJob(jobId).ifPresent(job -> {
+            if ("cancelled".equalsIgnoreCase(job.jobStatus())) {
+                llmJobRepository.markRemainingItemsCancelled(jobId);
+                markRelatedCancelled(job);
+                queuedIds.remove(jobId);
+                queue.remove(jobId);
+            }
+        });
     }
 
     @Transactional
@@ -179,14 +214,28 @@ public class LlmJobService {
             return;
         }
         queue.offer(jobId);
-        runWorkerIfNeeded();
+        runWorkersIfNeeded();
     }
 
-    private void runWorkerIfNeeded() {
-        if (!workerRunning.compareAndSet(false, true)) {
-            return;
+    private void runWorkersIfNeeded() {
+        while (true) {
+            if (queue.isEmpty()) {
+                return;
+            }
+            int current = activeWorkers.get();
+            if (current >= MAX_CONCURRENT_WORKERS) {
+                return;
+            }
+            if (activeWorkers.compareAndSet(current, current + 1)) {
+                try {
+                    llmJobExecutor.execute(this::workerLoop);
+                } catch (RuntimeException exception) {
+                    activeWorkers.decrementAndGet();
+                    throw exception;
+                }
+                return;
+            }
         }
-        adminPipelineExecutor.execute(this::workerLoop);
     }
 
     private void workerLoop() {
@@ -213,9 +262,9 @@ public class LlmJobService {
                 executeJob(job);
             }
         } finally {
-            workerRunning.set(false);
+            activeWorkers.decrementAndGet();
             if (!queue.isEmpty()) {
-                runWorkerIfNeeded();
+                runWorkersIfNeeded();
             }
         }
     }
@@ -259,6 +308,18 @@ public class LlmJobService {
                         new RagDtos.ExperimentCommandRequest(command, experiment)
                 );
                 resultByCommand.put(command, response.summary());
+                AdminConsoleDtos.LlmJobRow afterRun = llmJobRepository.findJob(job.jobId())
+                        .orElseThrow(() -> new IllegalStateException("llm job missing after command run: " + job.jobId()));
+                if ("cancel_requested".equalsIgnoreCase(afterRun.jobStatus())) {
+                    llmJobRepository.markItemCompleted(item.jobItemId(), response.summary());
+                    llmJobRepository.markRemainingItemsCancelled(job.jobId());
+                    llmJobRepository.markCancelled(
+                            job.jobId(),
+                            objectMapper.valueToTree(Map.of("reason", "cancel_requested_during_command", "last_command", command))
+                    );
+                    markRelatedCancelled(afterRun);
+                    return;
+                }
                 if (response.exitCode() != 0) {
                     llmJobRepository.markItemFailed(
                             item.jobItemId(),
