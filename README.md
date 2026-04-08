@@ -171,12 +171,12 @@ Inputs:
 python pipeline/cli.py generate-queries --experiment e2e_gen_a
 python pipeline/cli.py generate-queries --experiment e2e_gen_c
 
-# 2) A/C 게이팅
+# 2) A 게이팅 + A 메모리
 python pipeline/cli.py gate-queries --experiment e2e_gate_a
-python pipeline/cli.py gate-queries --experiment e2e_gate_c
-
-# 3) 메모리 빌드
 python pipeline/cli.py build-memory --experiment e2e_gate_a
+
+# 3) C 게이팅 + C 메모리
+python pipeline/cli.py gate-queries --experiment e2e_gate_c
 python pipeline/cli.py build-memory --experiment e2e_gate_c
 
 # 4) 평가
@@ -193,4 +193,3 @@ python pipeline/cli.py eval-retrieval --experiment e2e_eval_c
 - 생성량은 C가 A보다 많았고(5 vs 3), 문장 품질 경고는 C에서 더 많이 관찰됨.
 - selective rewrite는 A에서 일부 채택되었지만 성능 하락 가능성이 컸고, C는 보수적으로 전부 거절되어 baseline 유지.
 - 다음 단계는 동일 파이프라인에서 문항 수를 점진 확장하고, 게이팅 threshold를 실제 탈락이 발생하는 수준으로 올려 A/C 차이를 재검증하는 것이다.
-

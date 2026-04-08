@@ -44,17 +44,29 @@ class GatedRow:
     product_name: str | None
 
 
-def _latest_gating_run_id(connection: psycopg.Connection[Any], preset: str) -> str | None:
+def _latest_gating_run_id(
+    connection: psycopg.Connection[Any],
+    preset: str,
+    strategies: list[str] | None = None,
+) -> str | None:
+    where_strategy = ""
+    parameters: list[Any] = [preset]
+    normalized = [str(item).upper() for item in (strategies or []) if str(item).strip()]
+    if normalized:
+        where_strategy = " AND r.generation_strategy = ANY(%s)"
+        parameters.append(normalized)
     with connection.cursor() as cursor:
         cursor.execute(
-            """
-            SELECT metadata ->> 'experiment_run_id' AS run_id
-            FROM synthetic_queries_gated
-            WHERE gating_preset = %s
-            ORDER BY created_at DESC
+            f"""
+            SELECT g.metadata ->> 'experiment_run_id' AS run_id
+            FROM synthetic_queries_gated g
+            JOIN synthetic_queries_raw r ON r.synthetic_query_id = g.synthetic_query_id
+            WHERE g.gating_preset = %s
+              {where_strategy}
+            ORDER BY g.created_at DESC
             LIMIT 1
             """,
-            (preset,),
+            parameters,
         )
         row = cursor.fetchone()
     if row is None:
@@ -68,12 +80,18 @@ def _load_gated_rows(
     *,
     preset: str,
     source_run_id: str | None,
+    strategies: list[str] | None = None,
 ) -> list[GatedRow]:
     where_source = ""
     parameters: list[Any] = [preset]
     if source_run_id:
         where_source = " AND g.metadata ->> 'experiment_run_id' = %s"
         parameters.append(source_run_id)
+    where_strategy = ""
+    normalized = [str(item).upper() for item in (strategies or []) if str(item).strip()]
+    if normalized:
+        where_strategy = " AND r.generation_strategy = ANY(%s)"
+        parameters.append(normalized)
     with connection.cursor() as cursor:
         cursor.execute(
             f"""
@@ -99,6 +117,7 @@ def _load_gated_rows(
             WHERE g.gating_preset = %s
               AND g.final_decision = TRUE
               {where_source}
+              {where_strategy}
             ORDER BY g.created_at ASC
             """,
             parameters,
@@ -198,12 +217,22 @@ def run_memory_build(
             run_label="build-memory",
         )
 
+        strategy_filters = [
+            str(item).upper()
+            for item in (config.raw.get("source_generation_strategies") or [config.generation_strategy])
+            if str(item).strip()
+        ]
         configured_gating_run_id = str(config.raw.get("source_gating_run_id") or "").strip() or None
-        source_run_id = configured_gating_run_id or _latest_gating_run_id(connection, config.gating_preset)
+        source_run_id = configured_gating_run_id or _latest_gating_run_id(
+            connection,
+            config.gating_preset,
+            strategy_filters,
+        )
         rows = _load_gated_rows(
             connection,
             preset=config.gating_preset,
             source_run_id=source_run_id,
+            strategies=strategy_filters,
         )
 
         inserted_memory_ids: list[str] = []
@@ -304,6 +333,7 @@ def run_memory_build(
             "experiment_run_id": run_context.experiment_run_id,
             "gating_preset": config.gating_preset,
             "source_gating_run_id": source_run_id,
+            "source_generation_strategies": strategy_filters,
             "memory_entries_built": len(rows),
             "preview_memory_ids": inserted_memory_ids,
             "embedding_model": "hash-embedding-v1",
