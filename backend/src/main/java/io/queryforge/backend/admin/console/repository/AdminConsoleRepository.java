@@ -251,7 +251,7 @@ public class AdminConsoleRepository {
                 SET status = 'running',
                     started_at = COALESCE(started_at, NOW())
                 WHERE batch_id = :batchId
-                  AND status IN ('planned', 'queued')
+                  AND status IN ('planned', 'queued', 'failed')
                 """;
         jdbcTemplate.update(sql, new MapSqlParameterSource("batchId", batchId));
     }
@@ -919,7 +919,7 @@ public class AdminConsoleRepository {
                 SET status = 'running',
                     started_at = COALESCE(started_at, NOW())
                 WHERE gating_batch_id = :gatingBatchId
-                  AND status IN ('planned', 'queued')
+                  AND status IN ('planned', 'queued', 'failed')
                 """;
         jdbcTemplate.update(sql, new MapSqlParameterSource("gatingBatchId", gatingBatchId));
     }
@@ -1002,67 +1002,12 @@ public class AdminConsoleRepository {
     public AdminConsoleDtos.GatingFunnelResponse findGatingFunnel(UUID gatingBatchId) {
         AdminConsoleDtos.GatingBatchRow batch = findGatingBatch(gatingBatchId)
                 .orElseThrow(() -> new IllegalArgumentException("gating batch not found: " + gatingBatchId));
-        MapSqlParameterSource params = new MapSqlParameterSource("gatingBatchId", gatingBatchId);
-        int generatedTotal = intValue(jdbcTemplate.queryForObject(
-                """
-                SELECT passed_count
-                FROM quality_gating_stage_result
-                WHERE gating_batch_id = :gatingBatchId
-                  AND stage_name = 'generated'
-                """,
-                params,
-                Integer.class
-        ));
-        int passedRule = intValue(jdbcTemplate.queryForObject(
-                """
-                SELECT passed_count
-                FROM quality_gating_stage_result
-                WHERE gating_batch_id = :gatingBatchId
-                  AND stage_name = 'rule_filter'
-                """,
-                params,
-                Integer.class
-        ));
-        int passedLlm = intValue(jdbcTemplate.queryForObject(
-                """
-                SELECT passed_count
-                FROM quality_gating_stage_result
-                WHERE gating_batch_id = :gatingBatchId
-                  AND stage_name = 'llm_self_eval'
-                """,
-                params,
-                Integer.class
-        ));
-        int passedUtility = intValue(jdbcTemplate.queryForObject(
-                """
-                SELECT passed_count
-                FROM quality_gating_stage_result
-                WHERE gating_batch_id = :gatingBatchId
-                  AND stage_name = 'retrieval_utility'
-                """,
-                params,
-                Integer.class
-        ));
-        int passedDiversity = intValue(jdbcTemplate.queryForObject(
-                """
-                SELECT passed_count
-                FROM quality_gating_stage_result
-                WHERE gating_batch_id = :gatingBatchId
-                  AND stage_name = 'diversity_dedup'
-                """,
-                params,
-                Integer.class
-        ));
-        int finalAccepted = intValue(jdbcTemplate.queryForObject(
-                """
-                SELECT passed_count
-                FROM quality_gating_stage_result
-                WHERE gating_batch_id = :gatingBatchId
-                  AND stage_name = 'final_approved'
-                """,
-                params,
-                Integer.class
-        ));
+        int generatedTotal = findStagePassedCount(gatingBatchId, "generated");
+        int passedRule = findStagePassedCount(gatingBatchId, "rule_filter");
+        int passedLlm = findStagePassedCount(gatingBatchId, "llm_self_eval");
+        int passedUtility = findStagePassedCount(gatingBatchId, "retrieval_utility");
+        int passedDiversity = findStagePassedCount(gatingBatchId, "diversity_dedup");
+        int finalAccepted = findStagePassedCount(gatingBatchId, "final_approved");
         return new AdminConsoleDtos.GatingFunnelResponse(
                 batch.gatingBatchId(),
                 batch.methodCode(),
@@ -1074,6 +1019,28 @@ public class AdminConsoleRepository {
                 passedDiversity,
                 finalAccepted
         );
+    }
+
+    private int findStagePassedCount(UUID gatingBatchId, String stageName) {
+        String sql = """
+                SELECT COALESCE(
+                    (
+                        SELECT passed_count
+                        FROM quality_gating_stage_result
+                        WHERE gating_batch_id = :gatingBatchId
+                          AND stage_name = :stageName
+                    ),
+                    0
+                )
+                """;
+        Integer value = jdbcTemplate.queryForObject(
+                sql,
+                new MapSqlParameterSource()
+                        .addValue("gatingBatchId", gatingBatchId)
+                        .addValue("stageName", stageName),
+                Integer.class
+        );
+        return intValue(value);
     }
 
     public List<AdminConsoleDtos.GatingResultRow> findGatingResults(
@@ -1458,7 +1425,7 @@ public class AdminConsoleRepository {
                 SET status = 'running',
                     started_at = COALESCE(started_at, NOW())
                 WHERE rag_test_run_id = :runId
-                  AND status IN ('planned', 'queued')
+                  AND status IN ('planned', 'queued', 'failed')
                 """;
         jdbcTemplate.update(sql, new MapSqlParameterSource("runId", runId));
     }
