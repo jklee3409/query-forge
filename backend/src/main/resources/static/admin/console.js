@@ -174,6 +174,8 @@
   const initSynthetic = () => {
     const mTable = document.querySelector("#synthetic-methods-table tbody");
     const mSel = document.getElementById("synthetic-method-code");
+    const sourceSel = document.getElementById("synthetic-source-id");
+    const sourceDocSel = document.getElementById("synthetic-source-document-id");
     const mFil = document.getElementById("synthetic-filter-method");
     const bFil = document.getElementById("synthetic-filter-batch");
     const bTable = document.querySelector("#synthetic-batches-table tbody");
@@ -196,6 +198,31 @@
     };
     const loadMethods = async () => { methods = await fetchJson("/api/admin/console/synthetic/methods"); mTable.innerHTML = methods.map((m) => `<tr><td>${esc(m.methodCode)}</td><td>${esc(m.methodName)}</td><td>${esc(m.description || "-")}</td><td>${esc(m.promptTemplateVersion || "-")}</td><td>${bool(m.active)}</td></tr>`).join(""); fill(); };
     const loadBatches = async () => { batches = await fetchJson("/api/admin/console/synthetic/batches?limit=50"); bTable.innerHTML = batches.map((b) => `<tr><td class="mono-truncate">${esc(b.batchId)}</td><td>${esc(b.methodCode)}</td><td>${esc(b.versionName)}</td><td>${badge(b.status || "-", status(b.status))}</td><td>${dt(b.startedAt)}</td><td>${dt(b.finishedAt)}</td><td>${esc(b.totalGeneratedCount ?? 0)}</td></tr>`).join(""); fill(); };
+    const loadSourceDocuments = async (sourceId) => {
+      if (!sourceDocSel) return;
+      if (!sourceId) {
+        sourceDocSel.innerHTML = `<option value="">전체 문서(소스 전체)</option>`;
+        return;
+      }
+      const docs = await fetchJson(`/api/admin/corpus/documents${q({ source_id: sourceId, active_only: true, limit: 200 })}`);
+      sourceDocSel.innerHTML = `<option value="">전체 문서(소스 전체)</option>` + docs.map((d) => `<option value="${esc(d.documentId)}">${esc(d.documentId)} | ${esc(d.title || "-")}</option>`).join("");
+    };
+    const loadSources = async () => {
+      if (!sourceSel) return;
+      let sources = await fetchJson("/api/admin/corpus/sources");
+      sources = arr(sources);
+      if (sources.length === 0) {
+        const docs = await fetchJson(`/api/admin/corpus/documents${q({ active_only: true, limit: 300 })}`);
+        const dedup = new Map();
+        arr(docs).forEach((d) => {
+          if (!d?.sourceId) return;
+          if (!dedup.has(d.sourceId)) dedup.set(d.sourceId, { sourceId: d.sourceId, productName: d.productName || "-" });
+        });
+        sources = Array.from(dedup.values());
+      }
+      sourceSel.innerHTML = `<option value="">전체 소스</option>` + sources.map((s) => `<option value="${esc(s.sourceId)}">${esc(s.sourceId)} (${esc(s.productName || "-")})</option>`).join("");
+      await loadSourceDocuments(sourceSel.value || "");
+    };
     const loadStats = async () => {
       const v = formObj(filForm); const s = await fetchJson(`/api/admin/console/synthetic/stats${q({ method_code: v.method_code || null, batch_id: v.batch_id || null })}`);
       const byM = arr(s.byMethod), byT = arr(s.byQueryType); const total = byM.reduce((a, x) => a + Number(x.count || 0), 0);
@@ -214,10 +241,31 @@
         panel.innerHTML = `<div class="table-title">합성 질의 상세</div><div class="detail-grid" style="margin-top:12px;"><div class="detail-card"><div class="detail-item__label">질의</div><div class="detail-item__value">${esc(d.queryText)}</div></div><div class="detail-card"><div class="detail-item__label">방식 / 유형</div><div class="detail-item__value">${esc(d.generationMethod)} / ${esc(d.queryType)}</div></div><div class="detail-card"><div class="detail-item__label">배치 / 언어</div><div class="detail-item__value">${esc(d.generationBatchId || "-")} / ${esc(d.languageProfile || "-")}</div></div></div><div class="table-title" style="margin-top:12px;">source_chunk</div><div class="code-surface">${json(d.sourceChunk)}</div><div class="table-title" style="margin-top:12px;">source_links</div><div class="code-surface">${json(d.sourceLinks)}</div><div class="table-title" style="margin-top:12px;">raw_output</div><div class="code-surface">${json(d.rawOutput)}</div>`;
       }));
     };
-    runForm.addEventListener("submit", async (e) => { e.preventDefault(); const v = formObj(runForm); try { await postJson("/api/admin/console/synthetic/batches/run", { methodCode: v.methodCode, versionName: v.versionName, sourceDocumentVersion: v.sourceDocumentVersion || null, limitChunks: v.limitChunks ? Number(v.limitChunks) : null }); await Promise.all([loadBatches(), loadQueries(), loadStats(), loadLlmJobs()]); } catch (x) { alert(x.message); } });
+    sourceSel?.addEventListener("change", async () => {
+      await loadSourceDocuments(sourceSel.value || "");
+    });
+    runForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const v = formObj(runForm);
+      try {
+        await postJson("/api/admin/console/synthetic/batches/run", {
+          methodCode: v.methodCode,
+          versionName: v.versionName,
+          sourceDocumentVersion: v.sourceDocumentVersion || null,
+          sourceId: v.sourceId || null,
+          sourceDocumentId: v.sourceDocumentId || null,
+          limitChunks: v.limitChunks ? Number(v.limitChunks) : null,
+          avgQueriesPerChunk: v.avgQueriesPerChunk ? Number(v.avgQueriesPerChunk) : null,
+          maxTotalQueries: v.maxTotalQueries ? Number(v.maxTotalQueries) : null,
+          llmModel: v.llmModel || null,
+          llmRpm: v.llmRpm ? Number(v.llmRpm) : null,
+        });
+        await Promise.all([loadBatches(), loadQueries(), loadStats(), loadLlmJobs()]);
+      } catch (x) { alert(x.message); }
+    });
     filForm.addEventListener("submit", async (e) => { e.preventDefault(); await Promise.all([loadQueries(), loadStats()]); });
     startPolling(loadLlmJobs, 5000);
-    Promise.all([loadMethods(), loadBatches(), loadLlmJobs()]).then(() => Promise.all([loadQueries(), loadStats(), loadLlmJobs()])).catch((e) => alert(e.message));
+    Promise.all([loadMethods(), loadBatches(), loadSources(), loadLlmJobs()]).then(() => Promise.all([loadQueries(), loadStats(), loadLlmJobs()])).catch((e) => alert(e.message));
   };
 
   const initGating = () => {

@@ -44,6 +44,14 @@
                         <select id="synthetic-method-code" name="methodCode"></select>
                     </div>
                     <div class="filter-field">
+                        <label for="synthetic-source-id">원본 문서 소스</label>
+                        <select id="synthetic-source-id" name="sourceId"></select>
+                    </div>
+                    <div class="filter-field">
+                        <label for="synthetic-source-document-id">원본 문서(선택)</label>
+                        <select id="synthetic-source-document-id" name="sourceDocumentId"></select>
+                    </div>
+                    <div class="filter-field">
                         <label for="synthetic-version-name">배치 버전명</label>
                         <input id="synthetic-version-name" name="versionName" placeholder="예: c-main-v1">
                     </div>
@@ -54,6 +62,22 @@
                     <div class="filter-field filter-field--small">
                         <label for="synthetic-limit-chunks">청크 제한</label>
                         <input id="synthetic-limit-chunks" type="number" name="limitChunks" min="1">
+                    </div>
+                    <div class="filter-field filter-field--small">
+                        <label for="synthetic-avg-per-chunk">청크당 평균 질의 수</label>
+                        <input id="synthetic-avg-per-chunk" type="number" name="avgQueriesPerChunk" min="0.2" max="20" step="0.1" value="2.0">
+                    </div>
+                    <div class="filter-field filter-field--small">
+                        <label for="synthetic-max-total-queries">최대 생성 질의 수</label>
+                        <input id="synthetic-max-total-queries" type="number" name="maxTotalQueries" min="1" max="500" value="40">
+                    </div>
+                    <div class="filter-field">
+                        <label for="synthetic-llm-model">Groq 모델</label>
+                        <input id="synthetic-llm-model" name="llmModel" placeholder="예: llama-3.1-8b-instant" value="llama-3.1-8b-instant">
+                    </div>
+                    <div class="filter-field filter-field--small">
+                        <label for="synthetic-llm-rpm">LLM RPM 제한</label>
+                        <input id="synthetic-llm-rpm" type="number" name="llmRpm" min="1" max="120" value="20">
                     </div>
                     <div class="filter-field--small">
                         <button type="submit" class="button button--primary">생성 실행</button>
