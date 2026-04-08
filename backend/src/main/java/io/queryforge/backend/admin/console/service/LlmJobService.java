@@ -596,9 +596,9 @@ public class LlmJobService {
             return "";
         }
         String normalized = target.trim();
-        if (normalized.length() <= 500) {
+        if (normalized.length() <= 2000) {
             return normalized;
         }
-        return normalized.substring(0, 500);
+        return normalized.substring(normalized.length() - 2000);
     }
 }

@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import io.queryforge.backend.admin.pipeline.config.AdminPipelineProperties;
 import io.queryforge.backend.rag.model.RagDtos;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.io.IOException;
@@ -16,6 +17,7 @@ import java.nio.file.Path;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
@@ -23,6 +25,7 @@ import java.util.stream.Stream;
 
 @Service
 @RequiredArgsConstructor
+@Slf4j
 public class ExperimentPipelineService {
 
     private static final Set<String> ALLOWED_COMMANDS = Set.of(
@@ -57,6 +60,7 @@ public class ExperimentPipelineService {
 
         ProcessBuilder processBuilder = new ProcessBuilder(commandLine)
                 .directory(repoRoot.toFile());
+        applyDotEnvForProcess(processBuilder, repoRoot);
         try {
             Process process = processBuilder.start();
             CompletableFuture<String> stdoutFuture = CompletableFuture.supplyAsync(
@@ -84,6 +88,42 @@ public class ExperimentPipelineService {
             throw new IllegalStateException("failed to read experiment command output", exception);
         } catch (IOException exception) {
             throw new IllegalStateException("failed to run experiment command", exception);
+        }
+    }
+
+    private void applyDotEnvForProcess(ProcessBuilder processBuilder, Path repoRoot) {
+        Path envPath = repoRoot.resolve(".env").normalize();
+        if (!Files.exists(envPath)) {
+            return;
+        }
+        Map<String, String> env = processBuilder.environment();
+        try {
+            for (String rawLine : Files.readAllLines(envPath, StandardCharsets.UTF_8)) {
+                String line = rawLine == null ? "" : rawLine.trim();
+                if (line.isEmpty() || line.startsWith("#")) {
+                    continue;
+                }
+                int separator = line.indexOf('=');
+                if (separator <= 0) {
+                    continue;
+                }
+                String key = line.substring(0, separator).trim();
+                if (key.isEmpty()) {
+                    continue;
+                }
+                String existing = env.get(key);
+                if (existing != null && !existing.isBlank()) {
+                    continue;
+                }
+                String value = line.substring(separator + 1).trim();
+                if ((value.startsWith("\"") && value.endsWith("\""))
+                        || (value.startsWith("'") && value.endsWith("'"))) {
+                    value = value.substring(1, value.length() - 1);
+                }
+                env.put(key, value);
+            }
+        } catch (IOException exception) {
+            log.warn("failed to load .env for experiment subprocess: {}", envPath, exception);
         }
     }
 

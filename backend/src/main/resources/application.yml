@@ -29,6 +29,10 @@ management:
       probes:
         enabled: true
 
+logging:
+  level:
+    io.queryforge.backend.common.logging.ApplicationLayerLoggingAspect: DEBUG
+
 query-forge:
   config-dir: ${QUERY_FORGE_CONFIG_DIR:../configs/app}
   prompt-root: ${PROMPT_ROOT:../configs/prompts}
