@@ -95,7 +95,13 @@ public final class AdminConsoleDtos {
             String methodCode,
             String versionName,
             String sourceDocumentVersion,
+            String sourceId,
+            String sourceDocumentId,
             Integer limitChunks,
+            Double avgQueriesPerChunk,
+            Integer maxTotalQueries,
+            String llmModel,
+            Integer llmRpm,
             String createdBy
     ) {
     }

@@ -75,11 +75,34 @@ public class AdminConsoleService {
 
         String experimentName = "admin_gen_" + UUID.randomUUID().toString().replace("-", "").substring(0, 12);
         Map<String, Object> config = baseExperimentConfig(experimentName, methodCode);
-        if (request.limitChunks() != null && request.limitChunks() > 0) {
-            config.put("limit_chunks", request.limitChunks());
+        if (request.limitChunks() != null) {
+            config.put("limit_chunks", clampRange(request.limitChunks(), 1, 200, "limit_chunks"));
         }
         if (request.sourceDocumentVersion() != null && !request.sourceDocumentVersion().isBlank()) {
             config.put("source_document_version", request.sourceDocumentVersion().trim());
+        }
+        if (request.sourceId() != null && !request.sourceId().isBlank()) {
+            config.put("source_id", request.sourceId().trim());
+        }
+        if (request.sourceDocumentId() != null && !request.sourceDocumentId().isBlank()) {
+            config.put("source_document_id", request.sourceDocumentId().trim());
+        }
+        if (request.avgQueriesPerChunk() != null) {
+            config.put("avg_queries_per_chunk", clampRange(request.avgQueriesPerChunk(), 0.2d, 20.0d, "avg_queries_per_chunk"));
+        }
+        if (request.maxTotalQueries() != null) {
+            config.put("max_total_queries", clampRange(request.maxTotalQueries(), 1, 500, "max_total_queries"));
+        }
+        if (request.llmModel() != null && !request.llmModel().isBlank()) {
+            String model = request.llmModel().trim();
+            config.put("llm_model", model);
+            config.put("llm_summary_model", model);
+            config.put("llm_query_model", model);
+            config.put("llm_self_eval_model", model);
+            config.put("llm_rewrite_model", model);
+        }
+        if (request.llmRpm() != null) {
+            config.put("llm_rpm", clampRange(request.llmRpm(), 1, 120, "llm_rpm"));
         }
 
         UUID batchId = repository.createGenerationBatch(
@@ -393,6 +416,20 @@ public class AdminConsoleService {
         return value.trim();
     }
 
+    private int clampRange(int value, int min, int max, String fieldName) {
+        if (value < min || value > max) {
+            throw new IllegalArgumentException(fieldName + " must be between " + min + " and " + max);
+        }
+        return value;
+    }
+
+    private double clampRange(double value, double min, double max, String fieldName) {
+        if (value < min || value > max) {
+            throw new IllegalArgumentException(fieldName + " must be between " + min + " and " + max);
+        }
+        return value;
+    }
+
     private Map<String, Object> baseExperimentConfig(String experimentKey, String methodCode) {
         Map<String, Object> config = new LinkedHashMap<>();
         config.put("experiment_key", experimentKey);
@@ -420,7 +457,8 @@ public class AdminConsoleService {
         config.put("retrieval_top_k", 20);
         config.put("rerank_top_n", 5);
         config.put("use_session_context", false);
-        config.put("avg_queries_per_chunk", 4.2);
+        config.put("avg_queries_per_chunk", 2.0);
+        config.put("max_total_queries", 40);
         config.put("random_seed", 31);
         return config;
     }

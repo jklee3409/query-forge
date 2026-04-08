@@ -122,6 +122,7 @@ def _load_chunks(
     *,
     limit: int | None,
     source_document_id: str | None = None,
+    source_id: str | None = None,
 ) -> list[ChunkRow]:
     statement = """
         SELECT c.chunk_id,
@@ -135,11 +136,17 @@ def _load_chunks(
         FROM corpus_chunks c
         JOIN corpus_documents d ON d.document_id = c.document_id
     """
-    where_clause = ""
+    where_clauses: list[str] = []
     parameters: list[Any] = []
     if source_document_id:
-        where_clause = " WHERE c.document_id = %s "
+        where_clauses.append("c.document_id = %s")
         parameters.append(source_document_id)
+    if source_id:
+        where_clauses.append("d.source_id = %s")
+        parameters.append(source_id)
+    where_clause = ""
+    if where_clauses:
+        where_clause = " WHERE " + " AND ".join(where_clauses) + " "
     statement = statement + where_clause + " ORDER BY c.document_id, c.chunk_index_in_document "
     with connection.cursor() as cursor:
         if limit:
@@ -793,6 +800,9 @@ def run_generation(
                 "generation_strategy": config.generation_strategy,
                 "enable_code_mixed": config.enable_code_mixed,
                 "avg_queries_per_chunk": config.avg_queries_per_chunk,
+                "max_total_queries": config.raw.get("max_total_queries"),
+                "source_id": config.raw.get("source_id"),
+                "source_document_id": config.raw.get("source_document_id"),
             },
             run_label="generate-queries",
         )
@@ -803,11 +813,20 @@ def run_generation(
         translate_client = LlmClient(load_stage_config(stage="translation", raw_config=config.raw))
 
         source_document_id = str(config.raw.get("source_document_id") or "").strip() or None
+        source_id = str(config.raw.get("source_id") or "").strip() or None
         chunks = _load_chunks(
             connection,
             limit=config.limit_chunks,
             source_document_id=source_document_id,
+            source_id=source_id,
         )
+        if not chunks:
+            LOGGER.warning(
+                "No chunks found for source_document_id=%s source_id=%s limit_chunks=%s",
+                source_document_id,
+                source_id,
+                config.limit_chunks,
+            )
         relations = _load_relations(connection)
         glossary_by_doc = _load_glossary(connection)
         rng = random.Random(config.random_seed)
@@ -835,12 +854,20 @@ def run_generation(
         asset_created: Counter[str] = Counter()
         llm_batch_size = int(config.raw.get("llm_batch_size") or 20)
         llm_batch_size = max(1, min(llm_batch_size, 20))
+        max_total_queries = config.raw.get("max_total_queries")
+        max_total_queries = int(max_total_queries) if max_total_queries is not None else None
+        if max_total_queries is not None and max_total_queries <= 0:
+            max_total_queries = None
 
         for chunk_index, chunk in enumerate(chunks):
+            if max_total_queries is not None and generated_count >= max_total_queries:
+                break
             chunk_glossary_terms = glossary_by_doc.get(chunk.document_id, [])[:12]
             base_count = max(1, int(round(config.avg_queries_per_chunk + rng.uniform(-0.9, 0.9))))
             source_fingerprint = _source_fingerprint(chunk)
             for query_index in range(base_count):
+                if max_total_queries is not None and generated_count >= max_total_queries:
+                    break
                 query_type = _weighted_choice(rng, config.query_type_distribution)
                 answerability_type = _weighted_choice(rng, config.answerability_distribution)
                 answerability_type, target_chunk_ids = _select_answerability_target(
@@ -1080,6 +1107,9 @@ def run_generation(
             "experiment_key": config.experiment_key,
             "experiment_run_id": run_context.experiment_run_id,
             "generation_strategy": strategy,
+            "source_id": source_id,
+            "source_document_id": source_document_id,
+            "max_total_queries": max_total_queries,
             "llm": {
                 "summary": {
                     "provider": summary_client.config.provider,
