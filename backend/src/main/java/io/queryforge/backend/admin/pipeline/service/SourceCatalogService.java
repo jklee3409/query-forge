@@ -2,6 +2,7 @@ package io.queryforge.backend.admin.pipeline.service;
 
 import io.queryforge.backend.admin.pipeline.config.AdminPipelineProperties;
 import io.queryforge.backend.admin.pipeline.repository.PipelineAdminRepository;
+import lombok.extern.slf4j.Slf4j;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.yaml.snakeyaml.Yaml;
@@ -15,12 +16,12 @@ import java.util.List;
 import java.util.Map;
 
 @Service
+@Slf4j
 @RequiredArgsConstructor
 public class SourceCatalogService {
 
     private final AdminPipelineProperties properties;
     private final PipelineAdminRepository repository;
-    private final Yaml yaml = new Yaml();
     private volatile Path repoRoot;
 
     public void syncSourcesFromConfig() {
@@ -57,6 +58,7 @@ public class SourceCatalogService {
     @SuppressWarnings("unchecked")
     private void upsertSourceFile(Path path) {
         try (InputStream inputStream = Files.newInputStream(path)) {
+            Yaml yaml = new Yaml();
             Object payload = yaml.load(inputStream);
             if (payload == null) {
                 return;
@@ -85,10 +87,19 @@ public class SourceCatalogService {
             }
         } catch (IOException exception) {
             throw new IllegalStateException("Failed to read source config file: " + path, exception);
+        } catch (RuntimeException exception) {
+            log.warn("Skipping invalid YAML source config file: {} ({})", path, exception.getMessage());
         }
     }
 
     private void upsertSourceEntry(Map<String, Object> item) {
+        Object sourceIdValue = item.get("source_id");
+        Object productValue = item.get("product");
+        if (sourceIdValue == null || productValue == null) {
+            log.warn("Skipping source config entry due to missing source_id/product: {}", item);
+            return;
+        }
+
         String sourceId = String.valueOf(item.get("source_id"));
         String product = String.valueOf(item.get("product"));
         List<String> startUrls = toStringList(item.get("start_urls"));

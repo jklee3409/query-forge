@@ -376,10 +376,7 @@ public class AdminConsoleRepository {
                 sql.append(" AND NOT EXISTS (SELECT 1 FROM synthetic_queries_gated g2 WHERE g2.synthetic_query_id = r.synthetic_query_id AND g2.final_decision = TRUE)");
             }
         }
-        sql.append("""
-                ORDER BY r.created_at DESC
-                LIMIT :limit OFFSET :offset
-                """);
+        sql.append(" ORDER BY r.created_at DESC LIMIT :limit OFFSET :offset");
         params.addValue("limit", normalizeLimit(limit, 200));
         params.addValue("offset", normalizeOffset(offset));
         return jdbcTemplate.query(
@@ -1056,10 +1053,7 @@ public class AdminConsoleRepository {
             sql.append(" AND gr.query_type = :queryType");
             params.addValue("queryType", queryType.trim());
         }
-        sql.append("""
-                ORDER BY gr.created_at DESC
-                LIMIT :limit OFFSET :offset
-                """);
+        sql.append(" ORDER BY gr.created_at DESC LIMIT :limit OFFSET :offset");
         params.addValue("limit", normalizeLimit(limit, 300));
         params.addValue("offset", normalizeOffset(offset));
         return jdbcTemplate.query(
