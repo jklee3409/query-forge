@@ -1,0 +1,33 @@
+experiment_key: e2e_gen_c
+category: generation
+description: E2E generation run for method C.
+generation_strategy: C
+enable_code_mixed: false
+enable_rule_filter: false
+enable_llm_self_eval: false
+enable_retrieval_utility: false
+enable_diversity: false
+enable_anti_copy: false
+gating_preset: ungated
+memory_top_n: 5
+rewrite_candidate_count: 3
+rewrite_threshold: 0.05
+retrieval_top_k: 20
+rerank_top_n: 5
+use_session_context: false
+avg_queries_per_chunk: 1.2
+query_type_distribution:
+  definition: 0.21
+  reason: 0.19
+  procedure: 0.24
+  comparison: 0.14
+  short_user: 0.12
+  code_mixed: 0.00
+  follow_up: 0.10
+answerability_distribution:
+  single: 0.70
+  near: 0.20
+  far: 0.10
+source_document_id: doc_9cda44a0542f929e
+limit_chunks: 3
+random_seed: 103

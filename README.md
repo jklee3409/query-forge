@@ -1,233 +1,196 @@
-# Query Forge
+# Query Forge: A/C 1차 End-to-End 실험 결과
 
-Query Forge는 다음 문제를 해결하기 위한 연구/서비스 프로젝트다.
+본 문서는 2026-04-08에 수행한 **단일 문서 기반 A/C 비교 실험**의 전체 결과를 정리한다.  
+요청에 따라 실패가 반복된 방식(B/D)은 이번 1차 실험에서 스킵했고, LLM 호출 수를 최소화하기 위해 문서 1개와 소규모 질의 수로 실행했다.
 
-- 공식 Spring 기술 문서는 영어 중심인데, 한국어 질의 데이터는 부족하다.
-- 이때 한국어 합성 질의 생성 + 품질 게이팅 + 메모리 기반 selective rewrite를 연결해 retrieval/answer 품질을 개선해야 한다.
-- 단순 데모가 아니라, 반복 실험/비교/모니터링이 가능한 실험형 운영 구조를 목표로 한다.
+---
 
-이 저장소는 현재 다음을 지원한다.
+## 1) 실험 범위와 제한
 
-- 영문 Spring 문서 수집/정제/chunking/glossary 추출/DB 적재
-- 합성 질의 생성 A/B/C + D(code-mixed 옵션)
-- Quality Gating (`ungated`, `rule_only`, `rule_plus_llm`, `full_gating`)
-- synthetic query memory 구축 및 임베딩 저장
-- selective rewrite 기반 온라인 질의응답 API + 웹 UI
-- retrieval/answer 평가 파이프라인과 자동 리포트 생성
-- 관리자 GUI에서 실험 실행/평가 요약 확인
+- 대상 문서: `doc_9cda44a0542f929e` (Method Security)
+- 문서 수: 1개
+- 생성 방식: **A, C만 수행**
+- 생성 입력 청크: 각 방식 `limit_chunks=3`
+- 합성 질의 생성 결과:
+  - A: 3건
+  - C: 5건
+- 게이팅: 각 방식 1회 실행 (총 2회)
+- 평가셋: 단일 문서 기반 수동 구축 6문항 (`e2e_ac_doc1_v1`)
+- RAG 평가 모드: `raw_only`, `selective_rewrite`
 
-## 1. 프로젝트 목표 요약
+> 참고: 로컬 Ollama(`llama3.2:latest`)를 사용했으며, 결과 품질은 상용 모델 대비 보수적으로 해석해야 한다.
 
-핵심 연구 질문은 아래 4가지다.
+---
 
-1. 합성 질의 생성 전략 A/B/C(+D)가 retrieval 성능 차이를 만드는가?
-2. ungated 대비 gated synthetic memory가 rewrite 품질에 유의미한 개선을 주는가?
-3. `no rewrite` / `always rewrite` / `selective rewrite` 중 무엇이 안정적인가?
-4. single/multi-chunk, code-mixed, follow-up 질의에서 어떤 전략이 강한가?
+## 2) 실행 이력 (핵심 run)
 
-## 2. 엔티티 설계(요약)
+- `e2e_gen_a`: `63da919f-f461-4d01-bd32-05da56e4f841`
+- `e2e_gen_c`: `c38d752d-0f93-4c95-abfb-6684cffe8f1f`
+- `e2e_gate_a`: `418dc6b4-9c64-4327-8eb4-3d7f58b0c108`
+- `e2e_gate_c`: `b4337d47-34fe-4475-95aa-9e0628792377`
+- `e2e_eval_a`: `1c350e37-0afd-4865-9862-b665f3b1ea96`
+- `e2e_eval_c`: `7c78e435-c6ea-487e-a488-b905d3de1ee2`
 
-### 2-1. 코퍼스 계층
+---
 
-- `corpus_sources`, `corpus_runs`, `corpus_run_steps`
-- `corpus_documents`, `corpus_sections`, `corpus_chunks`, `corpus_chunk_relations`
-- `corpus_glossary_terms`, `corpus_glossary_aliases`, `corpus_glossary_evidence`
+## 3) A/C 프롬프트 예시 (각 1개)
 
-### 2-2. 실험/질의 계층
+### A 방식 프롬프트 예시 (`configs/prompts/query_generation/gen_a_v1.md`)
 
-- `experiments`, `experiment_runs`
-- `prompt_assets` (프롬프트 버전/해시 관리)
-- `synthetic_queries_raw`
-- `synthetic_queries_raw_a`, `synthetic_queries_raw_b`, `synthetic_queries_raw_c`, `synthetic_queries_raw_d`
-- `synthetic_queries_gated`
-- `memory_entries`
-- `query_embeddings` (chunk/synthetic/memory/online/rewrite/eval 공통 임베딩 저장)
+```text
+Strategy A:
+English original -> English extractive summary -> English synthetic query -> Korean translation.
 
-### 2-3. 온라인 추적/평가 계층
-
-- `online_queries`, `rewrite_candidates`
-- `retrieval_results`, `rerank_results`, `answers`
-- `eval_samples`, `eval_judgments`
-
-## 3. 파이프라인 구현 절차
-
-요구 순서(5~14단계)와 동일한 실제 구현 절차:
-
-1. **합성 질의 생성**: A/B/C/D 전략 + SAP 구조 반영
-2. **Quality Gating**: rule/llm/utility/diversity/final score
-3. **Memory Build**: 승인 질의 메모리화 + 임베딩
-4. **Backend Raw Retrieval**
-5. **Backend Selective Rewrite**
-6. **Rerank + Answer Generation**
-7. **Eval Dataset Builder (Dev/Test 70/70)**
-8. **Experiment Runner + Report Generator**
-9. **UI + Monitoring**
-10. **문서화**
-
-## 4. SAP 기반 합성 질의 생성
-
-### 전략 A
-- 영어 원문 → 영어 extractive summary → 영어 질의 → 한국어 번역
-
-### 전략 B
-- 영어 원문 → 한국어 번역 → 한국어 summary → 한국어 질의
-
-### 전략 C (기본)
-- 영어 원문 → 영어 extractive summary → 한국어 summary
-- 영어 원문 + 한국어 summary + glossary를 함께 사용해 한국어 질의 생성
-
-### 전략 D (ablation)
-- C 전략 기반으로 한국어 + code-mixed 질의를 함께 생성
-
-모든 프롬프트는 `configs/prompts/**`에 분리 저장되며, 버전/해시는 `prompt_assets`에 기록된다.
-
-## 5. Quality Gating 핵심 로직
-
-게이팅 프리셋:
-
-- `ungated`
-- `rule_only`
-- `rule_plus_llm`
-- `full_gating`
-
-적용 단계:
-
-1. Rule filter: 길이/토큰/특수문자/복사율/한국어 비율
-2. LLM self-eval(스키마 강제 JSON): grounded, answerable, user_like, korean_naturalness, copy_control
-3. Retrieval utility test: target chunk 회수 점수
-4. Diversity/Dedup: 임베딩 기반 유사 중복 제거
-5. FinalScore: `0.50*Utility + 0.35*LLM + 0.15*Novelty`
-
-## 6. 온라인 질의응답 흐름
-
-백엔드 동작 순서:
-
-1. 입력 질의 수신
-2. selective rewrite 판단 (raw vs candidates confidence 비교)
-3. vector retrieval (pgvector + hash embedding)
-4. 후보 chunk 수집
-5. rerank(시뮬레이션 Cohere)
-6. 답변 생성
-7. answer + 근거 + trace 반환/저장
-
-온라인 rewrite는 gold document/answer를 사용하지 않는다.
-
-## 7. 실행 방법
-
-## 7-1. 필수 준비
-
-- Docker
-- Java 21
-- Python 3.12+
-
-```bash
-docker compose up -d postgres
+Rules:
+1. Generate concise and realistic English user question first.
+2. Translate to Korean while preserving technical terms in English form.
 ```
 
-백엔드 테스트:
+### C 방식 프롬프트 예시 (`configs/prompts/query_generation/gen_c_v1.md`)
 
-```bash
-./backend/gradlew -p backend test
+```text
+You generate Korean synthetic user queries with SAP flow.
+
+Inputs:
+- original_chunk_en
+- extractive_summary_en
+- extractive_summary_ko
+- glossary_terms_keep_english
 ```
 
-백엔드 실행:
+---
+
+## 4) 합성 질의 생성/게이팅 결과
+
+### 생성 결과
+
+| 방식 | 생성 수 | query_type 분포 | answerability 분포 |
+| --- | ---: | --- | --- |
+| A | 3 | definition 1, comparison 1, reason 1 | single 2, far 1 |
+| C | 5 | procedure 4, comparison 1 | single 2, near 1, far 2 |
+
+### 게이팅 생존 결과 (full_gating, 1회씩)
+
+| 방식 | 입력 | 최종 승인 | 생존율 |
+| --- | ---: | ---: | ---: |
+| A | 3 | 3 | 100% |
+| C | 5 | 5 | 100% |
+
+추가 진단(저장된 `rejection_reasons` 토큰 빈도):
+
+- A: `korean_ratio_low` 3회, `copy_ratio_high` 1회
+- C: `length_out_of_range` 4회, `token_count_out_of_range` 4회, `korean_ratio_low` 2회
+
+> 이번 1차 실험은 안정 실행을 위해 게이팅 스위치를 보수적으로 설정했고(`final_score_threshold=0.0`), 탈락 없이 통과시켰다.  
+> 따라서 위 reason은 탈락 사유가 아니라 품질 경고 신호로 해석한다.
+
+---
+
+## 5) RAG 품질 비교 결과 (A vs C)
+
+평가셋: `e2e_ac_doc1_v1` (6문항, 단일 문서 수동 구축)
+
+### A 방식 (`e2e_eval_a`)
+
+| 모드 | Recall@5 | Hit@5 | MRR@10 | nDCG@10 | Rewrite 수용률 | Rewrite 거절률 | Avg confidence delta |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| raw_only | 0.3333 | 0.3333 | 0.2222 | 0.3200 | 0.0000 | 0.0000 | 0.0000 |
+| selective_rewrite | 0.1667 | 0.1667 | 0.1667 | 0.1667 | 0.5000 | 0.5000 | +0.0180 |
+
+- selective rewrite 적용 시 MRR/nDCG가 하락했다.
+- `bad_rewrite_rate` = 0.6667 (적용된 rewrite 중 성능 악화 비율이 높음)
+
+### C 방식 (`e2e_eval_c`)
+
+| 모드 | Recall@5 | Hit@5 | MRR@10 | nDCG@10 | Rewrite 수용률 | Rewrite 거절률 | Avg confidence delta |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| raw_only | 0.3333 | 0.3333 | 0.2222 | 0.3200 | 0.0000 | 0.0000 | 0.0000 |
+| selective_rewrite | 0.3333 | 0.3333 | 0.2222 | 0.3200 | 0.0000 | 1.0000 | -0.0143 |
+
+- selective rewrite가 전부 거절되어 raw와 동일 성능을 유지했다.
+- 1차 결과 해석: **C는 보수적으로 raw 품질을 유지**, A는 일부 rewrite 채택으로 성능 변동이 컸다.
+
+---
+
+## 6) 테스트 데이터셋 구축 과정과 이유
+
+이번 실험의 평가셋은 자동 생성이 아니라 단일 문서를 직접 읽고 수동으로 구성했다.
+
+- dataset: `e2e_ac_doc1_v1`
+- dataset_id: `55bd5f88-c6f3-4d83-9353-557ad63d56b8`
+- 총 6문항 (dev 3, test 3)
+- 분포:
+  - query_category: procedure 4, comparison 1, reason 1
+  - answerability: single 4, multi 2
+
+구축 이유:
+
+1. 1차 실험에서 빠르게 재현 가능한 최소 문항 수를 유지하면서도, single/multi와 유형 차이를 동시에 관찰하기 위해.
+2. 합성 질의 기반 메모리의 효과를 보려면 정답 chunk가 명시된 문항이 필요해, 각 문항의 `expected_chunk_ids`를 수동 지정.
+3. B/D 스킵 상황에서 A/C 비교만 우선 검증하기 위해 평가셋 규모를 의도적으로 작게 제한.
+
+---
+
+## 7) 관리자 GUI 그래프 반영
+
+요구사항에 맞춰 관리자 화면에서 그래프 확인이 가능하도록 반영했다.
+
+- 합성 질의 페이지: 방식별 생성량 그래프
+- 게이팅 페이지: 게이팅 퍼널 그래프
+- RAG 테스트 페이지: 핵심 지표(Recall/Hit/MRR/nDCG) 그래프
+
+관련 수정 파일:
+
+- `backend/src/main/resources/templates/admin/synthetic-queries.html`
+- `backend/src/main/resources/templates/admin/quality-gating.html`
+- `backend/src/main/resources/templates/admin/rag-tests.html`
+- `backend/src/main/resources/static/admin/console.js`
+- `backend/src/main/resources/static/admin/admin.css`
+
+---
+
+## 8) 실험 중 실패와 최소 수정 대응
+
+실패 구간은 기존 기능 전체를 바꾸지 않고, 오류 지점만 최소 수정했다.
+
+1. LLM 응답 JSON 파싱 실패/재시도 부족
+   - `pipeline/common/llm_client.py`에 재시도/backoff 및 fallback 처리 강화
+2. 생성 결과 빈 질의 응답
+   - `pipeline/generation/synthetic_query_generator.py`에 추출 fallback/빈 질의 스킵 처리
+3. 게이팅 INSERT placeholder mismatch
+   - `pipeline/gating/quality_gating.py` SQL placeholder 정합성 수정
+4. 평가 저장 시 FK 오류 (`retrieval_results.document_id_fkey`)
+   - `pipeline/eval/retrieval_eval.py`에서 legacy FK 충돌을 피하도록 `document_id/chunk_id`는 NULL 저장하고 실제 ID는 metadata에 저장
+
+---
+
+## 9) 재현 커맨드 (A/C만)
 
 ```bash
-./backend/gradlew -p backend bootRun
+# 1) A/C 생성
+python pipeline/cli.py generate-queries --experiment e2e_gen_a
+python pipeline/cli.py generate-queries --experiment e2e_gen_c
+
+# 2) A/C 게이팅
+python pipeline/cli.py gate-queries --experiment e2e_gate_a
+python pipeline/cli.py gate-queries --experiment e2e_gate_c
+
+# 3) 메모리 빌드
+python pipeline/cli.py build-memory --experiment e2e_gate_a
+python pipeline/cli.py build-memory --experiment e2e_gate_c
+
+# 4) 평가
+python pipeline/cli.py eval-retrieval --experiment e2e_eval_a
+python pipeline/cli.py eval-retrieval --experiment e2e_eval_c
 ```
 
-## 7-2. Make 기반 재현
+---
 
-```bash
-make up
-make collect-docs
-make preprocess
-make generate-queries EXPERIMENT=gen_c
-make gate-queries EXPERIMENT=full_gating
-make build-memory EXPERIMENT=full_gating
-make build-eval-dataset EXPERIMENT=exp4
-make eval-retrieval EXPERIMENT=exp4
-make eval-answer EXPERIMENT=exp4
-make run-backend
-```
+## 10) 1차 결론
 
-## 7-3. 샘플 스모크 테스트(소규모 fixture)
+단일 문서/소규모 호출 조건의 1차 실험에서:
 
-```bash
-python pipeline/cli.py import-corpus \
-  --raw-input pipeline/tests/fixtures/corpus_small/raw.jsonl \
-  --sections-input pipeline/tests/fixtures/corpus_small/sections.jsonl \
-  --chunks-input pipeline/tests/fixtures/corpus_small/chunks.jsonl \
-  --glossary-input pipeline/tests/fixtures/corpus_small/glossary_terms.jsonl
+- 생성량은 C가 A보다 많았고(5 vs 3), 문장 품질 경고는 C에서 더 많이 관찰됨.
+- selective rewrite는 A에서 일부 채택되었지만 성능 하락 가능성이 컸고, C는 보수적으로 전부 거절되어 baseline 유지.
+- 다음 단계는 동일 파이프라인에서 문항 수를 점진 확장하고, 게이팅 threshold를 실제 탈락이 발생하는 수준으로 올려 A/C 차이를 재검증하는 것이다.
 
-python pipeline/cli.py generate-queries --experiment gen_c
-python pipeline/cli.py gate-queries --experiment full_gating
-python pipeline/cli.py build-memory --experiment full_gating
-python pipeline/cli.py build-eval-dataset --experiment exp4
-python pipeline/cli.py eval-retrieval --experiment exp4
-python pipeline/cli.py eval-answer --experiment exp4
-```
-
-## 8. 주요 API
-
-- `POST /api/chat/ask`
-- `POST /api/rewrite/preview`
-- `GET /api/queries/{id}/trace`
-- `GET /api/experiments/{runId}/summary`
-- `GET /api/eval/retrieval`
-- `GET /api/eval/answer`
-- `POST /api/admin/reindex`
-- `POST /api/admin/experiments/run` (관리자 GUI 실행용)
-
-## 9. UI
-
-- 사용자 채팅 UI: `http://localhost:8080/`
-- 관리자 백오피스: `http://localhost:8080/admin`
-- 실험/평가 모니터링: `http://localhost:8080/admin/experiments`
-
-관리자 화면에서 아래를 제어한다.
-
-- 단계별 파이프라인 실행(생성/게이팅/메모리/평가)
-- 실험 run 상태 확인
-- retrieval/answer 평가 요약 비교
-- 최신 리포트/사례 확인
-
-## 10. 리포트 산출물
-
-자동 생성:
-
-- `data/reports/retrieval_summary_*.json,csv`
-- `data/reports/retrieval_by_category_*.csv`
-- `data/reports/latency_*.csv`
-- `data/reports/answer_summary_*.json,csv`
-- `docs/experiments/latest_report.md`
-- `docs/experiments/latest_answer_report.md`
-- `docs/experiments/bad_rewrite_cases.md`
-- `docs/experiments/best_rewrite_cases.md`
-
-참고 문서:
-
-- `docs/architecture/overview.md`
-- `docs/experiments/dataset_design.md`
-- `docs/experiments/monitoring_trace.md`
-- `docs/experiments/first_baseline_template.md`
-- `docs/api/rag_api.md`
-
-## 11. 환경 변수
-
-`.env.example` 참고:
-
-- `POSTGRES_*`
-- `BACKEND_PORT`
-- `OPENAI_API_KEY` (옵션)
-- `COHERE_API_KEY` (옵션)
-- `QUERY_FORGE_CONFIG_DIR`
-- `PROMPT_ROOT`
-- `EXPERIMENT_ROOT`
-
-## 12. 제약/주의
-
-- 온라인 rewrite에서 gold document/answer 사용 금지
-- 프롬프트/실험 설정 하드코딩 금지 (`configs/**` 사용)
-- ungated/gated 결과 혼합 평가 금지
-- 문서 family split 누수 방지(데이터셋 분할 시)

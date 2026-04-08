@@ -1,0 +1,23 @@
+experiment_key: e2e_gate_a
+category: gating
+description: E2E full gating run for method A.
+generation_strategy: A
+source_generation_strategies:
+  - A
+enable_code_mixed: false
+enable_rule_filter: false
+enable_llm_self_eval: false
+enable_retrieval_utility: false
+enable_diversity: false
+enable_anti_copy: true
+gating_preset: full_gating
+memory_top_n: 5
+rewrite_candidate_count: 3
+rewrite_threshold: 0.05
+retrieval_top_k: 20
+rerank_top_n: 5
+use_session_context: true
+avg_queries_per_chunk: 4.2
+final_score_threshold: 0.00
+utility_threshold: 0.00
+random_seed: 201

@@ -121,6 +121,7 @@ def _load_chunks(
     connection: psycopg.Connection[Any],
     *,
     limit: int | None,
+    source_document_id: str | None = None,
 ) -> list[ChunkRow]:
     statement = """
         SELECT c.chunk_id,
@@ -133,13 +134,18 @@ def _load_chunks(
                d.cleaned_checksum
         FROM corpus_chunks c
         JOIN corpus_documents d ON d.document_id = c.document_id
-        ORDER BY c.document_id, c.chunk_index_in_document
     """
+    where_clause = ""
+    parameters: list[Any] = []
+    if source_document_id:
+        where_clause = " WHERE c.document_id = %s "
+        parameters.append(source_document_id)
+    statement = statement + where_clause + " ORDER BY c.document_id, c.chunk_index_in_document "
     with connection.cursor() as cursor:
         if limit:
-            cursor.execute(statement + " LIMIT %s", (limit,))
+            cursor.execute(statement + " LIMIT %s", (*parameters, limit))
         else:
-            cursor.execute(statement)
+            cursor.execute(statement, parameters)
         rows = cursor.fetchall()
     return [
         ChunkRow(
@@ -514,17 +520,48 @@ def _extract_query_text(
     query_type: str,
     response: dict[str, Any],
 ) -> tuple[str, dict[str, Any]]:
+    def _fallback_query_text() -> str:
+        candidate_keys = (
+            "query_ko",
+            "query_text",
+            "query",
+            "question",
+            "search_query",
+            "synthetic_query",
+            "query_korean",
+        )
+        for key in candidate_keys:
+            value = response.get(key)
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+
+        queries_value = response.get("queries")
+        if isinstance(queries_value, list):
+            for item in queries_value:
+                if isinstance(item, str) and item.strip():
+                    return item.strip()
+                if isinstance(item, dict):
+                    for key in candidate_keys:
+                        value = item.get(key)
+                        if isinstance(value, str) and value.strip():
+                            return value.strip()
+
+        for value in response.values():
+            if isinstance(value, str) and value.strip():
+                return value.strip()
+        return ""
+
     if generation_strategy == "A":
-        query_text = str(response.get("query_ko") or "").strip()
+        query_text = str(response.get("query_ko") or "").strip() or _fallback_query_text()
         query_en = str(response.get("query_en") or "").strip()
         return query_text, {"query_en": query_en}
     if generation_strategy == "D":
-        query_ko = str(response.get("query_ko") or "").strip()
+        query_ko = str(response.get("query_ko") or "").strip() or _fallback_query_text()
         query_code_mixed = str(response.get("query_code_mixed") or "").strip()
         if query_type == "code_mixed" and query_code_mixed:
             return query_code_mixed, {"query_ko": query_ko, "query_code_mixed": query_code_mixed}
         return query_ko, {"query_code_mixed": query_code_mixed}
-    return str(response.get("query_ko") or "").strip(), {}
+    return str(response.get("query_ko") or "").strip() or _fallback_query_text(), {}
 
 
 def _find_cached_query(
@@ -765,7 +802,12 @@ def run_generation(
         query_client = LlmClient(load_stage_config(stage="query", raw_config=config.raw))
         translate_client = LlmClient(load_stage_config(stage="translation", raw_config=config.raw))
 
-        chunks = _load_chunks(connection, limit=config.limit_chunks)
+        source_document_id = str(config.raw.get("source_document_id") or "").strip() or None
+        chunks = _load_chunks(
+            connection,
+            limit=config.limit_chunks,
+            source_document_id=source_document_id,
+        )
         relations = _load_relations(connection)
         glossary_by_doc = _load_glossary(connection)
         rng = random.Random(config.random_seed)
@@ -785,6 +827,7 @@ def run_generation(
         }
         generated_count = 0
         reused_count = 0
+        skipped_empty_count = 0
         query_type_counter: Counter[str] = Counter()
         answerability_counter: Counter[str] = Counter()
         generated_ids: list[str] = []
@@ -915,24 +958,25 @@ def run_generation(
                     reused_count += 1
                     continue
 
+                query_payload = {
+                    "chunk_id": chunk.chunk_id,
+                    "document_id": chunk.document_id,
+                    "title": chunk.title,
+                    "product": chunk.product_name,
+                    "version": chunk.version_label,
+                    "original_chunk_en": chunk.chunk_text,
+                    "extractive_summary_en": en_summary,
+                    "translated_chunk_ko": translated_chunk_ko,
+                    "extractive_summary_ko": summary_ko,
+                    "glossary_terms_keep_english": chunk_glossary_terms,
+                    "query_type": query_type,
+                    "answerability_type": answerability_type,
+                    "target_chunk_ids": target_chunk_ids,
+                }
                 query_response = _llm_json(
                     query_client,
                     prompt_text=query_prompt_text,
-                    payload={
-                        "chunk_id": chunk.chunk_id,
-                        "document_id": chunk.document_id,
-                        "title": chunk.title,
-                        "product": chunk.product_name,
-                        "version": chunk.version_label,
-                        "original_chunk_en": chunk.chunk_text,
-                        "extractive_summary_en": en_summary,
-                        "translated_chunk_ko": translated_chunk_ko,
-                        "extractive_summary_ko": summary_ko,
-                        "glossary_terms_keep_english": chunk_glossary_terms,
-                        "query_type": query_type,
-                        "answerability_type": answerability_type,
-                        "target_chunk_ids": target_chunk_ids,
-                    },
+                    payload=query_payload,
                 )
                 query_text, extra_trace = _extract_query_text(
                     generation_strategy=generation_strategy,
@@ -940,9 +984,25 @@ def run_generation(
                     response=query_response,
                 )
                 if not query_text:
-                    raise RuntimeError(
-                        f"LLM generated empty query text. chunk={chunk.chunk_id} strategy={generation_strategy}"
+                    query_response = _llm_json(
+                        query_client,
+                        prompt_text=query_prompt_text,
+                        payload={**query_payload, "retry_hint": "query_text_must_not_be_empty"},
                     )
+                    query_text, extra_trace = _extract_query_text(
+                        generation_strategy=generation_strategy,
+                        query_type=query_type,
+                        response=query_response,
+                    )
+                if not query_text:
+                    skipped_empty_count += 1
+                    LOGGER.warning(
+                        "Skip empty query output. chunk=%s strategy=%s query_type=%s",
+                        chunk.chunk_id,
+                        generation_strategy,
+                        query_type,
+                    )
+                    continue
 
                 normalized_query_text = _normalize_query_text(query_text)
                 language_profile = _language_profile(generation_strategy, query_type)
@@ -1057,6 +1117,7 @@ def run_generation(
             "chunks_processed": len(chunks),
             "generated_queries": generated_count,
             "reused_queries": reused_count,
+            "skipped_empty_queries": skipped_empty_count,
             "query_type_distribution": dict(query_type_counter),
             "answerability_distribution": dict(answerability_counter),
             "asset_created": dict(asset_created),

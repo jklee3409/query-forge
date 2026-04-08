@@ -405,14 +405,16 @@ def run_retrieval_eval(
                             (
                                 sample.sample_id,
                                 rank,
-                                item.document_id,
-                                item.chunk_id,
+                                None,
+                                None,
                                 "hash-embedding-v1",
                                 item.score,
                                 Jsonb(
                                     {
                                         "mode": mode,
                                         "experiment_run_id": run_context.experiment_run_id,
+                                        "retrieved_document_id": item.document_id,
+                                        "retrieved_chunk_id": item.chunk_id,
                                     }
                                 ),
                             ),

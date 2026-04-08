@@ -1,0 +1,27 @@
+experiment_key: e2e_eval_a
+category: evaluation
+description: E2E retrieval evaluation for method A memory.
+generation_strategy: A
+dataset_id: 55bd5f88-c6f3-4d83-9353-557ad63d56b8
+enable_code_mixed: false
+enable_rule_filter: true
+enable_llm_self_eval: true
+enable_retrieval_utility: true
+enable_diversity: true
+enable_anti_copy: true
+gating_preset: full_gating
+memory_generation_strategies:
+  - A
+retrieval_modes:
+  - raw_only
+  - selective_rewrite
+memory_top_n: 3
+rewrite_candidate_count: 2
+rewrite_threshold: 0.05
+retrieval_top_k: 10
+rerank_top_n: 5
+use_session_context: true
+avg_queries_per_chunk: 4.2
+final_score_threshold: 0.75
+utility_threshold: 0.70
+random_seed: 301

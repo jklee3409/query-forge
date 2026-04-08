@@ -33,6 +33,33 @@
     if (!el) return;
     el.innerHTML = rows.map((r) => `<article class="summary-card"><div class="summary-card__label">${esc(r.label)}</div><div class="summary-card__value">${esc(r.value)}</div><div class="summary-card__meta">${esc(r.meta || "")}</div></article>`).join("");
   };
+  const miniChart = (el, { title, rows, maxValue = null, valueFormatter = (v) => fixed(v, 4) }) => {
+    if (!el) return;
+    const safeRows = arr(rows).map((row) => ({
+      label: String(row.label ?? "-"),
+      value: Number(row.value ?? 0),
+    })).filter((row) => Number.isFinite(row.value));
+    if (safeRows.length === 0) {
+      el.innerHTML = `<div class="table-title">${esc(title || "차트")}</div><div class="summary-card__meta">표시할 데이터가 없습니다.</div>`;
+      return;
+    }
+    const max = maxValue != null ? Number(maxValue) : Math.max(...safeRows.map((row) => row.value), 1);
+    el.innerHTML = `
+      <div class="table-title">${esc(title || "차트")}</div>
+      <div class="mini-chart">
+        ${safeRows.map((row) => {
+          const ratio = max > 0 ? Math.max(0, Math.min(1, row.value / max)) : 0;
+          return `
+            <div class="mini-chart__row">
+              <div class="mini-chart__label">${esc(row.label)}</div>
+              <div class="mini-chart__track"><div class="mini-chart__fill" style="width:${(ratio * 100).toFixed(2)}%"></div></div>
+              <div class="mini-chart__value">${esc(valueFormatter(row.value))}</div>
+            </div>
+          `;
+        }).join("")}
+      </div>
+    `;
+  };
   const formObj = (f) => {
     const o = {};
     new FormData(f).forEach((v, k) => { o[k] = v; });
@@ -151,6 +178,7 @@
     const bFil = document.getElementById("synthetic-filter-batch");
     const bTable = document.querySelector("#synthetic-batches-table tbody");
     const sCards = document.getElementById("synthetic-stats-cards");
+    const methodChart = document.getElementById("synthetic-method-chart");
     const qTable = document.querySelector("#synthetic-queries-table tbody");
     const panel = document.getElementById("synthetic-query-detail-panel");
     const runForm = document.getElementById("synthetic-run-form");
@@ -172,6 +200,11 @@
       const v = formObj(filForm); const s = await fetchJson(`/api/admin/console/synthetic/stats${q({ method_code: v.method_code || null, batch_id: v.batch_id || null })}`);
       const byM = arr(s.byMethod), byT = arr(s.byQueryType); const total = byM.reduce((a, x) => a + Number(x.count || 0), 0);
       cards(sCards, [{ label: "총 합성 질의", value: total }, { label: "방식 수", value: byM.length, meta: byM.map((x) => `${x.method_code}:${x.count}`).join(" / ") || "-" }, { label: "질의 유형 수", value: byT.length, meta: byT.map((x) => `${x.query_type}:${x.count}`).join(" / ") || "-" }]);
+      miniChart(methodChart, {
+        title: "방식별 생성량 그래프",
+        rows: byM.map((x) => ({ label: x.method_code, value: Number(x.count || 0) })),
+        valueFormatter: (value) => `${Math.round(value)}건`,
+      });
     };
     const loadQueries = async () => {
       const v = formObj(filForm); const rows = await fetchJson(`/api/admin/console/synthetic/queries${q({ method_code: v.method_code || null, batch_id: v.batch_id || null, query_type: v.query_type || null, gated: v.gated || null, limit: 50 })}`);
@@ -190,6 +223,7 @@
   const initGating = () => {
     const mSel = document.getElementById("gating-method-code"), bSel = document.getElementById("gating-generation-batch-id"), run = document.getElementById("gating-run-form");
     const bTable = document.querySelector("#gating-batches-table tbody"), fCards = document.getElementById("gating-funnel-cards"), rTable = document.querySelector("#gating-results-table tbody");
+    const funnelChart = document.getElementById("gating-funnel-chart");
     const loadLlmJobs = buildLlmJobLoader({
       tableId: "gating-llm-jobs-table",
       panelId: "gating-llm-job-items-panel",
@@ -201,7 +235,22 @@
       mSel.innerHTML = m.map((x) => `<option value="${esc(x.methodCode)}">${esc(x.methodCode)} - ${esc(x.methodName)}</option>`).join("");
       bSel.innerHTML = `<option value="">선택</option>` + b.map((x) => `<option value="${esc(x.batchId)}">${esc(x.versionName)} (${esc(x.methodCode)})</option>`).join("");
     };
-    const loadFunnel = async (id) => { const f = await fetchJson(`/api/admin/console/gating/batches/${id}/funnel`); cards(fCards, [{ label: "생성 총량", value: f.generatedTotal ?? 0 }, { label: "Rule 통과", value: f.passedRule ?? 0 }, { label: "LLM 통과", value: f.passedLlm ?? 0 }, { label: "Utility 통과", value: f.passedUtility ?? 0 }, { label: "Diversity 통과", value: f.passedDiversity ?? 0 }, { label: "최종 승인", value: f.finalAccepted ?? 0 }]); };
+    const loadFunnel = async (id) => {
+      const f = await fetchJson(`/api/admin/console/gating/batches/${id}/funnel`);
+      cards(fCards, [{ label: "생성 총량", value: f.generatedTotal ?? 0 }, { label: "Rule 통과", value: f.passedRule ?? 0 }, { label: "LLM 통과", value: f.passedLlm ?? 0 }, { label: "Utility 통과", value: f.passedUtility ?? 0 }, { label: "Diversity 통과", value: f.passedDiversity ?? 0 }, { label: "최종 승인", value: f.finalAccepted ?? 0 }]);
+      miniChart(funnelChart, {
+        title: "게이팅 퍼널 그래프",
+        rows: [
+          { label: "입력", value: Number(f.generatedTotal || 0) },
+          { label: "Rule", value: Number(f.passedRule || 0) },
+          { label: "LLM", value: Number(f.passedLlm || 0) },
+          { label: "Utility", value: Number(f.passedUtility || 0) },
+          { label: "Diversity", value: Number(f.passedDiversity || 0) },
+          { label: "승인", value: Number(f.finalAccepted || 0) },
+        ],
+        valueFormatter: (value) => `${Math.round(value)}건`,
+      });
+    };
     const loadResults = async (id) => { const rows = await fetchJson(`/api/admin/console/gating/batches/${id}/results?limit=120`); rTable.innerHTML = rows.map((r) => `<tr><td class="mono-truncate">${esc(r.syntheticQueryId)}</td><td>${esc(r.queryText)}</td><td>${esc(r.queryType || "-")}</td><td>${bool(r.passedRule)}</td><td>${bool(r.passedLlm)}</td><td>${bool(r.passedUtility)}</td><td>${bool(r.passedDiversity)}</td><td>${esc(fixed(r.finalScore, 4))}</td><td>${esc(r.rejectedStage || "-")}</td><td><div class="line-clamp-2">${esc(r.rejectedReason || "-")}</div></td><td>${r.finalDecision ? badge("승인", "success") : badge("탈락", "failed")}</td></tr>`).join(""); };
     const loadBatches = async () => {
       const rows = await fetchJson("/api/admin/console/gating/batches?limit=50");
@@ -218,6 +267,7 @@
     const methods = document.getElementById("rag-method-checks"), dataset = document.getElementById("rag-dataset-id"), runForm = document.getElementById("rag-test-run-form");
     const dsTable = document.querySelector("#rag-datasets-table tbody"), itemsPanel = document.getElementById("rag-dataset-items-panel"), tTable = document.querySelector("#rag-tests-table tbody");
     const sCards = document.getElementById("rag-summary-cards"), dTable = document.querySelector("#rag-details-table tbody"), rlTable = document.querySelector("#rag-rewrite-logs-table tbody"), rlPanel = document.getElementById("rag-rewrite-detail-panel");
+    const metricsChart = document.getElementById("rag-metrics-chart");
     const loadLlmJobs = buildLlmJobLoader({
       tableId: "rag-llm-jobs-table",
       panelId: "rag-llm-job-items-panel",
@@ -234,6 +284,17 @@
     const loadRunDetail = async (id) => {
       const d = await fetchJson(`/api/admin/console/rag/tests/${id}?detail_limit=100`), s = d.summary || {};
       cards(sCards, [{ label: "Recall@5", value: fixed(s.recall_at_5, 4) }, { label: "Hit@5", value: fixed(s.hit_at_5, 4) }, { label: "MRR@10", value: fixed(s.mrr_at_10, 4) }, { label: "nDCG@10", value: fixed(s.ndcg_at_10, 4) }, { label: "Latency(ms)", value: fixed(s.latency_avg_ms, 2) }, { label: "Rewrite 수용률", value: s.rewrite_acceptance_rate == null ? "-" : `${(Number(s.rewrite_acceptance_rate) * 100).toFixed(1)}%` }, { label: "Rewrite 거절률", value: s.rewrite_rejection_rate == null ? "-" : `${(Number(s.rewrite_rejection_rate) * 100).toFixed(1)}%` }, { label: "평균 confidence delta", value: fixed(s.average_confidence_delta, 4) }]);
+      miniChart(metricsChart, {
+        title: "RAG 핵심 지표 그래프",
+        rows: [
+          { label: "Recall@5", value: Number(s.recall_at_5 || 0) },
+          { label: "Hit@5", value: Number(s.hit_at_5 || 0) },
+          { label: "MRR@10", value: Number(s.mrr_at_10 || 0) },
+          { label: "nDCG@10", value: Number(s.ndcg_at_10 || 0) },
+        ],
+        maxValue: 1,
+        valueFormatter: (value) => Number(value).toFixed(4),
+      });
       dTable.innerHTML = arr(d.details).map((r) => `<tr><td>${esc(r.sampleId)}</td><td>${esc(r.queryCategory || "-")}</td><td>${esc(r.rawQuery || "-")}</td><td>${esc(r.rewriteQuery || "-")}</td><td>${bool(r.rewriteApplied)}</td><td>${bool(r.hitTarget)}</td><td><div class="line-clamp-2">${esc(JSON.stringify(r.metricContribution || {}))}</div></td></tr>`).join("");
     };
     const loadRewriteLogs = async () => {

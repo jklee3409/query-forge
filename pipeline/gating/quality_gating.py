@@ -609,7 +609,7 @@ def run_quality_gating(
                         metadata
                     ) VALUES (
                         %s, %s, %s, %s, %s, %s, %s, %s,
-                        %s, %s, %s, %s, %s, %s, %s, %s, %s
+                        %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
                     )
                     ON CONFLICT (synthetic_query_id, gating_preset) DO UPDATE
                     SET gating_batch_id = EXCLUDED.gating_batch_id,
@@ -693,7 +693,7 @@ def run_quality_gating(
                             stage_payload_json
                         ) VALUES (
                             %s, %s, %s, %s, %s, %s, %s, %s,
-                            %s, %s, %s, %s, %s, %s, %s, %s, %s
+                            %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
                         )
                         ON CONFLICT (gating_batch_id, synthetic_query_id) DO UPDATE
                         SET query_text = EXCLUDED.query_text,

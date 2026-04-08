@@ -31,7 +31,6 @@ class LlmClient:
         self._last_call_at = 0.0
 
     def chat_json(self, *, system_prompt: str, user_prompt: str) -> dict[str, Any]:
-        self._throttle()
         if self.config.provider == "mock":
             return {"mock": True}
         payload = {
@@ -44,26 +43,67 @@ class LlmClient:
             "max_tokens": self.config.max_tokens,
             "response_format": {"type": "json_object"},
         }
-        response = requests.post(
-            f"{self.config.base_url.rstrip('/')}/chat/completions",
-            headers={
-                "Authorization": f"Bearer {self.config.api_key}",
-                "Content-Type": "application/json",
-            },
-            json=payload,
-            timeout=self.config.timeout_seconds,
-        )
-        response.raise_for_status()
-        body = response.json()
-        message = (
-            body.get("choices", [{}])[0]
-            .get("message", {})
-            .get("content", "")
-        )
-        parsed = _parse_json_text(message)
-        if not isinstance(parsed, dict):
-            raise ValueError("LLM response must be a JSON object.")
-        return parsed
+        max_attempts = int(os.getenv("QUERY_FORGE_LLM_MAX_RETRIES") or "6")
+        max_attempts = max(1, min(max_attempts, 12))
+        last_message = ""
+        for attempt in range(max_attempts):
+            self._throttle()
+            try:
+                response = requests.post(
+                    f"{self.config.base_url.rstrip('/')}/chat/completions",
+                    headers={
+                        "Authorization": f"Bearer {self.config.api_key}",
+                        "Content-Type": "application/json",
+                    },
+                    json=payload,
+                    timeout=self.config.timeout_seconds,
+                )
+            except requests.RequestException:
+                if attempt + 1 >= max_attempts:
+                    raise
+                time.sleep(min(30.0, 1.5 * (2 ** attempt)))
+                continue
+
+            if response.status_code in {429, 500, 502, 503, 504}:
+                if attempt + 1 >= max_attempts:
+                    response.raise_for_status()
+                retry_after_raw = response.headers.get("Retry-After")
+                retry_after = 0.0
+                if retry_after_raw:
+                    try:
+                        retry_after = float(retry_after_raw)
+                    except ValueError:
+                        retry_after = 0.0
+                backoff = min(45.0, 2.0 * (2 ** attempt))
+                time.sleep(max(retry_after, backoff))
+                continue
+
+            response.raise_for_status()
+            body = response.json()
+            message = (
+                body.get("choices", [{}])[0]
+                .get("message", {})
+                .get("content", "")
+            )
+            last_message = str(message or "")
+            try:
+                parsed = _parse_json_text(message)
+            except Exception:
+                if attempt + 1 >= max_attempts:
+                    break
+                time.sleep(min(20.0, 1.0 * (2 ** attempt)))
+                continue
+            if not isinstance(parsed, dict):
+                if attempt + 1 >= max_attempts:
+                    break
+                time.sleep(min(20.0, 1.0 * (2 ** attempt)))
+                continue
+            return parsed
+
+        fallback_text = (last_message or "").strip()
+        if fallback_text:
+            return {"raw_text": fallback_text}
+        raise RuntimeError("LLM request failed after retries.")
 
     def _throttle(self) -> None:
         wait_seconds = self.config.min_interval_seconds - (time.monotonic() - self._last_call_at)
