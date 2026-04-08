@@ -72,3 +72,12 @@ data/eval/*
 data/reports/*
 !data/reports/.gitkeep
 !data/reports/README.md
+data/artifacts/*
+!data/artifacts/.gitkeep
+!data/artifacts/README.md
+
+# Generated experiment configs
+configs/experiments/admin_gate_*.yaml
+configs/experiments/admin_gate_*.yml
+configs/experiments/admin_gen_*.yaml
+configs/experiments/admin_gen_*.yml
