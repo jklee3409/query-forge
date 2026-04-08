@@ -152,4 +152,41 @@ public class AdminConsoleController {
     public AdminConsoleDtos.RewriteDebugDetail rewriteLogDetail(@PathVariable UUID rewriteLogId) {
         return service.getRewriteDebugDetail(rewriteLogId);
     }
+
+    @GetMapping("/llm-jobs")
+    public List<AdminConsoleDtos.LlmJobRow> llmJobs(
+            @RequestParam(name = "limit", required = false) Integer limit
+    ) {
+        return service.listLlmJobs(limit);
+    }
+
+    @GetMapping("/llm-jobs/{jobId}")
+    public AdminConsoleDtos.LlmJobRow llmJob(@PathVariable UUID jobId) {
+        return service.getLlmJob(jobId);
+    }
+
+    @GetMapping("/llm-jobs/{jobId}/items")
+    public List<AdminConsoleDtos.LlmJobItemRow> llmJobItems(@PathVariable UUID jobId) {
+        return service.listLlmJobItems(jobId);
+    }
+
+    @PostMapping("/llm-jobs/{jobId}/pause")
+    public void pauseLlmJob(@PathVariable UUID jobId) {
+        service.pauseLlmJob(jobId);
+    }
+
+    @PostMapping("/llm-jobs/{jobId}/resume")
+    public void resumeLlmJob(@PathVariable UUID jobId) {
+        service.resumeLlmJob(jobId);
+    }
+
+    @PostMapping("/llm-jobs/{jobId}/cancel")
+    public void cancelLlmJob(@PathVariable UUID jobId) {
+        service.cancelLlmJob(jobId);
+    }
+
+    @PostMapping("/llm-jobs/{jobId}/retry")
+    public void retryLlmJob(@PathVariable UUID jobId) {
+        service.retryLlmJob(jobId);
+    }
 }

@@ -1,15 +1,20 @@
 from __future__ import annotations
 
+import json
 import math
+import os
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
 import psycopg
 
 try:
     from common.embeddings import cosine_similarity, embed_text
+    from common.llm_client import LlmClient, load_stage_config
 except ModuleNotFoundError:  # pragma: no cover
     from pipeline.common.embeddings import cosine_similarity, embed_text
+    from pipeline.common.llm_client import LlmClient, load_stage_config
 
 
 @dataclass(slots=True)
@@ -60,6 +65,10 @@ class RewriteOutcome:
     best_candidate_confidence: float
     memory_top_n: list[dict[str, Any]]
     candidates: list[dict[str, Any]]
+
+
+_REWRITE_CLIENT: LlmClient | None = None
+_REWRITE_PROMPT_TEXT: str | None = None
 
 
 def load_eval_samples(
@@ -222,7 +231,31 @@ def memory_top_n(
     return scored[:top_n]
 
 
-def build_rewrite_candidates(
+def _rewrite_prompt_text() -> str:
+    global _REWRITE_PROMPT_TEXT
+    if _REWRITE_PROMPT_TEXT is not None:
+        return _REWRITE_PROMPT_TEXT
+    root = Path(os.getenv("PROMPT_ROOT") or "configs/prompts")
+    candidates = [
+        root / "rewrite" / "selective_rewrite_v1.md",
+        Path("configs/prompts/rewrite/selective_rewrite_v1.md"),
+        Path("../configs/prompts/rewrite/selective_rewrite_v1.md"),
+    ]
+    for path in candidates:
+        if path.exists():
+            _REWRITE_PROMPT_TEXT = path.read_text(encoding="utf-8")
+            return _REWRITE_PROMPT_TEXT
+    raise FileNotFoundError("rewrite prompt file not found: selective_rewrite_v1.md")
+
+
+def _rewrite_client() -> LlmClient:
+    global _REWRITE_CLIENT
+    if _REWRITE_CLIENT is None:
+        _REWRITE_CLIENT = LlmClient(load_stage_config(stage="rewrite", raw_config={}))
+    return _REWRITE_CLIENT
+
+
+def _heuristic_rewrite_candidates(
     raw_query: str,
     memory_items: list[dict[str, Any]],
     *,
@@ -250,6 +283,61 @@ def build_rewrite_candidates(
     if previous_entity or previous_question:
         templates[0]["query"] = f"{previous_question} 이후 맥락에서 {raw_query}를 독립 질문으로 재작성해 주세요. {previous_entity}".strip()
     return templates[:candidate_count]
+
+
+def build_rewrite_candidates(
+    raw_query: str,
+    memory_items: list[dict[str, Any]],
+    *,
+    session_context: dict[str, Any],
+    candidate_count: int,
+) -> list[dict[str, str]]:
+    response = _rewrite_client().chat_json(
+        system_prompt=_rewrite_prompt_text(),
+        user_prompt=json.dumps(
+            {
+                "raw_query": raw_query,
+                "session_context": session_context,
+                "top_memory_candidates": memory_items[:5],
+                "candidate_count": candidate_count,
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+    )
+    candidate_rows = response.get("candidates")
+    if not isinstance(candidate_rows, list):
+        fallback_allowed = str(os.getenv("QUERY_FORGE_ALLOW_HEURISTIC_REWRITE_FALLBACK") or "").lower() == "true"
+        if fallback_allowed:
+            return _heuristic_rewrite_candidates(
+                raw_query,
+                memory_items,
+                session_context=session_context,
+                candidate_count=candidate_count,
+            )
+        raise RuntimeError("LLM rewrite response must contain `candidates` list.")
+    normalized: list[dict[str, str]] = []
+    for item in candidate_rows:
+        if not isinstance(item, dict):
+            continue
+        query = str(item.get("query") or "").strip()
+        if not query:
+            continue
+        label = str(item.get("label") or f"candidate_{len(normalized) + 1}").strip()
+        normalized.append({"label": label, "query": query})
+        if len(normalized) >= candidate_count:
+            break
+    if normalized:
+        return normalized
+    fallback_allowed = str(os.getenv("QUERY_FORGE_ALLOW_HEURISTIC_REWRITE_FALLBACK") or "").lower() == "true"
+    if fallback_allowed:
+        return _heuristic_rewrite_candidates(
+            raw_query,
+            memory_items,
+            session_context=session_context,
+            candidate_count=candidate_count,
+        )
+    raise RuntimeError("LLM rewrite candidate response was empty.")
 
 
 def confidence_score(

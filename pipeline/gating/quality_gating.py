@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import logging
 import uuid
 from collections import Counter, defaultdict
@@ -14,6 +15,7 @@ try:
     from common.embeddings import cosine_similarity, embed_text
     from common.experiment_config import ExperimentConfig, load_experiment_config
     from common.experiment_run import ExperimentRunRecorder
+    from common.llm_client import LlmClient, load_stage_config
     from common.prompt_assets import load_and_register_prompt
     from common.text_utils import copy_ratio, korean_ratio, special_char_ratio, token_count
     from loaders.common import connect, default_database_args
@@ -21,6 +23,7 @@ except ModuleNotFoundError:  # pragma: no cover - direct module execution fallba
     from pipeline.common.embeddings import cosine_similarity, embed_text
     from pipeline.common.experiment_config import ExperimentConfig, load_experiment_config
     from pipeline.common.experiment_run import ExperimentRunRecorder
+    from pipeline.common.llm_client import LlmClient, load_stage_config
     from pipeline.common.prompt_assets import load_and_register_prompt
     from pipeline.common.text_utils import copy_ratio, korean_ratio, special_char_ratio, token_count
     from pipeline.loaders.common import connect, default_database_args
@@ -248,32 +251,48 @@ def _retrieval_utility_score(
     return min(1.0, score)
 
 
-def _llm_self_eval(query: RawQueryRow, source_chunk: ChunkItem) -> dict[str, int]:
-    overlap = copy_ratio(query.query_text, source_chunk.chunk_text, ngram=2)
-    naturalness = korean_ratio(query.query_text)
-    length = len(query.query_text.strip())
-    if query.query_type == "code_mixed":
-        korean_score = 5 if naturalness >= 0.35 else 4 if naturalness >= 0.20 else 3
-    else:
-        korean_score = 5 if naturalness >= 0.55 else 4 if naturalness >= 0.35 else 3 if naturalness >= 0.20 else 2
+def _llm_self_eval(
+    query: RawQueryRow,
+    source_chunk: ChunkItem,
+    *,
+    client: LlmClient,
+    prompt_text: str,
+) -> tuple[dict[str, int], dict[str, Any]]:
+    payload = client.chat_json(
+        system_prompt=prompt_text,
+        user_prompt=json.dumps(
+            {
+                "query_text": query.query_text,
+                "query_type": query.query_type,
+                "answerability_type": query.answerability_type,
+                "source_chunk_text": source_chunk.chunk_text,
+                "source_summary": query.source_summary,
+                "target_doc_id": query.target_doc_id,
+                "target_chunk_ids": query.target_chunk_ids,
+            },
+            ensure_ascii=False,
+            indent=2,
+        ),
+    )
+    scores_raw = payload.get("scores") if isinstance(payload.get("scores"), dict) else {}
     scores = {
-        "groundedness": 5 if overlap >= 0.10 else 4,
-        "answerability": 4 if query.answerability_type == "single" else 3,
-        "user_likeness": 5 if 8 <= length <= 80 else 4 if 4 <= length <= 100 else 3,
-        "korean_naturalness": korean_score,
-        "anti_copy": 5 if overlap <= 0.30 else 4 if overlap <= 0.45 else 3 if overlap <= 0.65 else 2,
+        "grounded": int(scores_raw.get("grounded", 3)),
+        "answerable": int(scores_raw.get("answerable", 3)),
+        "user_like": int(scores_raw.get("user_like", 3)),
+        "korean_naturalness": int(scores_raw.get("korean_naturalness", 3)),
+        "copy_control": int(scores_raw.get("copy_control", 3)),
     }
-    return scores
+    return scores, payload
 
 
 def _llm_pass(scores: dict[str, int]) -> bool:
     return all(
         [
-            scores["groundedness"] >= 4,
-            scores["answerability"] >= 3,
-            scores["user_likeness"] >= 3,
+            scores["grounded"] >= 4,
+            scores["answerable"] >= 3,
+            scores["user_like"] >= 3,
             scores["korean_naturalness"] >= 3,
-            scores["anti_copy"] >= 3,
+            scores["copy_control"] >= 3,
         ]
     )
 
@@ -399,10 +418,10 @@ def run_quality_gating(
             run_label="gate-queries",
         )
 
-        self_eval_prompt = load_and_register_prompt(
-            connection,
-            prompt_root / "self_eval" / "quality_gate_v1.md",
-        )
+        self_eval_prompt_path = prompt_root / "self_eval" / "quality_gate_v1.md"
+        self_eval_prompt = load_and_register_prompt(connection, self_eval_prompt_path)
+        self_eval_prompt_text = self_eval_prompt_path.read_text(encoding="utf-8")
+        self_eval_client = LlmClient(load_stage_config(stage="self_eval", raw_config=config.raw))
 
         strategies = _strategies_for_gating(config)
         gating_batch_id = str(config.raw.get("gating_batch_id") or "").strip() or None
@@ -441,16 +460,35 @@ def run_quality_gating(
             }
         )
 
-        for query in raw_queries:
+        llm_batch_size = int(config.raw.get("llm_batch_size") or 20)
+        llm_batch_size = max(1, min(llm_batch_size, 20))
+        for row_index, query in enumerate(raw_queries):
             source_chunk = chunk_index.get(query.chunk_id_source)
             if source_chunk is None:
                 continue
             query_embedding = embed_text(query.query_text)
 
             passed_rule, rule_reasons = _rule_pass(query, source_chunk)
-            llm_scores = _llm_self_eval(query, source_chunk)
-            passed_llm = _llm_pass(llm_scores)
-            llm_avg = sum(llm_scores.values()) / (len(llm_scores) * 5.0)
+            llm_payload: dict[str, Any] = {"schema_version": "v1", "scores": {}}
+            if config.enable_llm_self_eval:
+                llm_scores, llm_payload = _llm_self_eval(
+                    query,
+                    source_chunk,
+                    client=self_eval_client,
+                    prompt_text=self_eval_prompt_text,
+                )
+                passed_llm = _llm_pass(llm_scores)
+                llm_avg = sum(llm_scores.values()) / (len(llm_scores) * 5.0)
+            else:
+                llm_scores = {
+                    "grounded": 5,
+                    "answerable": 5,
+                    "user_like": 5,
+                    "korean_naturalness": 5,
+                    "copy_control": 5,
+                }
+                passed_llm = True
+                llm_avg = 1.0
 
             utility_score = _retrieval_utility_score(
                 query_embedding=query_embedding,
@@ -563,6 +601,8 @@ def run_quality_gating(
                         utility_score,
                         novelty_score,
                         final_score,
+                        llm_provider,
+                        llm_model,
                         rejected_stage,
                         rejected_reason,
                         rejection_reasons,
@@ -582,6 +622,8 @@ def run_quality_gating(
                         utility_score = EXCLUDED.utility_score,
                         novelty_score = EXCLUDED.novelty_score,
                         final_score = EXCLUDED.final_score,
+                        llm_provider = EXCLUDED.llm_provider,
+                        llm_model = EXCLUDED.llm_model,
                         rejected_stage = EXCLUDED.rejected_stage,
                         rejected_reason = EXCLUDED.rejected_reason,
                         rejection_reasons = EXCLUDED.rejection_reasons,
@@ -601,13 +643,18 @@ def run_quality_gating(
                             {
                                 "schema_version": "v1",
                                 "scores": llm_scores,
+                                "raw": llm_payload,
                                 "prompt_version": self_eval_prompt.version,
                                 "prompt_hash": self_eval_prompt.content_hash,
+                                "provider": self_eval_client.config.provider,
+                                "model": self_eval_client.config.model,
                             }
                         ),
                         utility_score,
                         novelty_score,
                         final_score,
+                        self_eval_client.config.provider if config.enable_llm_self_eval else None,
+                        self_eval_client.config.model if config.enable_llm_self_eval else None,
                         None if passed else rejected_stage,
                         None if passed or not rejection_reasons else rejection_reasons[0],
                         Jsonb(rejection_reasons),
@@ -637,6 +684,8 @@ def run_quality_gating(
                             diversity_pass,
                             novelty_score,
                             final_score,
+                            llm_provider,
+                            llm_model,
                             accepted,
                             rejected_stage,
                             rejected_reason,
@@ -657,6 +706,8 @@ def run_quality_gating(
                             diversity_pass = EXCLUDED.diversity_pass,
                             novelty_score = EXCLUDED.novelty_score,
                             final_score = EXCLUDED.final_score,
+                            llm_provider = EXCLUDED.llm_provider,
+                            llm_model = EXCLUDED.llm_model,
                             accepted = EXCLUDED.accepted,
                             rejected_stage = EXCLUDED.rejected_stage,
                             rejected_reason = EXCLUDED.rejected_reason,
@@ -676,15 +727,24 @@ def run_quality_gating(
                             passed_diversity if config.enable_diversity else None,
                             novelty_score,
                             final_score,
+                            self_eval_client.config.provider if config.enable_llm_self_eval else None,
+                            self_eval_client.config.model if config.enable_llm_self_eval else None,
                             passed,
                             None if passed else rejected_stage,
                             None if passed or not rejection_reasons else rejection_reasons[0],
-                            Jsonb(llm_scores),
+                            Jsonb(
+                                {
+                                    "scores": llm_scores,
+                                    "raw": llm_payload,
+                                }
+                            ),
                             Jsonb(
                                 {
                                     "rule_reasons": rule_reasons,
                                     "all_rejection_reasons": rejection_reasons,
                                     "preset": config.gating_preset,
+                                    "llm_provider": self_eval_client.config.provider if config.enable_llm_self_eval else None,
+                                    "llm_model": self_eval_client.config.model if config.enable_llm_self_eval else None,
                                 }
                             ),
                         ),
@@ -721,7 +781,15 @@ def run_quality_gating(
                             llm_stage_pass,
                             llm_avg,
                             None if llm_stage_pass else "llm_self_eval_failed",
-                            Jsonb({"scores": llm_scores, "enabled": config.enable_llm_self_eval}),
+                            Jsonb(
+                                {
+                                    "scores": llm_scores,
+                                    "raw": llm_payload,
+                                    "enabled": config.enable_llm_self_eval,
+                                    "provider": self_eval_client.config.provider if config.enable_llm_self_eval else None,
+                                    "model": self_eval_client.config.model if config.enable_llm_self_eval else None,
+                                }
+                            ),
                             utility_stage_pass,
                             utility_score,
                             None if utility_stage_pass else "utility_failed",
@@ -758,6 +826,8 @@ def run_quality_gating(
                         "rejection_reasons": rejection_reasons,
                     }
                 )
+            if (row_index + 1) % llm_batch_size == 0:
+                connection.commit()
 
         summary = {
             "experiment_key": config.experiment_key,
@@ -775,6 +845,8 @@ def run_quality_gating(
                 "version": self_eval_prompt.version,
                 "hash": self_eval_prompt.content_hash,
                 "asset_id": self_eval_prompt.prompt_asset_id,
+                "llm_provider": self_eval_client.config.provider if config.enable_llm_self_eval else None,
+                "llm_model": self_eval_client.config.model if config.enable_llm_self_eval else None,
             },
             "preview": preview_rows,
         }

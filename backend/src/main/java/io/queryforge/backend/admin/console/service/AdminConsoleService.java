@@ -5,8 +5,6 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import io.queryforge.backend.admin.console.model.AdminConsoleDtos;
 import io.queryforge.backend.admin.console.repository.AdminConsoleRepository;
 import io.queryforge.backend.admin.pipeline.config.AdminPipelineProperties;
-import io.queryforge.backend.rag.model.RagDtos;
-import io.queryforge.backend.rag.service.ExperimentPipelineService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -17,7 +15,6 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
-import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -33,7 +30,7 @@ public class AdminConsoleService {
     private static final String DEFAULT_DATASET_KEY = "human_eval_default";
 
     private final AdminConsoleRepository repository;
-    private final ExperimentPipelineService experimentPipelineService;
+    private final LlmJobService llmJobService;
     private final AdminPipelineProperties pipelineProperties;
     private final ObjectMapper objectMapper;
     private final Yaml yaml = new Yaml();
@@ -94,26 +91,7 @@ public class AdminConsoleService {
         );
         config.put("generation_batch_id", batchId.toString());
         writeExperimentConfig(experimentName, config);
-
-        RagDtos.ExperimentCommandResponse response = experimentPipelineService.run(
-                new RagDtos.ExperimentCommandRequest("generate-queries", experimentName)
-        );
-        if (response.exitCode() != 0) {
-            repository.failGenerationBatch(batchId, response.stderr(), response.summary());
-            throw new IllegalStateException("synthetic generation failed: " + trimError(response.stderr(), response.stdout()));
-        }
-
-        UUID sourceRunId = asUuid(response.summary().path("experiment_run_id").asText(null));
-        int generatedCount = response.summary().path("generated_queries").asInt(0);
-        repository.completeGenerationBatch(
-                batchId,
-                sourceRunId,
-                generatedCount,
-                response.summary()
-        );
-        if (sourceRunId != null) {
-            repository.syncSyntheticQueryBatchProvenance(batchId, sourceRunId);
-        }
+        llmJobService.createGenerationJob(batchId, experimentName, defaultCreatedBy(request.createdBy()));
         return repository.findGenerationBatch(batchId)
                 .orElseThrow(() -> new IllegalStateException("generation batch not found after completion: " + batchId));
     }
@@ -174,31 +152,7 @@ public class AdminConsoleService {
             config.put("source_generation_run_id", sourceGenerationRunId.toString());
         }
         writeExperimentConfig(experimentName, config);
-
-        RagDtos.ExperimentCommandResponse response = experimentPipelineService.run(
-                new RagDtos.ExperimentCommandRequest("gate-queries", experimentName)
-        );
-        if (response.exitCode() != 0) {
-            repository.failGatingBatch(gatingBatchId, response.stderr());
-            throw new IllegalStateException("quality gating failed: " + trimError(response.stderr(), response.stdout()));
-        }
-
-        UUID sourceGatingRunId = asUuid(response.summary().path("experiment_run_id").asText(null));
-        int processed = response.summary().path("processed_queries").asInt(0);
-        int accepted = response.summary().path("accepted_queries").asInt(0);
-        int rejected = response.summary().path("rejected_queries").asInt(0);
-        JsonNode rejectionReasons = response.summary().path("rejection_reasons");
-        repository.completeGatingBatch(
-                gatingBatchId,
-                sourceGatingRunId,
-                processed,
-                accepted,
-                rejected,
-                rejectionReasons.isMissingNode() ? objectMapper.createObjectNode() : rejectionReasons
-        );
-        if (sourceGatingRunId != null) {
-            repository.syncGatingBatchResults(gatingBatchId, sourceGatingRunId);
-        }
+        llmJobService.createGatingJob(gatingBatchId, experimentName, defaultCreatedBy(request.createdBy()));
         return repository.findGatingBatch(gatingBatchId)
                 .orElseThrow(() -> new IllegalStateException("gating batch not found after completion: " + gatingBatchId));
     }
@@ -238,6 +192,38 @@ public class AdminConsoleService {
     public AdminConsoleDtos.RewriteDebugDetail getRewriteDebugDetail(UUID rewriteLogId) {
         return repository.findRewriteDebugDetail(rewriteLogId)
                 .orElseThrow(() -> new IllegalArgumentException("rewrite log not found: " + rewriteLogId));
+    }
+
+    public List<AdminConsoleDtos.LlmJobRow> listLlmJobs(Integer limit) {
+        return llmJobService.listJobs(limit);
+    }
+
+    public AdminConsoleDtos.LlmJobRow getLlmJob(UUID jobId) {
+        return llmJobService.getJob(jobId);
+    }
+
+    public List<AdminConsoleDtos.LlmJobItemRow> listLlmJobItems(UUID jobId) {
+        return llmJobService.listJobItems(jobId);
+    }
+
+    @Transactional
+    public void pauseLlmJob(UUID jobId) {
+        llmJobService.pauseJob(jobId);
+    }
+
+    @Transactional
+    public void resumeLlmJob(UUID jobId) {
+        llmJobService.resumeJob(jobId);
+    }
+
+    @Transactional
+    public void cancelLlmJob(UUID jobId) {
+        llmJobService.cancelJob(jobId);
+    }
+
+    @Transactional
+    public void retryLlmJob(UUID jobId) {
+        llmJobService.retryJob(jobId);
     }
 
     @Transactional
@@ -298,133 +284,9 @@ public class AdminConsoleService {
 
         writeExperimentConfig(experimentName, config);
         repository.upsertRagTestRunConfig(runId, objectMapper.valueToTree(config));
-
-        try {
-            RagDtos.ExperimentCommandResponse memoryResponse = experimentPipelineService.run(
-                    new RagDtos.ExperimentCommandRequest("build-memory", experimentName)
-            );
-            if (memoryResponse.exitCode() != 0) {
-                throw new IllegalStateException("build-memory failed: " + trimError(memoryResponse.stderr(), memoryResponse.stdout()));
-            }
-
-            RagDtos.ExperimentCommandResponse retrievalResponse = experimentPipelineService.run(
-                    new RagDtos.ExperimentCommandRequest("eval-retrieval", experimentName)
-            );
-            if (retrievalResponse.exitCode() != 0) {
-                throw new IllegalStateException("eval-retrieval failed: " + trimError(retrievalResponse.stderr(), retrievalResponse.stdout()));
-            }
-
-            RagDtos.ExperimentCommandResponse answerResponse = experimentPipelineService.run(
-                    new RagDtos.ExperimentCommandRequest("eval-answer", experimentName)
-            );
-            if (answerResponse.exitCode() != 0) {
-                throw new IllegalStateException("eval-answer failed: " + trimError(answerResponse.stderr(), answerResponse.stdout()));
-            }
-
-            JsonNode retrievalSummary = retrievalResponse.summary();
-            JsonNode answerSummary = answerResponse.summary();
-            JsonNode summaryRow = firstArrayItem(retrievalSummary.path("summary"));
-            JsonNode latencyRow = firstArrayItem(retrievalSummary.path("latency_summary"));
-            JsonNode answerMetrics = answerSummary.path("summary");
-
-            Double recall = nullableDouble(summaryRow.path("recall@5"));
-            Double hit = nullableDouble(summaryRow.path("hit@5"));
-            Double mrr = nullableDouble(summaryRow.path("mrr@10"));
-            Double ndcg = nullableDouble(summaryRow.path("ndcg@10"));
-            Double latency = nullableDouble(latencyRow.path("avg_latency_ms"));
-            Double adoption = nullableDouble(summaryRow.path("adoption_rate"));
-            Double rejectionRate = nullableDouble(summaryRow.path("rewrite_rejection_rate"));
-            Double avgConfidenceDelta = nullableDouble(summaryRow.path("avg_confidence_delta"));
-
-            Map<String, Object> metrics = new LinkedHashMap<>();
-            metrics.put("retrieval", retrievalSummary);
-            metrics.put("answer", answerSummary);
-            metrics.put("memory", memoryResponse.summary());
-            UUID sourceExperimentRunId = asUuid(retrievalSummary.path("experiment_run_id").asText(null));
-            repository.upsertRagSummary(
-                    runId,
-                    recall,
-                    hit,
-                    mrr,
-                    ndcg,
-                    latency,
-                    adoption,
-                    rejectionRate,
-                    avgConfidenceDelta,
-                    answerMetrics.isMissingNode() ? objectMapper.createObjectNode() : answerMetrics,
-                    objectMapper.valueToTree(metrics)
-            );
-
-            List<AdminConsoleDtos.RagTestResultDetailRow> details = loadRewriteCasesForRun(runId, experimentName);
-            repository.replaceRagDetailRows(runId, details);
-            repository.completeRagTestRun(runId, objectMapper.valueToTree(metrics), sourceExperimentRunId);
-            return repository.findRagTestRun(runId)
-                    .orElseThrow(() -> new IllegalStateException("rag test run not found after completion: " + runId));
-        } catch (RuntimeException exception) {
-            repository.failRagTestRun(runId, exception.getMessage());
-            throw exception;
-        }
-    }
-
-    private List<AdminConsoleDtos.RagTestResultDetailRow> loadRewriteCasesForRun(UUID runId, String experimentName) {
-        Path casePath = resolveRepoRoot()
-                .resolve("data/reports")
-                .resolve("rewrite_cases_" + experimentName + ".json")
-                .normalize();
-        if (!Files.exists(casePath)) {
-            return List.of();
-        }
-        try {
-            JsonNode root = objectMapper.readTree(Files.readString(casePath, StandardCharsets.UTF_8));
-            if (!root.isArray() || root.isEmpty()) {
-                return List.of();
-            }
-            List<String> sampleIds = new ArrayList<>();
-            for (JsonNode row : root) {
-                String sampleId = row.path("sample_id").asText("");
-                if (!sampleId.isBlank()) {
-                    sampleIds.add(sampleId);
-                }
-            }
-            Map<String, AdminConsoleRepository.EvalSampleMeta> sampleMetaMap = new LinkedHashMap<>();
-            for (AdminConsoleRepository.EvalSampleMeta meta : repository.findEvalSampleMeta(sampleIds)) {
-                sampleMetaMap.put(meta.sampleId(), meta);
-            }
-
-            List<AdminConsoleDtos.RagTestResultDetailRow> details = new ArrayList<>();
-            for (JsonNode row : root) {
-                String sampleId = row.path("sample_id").asText("");
-                if (sampleId.isBlank()) {
-                    continue;
-                }
-                AdminConsoleRepository.EvalSampleMeta meta = sampleMetaMap.get(sampleId);
-                JsonNode metricContribution = objectMapper.valueToTree(Map.of(
-                        "mode", row.path("mode").asText(""),
-                        "raw_mrr", row.path("raw_mrr").asDouble(0.0),
-                        "mode_mrr", row.path("mode_mrr").asDouble(0.0),
-                        "raw_ndcg", row.path("raw_ndcg").asDouble(0.0),
-                        "mode_ndcg", row.path("mode_ndcg").asDouble(0.0)
-                ));
-                boolean hitTarget = row.path("mode_mrr").asDouble(0.0) > 0.0 || row.path("mode_ndcg").asDouble(0.0) > 0.0;
-                details.add(new AdminConsoleDtos.RagTestResultDetailRow(
-                        UUID.randomUUID(),
-                        runId,
-                        sampleId,
-                        meta != null ? meta.queryCategory() : null,
-                        meta != null ? meta.userQueryKo() : sampleId,
-                        row.path("final_query").asText(""),
-                        row.path("rewrite_applied").asBoolean(false),
-                        nullableJson(row.get("memory_top_n")),
-                        nullableJson(row.get("rewrite_candidates")),
-                        nullableJson(row.get("retrieved_top_k")),
-                        metricContribution,
-                        hitTarget
-                ));
-            }
-            return details;
-        } catch (IOException exception) {
-            return List.of();
-        }
+        llmJobService.createRagTestJob(runId, experimentName, defaultCreatedBy(request.createdBy()));
+        return repository.findRagTestRun(runId)
+                .orElseThrow(() -> new IllegalStateException("rag test run not found after enqueue: " + runId));
     }
 
     private Optional<UUID> findLatestMatchingGatingRun(List<String> methodCodes, String gatingPreset) {
@@ -435,27 +297,6 @@ public class AdminConsoleService {
                 .filter(item -> item.methodCode() == null || methodCodes.contains(item.methodCode().toUpperCase()))
                 .map(AdminConsoleDtos.GatingBatchRow::sourceGatingRunId)
                 .findFirst();
-    }
-
-    private JsonNode nullableJson(JsonNode node) {
-        if (node == null || node.isMissingNode() || node.isNull()) {
-            return objectMapper.createArrayNode();
-        }
-        return node;
-    }
-
-    private Double nullableDouble(JsonNode node) {
-        if (node == null || node.isMissingNode() || node.isNull()) {
-            return null;
-        }
-        return node.asDouble();
-    }
-
-    private JsonNode firstArrayItem(JsonNode node) {
-        if (node == null || !node.isArray() || node.isEmpty()) {
-            return objectMapper.createObjectNode();
-        }
-        return node.get(0);
     }
 
     private List<String> resolveRetrievalModes(boolean rewriteEnabled, boolean selectiveRewrite, boolean useSessionContext) {
@@ -552,25 +393,6 @@ public class AdminConsoleService {
         return value.trim();
     }
 
-    private UUID asUuid(String value) {
-        if (value == null || value.isBlank()) {
-            return null;
-        }
-        return UUID.fromString(value.trim());
-    }
-
-    private String trimError(String stderr, String stdout) {
-        String target = stderr != null && !stderr.isBlank() ? stderr : stdout;
-        if (target == null) {
-            return "";
-        }
-        String normalized = target.trim();
-        if (normalized.length() <= 400) {
-            return normalized;
-        }
-        return normalized.substring(0, 400);
-    }
-
     private Map<String, Object> baseExperimentConfig(String experimentKey, String methodCode) {
         Map<String, Object> config = new LinkedHashMap<>();
         config.put("experiment_key", experimentKey);
@@ -584,6 +406,14 @@ public class AdminConsoleService {
         config.put("enable_diversity", true);
         config.put("enable_anti_copy", true);
         config.put("gating_preset", "full_gating");
+        config.put("llm_provider", "groq");
+        config.put("llm_model", "llama-3.1-8b-instant");
+        config.put("llm_summary_model", "llama-3.1-8b-instant");
+        config.put("llm_query_model", "llama-3.1-8b-instant");
+        config.put("llm_self_eval_model", "llama-3.1-8b-instant");
+        config.put("llm_rewrite_model", "llama-3.1-8b-instant");
+        config.put("llm_rpm", 20);
+        config.put("llm_batch_size", 20);
         config.put("memory_top_n", 5);
         config.put("rewrite_candidate_count", 3);
         config.put("rewrite_threshold", 0.05);

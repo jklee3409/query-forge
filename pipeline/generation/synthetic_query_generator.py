@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import logging
 import random
 import uuid
@@ -16,15 +17,15 @@ try:
     from common.corpus_shadow_sync import sync_shadow_tables
     from common.experiment_config import ExperimentConfig, load_experiment_config
     from common.experiment_run import ExperimentRunRecorder
+    from common.llm_client import LlmClient, load_stage_config
     from common.prompt_assets import PromptAsset, load_and_register_prompt
-    from common.text_utils import extract_extractive_summary, naive_translate_to_korean
     from loaders.common import connect, default_database_args
 except ModuleNotFoundError:  # pragma: no cover - direct module execution fallback
     from pipeline.common.corpus_shadow_sync import sync_shadow_tables
     from pipeline.common.experiment_config import ExperimentConfig, load_experiment_config
     from pipeline.common.experiment_run import ExperimentRunRecorder
+    from pipeline.common.llm_client import LlmClient, load_stage_config
     from pipeline.common.prompt_assets import PromptAsset, load_and_register_prompt
-    from pipeline.common.text_utils import extract_extractive_summary, naive_translate_to_korean
     from pipeline.loaders.common import connect, default_database_args
 
 
@@ -42,6 +43,34 @@ QUERY_TYPE_LABELS_KO: dict[str, str] = {
 }
 
 
+@dataclass(slots=True)
+class ChunkRow:
+    chunk_id: str
+    document_id: str
+    chunk_text: str
+    title: str
+    product_name: str
+    version_label: str | None
+    content_checksum: str | None
+    cleaned_checksum: str | None
+
+
+@dataclass(slots=True)
+class PromptBundle:
+    summary_en_asset: PromptAsset
+    summary_en_text: str
+    summary_ko_asset: PromptAsset
+    summary_ko_text: str
+    translate_asset: PromptAsset
+    translate_text: str
+    query_assets: dict[str, PromptAsset]
+    query_texts: dict[str, str]
+
+
+def _stable_id(parts: list[str]) -> str:
+    return str(uuid.uuid5(uuid.NAMESPACE_URL, "|".join(parts)))
+
+
 def _weighted_choice(rng: random.Random, distribution: dict[str, float]) -> str:
     picks = list(distribution.items())
     roll = rng.random()
@@ -53,18 +82,39 @@ def _weighted_choice(rng: random.Random, distribution: dict[str, float]) -> str:
     return picks[-1][0]
 
 
-def _stable_id(parts: list[str]) -> str:
-    return str(uuid.uuid5(uuid.NAMESPACE_URL, "|".join(parts)))
+def _read_prompt(path: Path) -> str:
+    return path.read_text(encoding="utf-8")
 
 
-@dataclass(slots=True)
-class ChunkRow:
-    chunk_id: str
-    document_id: str
-    chunk_text: str
-    title: str
-    product_name: str
-    version_label: str | None
+def _resolve_prompt_bundle(
+    connection: psycopg.Connection[Any],
+    *,
+    config: ExperimentConfig,
+    prompt_root: Path,
+) -> PromptBundle:
+    summary_en_path = prompt_root / "summary_extraction" / "extractive_summary_v1.md"
+    summary_ko_path = prompt_root / "summary_extraction" / "summarize_ko_v1.md"
+    translate_path = prompt_root / "translation" / "translate_chunk_en_to_ko_v1.md"
+    query_paths = {
+        "A": prompt_root / "query_generation" / "gen_a_v1.md",
+        "B": prompt_root / "query_generation" / "gen_b_v1.md",
+        "C": prompt_root / "query_generation" / "gen_c_v1.md",
+        "D": prompt_root / "query_generation" / "gen_d_v1.md",
+    }
+    for required_path in (summary_en_path, summary_ko_path, translate_path, *query_paths.values()):
+        if not required_path.exists():
+            raise FileNotFoundError(f"Prompt file not found: {required_path}")
+
+    return PromptBundle(
+        summary_en_asset=load_and_register_prompt(connection, summary_en_path),
+        summary_en_text=_read_prompt(summary_en_path),
+        summary_ko_asset=load_and_register_prompt(connection, summary_ko_path),
+        summary_ko_text=_read_prompt(summary_ko_path),
+        translate_asset=load_and_register_prompt(connection, translate_path),
+        translate_text=_read_prompt(translate_path),
+        query_assets={key: load_and_register_prompt(connection, path) for key, path in query_paths.items()},
+        query_texts={key: _read_prompt(path) for key, path in query_paths.items()},
+    )
 
 
 def _load_chunks(
@@ -78,7 +128,9 @@ def _load_chunks(
                c.chunk_text,
                d.title,
                c.product_name,
-               c.version_label
+               c.version_label,
+               c.content_checksum,
+               d.cleaned_checksum
         FROM corpus_chunks c
         JOIN corpus_documents d ON d.document_id = c.document_id
         ORDER BY c.document_id, c.chunk_index_in_document
@@ -97,6 +149,8 @@ def _load_chunks(
             title=str(row["title"]),
             product_name=str(row["product_name"]),
             version_label=row["version_label"],
+            content_checksum=row["content_checksum"],
+            cleaned_checksum=row["cleaned_checksum"],
         )
         for row in rows
     ]
@@ -147,96 +201,6 @@ def _load_glossary(
     return glossary_by_doc
 
 
-def _pick_focus_term(chunk: ChunkRow, glossary_terms: list[str]) -> str:
-    if glossary_terms:
-        return glossary_terms[0]
-    tokens = [token.strip(".,()[]") for token in chunk.chunk_text.split()[:20]]
-    for token in tokens:
-        if token and token[0].isalpha() and len(token) >= 4:
-            return token
-    return chunk.product_name
-
-
-def _generate_english_query(query_type: str, focus_term: str, summary_en: str) -> str:
-    if query_type == "definition":
-        return f"What is {focus_term} in Spring and when should it be used?"
-    if query_type == "reason":
-        return f"Why is {focus_term} required in this Spring configuration?"
-    if query_type == "procedure":
-        return f"How can I configure {focus_term} step by step in Spring?"
-    if query_type == "comparison":
-        return f"What is the difference between {focus_term} and the related alternative in Spring?"
-    if query_type == "short_user":
-        return f"{focus_term} 설정 방법?"
-    if query_type == "code_mixed":
-        return f"{focus_term} 설정 시 required property가 뭐야?"
-    return f"Then how does this apply to {focus_term} in the next step?"
-
-
-def _generate_korean_query(
-    query_type: str,
-    focus_term: str,
-    summary_ko: str,
-    *,
-    strategy: str,
-) -> str:
-    if query_type == "definition":
-        return f"{focus_term}는 스프링에서 무엇이고 언제 써야 하나요?"
-    if query_type == "reason":
-        return f"이 문맥에서 왜 {focus_term}가 필요한가요?"
-    if query_type == "procedure":
-        return f"{focus_term}를 설정하는 절차를 단계별로 알려주세요."
-    if query_type == "comparison":
-        return f"{focus_term}와 유사한 다른 방식의 차이를 비교해 주세요."
-    if query_type == "short_user":
-        return f"{focus_term} 설정 방법?"
-    if query_type == "code_mixed":
-        return f"{focus_term} 설정할 때 default 값이 뭐예요?"
-    if strategy == "C":
-        return f"방금 설명한 내용을 기준으로 {focus_term}는 다음 단계에서 어떻게 연결되나요?"
-    return f"이어서 {focus_term}를 적용하려면 무엇을 확인해야 하나요?"
-
-
-def _make_strategy_text(
-    *,
-    strategy: str,
-    query_type: str,
-    chunk: ChunkRow,
-    summary_prompt: PromptAsset,
-    query_prompt: PromptAsset,
-    glossary_terms: list[str],
-) -> tuple[str, str, dict[str, Any]]:
-    summary_en = extract_extractive_summary(chunk.chunk_text, max_sentences=2)
-    focus_term = _pick_focus_term(chunk, glossary_terms)
-    llm_trace: dict[str, Any] = {
-        "strategy": strategy,
-        "summary_prompt_version": summary_prompt.version,
-        "query_prompt_version": query_prompt.version,
-        "summary_en": summary_en,
-        "focus_term": focus_term,
-    }
-
-    if strategy == "A":
-        query_en = _generate_english_query(query_type, focus_term, summary_en)
-        query_ko = naive_translate_to_korean(query_en)
-        llm_trace["query_en"] = query_en
-        return query_ko, summary_en, llm_trace
-
-    if strategy == "B":
-        translated_chunk_ko = naive_translate_to_korean(chunk.chunk_text)
-        summary_ko = extract_extractive_summary(translated_chunk_ko, max_sentences=2)
-        query_ko = _generate_korean_query(query_type, focus_term, summary_ko, strategy=strategy)
-        llm_trace["translated_chunk_ko"] = translated_chunk_ko[:400]
-        llm_trace["summary_ko"] = summary_ko
-        return query_ko, summary_ko, llm_trace
-
-    summary_ko = naive_translate_to_korean(summary_en)
-    query_ko = _generate_korean_query(query_type, focus_term, summary_ko, strategy=strategy)
-    llm_trace["summary_ko"] = summary_ko
-    llm_trace["glossary_terms"] = glossary_terms[:10]
-    return query_ko, summary_ko, llm_trace
-
-
 def _select_answerability_target(
     chunk: ChunkRow,
     answerability_type: str,
@@ -257,6 +221,370 @@ def _select_answerability_target(
         target = rng.choice(near_candidates)
         return "near", [chunk.chunk_id, target]
     return "single", [chunk.chunk_id]
+
+
+def _resolve_generation_method_id(
+    connection: psycopg.Connection[Any],
+    method_code: str,
+) -> str | None:
+    with connection.cursor() as cursor:
+        cursor.execute(
+            """
+            SELECT generation_method_id
+            FROM synthetic_query_generation_method
+            WHERE method_code = %s
+            """,
+            (method_code,),
+        )
+        row = cursor.fetchone()
+    if row is None:
+        return None
+    value = row["generation_method_id"] if isinstance(row, dict) else row[0]
+    return str(value) if value is not None else None
+
+
+def _batch_exists(
+    connection: psycopg.Connection[Any],
+    batch_id: str,
+) -> bool:
+    with connection.cursor() as cursor:
+        cursor.execute(
+            """
+            SELECT 1
+            FROM synthetic_query_generation_batch
+            WHERE batch_id = %s
+            """,
+            (batch_id,),
+        )
+        return cursor.fetchone() is not None
+
+
+def _normalize_query_text(text: str) -> str:
+    return " ".join(text.strip().lower().split())
+
+
+def _language_profile(strategy: str, query_type: str) -> str:
+    if strategy == "D" or query_type == "code_mixed":
+        return "code_mixed"
+    return "ko"
+
+
+def _source_fingerprint(chunk: ChunkRow) -> str:
+    if chunk.cleaned_checksum:
+        return str(chunk.cleaned_checksum)
+    if chunk.content_checksum:
+        return str(chunk.content_checksum)
+    return _stable_id([chunk.chunk_id, chunk.chunk_text[:256]])
+
+
+def _find_existing_asset(
+    connection: psycopg.Connection[Any],
+    *,
+    chunk_id: str,
+    asset_type: str,
+    llm_provider: str,
+    llm_model: str,
+    prompt_template_version: str,
+    source_fingerprint: str,
+) -> tuple[str, str] | None:
+    with connection.cursor() as cursor:
+        cursor.execute(
+            """
+            SELECT asset_id, text_content
+            FROM chunk_generation_asset
+            WHERE chunk_id = %s
+              AND asset_type = %s
+              AND llm_provider = %s
+              AND llm_model = %s
+              AND prompt_template_version = %s
+              AND source_fingerprint = %s
+            ORDER BY created_at DESC
+            LIMIT 1
+            """,
+            (
+                chunk_id,
+                asset_type,
+                llm_provider,
+                llm_model,
+                prompt_template_version,
+                source_fingerprint,
+            ),
+        )
+        row = cursor.fetchone()
+    if row is None:
+        return None
+    return str(row["asset_id"]), str(row["text_content"])
+
+
+def _create_asset(
+    connection: psycopg.Connection[Any],
+    *,
+    chunk: ChunkRow,
+    asset_type: str,
+    text_content: str,
+    llm_provider: str,
+    llm_model: str,
+    prompt_template_version: str,
+    source_fingerprint: str,
+    metadata: dict[str, Any],
+) -> str:
+    with connection.cursor() as cursor:
+        cursor.execute(
+            """
+            INSERT INTO chunk_generation_asset (
+                chunk_id,
+                source_document_id,
+                asset_type,
+                text_content,
+                llm_provider,
+                llm_model,
+                prompt_template_version,
+                source_fingerprint,
+                metadata_json
+            ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+            RETURNING asset_id
+            """,
+            (
+                chunk.chunk_id,
+                chunk.document_id,
+                asset_type,
+                text_content,
+                llm_provider,
+                llm_model,
+                prompt_template_version,
+                source_fingerprint,
+                Jsonb(metadata),
+            ),
+        )
+        row = cursor.fetchone()
+    return str(row["asset_id"])
+
+
+def _llm_json(client: LlmClient, *, prompt_text: str, payload: dict[str, Any]) -> dict[str, Any]:
+    return client.chat_json(
+        system_prompt=prompt_text,
+        user_prompt=json.dumps(payload, ensure_ascii=False, indent=2),
+    )
+
+
+def _resolve_or_create_summary_en(
+    connection: psycopg.Connection[Any],
+    *,
+    chunk: ChunkRow,
+    source_fingerprint: str,
+    prompt_asset: PromptAsset,
+    prompt_text: str,
+    client: LlmClient,
+) -> tuple[str, str, bool]:
+    cached = _find_existing_asset(
+        connection,
+        chunk_id=chunk.chunk_id,
+        asset_type="EN_EXTRACTIVE_SUMMARY",
+        llm_provider=client.config.provider,
+        llm_model=client.config.model,
+        prompt_template_version=prompt_asset.version,
+        source_fingerprint=source_fingerprint,
+    )
+    if cached:
+        return cached[0], cached[1], True
+    response = _llm_json(
+        client,
+        prompt_text=prompt_text,
+        payload={
+            "chunk_id": chunk.chunk_id,
+            "title": chunk.title,
+            "product": chunk.product_name,
+            "chunk_text_en": chunk.chunk_text,
+        },
+    )
+    summary_en = str(response.get("extractive_summary_en") or response.get("summary_en") or "").strip()
+    if not summary_en:
+        raise RuntimeError(f"empty extractive_summary_en for chunk={chunk.chunk_id}")
+    asset_id = _create_asset(
+        connection,
+        chunk=chunk,
+        asset_type="EN_EXTRACTIVE_SUMMARY",
+        text_content=summary_en,
+        llm_provider=client.config.provider,
+        llm_model=client.config.model,
+        prompt_template_version=prompt_asset.version,
+        source_fingerprint=source_fingerprint,
+        metadata={"key_terms": response.get("key_terms") or []},
+    )
+    return asset_id, summary_en, False
+
+
+def _resolve_or_create_translated_chunk(
+    connection: psycopg.Connection[Any],
+    *,
+    chunk: ChunkRow,
+    source_fingerprint: str,
+    prompt_asset: PromptAsset,
+    prompt_text: str,
+    client: LlmClient,
+) -> tuple[str, str, bool]:
+    cached = _find_existing_asset(
+        connection,
+        chunk_id=chunk.chunk_id,
+        asset_type="KO_TRANSLATED_CHUNK",
+        llm_provider=client.config.provider,
+        llm_model=client.config.model,
+        prompt_template_version=prompt_asset.version,
+        source_fingerprint=source_fingerprint,
+    )
+    if cached:
+        return cached[0], cached[1], True
+    response = _llm_json(
+        client,
+        prompt_text=prompt_text,
+        payload={
+            "chunk_id": chunk.chunk_id,
+            "title": chunk.title,
+            "chunk_text_en": chunk.chunk_text,
+        },
+    )
+    translated = str(response.get("translated_chunk_ko") or "").strip()
+    if not translated:
+        raise RuntimeError(f"empty translated_chunk_ko for chunk={chunk.chunk_id}")
+    asset_id = _create_asset(
+        connection,
+        chunk=chunk,
+        asset_type="KO_TRANSLATED_CHUNK",
+        text_content=translated,
+        llm_provider=client.config.provider,
+        llm_model=client.config.model,
+        prompt_template_version=prompt_asset.version,
+        source_fingerprint=source_fingerprint,
+        metadata={"source": "en_chunk"},
+    )
+    return asset_id, translated, False
+
+
+def _resolve_or_create_summary_ko(
+    connection: psycopg.Connection[Any],
+    *,
+    chunk: ChunkRow,
+    source_fingerprint: str,
+    prompt_asset: PromptAsset,
+    prompt_text: str,
+    prompt_version_suffix: str,
+    source_text_ko: str,
+    client: LlmClient,
+) -> tuple[str, str, bool]:
+    template_version = f"{prompt_asset.version}:{prompt_version_suffix}"
+    cached = _find_existing_asset(
+        connection,
+        chunk_id=chunk.chunk_id,
+        asset_type="KO_SUMMARY",
+        llm_provider=client.config.provider,
+        llm_model=client.config.model,
+        prompt_template_version=template_version,
+        source_fingerprint=source_fingerprint,
+    )
+    if cached:
+        return cached[0], cached[1], True
+    response = _llm_json(
+        client,
+        prompt_text=prompt_text,
+        payload={
+            "chunk_id": chunk.chunk_id,
+            "source_text_ko": source_text_ko,
+        },
+    )
+    summary_ko = str(response.get("summary_ko") or "").strip()
+    if not summary_ko:
+        raise RuntimeError(f"empty summary_ko for chunk={chunk.chunk_id}")
+    asset_id = _create_asset(
+        connection,
+        chunk=chunk,
+        asset_type="KO_SUMMARY",
+        text_content=summary_ko,
+        llm_provider=client.config.provider,
+        llm_model=client.config.model,
+        prompt_template_version=template_version,
+        source_fingerprint=source_fingerprint,
+        metadata={"source": prompt_version_suffix},
+    )
+    return asset_id, summary_ko, False
+
+
+def _extract_query_text(
+    *,
+    generation_strategy: str,
+    query_type: str,
+    response: dict[str, Any],
+) -> tuple[str, dict[str, Any]]:
+    if generation_strategy == "A":
+        query_text = str(response.get("query_ko") or "").strip()
+        query_en = str(response.get("query_en") or "").strip()
+        return query_text, {"query_en": query_en}
+    if generation_strategy == "D":
+        query_ko = str(response.get("query_ko") or "").strip()
+        query_code_mixed = str(response.get("query_code_mixed") or "").strip()
+        if query_type == "code_mixed" and query_code_mixed:
+            return query_code_mixed, {"query_ko": query_ko, "query_code_mixed": query_code_mixed}
+        return query_ko, {"query_code_mixed": query_code_mixed}
+    return str(response.get("query_ko") or "").strip(), {}
+
+
+def _find_cached_query(
+    connection: psycopg.Connection[Any],
+    *,
+    synthetic_query_id: str,
+    source_fingerprint: str,
+    prompt_template_version: str,
+    generation_strategy: str,
+) -> bool:
+    with connection.cursor() as cursor:
+        cursor.execute(
+            """
+            SELECT 1
+            FROM synthetic_queries_raw
+            WHERE synthetic_query_id = %s
+              AND source_fingerprint = %s
+              AND prompt_template_version = %s
+              AND generation_strategy = %s
+            """,
+            (
+                synthetic_query_id,
+                source_fingerprint,
+                prompt_template_version,
+                generation_strategy,
+            ),
+        )
+        return cursor.fetchone() is not None
+
+
+def _attach_cached_query(
+    connection: psycopg.Connection[Any],
+    *,
+    synthetic_query_id: str,
+    generation_method_id: str | None,
+    generation_batch_id: str | None,
+    llm_provider: str,
+    llm_model: str,
+    generation_asset_ids: list[str],
+) -> None:
+    with connection.cursor() as cursor:
+        cursor.execute(
+            """
+            UPDATE synthetic_queries_raw
+            SET generation_method_id = %s,
+                generation_batch_id = %s,
+                llm_provider = %s,
+                llm_model = %s,
+                generation_asset_ids = %s
+            WHERE synthetic_query_id = %s
+            """,
+            (
+                generation_method_id,
+                generation_batch_id,
+                llm_provider,
+                llm_model,
+                Jsonb(generation_asset_ids),
+                synthetic_query_id,
+            ),
+        )
 
 
 def _insert_query_row(
@@ -288,8 +616,12 @@ def _insert_query_row(
             prompt_version,
             prompt_hash,
             source_summary,
+            source_fingerprint,
             source_chunk_ids,
             glossary_terms,
+            llm_provider,
+            llm_model,
+            generation_asset_ids,
             llm_output,
             metadata
         ) VALUES (
@@ -313,8 +645,12 @@ def _insert_query_row(
             %(prompt_version)s,
             %(prompt_hash)s,
             %(source_summary)s,
+            %(source_fingerprint)s,
             %(source_chunk_ids)s,
             %(glossary_terms)s,
+            %(llm_provider)s,
+            %(llm_model)s,
+            %(generation_asset_ids)s,
             %(llm_output)s,
             %(metadata)s
         )
@@ -322,7 +658,11 @@ def _insert_query_row(
         SET query_text = EXCLUDED.query_text,
             target_chunk_ids = EXCLUDED.target_chunk_ids,
             source_summary = EXCLUDED.source_summary,
+            source_fingerprint = EXCLUDED.source_fingerprint,
             glossary_terms = EXCLUDED.glossary_terms,
+            llm_provider = EXCLUDED.llm_provider,
+            llm_model = EXCLUDED.llm_model,
+            generation_asset_ids = EXCLUDED.generation_asset_ids,
             llm_output = EXCLUDED.llm_output,
             metadata = EXCLUDED.metadata,
             generation_method_id = EXCLUDED.generation_method_id,
@@ -375,64 +715,6 @@ def _insert_source_link(
         )
 
 
-def _normalize_query_text(text: str) -> str:
-    return " ".join(text.strip().lower().split())
-
-
-def _language_profile(strategy: str, query_type: str) -> str:
-    if strategy == "D" or query_type == "code_mixed":
-        return "code_mixed"
-    return "ko"
-
-
-def _resolve_generation_method_id(
-    connection: psycopg.Connection[Any],
-    method_code: str,
-) -> str | None:
-    with connection.cursor() as cursor:
-        cursor.execute(
-            """
-            SELECT generation_method_id
-            FROM synthetic_query_generation_method
-            WHERE method_code = %s
-            """,
-            (method_code,),
-        )
-        row = cursor.fetchone()
-    if row is None:
-        return None
-    value = row["generation_method_id"] if isinstance(row, dict) else row[0]
-    return str(value) if value is not None else None
-
-
-def _batch_exists(
-    connection: psycopg.Connection[Any],
-    batch_id: str,
-) -> bool:
-    with connection.cursor() as cursor:
-        cursor.execute(
-            """
-            SELECT 1
-            FROM synthetic_query_generation_batch
-            WHERE batch_id = %s
-            """,
-            (batch_id,),
-        )
-        return cursor.fetchone() is not None
-
-
-def _resolve_prompt_files(
-    config: ExperimentConfig,
-    prompt_root: Path,
-) -> tuple[Path, Path]:
-    summary_prompt_path = prompt_root / "summary_extraction" / "extractive_summary_v1.md"
-    query_prompt_name = f"gen_{config.generation_strategy.lower()}_v1.md"
-    query_prompt_path = prompt_root / "query_generation" / query_prompt_name
-    if not query_prompt_path.exists():
-        query_prompt_path = prompt_root / "query_generation" / "gen_c_v1.md"
-    return summary_prompt_path, query_prompt_path
-
-
 def run_generation(
     *,
     experiment: str,
@@ -478,9 +760,10 @@ def run_generation(
             run_label="generate-queries",
         )
 
-        summary_prompt_path, query_prompt_path = _resolve_prompt_files(config, prompt_root)
-        summary_prompt = load_and_register_prompt(connection, summary_prompt_path)
-        query_prompt = load_and_register_prompt(connection, query_prompt_path)
+        prompts = _resolve_prompt_bundle(connection, config=config, prompt_root=prompt_root)
+        summary_client = LlmClient(load_stage_config(stage="summary", raw_config=config.raw))
+        query_client = LlmClient(load_stage_config(stage="query", raw_config=config.raw))
+        translate_client = LlmClient(load_stage_config(stage="translation", raw_config=config.raw))
 
         chunks = _load_chunks(connection, limit=config.limit_chunks)
         relations = _load_relations(connection)
@@ -495,20 +778,25 @@ def run_generation(
                 generation_batch_id,
             )
             generation_batch_id = None
+
         method_id_cache: dict[str, str | None] = {
-            strategy: _resolve_generation_method_id(connection, strategy)
+            strategy: _resolve_generation_method_id(connection, strategy),
+            "D": _resolve_generation_method_id(connection, "D"),
         }
-        strategy_rows = 0
+        generated_count = 0
+        reused_count = 0
         query_type_counter: Counter[str] = Counter()
         answerability_counter: Counter[str] = Counter()
         generated_ids: list[str] = []
+        asset_cache_hits: Counter[str] = Counter()
+        asset_created: Counter[str] = Counter()
+        llm_batch_size = int(config.raw.get("llm_batch_size") or 20)
+        llm_batch_size = max(1, min(llm_batch_size, 20))
 
-        for chunk in chunks:
+        for chunk_index, chunk in enumerate(chunks):
             chunk_glossary_terms = glossary_by_doc.get(chunk.document_id, [])[:12]
-            base_count = max(
-                1,
-                int(round(config.avg_queries_per_chunk + rng.uniform(-0.9, 0.9))),
-            )
+            base_count = max(1, int(round(config.avg_queries_per_chunk + rng.uniform(-0.9, 0.9))))
+            source_fingerprint = _source_fingerprint(chunk)
             for query_index in range(base_count):
                 query_type = _weighted_choice(rng, config.query_type_distribution)
                 answerability_type = _weighted_choice(rng, config.answerability_distribution)
@@ -521,40 +809,147 @@ def run_generation(
                 generation_strategy = strategy
                 if config.enable_code_mixed and query_type == "code_mixed":
                     generation_strategy = "D"
-                if generation_strategy not in method_id_cache:
-                    method_id_cache[generation_strategy] = _resolve_generation_method_id(connection, generation_strategy)
-                query_text, source_summary, trace_payload = _make_strategy_text(
-                    strategy=generation_strategy if generation_strategy != "D" else "C",
-                    query_type=query_type,
-                    chunk=chunk,
-                    summary_prompt=summary_prompt,
-                    query_prompt=query_prompt,
-                    glossary_terms=chunk_glossary_terms,
-                )
-
-                if generation_strategy == "D":
-                    query_text = query_text.replace("설정", "setting")
-                    query_text = query_text.replace("방법", "how to")
-                    trace_payload["code_mixed_enabled"] = True
-
-                normalized_query_text = _normalize_query_text(query_text)
-                language_profile = _language_profile(generation_strategy, query_type)
-                synthetic_query_id = _stable_id(
+                generation_method_id = method_id_cache.get(generation_strategy)
+                query_prompt_asset = prompts.query_assets[generation_strategy]
+                query_prompt_text = prompts.query_texts[generation_strategy]
+                stable_query_id = _stable_id(
                     [
-                        config.experiment_key,
-                        run_context.experiment_run_id,
                         generation_strategy,
                         chunk.chunk_id,
-                        str(query_index),
+                        source_fingerprint,
+                        query_prompt_asset.version,
                         query_type,
-                        "-".join(target_chunk_ids),
+                        answerability_type,
+                        str(query_index),
                     ]
                 )
 
+                en_summary_asset_id, en_summary, en_summary_cached = _resolve_or_create_summary_en(
+                    connection,
+                    chunk=chunk,
+                    source_fingerprint=source_fingerprint,
+                    prompt_asset=prompts.summary_en_asset,
+                    prompt_text=prompts.summary_en_text,
+                    client=summary_client,
+                )
+                if en_summary_cached:
+                    asset_cache_hits["EN_EXTRACTIVE_SUMMARY"] += 1
+                else:
+                    asset_created["EN_EXTRACTIVE_SUMMARY"] += 1
+
+                generation_asset_ids = [en_summary_asset_id]
+                translated_chunk_ko = ""
+                summary_ko = ""
+
+                if generation_strategy == "B":
+                    translate_asset_id, translated_chunk_ko, translated_cached = _resolve_or_create_translated_chunk(
+                        connection,
+                        chunk=chunk,
+                        source_fingerprint=source_fingerprint,
+                        prompt_asset=prompts.translate_asset,
+                        prompt_text=prompts.translate_text,
+                        client=translate_client,
+                    )
+                    if translated_cached:
+                        asset_cache_hits["KO_TRANSLATED_CHUNK"] += 1
+                    else:
+                        asset_created["KO_TRANSLATED_CHUNK"] += 1
+                    generation_asset_ids.append(translate_asset_id)
+
+                    summary_ko_asset_id, summary_ko, summary_ko_cached = _resolve_or_create_summary_ko(
+                        connection,
+                        chunk=chunk,
+                        source_fingerprint=source_fingerprint,
+                        prompt_asset=prompts.summary_ko_asset,
+                        prompt_text=prompts.summary_ko_text,
+                        prompt_version_suffix="B",
+                        source_text_ko=translated_chunk_ko,
+                        client=summary_client,
+                    )
+                    if summary_ko_cached:
+                        asset_cache_hits["KO_SUMMARY"] += 1
+                    else:
+                        asset_created["KO_SUMMARY"] += 1
+                    generation_asset_ids.append(summary_ko_asset_id)
+                elif generation_strategy in {"C", "D"}:
+                    summary_ko_asset_id, summary_ko, summary_ko_cached = _resolve_or_create_summary_ko(
+                        connection,
+                        chunk=chunk,
+                        source_fingerprint=source_fingerprint,
+                        prompt_asset=prompts.summary_ko_asset,
+                        prompt_text=prompts.summary_ko_text,
+                        prompt_version_suffix=generation_strategy,
+                        source_text_ko=en_summary,
+                        client=summary_client,
+                    )
+                    if summary_ko_cached:
+                        asset_cache_hits["KO_SUMMARY"] += 1
+                    else:
+                        asset_created["KO_SUMMARY"] += 1
+                    generation_asset_ids.append(summary_ko_asset_id)
+
+                if _find_cached_query(
+                    connection,
+                    synthetic_query_id=stable_query_id,
+                    source_fingerprint=source_fingerprint,
+                    prompt_template_version=query_prompt_asset.version,
+                    generation_strategy=generation_strategy,
+                ):
+                    _attach_cached_query(
+                        connection,
+                        synthetic_query_id=stable_query_id,
+                        generation_method_id=generation_method_id,
+                        generation_batch_id=generation_batch_id,
+                        llm_provider=query_client.config.provider,
+                        llm_model=query_client.config.model,
+                        generation_asset_ids=generation_asset_ids,
+                    )
+                    _insert_source_link(
+                        connection,
+                        synthetic_query_id=stable_query_id,
+                        source_doc_id=chunk.document_id,
+                        source_chunk_id=chunk.chunk_id,
+                        source_chunk_group_id=None,
+                        source_role="primary",
+                    )
+                    reused_count += 1
+                    continue
+
+                query_response = _llm_json(
+                    query_client,
+                    prompt_text=query_prompt_text,
+                    payload={
+                        "chunk_id": chunk.chunk_id,
+                        "document_id": chunk.document_id,
+                        "title": chunk.title,
+                        "product": chunk.product_name,
+                        "version": chunk.version_label,
+                        "original_chunk_en": chunk.chunk_text,
+                        "extractive_summary_en": en_summary,
+                        "translated_chunk_ko": translated_chunk_ko,
+                        "extractive_summary_ko": summary_ko,
+                        "glossary_terms_keep_english": chunk_glossary_terms,
+                        "query_type": query_type,
+                        "answerability_type": answerability_type,
+                        "target_chunk_ids": target_chunk_ids,
+                    },
+                )
+                query_text, extra_trace = _extract_query_text(
+                    generation_strategy=generation_strategy,
+                    query_type=query_type,
+                    response=query_response,
+                )
+                if not query_text:
+                    raise RuntimeError(
+                        f"LLM generated empty query text. chunk={chunk.chunk_id} strategy={generation_strategy}"
+                    )
+
+                normalized_query_text = _normalize_query_text(query_text)
+                language_profile = _language_profile(generation_strategy, query_type)
                 payload = {
-                    "synthetic_query_id": synthetic_query_id,
+                    "synthetic_query_id": stable_query_id,
                     "experiment_run_id": run_context.experiment_run_id,
-                    "generation_method_id": method_id_cache.get(generation_strategy),
+                    "generation_method_id": generation_method_id,
                     "generation_batch_id": generation_batch_id,
                     "chunk_id_source": chunk.chunk_id,
                     "source_chunk_group_id": None,
@@ -567,25 +962,29 @@ def run_generation(
                     "language_profile": language_profile,
                     "query_type": query_type,
                     "generation_strategy": generation_strategy,
-                    "prompt_asset_id": query_prompt.prompt_asset_id,
-                    "prompt_template_version": query_prompt.version,
-                    "prompt_version": query_prompt.version,
-                    "prompt_hash": query_prompt.content_hash,
-                    "source_summary": source_summary,
+                    "prompt_asset_id": query_prompt_asset.prompt_asset_id,
+                    "prompt_template_version": query_prompt_asset.version,
+                    "prompt_version": query_prompt_asset.version,
+                    "prompt_hash": query_prompt_asset.content_hash,
+                    "source_summary": summary_ko if summary_ko else en_summary,
+                    "source_fingerprint": source_fingerprint,
                     "source_chunk_ids": Jsonb(target_chunk_ids),
                     "glossary_terms": Jsonb(chunk_glossary_terms),
+                    "llm_provider": query_client.config.provider,
+                    "llm_model": query_client.config.model,
+                    "generation_asset_ids": Jsonb(generation_asset_ids),
                     "llm_output": Jsonb(
                         {
-                            "queries": [
-                                {
-                                    "text": query_text,
-                                    "query_type": query_type,
-                                    "language_profile": language_profile,
-                                    "grounding_terms": chunk_glossary_terms[:8],
-                                    "notes": "generated by strategy scaffold",
-                                }
-                            ],
-                            "trace": trace_payload,
+                            "schema_version": "v1",
+                            "response": query_response,
+                            "query_type": query_type,
+                            "answerability_type": answerability_type,
+                            "trace": {
+                                "en_summary": en_summary,
+                                "ko_summary": summary_ko,
+                                "translated_chunk_excerpt": translated_chunk_ko[:320],
+                                **extra_trace,
+                            },
                         }
                     ),
                     "metadata": Jsonb(
@@ -594,49 +993,74 @@ def run_generation(
                             "title": chunk.title,
                             "product_name": chunk.product_name,
                             "version_label": chunk.version_label,
-                            "summary_prompt_version": summary_prompt.version,
                             "generation_batch_id": generation_batch_id,
+                            "source_fingerprint": source_fingerprint,
                         }
                     ),
                 }
-
                 _insert_query_row(connection, table_name="synthetic_queries_raw", payload=payload)
                 _insert_source_link(
                     connection,
-                    synthetic_query_id=synthetic_query_id,
+                    synthetic_query_id=stable_query_id,
                     source_doc_id=chunk.document_id,
                     source_chunk_id=chunk.chunk_id,
                     source_chunk_group_id=None,
                     source_role="primary",
                 )
-                strategy_rows += 1
+                generated_count += 1
                 query_type_counter[query_type] += 1
                 answerability_counter[answerability_type] += 1
                 if len(generated_ids) < 20:
-                    generated_ids.append(synthetic_query_id)
+                    generated_ids.append(stable_query_id)
+
+            if (chunk_index + 1) % llm_batch_size == 0:
+                connection.commit()
 
         summary = {
             "experiment_key": config.experiment_key,
             "experiment_run_id": run_context.experiment_run_id,
             "generation_strategy": strategy,
-            "prompt_assets": {
+            "llm": {
                 "summary": {
-                    "id": summary_prompt.prompt_name,
-                    "version": summary_prompt.version,
-                    "hash": summary_prompt.content_hash,
-                    "asset_id": summary_prompt.prompt_asset_id,
+                    "provider": summary_client.config.provider,
+                    "model": summary_client.config.model,
                 },
                 "query": {
-                    "id": query_prompt.prompt_name,
-                    "version": query_prompt.version,
-                    "hash": query_prompt.content_hash,
-                    "asset_id": query_prompt.prompt_asset_id,
+                    "provider": query_client.config.provider,
+                    "model": query_client.config.model,
+                },
+                "translation": {
+                    "provider": translate_client.config.provider,
+                    "model": translate_client.config.model,
+                },
+            },
+            "prompt_assets": {
+                "summary_en": {
+                    "id": prompts.summary_en_asset.prompt_name,
+                    "version": prompts.summary_en_asset.version,
+                    "hash": prompts.summary_en_asset.content_hash,
+                    "asset_id": prompts.summary_en_asset.prompt_asset_id,
+                },
+                "summary_ko": {
+                    "id": prompts.summary_ko_asset.prompt_name,
+                    "version": prompts.summary_ko_asset.version,
+                    "hash": prompts.summary_ko_asset.content_hash,
+                    "asset_id": prompts.summary_ko_asset.prompt_asset_id,
+                },
+                "translate": {
+                    "id": prompts.translate_asset.prompt_name,
+                    "version": prompts.translate_asset.version,
+                    "hash": prompts.translate_asset.content_hash,
+                    "asset_id": prompts.translate_asset.prompt_asset_id,
                 },
             },
             "chunks_processed": len(chunks),
-            "generated_queries": strategy_rows,
+            "generated_queries": generated_count,
+            "reused_queries": reused_count,
             "query_type_distribution": dict(query_type_counter),
             "answerability_distribution": dict(answerability_counter),
+            "asset_created": dict(asset_created),
+            "asset_cache_hits": dict(asset_cache_hits),
             "preview_query_ids": generated_ids,
         }
         recorder.finish_run(run_context, status="completed", metrics=summary)

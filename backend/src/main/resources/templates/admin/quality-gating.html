@@ -72,6 +72,30 @@
                 </div>
             </section>
 
+            <section class="table-shell" style="margin-top: 16px;">
+                <div class="table-header">
+                    <div class="table-title">LLM 비동기 잡 상태</div>
+                </div>
+                <div class="table-wrap">
+                    <table class="data-table" id="gating-llm-jobs-table">
+                        <thead>
+                        <tr>
+                            <th>job_id</th>
+                            <th>유형</th>
+                            <th>상태</th>
+                            <th>진행률</th>
+                            <th>재시도</th>
+                            <th>게이팅 배치</th>
+                            <th>제어</th>
+                        </tr>
+                        </thead>
+                        <tbody></tbody>
+                    </table>
+                </div>
+            </section>
+
+            <section class="panel" style="margin-top: 16px;" id="gating-llm-job-items-panel"></section>
+
             <section class="summary-grid" id="gating-funnel-cards" style="margin-top: 16px;"></section>
 
             <section class="table-shell" style="margin-top: 16px;">

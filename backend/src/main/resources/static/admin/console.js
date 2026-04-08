@@ -48,6 +48,51 @@
     return p;
   };
   const postJson = (u, b) => fetchJson(u, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(b || {}) });
+  const startPolling = (fn, intervalMs = 5000) => {
+    if (typeof fn !== "function") return () => {};
+    const id = window.setInterval(() => {
+      fn().catch(() => {});
+    }, intervalMs);
+    return () => window.clearInterval(id);
+  };
+
+  const buildLlmJobLoader = ({ tableId, panelId, filter }) => {
+    const tbody = document.querySelector(`#${tableId} tbody`);
+    if (!tbody) return async () => {};
+    const panel = panelId ? document.getElementById(panelId) : null;
+    return async () => {
+      const rows = await fetchJson("/api/admin/console/llm-jobs?limit=120");
+      const filtered = arr(rows).filter((r) => (typeof filter === "function" ? filter(r) : true));
+      tbody.innerHTML = filtered.map((r) => {
+        const progress = r.progressPct == null ? "-" : `${Number(r.progressPct).toFixed(1)}%`;
+        const statusBadge = badge(r.jobStatus || "-", status(r.jobStatus));
+        const controls = [];
+        const current = String(r.jobStatus || "").toLowerCase();
+        if (current === "queued" || current === "running") controls.push(`<button class="button button--ghost" data-job-act="pause" data-job-id="${esc(r.jobId)}">일시정지</button>`);
+        if (current === "paused") controls.push(`<button class="button button--ghost" data-job-act="resume" data-job-id="${esc(r.jobId)}">재개</button>`);
+        if (current === "queued" || current === "running" || current === "paused") controls.push(`<button class="button button--ghost" data-job-act="cancel" data-job-id="${esc(r.jobId)}">취소</button>`);
+        if (current === "failed") controls.push(`<button class="button button--ghost" data-job-act="retry" data-job-id="${esc(r.jobId)}">재시도</button>`);
+        controls.push(`<button class="button button--ghost" data-job-items="${esc(r.jobId)}">상세</button>`);
+        return `<tr><td class="mono-truncate">${esc(r.jobId)}</td><td>${esc(r.jobType || "-")}</td><td>${statusBadge}</td><td>${esc(progress)}</td><td>${esc(r.retryCount ?? 0)}/${esc(r.maxRetries ?? 0)}</td><td>${esc(r.generationBatchId || r.gatingBatchId || r.ragTestRunId || "-")}</td><td>${controls.join(" ")}</td></tr>`;
+      }).join("");
+      tbody.querySelectorAll("[data-job-act]").forEach((btn) => btn.addEventListener("click", async () => {
+        const id = btn.dataset.jobId;
+        const action = btn.dataset.jobAct;
+        await postJson(`/api/admin/console/llm-jobs/${id}/${action}`, {});
+        const rerender = buildLlmJobLoader({ tableId, panelId, filter });
+        await rerender();
+      }));
+      tbody.querySelectorAll("[data-job-items]").forEach((btn) => btn.addEventListener("click", async () => {
+        if (!panel) return;
+        const id = btn.dataset.jobItems;
+        const [job, items] = await Promise.all([
+          fetchJson(`/api/admin/console/llm-jobs/${id}`),
+          fetchJson(`/api/admin/console/llm-jobs/${id}/items`),
+        ]);
+        panel.innerHTML = `<div class="table-title">LLM Job 상세: ${esc(id)}</div><div class="detail-grid" style="margin-top:12px;"><div class="detail-card"><div class="detail-item__label">command / experiment</div><div class="detail-item__value">${esc(job.commandName || "-")} / ${esc(job.experimentName || "-")}</div></div><div class="detail-card"><div class="detail-item__label">진행</div><div class="detail-item__value">${esc(job.processedItems ?? 0)} / ${esc(job.totalItems ?? 0)} (${esc(job.progressPct == null ? "-" : Number(job.progressPct).toFixed(1) + "%")})</div></div></div><div class="table-title" style="margin-top:12px;">job_items</div><div class="code-surface">${json(items)}</div>`;
+      }));
+    };
+  };
 
   const initPipeline = () => {
     const summary = document.getElementById("pipeline-summary-cards");
@@ -110,6 +155,11 @@
     const panel = document.getElementById("synthetic-query-detail-panel");
     const runForm = document.getElementById("synthetic-run-form");
     const filForm = document.getElementById("synthetic-query-filter-form");
+    const loadLlmJobs = buildLlmJobLoader({
+      tableId: "synthetic-llm-jobs-table",
+      panelId: "synthetic-llm-job-items-panel",
+      filter: (r) => (r.jobType === "GENERATE_SYNTHETIC_QUERY") || !!r.generationBatchId,
+    });
     let methods = [], batches = [];
     const fill = () => {
       mSel.innerHTML = `<option value="">선택</option>` + methods.map((m) => `<option value="${esc(m.methodCode)}">${esc(m.methodCode)} - ${esc(m.methodName)}</option>`).join("");
@@ -131,14 +181,20 @@
         panel.innerHTML = `<div class="table-title">합성 질의 상세</div><div class="detail-grid" style="margin-top:12px;"><div class="detail-card"><div class="detail-item__label">질의</div><div class="detail-item__value">${esc(d.queryText)}</div></div><div class="detail-card"><div class="detail-item__label">방식 / 유형</div><div class="detail-item__value">${esc(d.generationMethod)} / ${esc(d.queryType)}</div></div><div class="detail-card"><div class="detail-item__label">배치 / 언어</div><div class="detail-item__value">${esc(d.generationBatchId || "-")} / ${esc(d.languageProfile || "-")}</div></div></div><div class="table-title" style="margin-top:12px;">source_chunk</div><div class="code-surface">${json(d.sourceChunk)}</div><div class="table-title" style="margin-top:12px;">source_links</div><div class="code-surface">${json(d.sourceLinks)}</div><div class="table-title" style="margin-top:12px;">raw_output</div><div class="code-surface">${json(d.rawOutput)}</div>`;
       }));
     };
-    runForm.addEventListener("submit", async (e) => { e.preventDefault(); const v = formObj(runForm); try { await postJson("/api/admin/console/synthetic/batches/run", { methodCode: v.methodCode, versionName: v.versionName, sourceDocumentVersion: v.sourceDocumentVersion || null, limitChunks: v.limitChunks ? Number(v.limitChunks) : null }); await Promise.all([loadBatches(), loadQueries(), loadStats()]); } catch (x) { alert(x.message); } });
+    runForm.addEventListener("submit", async (e) => { e.preventDefault(); const v = formObj(runForm); try { await postJson("/api/admin/console/synthetic/batches/run", { methodCode: v.methodCode, versionName: v.versionName, sourceDocumentVersion: v.sourceDocumentVersion || null, limitChunks: v.limitChunks ? Number(v.limitChunks) : null }); await Promise.all([loadBatches(), loadQueries(), loadStats(), loadLlmJobs()]); } catch (x) { alert(x.message); } });
     filForm.addEventListener("submit", async (e) => { e.preventDefault(); await Promise.all([loadQueries(), loadStats()]); });
-    Promise.all([loadMethods(), loadBatches()]).then(() => Promise.all([loadQueries(), loadStats()])).catch((e) => alert(e.message));
+    startPolling(loadLlmJobs, 5000);
+    Promise.all([loadMethods(), loadBatches(), loadLlmJobs()]).then(() => Promise.all([loadQueries(), loadStats(), loadLlmJobs()])).catch((e) => alert(e.message));
   };
 
   const initGating = () => {
     const mSel = document.getElementById("gating-method-code"), bSel = document.getElementById("gating-generation-batch-id"), run = document.getElementById("gating-run-form");
     const bTable = document.querySelector("#gating-batches-table tbody"), fCards = document.getElementById("gating-funnel-cards"), rTable = document.querySelector("#gating-results-table tbody");
+    const loadLlmJobs = buildLlmJobLoader({
+      tableId: "gating-llm-jobs-table",
+      panelId: "gating-llm-job-items-panel",
+      filter: (r) => (r.jobType === "RUN_LLM_SELF_EVAL") || !!r.gatingBatchId,
+    });
     let current = null;
     const loadSelectors = async () => {
       const [m, b] = await Promise.all([fetchJson("/api/admin/console/synthetic/methods"), fetchJson("/api/admin/console/synthetic/batches?limit=100")]);
@@ -153,14 +209,20 @@
       bTable.querySelectorAll("[data-b]").forEach((x) => x.addEventListener("click", async () => { current = x.dataset.b; await Promise.all([loadFunnel(current), loadResults(current)]); }));
       if (!current && rows.length > 0) { current = rows[0].gatingBatchId; await Promise.all([loadFunnel(current), loadResults(current)]); }
     };
-    run.addEventListener("submit", async (e) => { e.preventDefault(); const v = formObj(run); try { const b = await postJson("/api/admin/console/gating/batches/run", { methodCode: v.methodCode, generationBatchId: v.generationBatchId || null, gatingPreset: v.gatingPreset, enableRuleFilter: !!v.enableRuleFilter, enableLlmSelfEval: !!v.enableLlmSelfEval, enableRetrievalUtility: !!v.enableRetrievalUtility, enableDiversity: !!v.enableDiversity }); current = b.gatingBatchId; await loadBatches(); } catch (x) { alert(x.message); } });
-    Promise.all([loadSelectors(), loadBatches()]).catch((e) => alert(e.message));
+    run.addEventListener("submit", async (e) => { e.preventDefault(); const v = formObj(run); try { const b = await postJson("/api/admin/console/gating/batches/run", { methodCode: v.methodCode, generationBatchId: v.generationBatchId || null, gatingPreset: v.gatingPreset, enableRuleFilter: !!v.enableRuleFilter, enableLlmSelfEval: !!v.enableLlmSelfEval, enableRetrievalUtility: !!v.enableRetrievalUtility, enableDiversity: !!v.enableDiversity }); current = b.gatingBatchId; await Promise.all([loadBatches(), loadLlmJobs()]); } catch (x) { alert(x.message); } });
+    startPolling(loadLlmJobs, 5000);
+    Promise.all([loadSelectors(), loadBatches(), loadLlmJobs()]).catch((e) => alert(e.message));
   };
 
   const initRag = () => {
     const methods = document.getElementById("rag-method-checks"), dataset = document.getElementById("rag-dataset-id"), runForm = document.getElementById("rag-test-run-form");
     const dsTable = document.querySelector("#rag-datasets-table tbody"), itemsPanel = document.getElementById("rag-dataset-items-panel"), tTable = document.querySelector("#rag-tests-table tbody");
     const sCards = document.getElementById("rag-summary-cards"), dTable = document.querySelector("#rag-details-table tbody"), rlTable = document.querySelector("#rag-rewrite-logs-table tbody"), rlPanel = document.getElementById("rag-rewrite-detail-panel");
+    const loadLlmJobs = buildLlmJobLoader({
+      tableId: "rag-llm-jobs-table",
+      panelId: "rag-llm-job-items-panel",
+      filter: (r) => (r.jobType === "RUN_RAG_TEST") || !!r.ragTestRunId,
+    });
     const loadMethods = async () => { const rows = await fetchJson("/api/admin/console/synthetic/methods"); methods.innerHTML = rows.map((m, i) => `<label class="plain-badge"><input type="checkbox" name="methodCodes" value="${esc(m.methodCode)}" ${i === 0 ? "checked" : ""}> ${esc(m.methodCode)}</label>`).join(""); };
     const loadDatasets = async () => {
       const rows = await fetchJson("/api/admin/console/rag/datasets");
@@ -186,10 +248,11 @@
       if (selected.length === 0) { alert("최소 1개 생성 방식을 선택하세요."); return; }
       try {
         const run = await postJson("/api/admin/console/rag/tests/run", { datasetId: v.datasetId, methodCodes: selected, gatingPreset: v.gatingPreset, gatingApplied: !!v.gatingApplied, rewriteEnabled: !!v.rewriteEnabled, selectiveRewrite: !!v.selectiveRewrite, useSessionContext: !!v.useSessionContext, threshold: v.threshold ? Number(v.threshold) : null, retrievalTopK: v.retrievalTopK ? Number(v.retrievalTopK) : null, rerankTopN: v.rerankTopN ? Number(v.rerankTopN) : null });
-        await loadTests(); await loadRunDetail(run.ragTestRunId); await loadRewriteLogs();
+        await loadTests(); await loadRunDetail(run.ragTestRunId); await loadRewriteLogs(); await loadLlmJobs();
       } catch (x) { alert(x.message); }
     });
-    Promise.all([loadMethods(), loadDatasets(), loadTests(), loadRewriteLogs()]).catch((e) => alert(e.message));
+    startPolling(loadLlmJobs, 5000);
+    Promise.all([loadMethods(), loadDatasets(), loadTests(), loadRewriteLogs(), loadLlmJobs()]).catch((e) => alert(e.message));
   };
 
   if (page === "pipeline") initPipeline();

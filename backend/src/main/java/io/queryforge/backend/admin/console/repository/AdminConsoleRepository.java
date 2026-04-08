@@ -120,7 +120,6 @@ public class AdminConsoleRepository {
                     version_name,
                     source_document_version,
                     status,
-                    started_at,
                     created_by,
                     config_json
                 ) VALUES (
@@ -128,8 +127,7 @@ public class AdminConsoleRepository {
                     :generationMethodId,
                     :versionName,
                     :sourceDocumentVersion,
-                    'running',
-                    NOW(),
+                    'planned',
                     :createdBy,
                     CAST(:configJson AS jsonb)
                 )
@@ -157,6 +155,7 @@ public class AdminConsoleRepository {
         String sql = """
                 UPDATE synthetic_query_generation_batch
                 SET status = 'completed',
+                    started_at = COALESCE(started_at, NOW()),
                     source_generation_run_id = :sourceGenerationRunId,
                     total_generated_count = :totalGeneratedCount,
                     metrics_json = CAST(:metricsJson AS jsonb),
@@ -228,6 +227,7 @@ public class AdminConsoleRepository {
         String sql = """
                 UPDATE synthetic_query_generation_batch
                 SET status = 'failed',
+                    started_at = COALESCE(started_at, NOW()),
                     finished_at = NOW(),
                     metrics_json = CAST(:metricsJson AS jsonb)
                 WHERE batch_id = :batchId
@@ -241,6 +241,35 @@ public class AdminConsoleRepository {
                 new MapSqlParameterSource()
                         .addValue("batchId", batchId)
                         .addValue("metricsJson", payload.toString())
+        );
+    }
+
+    @Transactional
+    public void markGenerationBatchRunning(UUID batchId) {
+        String sql = """
+                UPDATE synthetic_query_generation_batch
+                SET status = 'running',
+                    started_at = COALESCE(started_at, NOW())
+                WHERE batch_id = :batchId
+                  AND status IN ('planned', 'queued')
+                """;
+        jdbcTemplate.update(sql, new MapSqlParameterSource("batchId", batchId));
+    }
+
+    @Transactional
+    public void cancelGenerationBatch(UUID batchId, String reason) {
+        String sql = """
+                UPDATE synthetic_query_generation_batch
+                SET status = 'cancelled',
+                    finished_at = NOW(),
+                    metrics_json = jsonb_build_object('cancel_reason', :reason)
+                WHERE batch_id = :batchId
+                """;
+        jdbcTemplate.update(
+                sql,
+                new MapSqlParameterSource()
+                        .addValue("batchId", batchId)
+                        .addValue("reason", reason == null ? "" : reason)
         );
     }
 
@@ -609,7 +638,6 @@ public class AdminConsoleRepository {
                     source_generation_run_id,
                     stage_config_json,
                     status,
-                    started_at,
                     created_by
                 ) VALUES (
                     :gatingBatchId,
@@ -618,8 +646,7 @@ public class AdminConsoleRepository {
                     :generationBatchId,
                     :sourceGenerationRunId,
                     CAST(:stageConfig AS jsonb),
-                    'running',
-                    NOW(),
+                    'planned',
                     :createdBy
                 )
                 """;
@@ -649,6 +676,7 @@ public class AdminConsoleRepository {
         String sql = """
                 UPDATE quality_gating_batch
                 SET status = 'completed',
+                    started_at = COALESCE(started_at, NOW()),
                     source_gating_run_id = :sourceGatingRunId,
                     processed_count = :processedCount,
                     accepted_count = :acceptedCount,
@@ -870,6 +898,7 @@ public class AdminConsoleRepository {
         String sql = """
                 UPDATE quality_gating_batch
                 SET status = 'failed',
+                    started_at = COALESCE(started_at, NOW()),
                     finished_at = NOW(),
                     rejection_summary = CAST(:rejectionSummary AS jsonb)
                 WHERE gating_batch_id = :gatingBatchId
@@ -880,6 +909,35 @@ public class AdminConsoleRepository {
                 new MapSqlParameterSource()
                         .addValue("gatingBatchId", gatingBatchId)
                         .addValue("rejectionSummary", rejection.toString())
+        );
+    }
+
+    @Transactional
+    public void markGatingBatchRunning(UUID gatingBatchId) {
+        String sql = """
+                UPDATE quality_gating_batch
+                SET status = 'running',
+                    started_at = COALESCE(started_at, NOW())
+                WHERE gating_batch_id = :gatingBatchId
+                  AND status IN ('planned', 'queued')
+                """;
+        jdbcTemplate.update(sql, new MapSqlParameterSource("gatingBatchId", gatingBatchId));
+    }
+
+    @Transactional
+    public void cancelGatingBatch(UUID gatingBatchId, String reason) {
+        String sql = """
+                UPDATE quality_gating_batch
+                SET status = 'cancelled',
+                    finished_at = NOW(),
+                    rejection_summary = jsonb_build_object('cancel_reason', :reason)
+                WHERE gating_batch_id = :gatingBatchId
+                """;
+        jdbcTemplate.update(
+                sql,
+                new MapSqlParameterSource()
+                        .addValue("gatingBatchId", gatingBatchId)
+                        .addValue("reason", reason == null ? "" : reason)
         );
     }
 
@@ -1287,12 +1345,11 @@ public class AdminConsoleRepository {
                     retrieval_top_k,
                     rerank_top_n,
                     experiment_config_name,
-                    created_by,
-                    started_at
+                    created_by
                 ) VALUES (
                     :runId,
                     :runLabel,
-                    'running',
+                    'planned',
                     :datasetId,
                     CAST(:generationMethodCodes AS jsonb),
                     CAST(:generationBatchIds AS jsonb),
@@ -1306,8 +1363,7 @@ public class AdminConsoleRepository {
                     :retrievalTopK,
                     :rerankTopN,
                     :experimentConfigName,
-                    :createdBy,
-                    NOW()
+                    :createdBy
                 )
                 """;
         jdbcTemplate.update(
@@ -1361,6 +1417,7 @@ public class AdminConsoleRepository {
         String sql = """
                 UPDATE rag_test_run
                 SET status = 'completed',
+                    started_at = COALESCE(started_at, NOW()),
                     finished_at = NOW(),
                     metrics_json = CAST(:metricsJson AS jsonb),
                     source_experiment_run_id = :sourceExperimentRunId
@@ -1380,6 +1437,7 @@ public class AdminConsoleRepository {
         String sql = """
                 UPDATE rag_test_run
                 SET status = 'failed',
+                    started_at = COALESCE(started_at, NOW()),
                     finished_at = NOW(),
                     metrics_json = CAST(:metricsJson AS jsonb)
                 WHERE rag_test_run_id = :runId
@@ -1390,6 +1448,35 @@ public class AdminConsoleRepository {
                 new MapSqlParameterSource()
                         .addValue("runId", runId)
                         .addValue("metricsJson", payload.toString())
+        );
+    }
+
+    @Transactional
+    public void markRagTestRunRunning(UUID runId) {
+        String sql = """
+                UPDATE rag_test_run
+                SET status = 'running',
+                    started_at = COALESCE(started_at, NOW())
+                WHERE rag_test_run_id = :runId
+                  AND status IN ('planned', 'queued')
+                """;
+        jdbcTemplate.update(sql, new MapSqlParameterSource("runId", runId));
+    }
+
+    @Transactional
+    public void cancelRagTestRun(UUID runId, String reason) {
+        String sql = """
+                UPDATE rag_test_run
+                SET status = 'cancelled',
+                    finished_at = NOW(),
+                    metrics_json = jsonb_build_object('cancel_reason', :reason)
+                WHERE rag_test_run_id = :runId
+                """;
+        jdbcTemplate.update(
+                sql,
+                new MapSqlParameterSource()
+                        .addValue("runId", runId)
+                        .addValue("reason", reason == null ? "" : reason)
         );
     }
 

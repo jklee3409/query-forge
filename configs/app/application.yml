@@ -10,4 +10,11 @@ query-forge:
   data-root: ./data
   prompt-root: ./configs/prompts
   experiment-root: ./configs/experiments
-
+  llm:
+    provider: ${QUERY_FORGE_LLM_PROVIDER:groq}
+    model: ${QUERY_FORGE_LLM_MODEL:llama-3.1-8b-instant}
+    summary_model: ${QUERY_FORGE_LLM_SUMMARY_MODEL:llama-3.1-8b-instant}
+    query_model: ${QUERY_FORGE_LLM_QUERY_MODEL:llama-3.1-8b-instant}
+    self_eval_model: ${QUERY_FORGE_LLM_SELF_EVAL_MODEL:llama-3.1-8b-instant}
+    rewrite_model: ${QUERY_FORGE_LLM_REWRITE_MODEL:llama-3.1-8b-instant}
+    rpm: ${QUERY_FORGE_LLM_RPM:20}
