@@ -171,6 +171,19 @@ public final class AdminConsoleDtos {
             Boolean enableLlmSelfEval,
             Boolean enableRetrievalUtility,
             Boolean enableDiversity,
+            Integer ruleMinLengthShort,
+            Integer ruleMaxLengthShort,
+            Integer ruleMinLengthLong,
+            Integer ruleMaxLengthLong,
+            Integer ruleMinTokens,
+            Integer ruleMaxTokens,
+            Double llmWeight,
+            Double utilityWeight,
+            Double diversityWeight,
+            Double utilityThreshold,
+            Double diversityThresholdSameChunk,
+            Double diversityThresholdSameDoc,
+            Double finalScoreThreshold,
             String createdBy
     ) {
     }
@@ -189,7 +202,8 @@ public final class AdminConsoleDtos {
             int processedCount,
             int acceptedCount,
             int rejectedCount,
-            JsonNode rejectionSummary
+            JsonNode rejectionSummary,
+            JsonNode stageConfig
     ) {
     }
 

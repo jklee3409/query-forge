@@ -1,6 +1,6 @@
 package io.queryforge.backend.admin.ui;
 
-import io.queryforge.backend.admin.ui.controller.AdminUiController;
+import io.queryforge.backend.ui.controller.ReactUiController;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
@@ -10,7 +10,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.redirectedUrl;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-@WebMvcTest(controllers = AdminUiController.class)
+@WebMvcTest(controllers = ReactUiController.class)
 class AdminIngestWizardRenderTest {
 
     @Autowired
@@ -23,4 +23,3 @@ class AdminIngestWizardRenderTest {
                 .andExpect(redirectedUrl("/admin/pipeline"));
     }
 }
-

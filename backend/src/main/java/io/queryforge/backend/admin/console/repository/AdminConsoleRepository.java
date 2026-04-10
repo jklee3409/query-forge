@@ -956,7 +956,8 @@ public class AdminConsoleRepository {
                        qb.processed_count,
                        qb.accepted_count,
                        qb.rejected_count,
-                       qb.rejection_summary::text AS rejection_summary
+                       qb.rejection_summary::text AS rejection_summary,
+                       qb.stage_config_json::text AS stage_config
                 FROM quality_gating_batch qb
                 LEFT JOIN synthetic_query_generation_method m
                   ON m.generation_method_id = qb.generation_method_id
@@ -985,7 +986,8 @@ public class AdminConsoleRepository {
                        qb.processed_count,
                        qb.accepted_count,
                        qb.rejected_count,
-                       qb.rejection_summary::text AS rejection_summary
+                       qb.rejection_summary::text AS rejection_summary,
+                       qb.stage_config_json::text AS stage_config
                 FROM quality_gating_batch qb
                 LEFT JOIN synthetic_query_generation_method m
                   ON m.generation_method_id = qb.generation_method_id
@@ -1932,7 +1934,8 @@ public class AdminConsoleRepository {
                 rs.getInt("processed_count"),
                 rs.getInt("accepted_count"),
                 rs.getInt("rejected_count"),
-                readJson(rs, "rejection_summary")
+                readJson(rs, "rejection_summary"),
+                readJson(rs, "stage_config")
         );
     }
 

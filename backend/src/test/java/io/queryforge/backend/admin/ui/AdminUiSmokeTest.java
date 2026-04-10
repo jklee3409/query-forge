@@ -51,22 +51,25 @@ class AdminUiSmokeTest {
                 .andExpect(status().is3xxRedirection())
                 .andExpect(redirectedUrl("/admin/pipeline"));
 
+        mockMvc.perform(get("/"))
+                .andExpect(status().isOk())
+                .andExpect(content().string(containsString("id=\"root\"")));
+
         mockMvc.perform(get("/admin/pipeline"))
                 .andExpect(status().isOk())
-                .andExpect(content().string(containsString("admin-shell")))
-                .andExpect(content().string(containsString("문서 파이프라인 관리")));
+                .andExpect(content().string(containsString("id=\"root\"")));
 
         mockMvc.perform(get("/admin/synthetic-queries"))
                 .andExpect(status().isOk())
-                .andExpect(content().string(containsString("합성 질의 생성/조회")));
+                .andExpect(content().string(containsString("id=\"root\"")));
 
         mockMvc.perform(get("/admin/quality-gating"))
                 .andExpect(status().isOk())
-                .andExpect(content().string(containsString("퀄리티 게이팅 관리")));
+                .andExpect(content().string(containsString("id=\"root\"")));
 
         mockMvc.perform(get("/admin/rag-tests"))
                 .andExpect(status().isOk())
-                .andExpect(content().string(containsString("RAG 성능/품질 테스트")));
+                .andExpect(content().string(containsString("id=\"root\"")));
 
         mockMvc.perform(get("/admin/documents"))
                 .andExpect(status().is3xxRedirection())
@@ -81,4 +84,3 @@ class AdminUiSmokeTest {
                 .andExpect(redirectedUrl("/admin/pipeline"));
     }
 }
-

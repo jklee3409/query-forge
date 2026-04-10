@@ -8,9 +8,6 @@ spring:
   flyway:
     enabled: true
     locations: classpath:db/migration
-  thymeleaf:
-    cache: false
-    check-template-location: false
   jpa:
     open-in-view: false
     hibernate:

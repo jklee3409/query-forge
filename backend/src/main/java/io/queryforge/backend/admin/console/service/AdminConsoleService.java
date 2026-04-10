@@ -153,6 +153,26 @@ public class AdminConsoleService {
         stageConfig.put("enable_llm_self_eval", flagValue(request.enableLlmSelfEval(), gatingPreset, "llm"));
         stageConfig.put("enable_retrieval_utility", flagValue(request.enableRetrievalUtility(), gatingPreset, "utility"));
         stageConfig.put("enable_diversity", flagValue(request.enableDiversity(), gatingPreset, "diversity"));
+        Map<String, Object> ruleConfig = resolveRuleConfig(request);
+        Map<String, Double> gatingWeights = resolveGatingWeights(request);
+        double utilityThreshold = request.utilityThreshold() == null
+                ? 0.70d
+                : clampRange(request.utilityThreshold(), 0.0d, 1.0d, "utility_threshold");
+        double diversityThresholdSameChunk = request.diversityThresholdSameChunk() == null
+                ? 0.93d
+                : clampRange(request.diversityThresholdSameChunk(), 0.0d, 1.0d, "diversity_threshold_same_chunk");
+        double diversityThresholdSameDoc = request.diversityThresholdSameDoc() == null
+                ? 0.96d
+                : clampRange(request.diversityThresholdSameDoc(), 0.0d, 1.0d, "diversity_threshold_same_doc");
+        double finalScoreThreshold = request.finalScoreThreshold() == null
+                ? 0.75d
+                : clampRange(request.finalScoreThreshold(), 0.0d, 1.0d, "final_score_threshold");
+        stageConfig.put("rule_config", ruleConfig);
+        stageConfig.put("gating_weights", gatingWeights);
+        stageConfig.put("utility_threshold", utilityThreshold);
+        stageConfig.put("diversity_threshold_same_chunk", diversityThresholdSameChunk);
+        stageConfig.put("diversity_threshold_same_doc", diversityThresholdSameDoc);
+        stageConfig.put("final_score_threshold", finalScoreThreshold);
 
         UUID gatingBatchId = repository.createGatingBatch(
                 gatingPreset,
@@ -170,6 +190,17 @@ public class AdminConsoleService {
         config.put("enable_llm_self_eval", stageConfig.get("enable_llm_self_eval"));
         config.put("enable_retrieval_utility", stageConfig.get("enable_retrieval_utility"));
         config.put("enable_diversity", stageConfig.get("enable_diversity"));
+        config.put("rule_min_len_short", ruleConfig.get("rule_min_len_short"));
+        config.put("rule_max_len_short", ruleConfig.get("rule_max_len_short"));
+        config.put("rule_min_len_long", ruleConfig.get("rule_min_len_long"));
+        config.put("rule_max_len_long", ruleConfig.get("rule_max_len_long"));
+        config.put("rule_min_tokens", ruleConfig.get("rule_min_tokens"));
+        config.put("rule_max_tokens", ruleConfig.get("rule_max_tokens"));
+        config.put("gating_weights", gatingWeights);
+        config.put("utility_threshold", utilityThreshold);
+        config.put("diversity_threshold_same_chunk", diversityThresholdSameChunk);
+        config.put("diversity_threshold_same_doc", diversityThresholdSameDoc);
+        config.put("final_score_threshold", finalScoreThreshold);
         config.put("gating_batch_id", gatingBatchId.toString());
         if (sourceGenerationRunId != null) {
             config.put("source_generation_run_id", sourceGenerationRunId.toString());
@@ -430,6 +461,35 @@ public class AdminConsoleService {
         return value;
     }
 
+    private Map<String, Object> resolveRuleConfig(AdminConsoleDtos.GatingBatchRunRequest request) {
+        Map<String, Object> ruleConfig = new LinkedHashMap<>();
+        ruleConfig.put("rule_min_len_short", request.ruleMinLengthShort() == null ? 4 : clampRange(request.ruleMinLengthShort(), 1, 400, "rule_min_len_short"));
+        ruleConfig.put("rule_max_len_short", request.ruleMaxLengthShort() == null ? 60 : clampRange(request.ruleMaxLengthShort(), 1, 400, "rule_max_len_short"));
+        ruleConfig.put("rule_min_len_long", request.ruleMinLengthLong() == null ? 8 : clampRange(request.ruleMinLengthLong(), 1, 400, "rule_min_len_long"));
+        ruleConfig.put("rule_max_len_long", request.ruleMaxLengthLong() == null ? 100 : clampRange(request.ruleMaxLengthLong(), 1, 400, "rule_max_len_long"));
+        ruleConfig.put("rule_min_tokens", request.ruleMinTokens() == null ? 2 : clampRange(request.ruleMinTokens(), 1, 120, "rule_min_tokens"));
+        ruleConfig.put("rule_max_tokens", request.ruleMaxTokens() == null ? 20 : clampRange(request.ruleMaxTokens(), 1, 120, "rule_max_tokens"));
+        return ruleConfig;
+    }
+
+    private Map<String, Double> resolveGatingWeights(AdminConsoleDtos.GatingBatchRunRequest request) {
+        double llmWeight = request.llmWeight() == null ? 0.35d : clampRange(request.llmWeight(), 0.0d, 1.0d, "llm_weight");
+        double utilityWeight = request.utilityWeight() == null ? 0.50d : clampRange(request.utilityWeight(), 0.0d, 1.0d, "utility_weight");
+        double diversityWeight = request.diversityWeight() == null ? 0.15d : clampRange(request.diversityWeight(), 0.0d, 1.0d, "diversity_weight");
+        double sum = llmWeight + utilityWeight + diversityWeight;
+        if (sum <= 0.0d) {
+            llmWeight = 0.35d;
+            utilityWeight = 0.50d;
+            diversityWeight = 0.15d;
+            sum = 1.0d;
+        }
+        Map<String, Double> gatingWeights = new LinkedHashMap<>();
+        gatingWeights.put("llm", llmWeight / sum);
+        gatingWeights.put("utility", utilityWeight / sum);
+        gatingWeights.put("novelty", diversityWeight / sum);
+        return gatingWeights;
+    }
+
     private Map<String, Object> baseExperimentConfig(String experimentKey, String methodCode) {
         Map<String, Object> config = new LinkedHashMap<>();
         config.put("experiment_key", experimentKey);
@@ -459,6 +519,17 @@ public class AdminConsoleService {
         config.put("use_session_context", false);
         config.put("avg_queries_per_chunk", 2.0);
         config.put("max_total_queries", 40);
+        config.put("rule_min_len_short", 4);
+        config.put("rule_max_len_short", 60);
+        config.put("rule_min_len_long", 8);
+        config.put("rule_max_len_long", 100);
+        config.put("rule_min_tokens", 2);
+        config.put("rule_max_tokens", 20);
+        config.put("gating_weights", Map.of("utility", 0.50, "llm", 0.35, "novelty", 0.15));
+        config.put("utility_threshold", 0.70);
+        config.put("diversity_threshold_same_chunk", 0.93);
+        config.put("diversity_threshold_same_doc", 0.96);
+        config.put("final_score_threshold", 0.75);
         config.put("random_seed", 31);
         return config;
     }

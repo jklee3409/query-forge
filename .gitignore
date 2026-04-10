@@ -81,3 +81,7 @@ configs/experiments/admin_gate_*.yaml
 configs/experiments/admin_gate_*.yml
 configs/experiments/admin_gen_*.yaml
 configs/experiments/admin_gen_*.yml
+
+# Frontend
+frontend/node_modules/
+frontend/dist/

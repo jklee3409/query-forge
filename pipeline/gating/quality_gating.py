@@ -322,17 +322,27 @@ def _first_rejection_stage(
     return "approved"
 
 
-def _rule_pass(query: RawQueryRow, source_chunk: ChunkItem) -> tuple[bool, list[str]]:
+def _rule_pass(
+    query: RawQueryRow,
+    source_chunk: ChunkItem,
+    config: ExperimentConfig,
+) -> tuple[bool, list[str]]:
     reasons: list[str] = []
     stripped = query.query_text.strip()
     length = len(stripped)
-    min_len = 4 if query.query_type in SHORT_TYPES else 8
-    max_len = 60 if query.query_type in SHORT_TYPES else 100
+    short_min_len = int(config.raw.get("rule_min_len_short", 4))
+    short_max_len = int(config.raw.get("rule_max_len_short", 60))
+    long_min_len = int(config.raw.get("rule_min_len_long", 8))
+    long_max_len = int(config.raw.get("rule_max_len_long", 100))
+    min_len = short_min_len if query.query_type in SHORT_TYPES else long_min_len
+    max_len = short_max_len if query.query_type in SHORT_TYPES else long_max_len
     if length < min_len or length > max_len:
         reasons.append("length_out_of_range")
 
     tokens = token_count(stripped)
-    if tokens < 2 or tokens > 20:
+    min_tokens = int(config.raw.get("rule_min_tokens", 2))
+    max_tokens = int(config.raw.get("rule_max_tokens", 20))
+    if tokens < min_tokens or tokens > max_tokens:
         reasons.append("token_count_out_of_range")
 
     special_ratio = special_char_ratio(stripped)
@@ -468,7 +478,7 @@ def run_quality_gating(
                 continue
             query_embedding = embed_text(query.query_text)
 
-            passed_rule, rule_reasons = _rule_pass(query, source_chunk)
+            passed_rule, rule_reasons = _rule_pass(query, source_chunk, config)
             llm_payload: dict[str, Any] = {"schema_version": "v1", "scores": {}}
             if config.enable_llm_self_eval:
                 llm_scores, llm_payload = _llm_self_eval(
