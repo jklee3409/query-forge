@@ -478,9 +478,19 @@ def run_quality_gating(
                 continue
             query_embedding = embed_text(query.query_text)
 
-            passed_rule, rule_reasons = _rule_pass(query, source_chunk, config)
+            passed_rule: bool | None = None
+            rule_reasons: list[str] = []
+            if config.enable_rule_filter:
+                passed_rule, rule_reasons = _rule_pass(query, source_chunk, config)
+                rule_stage_pass: bool | None = passed_rule
+            else:
+                rule_stage_pass = True
+
+            llm_scores: dict[str, int] = {}
             llm_payload: dict[str, Any] = {"schema_version": "v1", "scores": {}}
-            if config.enable_llm_self_eval:
+            llm_avg: float | None = None
+            passed_llm: bool | None = None
+            if config.enable_llm_self_eval and rule_stage_pass:
                 llm_scores, llm_payload = _llm_self_eval(
                     query,
                     source_chunk,
@@ -489,84 +499,111 @@ def run_quality_gating(
                 )
                 passed_llm = _llm_pass(llm_scores)
                 llm_avg = sum(llm_scores.values()) / (len(llm_scores) * 5.0)
-            else:
-                llm_scores = {
-                    "grounded": 5,
-                    "answerable": 5,
-                    "user_like": 5,
-                    "korean_naturalness": 5,
-                    "copy_control": 5,
-                }
-                passed_llm = True
+                llm_stage_pass: bool | None = passed_llm
+            elif not config.enable_llm_self_eval:
                 llm_avg = 1.0
+                llm_stage_pass = True
+            else:
+                llm_stage_pass = None
 
-            utility_score = _retrieval_utility_score(
-                query_embedding=query_embedding,
-                query=query,
-                chunks=chunks,
-                utility_weights=config.retrieval_utility_weights,
-            )
-            passed_utility = utility_score >= config.utility_threshold
+            utility_score: float | None = None
+            passed_utility: bool | None = None
+            can_run_utility = rule_stage_pass and llm_stage_pass is not False
+            if can_run_utility:
+                utility_score = _retrieval_utility_score(
+                    query_embedding=query_embedding,
+                    query=query,
+                    chunks=chunks,
+                    utility_weights=config.retrieval_utility_weights,
+                )
+                if config.enable_retrieval_utility:
+                    passed_utility = utility_score >= config.utility_threshold
+                    utility_stage_pass: bool | None = passed_utility
+                else:
+                    utility_stage_pass = True
+            elif not config.enable_retrieval_utility:
+                utility_stage_pass = True
+            else:
+                utility_stage_pass = None
 
-            max_chunk_similarity = max(
-                [cosine_similarity(query_embedding, emb) for emb in accepted_by_chunk[query.chunk_id_source]]
-                or [0.0]
-            )
-            max_doc_similarity = max(
-                [cosine_similarity(query_embedding, emb) for emb in accepted_by_doc[query.target_doc_id]]
-                or [0.0]
-            )
-            max_global_similarity = max(
-                [cosine_similarity(query_embedding, emb) for emb in accepted_global]
-                or [0.0]
-            )
-            novelty_score = max(0.0, 1.0 - max_global_similarity)
-            passed_diversity = (
-                max_chunk_similarity <= config.diversity_threshold_same_chunk
-                and max_doc_similarity <= config.diversity_threshold_same_doc
-            )
+            novelty_score: float | None = None
+            passed_diversity: bool | None = None
+            can_run_diversity = can_run_utility and utility_stage_pass is not False
+            if can_run_diversity:
+                max_chunk_similarity = max(
+                    [cosine_similarity(query_embedding, emb) for emb in accepted_by_chunk[query.chunk_id_source]]
+                    or [0.0]
+                )
+                max_doc_similarity = max(
+                    [cosine_similarity(query_embedding, emb) for emb in accepted_by_doc[query.target_doc_id]]
+                    or [0.0]
+                )
+                max_global_similarity = max(
+                    [cosine_similarity(query_embedding, emb) for emb in accepted_global]
+                    or [0.0]
+                )
+                novelty_score = max(0.0, 1.0 - max_global_similarity)
+                if config.enable_diversity:
+                    passed_diversity = (
+                        max_chunk_similarity <= config.diversity_threshold_same_chunk
+                        and max_doc_similarity <= config.diversity_threshold_same_doc
+                    )
+                    diversity_stage_pass: bool | None = passed_diversity
+                else:
+                    diversity_stage_pass = True
+            elif not config.enable_diversity:
+                diversity_stage_pass = True
+            else:
+                diversity_stage_pass = None
 
-            final_score = (
-                config.gating_weights["utility"] * utility_score
-                + config.gating_weights["llm"] * llm_avg
-                + config.gating_weights["novelty"] * novelty_score
-            )
-            passed_final_score = final_score >= config.final_score_threshold
+            final_score: float | None = None
+            passed_final_score: bool | None = None
+            can_run_final = can_run_diversity and diversity_stage_pass is not False
+            if can_run_final and utility_score is not None and novelty_score is not None:
+                llm_component = llm_avg if llm_avg is not None else 0.0
+                final_score = (
+                    config.gating_weights["utility"] * utility_score
+                    + config.gating_weights["llm"] * llm_component
+                    + config.gating_weights["novelty"] * novelty_score
+                )
+                passed_final_score = final_score >= config.final_score_threshold
+
+            rule_pass_for_decision = rule_stage_pass is not False
+            llm_pass_for_decision = llm_stage_pass is not False
+            utility_pass_for_decision = utility_stage_pass is not False
+            diversity_pass_for_decision = diversity_stage_pass is not False
+            final_pass_for_decision = passed_final_score is not False
 
             passed = _preset_pass(
                 config.gating_preset,
-                rule_pass=passed_rule if config.enable_rule_filter else True,
-                llm_pass=passed_llm if config.enable_llm_self_eval else True,
-                utility_pass=passed_utility if config.enable_retrieval_utility else True,
-                diversity_pass=passed_diversity if config.enable_diversity else True,
-                final_pass=passed_final_score,
+                rule_pass=rule_pass_for_decision,
+                llm_pass=llm_pass_for_decision,
+                utility_pass=utility_pass_for_decision,
+                diversity_pass=diversity_pass_for_decision,
+                final_pass=final_pass_for_decision,
             )
             rejected_stage = _first_rejection_stage(
                 rule_enabled=config.enable_rule_filter,
                 llm_enabled=config.enable_llm_self_eval,
                 utility_enabled=config.enable_retrieval_utility,
                 diversity_enabled=config.enable_diversity,
-                passed_rule=passed_rule,
-                passed_llm=passed_llm,
-                passed_utility=passed_utility,
-                passed_diversity=passed_diversity,
-                passed_final_score=passed_final_score,
+                passed_rule=rule_pass_for_decision,
+                passed_llm=llm_pass_for_decision,
+                passed_utility=utility_pass_for_decision,
+                passed_diversity=diversity_pass_for_decision,
+                passed_final_score=final_pass_for_decision,
             )
 
             rejection_reasons = list(rule_reasons)
-            if config.enable_llm_self_eval and not passed_llm:
+            if llm_stage_pass is False:
                 rejection_reasons.append("llm_self_eval_failed")
-            if config.enable_retrieval_utility and not passed_utility:
+            if utility_stage_pass is False:
                 rejection_reasons.append("utility_failed")
-            if config.enable_diversity and not passed_diversity:
+            if diversity_stage_pass is False:
                 rejection_reasons.append("diversity_failed")
-            if not passed_final_score:
+            if passed_final_score is False:
                 rejection_reasons.append("final_score_failed")
 
-            rule_stage_pass = passed_rule if config.enable_rule_filter else True
-            llm_stage_pass = passed_llm if config.enable_llm_self_eval else True
-            utility_stage_pass = passed_utility if config.enable_retrieval_utility else True
-            diversity_stage_pass = passed_diversity if config.enable_diversity else True
             if rule_stage_pass:
                 stage_counter["rule_filter"] += 1
             if rule_stage_pass and llm_stage_pass:
@@ -751,8 +788,13 @@ def run_quality_gating(
                             Jsonb(
                                 {
                                     "rule_reasons": rule_reasons,
+                                    "rejection_reasons": rejection_reasons,
                                     "all_rejection_reasons": rejection_reasons,
                                     "preset": config.gating_preset,
+                                    "passed_rule_filter": passed_rule if config.enable_rule_filter else None,
+                                    "passed_llm_self_eval": passed_llm if config.enable_llm_self_eval else None,
+                                    "passed_retrieval_utility": passed_utility if config.enable_retrieval_utility else None,
+                                    "passed_diversity": passed_diversity if config.enable_diversity else None,
                                     "llm_provider": self_eval_client.config.provider if config.enable_llm_self_eval else None,
                                     "llm_model": self_eval_client.config.model if config.enable_llm_self_eval else None,
                                 }
@@ -790,7 +832,7 @@ def run_quality_gating(
                             Jsonb({"enabled": config.enable_rule_filter}),
                             llm_stage_pass,
                             llm_avg,
-                            None if llm_stage_pass else "llm_self_eval_failed",
+                            None if llm_stage_pass is not False else "llm_self_eval_failed",
                             Jsonb(
                                 {
                                     "scores": llm_scores,
@@ -802,11 +844,11 @@ def run_quality_gating(
                             ),
                             utility_stage_pass,
                             utility_score,
-                            None if utility_stage_pass else "utility_failed",
+                            None if utility_stage_pass is not False else "utility_failed",
                             Jsonb({"threshold": config.utility_threshold, "enabled": config.enable_retrieval_utility}),
                             diversity_stage_pass,
                             novelty_score,
-                            None if diversity_stage_pass else "diversity_failed",
+                            None if diversity_stage_pass is not False else "diversity_failed",
                             Jsonb(
                                 {
                                     "same_chunk_threshold": config.diversity_threshold_same_chunk,
@@ -816,7 +858,7 @@ def run_quality_gating(
                             ),
                             passed_final_score,
                             final_score,
-                            None if passed_final_score else "final_score_failed",
+                            None if passed_final_score is not False else "final_score_failed",
                             Jsonb({"threshold": config.final_score_threshold}),
                             passed,
                             final_score,
@@ -831,8 +873,8 @@ def run_quality_gating(
                         "synthetic_query_id": query.synthetic_query_id,
                         "query_text": query.query_text,
                         "final_decision": passed,
-                        "utility_score": round(utility_score, 4),
-                        "final_score": round(final_score, 4),
+                        "utility_score": round(utility_score, 4) if utility_score is not None else None,
+                        "final_score": round(final_score, 4) if final_score is not None else None,
                         "rejection_reasons": rejection_reasons,
                     }
                 )

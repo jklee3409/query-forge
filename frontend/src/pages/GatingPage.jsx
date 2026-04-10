@@ -182,6 +182,12 @@ export function GatingPage({ notify }) {
     { label: '최종 승인', value: funnel?.finalAccepted ?? 0 },
   ]
 
+  const renderStageStatus = (value) => {
+    if (value === true) return <StatusBadge value="success" label="통과" />
+    if (value === false) return <StatusBadge value="failed" label="실패" />
+    return <StatusBadge value="queued" label="미실시" />
+  }
+
   return (
     <>
       <section className="panel">
@@ -272,10 +278,10 @@ export function GatingPage({ notify }) {
               {results.map((row) => (
                 <tr key={row.syntheticQueryId}>
                   <td><IdBadge value={row.syntheticQueryId} plain /></td><td>{row.queryText}</td><td>{row.queryType || '-'}</td>
-                  <td>{row.passedRule === true ? <StatusBadge value="success" label="통과" /> : <StatusBadge value="failed" label="실패" />}</td>
-                  <td>{row.passedLlm === true ? <StatusBadge value="success" label="통과" /> : <StatusBadge value="failed" label="실패" />}</td>
-                  <td>{row.passedUtility === true ? <StatusBadge value="success" label="통과" /> : <StatusBadge value="failed" label="실패" />}</td>
-                  <td>{row.passedDiversity === true ? <StatusBadge value="success" label="통과" /> : <StatusBadge value="failed" label="실패" />}</td>
+                  <td>{renderStageStatus(row.passedRule)}</td>
+                  <td>{renderStageStatus(row.passedLlm)}</td>
+                  <td>{renderStageStatus(row.passedUtility)}</td>
+                  <td>{renderStageStatus(row.passedDiversity)}</td>
                   <td>{row.finalScore == null ? '-' : Number(row.finalScore).toFixed(4)}</td><td>{row.rejectedStage || '-'}</td><td>{row.rejectedReason || '-'}</td>
                   <td>{row.finalDecision ? <StatusBadge value="success" label="승인" /> : <StatusBadge value="failed" label="거절" />}</td>
                 </tr>
