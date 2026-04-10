@@ -154,6 +154,7 @@ public class AdminConsoleService {
         stageConfig.put("enable_retrieval_utility", flagValue(request.enableRetrievalUtility(), gatingPreset, "utility"));
         stageConfig.put("enable_diversity", flagValue(request.enableDiversity(), gatingPreset, "diversity"));
         Map<String, Object> ruleConfig = resolveRuleConfig(request);
+        Map<String, Double> utilityScoreWeights = resolveUtilityScoreWeights(request);
         Map<String, Double> gatingWeights = resolveGatingWeights(request);
         double utilityThreshold = request.utilityThreshold() == null
                 ? 0.70d
@@ -168,6 +169,7 @@ public class AdminConsoleService {
                 ? 0.75d
                 : clampRange(request.finalScoreThreshold(), 0.0d, 1.0d, "final_score_threshold");
         stageConfig.put("rule_config", ruleConfig);
+        stageConfig.put("utility_score_weights", utilityScoreWeights);
         stageConfig.put("gating_weights", gatingWeights);
         stageConfig.put("utility_threshold", utilityThreshold);
         stageConfig.put("diversity_threshold_same_chunk", diversityThresholdSameChunk);
@@ -196,6 +198,7 @@ public class AdminConsoleService {
         config.put("rule_max_len_long", ruleConfig.get("rule_max_len_long"));
         config.put("rule_min_tokens", ruleConfig.get("rule_min_tokens"));
         config.put("rule_max_tokens", ruleConfig.get("rule_max_tokens"));
+        config.put("retrieval_utility_weights", utilityScoreWeights);
         config.put("gating_weights", gatingWeights);
         config.put("utility_threshold", utilityThreshold);
         config.put("diversity_threshold_same_chunk", diversityThresholdSameChunk);
@@ -490,6 +493,59 @@ public class AdminConsoleService {
         return gatingWeights;
     }
 
+    private Map<String, Double> resolveUtilityScoreWeights(AdminConsoleDtos.GatingBatchRunRequest request) {
+        Map<String, Double> weights = new LinkedHashMap<>();
+        weights.put(
+                "target_top1",
+                request.utilityTargetTop1Score() == null
+                        ? 1.00d
+                        : clampRange(request.utilityTargetTop1Score(), 0.0d, 1.0d, "utility_target_top1_score")
+        );
+        weights.put(
+                "target_top3",
+                request.utilityTargetTop3Score() == null
+                        ? 0.85d
+                        : clampRange(request.utilityTargetTop3Score(), 0.0d, 1.0d, "utility_target_top3_score")
+        );
+        weights.put(
+                "target_top5",
+                request.utilityTargetTop5Score() == null
+                        ? 0.70d
+                        : clampRange(request.utilityTargetTop5Score(), 0.0d, 1.0d, "utility_target_top5_score")
+        );
+        weights.put(
+                "same_doc_top3",
+                request.utilitySameDocTop3Score() == null
+                        ? 0.55d
+                        : clampRange(request.utilitySameDocTop3Score(), 0.0d, 1.0d, "utility_same_doc_top3_score")
+        );
+        weights.put(
+                "same_doc_top5",
+                request.utilitySameDocTop5Score() == null
+                        ? 0.40d
+                        : clampRange(request.utilitySameDocTop5Score(), 0.0d, 1.0d, "utility_same_doc_top5_score")
+        );
+        weights.put(
+                "outside_top5",
+                request.utilityOutsideTop5Score() == null
+                        ? 0.00d
+                        : clampRange(request.utilityOutsideTop5Score(), 0.0d, 1.0d, "utility_outside_top5_score")
+        );
+        weights.put(
+                "multi_partial_bonus",
+                request.utilityMultiPartialBonus() == null
+                        ? 0.05d
+                        : clampRange(request.utilityMultiPartialBonus(), 0.0d, 1.0d, "utility_multi_partial_bonus")
+        );
+        weights.put(
+                "multi_full_bonus",
+                request.utilityMultiFullBonus() == null
+                        ? 0.12d
+                        : clampRange(request.utilityMultiFullBonus(), 0.0d, 1.0d, "utility_multi_full_bonus")
+        );
+        return weights;
+    }
+
     private Map<String, Object> baseExperimentConfig(String experimentKey, String methodCode) {
         Map<String, Object> config = new LinkedHashMap<>();
         config.put("experiment_key", experimentKey);
@@ -525,6 +581,19 @@ public class AdminConsoleService {
         config.put("rule_max_len_long", 100);
         config.put("rule_min_tokens", 2);
         config.put("rule_max_tokens", 20);
+        config.put(
+                "retrieval_utility_weights",
+                Map.of(
+                        "target_top1", 1.00,
+                        "target_top3", 0.85,
+                        "target_top5", 0.70,
+                        "same_doc_top3", 0.55,
+                        "same_doc_top5", 0.40,
+                        "outside_top5", 0.00,
+                        "multi_partial_bonus", 0.05,
+                        "multi_full_bonus", 0.12
+                )
+        );
         config.put("gating_weights", Map.of("utility", 0.50, "llm", 0.35, "novelty", 0.15));
         config.put("utility_threshold", 0.70);
         config.put("diversity_threshold_same_chunk", 0.93);

@@ -32,6 +32,14 @@ export function GatingPage({ notify }) {
     llmWeight: '0.35',
     utilityWeight: '0.50',
     diversityWeight: '0.15',
+    utilityTargetTop1Score: '1.00',
+    utilityTargetTop3Score: '0.85',
+    utilityTargetTop5Score: '0.70',
+    utilitySameDocTop3Score: '0.55',
+    utilitySameDocTop5Score: '0.40',
+    utilityOutsideTop5Score: '0.00',
+    utilityMultiPartialBonus: '0.05',
+    utilityMultiFullBonus: '0.12',
     utilityThreshold: '0.70',
     diversityThresholdSameChunk: '0.93',
     diversityThresholdSameDoc: '0.96',
@@ -113,6 +121,14 @@ export function GatingPage({ notify }) {
           llmWeight: toNumber(form.llmWeight),
           utilityWeight: toNumber(form.utilityWeight),
           diversityWeight: toNumber(form.diversityWeight),
+          utilityTargetTop1Score: toNumber(form.utilityTargetTop1Score),
+          utilityTargetTop3Score: toNumber(form.utilityTargetTop3Score),
+          utilityTargetTop5Score: toNumber(form.utilityTargetTop5Score),
+          utilitySameDocTop3Score: toNumber(form.utilitySameDocTop3Score),
+          utilitySameDocTop5Score: toNumber(form.utilitySameDocTop5Score),
+          utilityOutsideTop5Score: toNumber(form.utilityOutsideTop5Score),
+          utilityMultiPartialBonus: toNumber(form.utilityMultiPartialBonus),
+          utilityMultiFullBonus: toNumber(form.utilityMultiFullBonus),
           utilityThreshold: toNumber(form.utilityThreshold),
           diversityThresholdSameChunk: toNumber(form.diversityThresholdSameChunk),
           diversityThresholdSameDoc: toNumber(form.diversityThresholdSameDoc),
@@ -222,6 +238,14 @@ export function GatingPage({ notify }) {
             </StageCard>
             <StageCard title="Utility" checked={form.enableRetrievalUtility} onToggle={(checked) => setForm((prev) => ({ ...prev, enableRetrievalUtility: checked }))}>
               <NumberInput label="Utility 가중치" step="0.01" value={form.utilityWeight} onChange={(value) => setForm((prev) => ({ ...prev, utilityWeight: value }))} />
+              <NumberInput label="Target Top1 점수" step="0.01" value={form.utilityTargetTop1Score} onChange={(value) => setForm((prev) => ({ ...prev, utilityTargetTop1Score: value }))} />
+              <NumberInput label="Target Top3 점수" step="0.01" value={form.utilityTargetTop3Score} onChange={(value) => setForm((prev) => ({ ...prev, utilityTargetTop3Score: value }))} />
+              <NumberInput label="Target Top5 점수" step="0.01" value={form.utilityTargetTop5Score} onChange={(value) => setForm((prev) => ({ ...prev, utilityTargetTop5Score: value }))} />
+              <NumberInput label="Same Doc Top3 점수" step="0.01" value={form.utilitySameDocTop3Score} onChange={(value) => setForm((prev) => ({ ...prev, utilitySameDocTop3Score: value }))} />
+              <NumberInput label="Same Doc Top5 점수" step="0.01" value={form.utilitySameDocTop5Score} onChange={(value) => setForm((prev) => ({ ...prev, utilitySameDocTop5Score: value }))} />
+              <NumberInput label="Outside Top5 점수" step="0.01" value={form.utilityOutsideTop5Score} onChange={(value) => setForm((prev) => ({ ...prev, utilityOutsideTop5Score: value }))} />
+              <NumberInput label="멀티 부분 보너스" step="0.01" value={form.utilityMultiPartialBonus} onChange={(value) => setForm((prev) => ({ ...prev, utilityMultiPartialBonus: value }))} />
+              <NumberInput label="멀티 전체 보너스" step="0.01" value={form.utilityMultiFullBonus} onChange={(value) => setForm((prev) => ({ ...prev, utilityMultiFullBonus: value }))} />
               <NumberInput label="Utility 임계치" step="0.01" value={form.utilityThreshold} onChange={(value) => setForm((prev) => ({ ...prev, utilityThreshold: value }))} />
             </StageCard>
             <StageCard title="Diversity" checked={form.enableDiversity} onToggle={(checked) => setForm((prev) => ({ ...prev, enableDiversity: checked }))}>
