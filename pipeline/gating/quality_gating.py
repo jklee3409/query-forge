@@ -12,6 +12,7 @@ import psycopg
 from psycopg.types.json import Jsonb
 
 try:
+    from common.cohere_reranker import CohereReranker, load_cohere_rerank_config
     from common.embeddings import cosine_similarity, embed_text
     from common.experiment_config import ExperimentConfig, load_experiment_config
     from common.experiment_run import ExperimentRunRecorder
@@ -20,6 +21,7 @@ try:
     from common.text_utils import copy_ratio, korean_ratio, special_char_ratio, token_count
     from loaders.common import connect, default_database_args
 except ModuleNotFoundError:  # pragma: no cover - direct module execution fallback
+    from pipeline.common.cohere_reranker import CohereReranker, load_cohere_rerank_config
     from pipeline.common.embeddings import cosine_similarity, embed_text
     from pipeline.common.experiment_config import ExperimentConfig, load_experiment_config
     from pipeline.common.experiment_run import ExperimentRunRecorder
@@ -215,8 +217,25 @@ def _retrieval_utility_score(
     query: RawQueryRow,
     chunks: list[ChunkItem],
     utility_weights: dict[str, float],
+    reranker: CohereReranker,
+    candidate_pool_k: int,
 ) -> float:
-    ranked = _rank_chunks(query_embedding, chunks, top_k=5)
+    initial_top_k = max(5, candidate_pool_k)
+    pre_ranked = _rank_chunks(query_embedding, chunks, top_k=initial_top_k)
+    reranked: list[tuple[ChunkItem, float]] = []
+    if pre_ranked:
+        rerank_rows = reranker.rerank(
+            query=query.query_text,
+            documents=[chunk.chunk_text for chunk, _score in pre_ranked],
+            top_n=5,
+        )
+        if rerank_rows:
+            for index, score in rerank_rows:
+                if 0 <= index < len(pre_ranked):
+                    chunk = pre_ranked[index][0]
+                    # normalize cohere relevance score(0..1) into cosine-like range(-1..1)
+                    reranked.append((chunk, (float(score) * 2.0) - 1.0))
+    ranked = reranked if reranked else pre_ranked[:5]
     rank_map = {item.chunk_id: index + 1 for index, (item, _score) in enumerate(ranked)}
     target_ranks = [rank_map.get(chunk_id) for chunk_id in query.target_chunk_ids if chunk_id in rank_map]
 
@@ -432,6 +451,9 @@ def run_quality_gating(
         self_eval_prompt = load_and_register_prompt(connection, self_eval_prompt_path)
         self_eval_prompt_text = self_eval_prompt_path.read_text(encoding="utf-8")
         self_eval_client = LlmClient(load_stage_config(stage="self_eval", raw_config=config.raw))
+        reranker = CohereReranker(load_cohere_rerank_config(config.raw))
+        utility_candidate_pool_k = int(config.raw.get("utility_candidate_pool_k") or 40)
+        utility_candidate_pool_k = max(5, min(utility_candidate_pool_k, 200))
 
         strategies = _strategies_for_gating(config)
         gating_batch_id = str(config.raw.get("gating_batch_id") or "").strip() or None
@@ -515,6 +537,8 @@ def run_quality_gating(
                     query=query,
                     chunks=chunks,
                     utility_weights=config.retrieval_utility_weights,
+                    reranker=reranker,
+                    candidate_pool_k=utility_candidate_pool_k,
                 )
                 if config.enable_retrieval_utility:
                     passed_utility = utility_score >= config.utility_threshold

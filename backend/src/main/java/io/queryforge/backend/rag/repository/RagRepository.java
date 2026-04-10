@@ -413,7 +413,7 @@ public class RagRepository {
     }
 
     @Transactional
-    public void insertRerankResults(UUID onlineQueryId, UUID rewriteCandidateId, List<RetrievalDoc> docs) {
+    public void insertRerankResults(UUID onlineQueryId, UUID rewriteCandidateId, List<RetrievalDoc> docs, String modelName) {
         String sql = """
                 INSERT INTO rerank_results (
                     online_query_id,
@@ -445,7 +445,7 @@ public class RagRepository {
                             .addValue("rank", index + 1)
                             .addValue("documentId", doc.documentId())
                             .addValue("chunkId", doc.chunkId())
-                            .addValue("modelName", "cohere-rerank-simulated")
+                            .addValue("modelName", modelName)
                             .addValue("relevanceScore", doc.score())
                             .addValue("metadata", "{\"source\":\"backend\"}")
             );

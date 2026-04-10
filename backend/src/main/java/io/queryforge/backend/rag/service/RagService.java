@@ -33,6 +33,7 @@ public class RagService {
 
     private final RagRepository repository;
     private final HashEmbeddingService embeddingService;
+    private final CohereRerankService cohereRerankService;
     private final ObjectMapper objectMapper;
 
     @Transactional
@@ -78,10 +79,11 @@ public class RagService {
         long memoryLatency = elapsedMs(stageStart);
 
         stageStart = System.nanoTime();
-        List<RagRepository.RetrievalDoc> rawRetrieved = repository.findTopChunksByEmbedding(rawEmbeddingLiteral, retrievalTopK);
+        List<RagRepository.RetrievalDoc> rawRetrievedLocal = repository.findTopChunksByEmbedding(rawEmbeddingLiteral, retrievalTopK);
+        List<RagRepository.RetrievalDoc> rawRetrieved = cohereRerankService.rerank(rawQuery, rawRetrievedLocal, rerankTopN);
         double rawDense = memoryCandidates.isEmpty() ? 0.0 : memoryCandidates.getFirst().similarity();
         double rawConfidence = confidence(rawRetrieved, rawDense);
-        repository.insertRetrievalResults(onlineQueryId, null, "raw", rawRetrieved, mode);
+        repository.insertRetrievalResults(onlineQueryId, null, "raw", rawRetrievedLocal, mode);
         long rawRetrievalLatency = elapsedMs(stageStart);
 
         stageStart = System.nanoTime();
@@ -95,7 +97,12 @@ public class RagService {
         for (int index = 0; index < generatedCandidates.size(); index++) {
             GeneratedCandidate generated = generatedCandidates.get(index);
             String embeddingLiteral = embeddingService.toHalfvecLiteral(embeddingService.embed(generated.query()));
-            List<RagRepository.RetrievalDoc> candidateRetrieved = repository.findTopChunksByEmbedding(embeddingLiteral, retrievalTopK);
+            List<RagRepository.RetrievalDoc> candidateRetrievedLocal = repository.findTopChunksByEmbedding(embeddingLiteral, retrievalTopK);
+            List<RagRepository.RetrievalDoc> candidateRetrieved = cohereRerankService.rerank(
+                    generated.query(),
+                    candidateRetrievedLocal,
+                    rerankTopN
+            );
             double confidence = confidence(candidateRetrieved, rawDense);
             UUID candidateId = repository.createRewriteCandidate(
                     onlineQueryId,
@@ -107,7 +114,7 @@ public class RagService {
                     confidence,
                     scoreBreakdown(candidateRetrieved, memoryCandidates)
             );
-            repository.insertRetrievalResults(onlineQueryId, candidateId, "rewrite_candidate", candidateRetrieved, mode);
+            repository.insertRetrievalResults(onlineQueryId, candidateId, "rewrite_candidate", candidateRetrievedLocal, mode);
             scoredCandidates.add(new GeneratedCandidate(generated.label(), generated.query(), candidateRetrieved, confidence, candidateId));
         }
         long candidateLatency = elapsedMs(stageStart);
@@ -139,8 +146,8 @@ public class RagService {
         long decisionLatency = elapsedMs(stageStart);
 
         stageStart = System.nanoTime();
-        List<RagRepository.RetrievalDoc> reranked = repository.rerankByLexicalBoost(decision.finalQuery(), decision.finalRetrieved(), rerankTopN);
-        repository.insertRerankResults(onlineQueryId, decision.selectedCandidateId(), reranked);
+        List<RagRepository.RetrievalDoc> reranked = decision.finalRetrieved();
+        repository.insertRerankResults(onlineQueryId, decision.selectedCandidateId(), reranked, cohereRerankService.modelName());
         long rerankLatency = elapsedMs(stageStart);
 
         stageStart = System.nanoTime();
@@ -279,7 +286,8 @@ public class RagService {
         List<RagDtos.RewriteCandidateDto> previewDtos = new ArrayList<>();
         for (GeneratedCandidate candidate : candidates) {
             String candidateEmbedding = embeddingService.toHalfvecLiteral(embeddingService.embed(candidate.query()));
-            List<RagRepository.RetrievalDoc> retrieved = repository.findTopChunksByEmbedding(candidateEmbedding, 5);
+            List<RagRepository.RetrievalDoc> retrievedLocal = repository.findTopChunksByEmbedding(candidateEmbedding, 20);
+            List<RagRepository.RetrievalDoc> retrieved = cohereRerankService.rerank(candidate.query(), retrievedLocal, 5);
             double confidence = confidence(retrieved, memories.isEmpty() ? 0.0 : memories.getFirst().similarity());
             previewDtos.add(
                     new RagDtos.RewriteCandidateDto(
@@ -507,7 +515,8 @@ public class RagService {
             }
             String memoryQuery = memoryCandidates.getFirst().queryText();
             String embedding = embeddingService.toHalfvecLiteral(embeddingService.embed(memoryQuery));
-            List<RagRepository.RetrievalDoc> retrieved = repository.findTopChunksByEmbedding(embedding, rawRetrieved.size());
+            List<RagRepository.RetrievalDoc> retrievedLocal = repository.findTopChunksByEmbedding(embedding, Math.max(20, rawRetrieved.size()));
+            List<RagRepository.RetrievalDoc> retrieved = cohereRerankService.rerank(memoryQuery, retrievedLocal, rawRetrieved.size());
             return new Decision(memoryQuery, true, retrieved, null, "memory_only", null);
         }
 

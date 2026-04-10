@@ -21,6 +21,7 @@ try:
         load_chunk_items,
         load_eval_samples,
         load_memory_items,
+        rerank_retrieval_candidates,
         retrieve_top_k,
         run_selective_rewrite,
     )
@@ -34,6 +35,7 @@ except ModuleNotFoundError:  # pragma: no cover
         load_chunk_items,
         load_eval_samples,
         load_memory_items,
+        rerank_retrieval_candidates,
         retrieve_top_k,
         run_selective_rewrite,
     )
@@ -160,10 +162,10 @@ def run_answer_eval(
                     memory_top_n=[],
                     candidates=[],
                 )
-            reranked = sorted(
-                retrieval[: config.rerank_top_n],
-                key=lambda item: (0.7 * item.score) + (0.3 * _overlap_ratio(sample.query_text, item.text)),
-                reverse=True,
+            reranked = rerank_retrieval_candidates(
+                rewrite_outcome.final_query if rewrite_enabled else sample.query_text,
+                retrieval,
+                top_n=config.rerank_top_n,
             )
             answer_segments = [
                 extract_extractive_summary(item.text, max_sentences=1)
@@ -245,7 +247,7 @@ def run_answer_eval(
                             rank,
                             item.document_id,
                             item.chunk_id,
-                            "cohere-rerank-simulated",
+                            "cohere-rerank-hybrid",
                             item.score,
                             Jsonb(
                                 {

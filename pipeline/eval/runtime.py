@@ -10,9 +10,11 @@ from typing import Any
 import psycopg
 
 try:
+    from common.cohere_reranker import CohereReranker, load_cohere_rerank_config
     from common.embeddings import cosine_similarity, embed_text
     from common.llm_client import LlmClient, load_stage_config
 except ModuleNotFoundError:  # pragma: no cover
+    from pipeline.common.cohere_reranker import CohereReranker, load_cohere_rerank_config
     from pipeline.common.embeddings import cosine_similarity, embed_text
     from pipeline.common.llm_client import LlmClient, load_stage_config
 
@@ -69,6 +71,7 @@ class RewriteOutcome:
 
 _REWRITE_CLIENT: LlmClient | None = None
 _REWRITE_PROMPT_TEXT: str | None = None
+_RERANKER: CohereReranker | None = None
 
 
 def load_eval_samples(
@@ -187,7 +190,7 @@ def retrieve_top_k(
     top_k: int,
 ) -> list[RetrievalCandidate]:
     query_embedding = embed_text(query_text)
-    scored = [
+    scored_all = [
         RetrievalCandidate(
             chunk_id=chunk.chunk_id,
             document_id=chunk.document_id,
@@ -196,8 +199,70 @@ def retrieve_top_k(
         )
         for chunk in chunks
     ]
-    scored.sort(key=lambda item: item.score, reverse=True)
-    return scored[:top_k]
+    scored_all.sort(key=lambda item: item.score, reverse=True)
+
+    candidate_pool_k = int(os.getenv("QUERY_FORGE_RERANK_CANDIDATE_K") or "50")
+    candidate_pool_k = max(top_k, min(candidate_pool_k, max(top_k, len(scored_all))))
+    reduced = scored_all[:candidate_pool_k]
+    reranker = _cohere_reranker()
+    if not reduced or not reranker.available:
+        return reduced[:top_k]
+
+    rerank_rows = reranker.rerank(
+        query=query_text,
+        documents=[item.text for item in reduced],
+        top_n=top_k,
+    )
+    if not rerank_rows:
+        return reduced[:top_k]
+
+    reranked: list[RetrievalCandidate] = []
+    for index, score in rerank_rows:
+        if 0 <= index < len(reduced):
+            row = reduced[index]
+            reranked.append(
+                RetrievalCandidate(
+                    chunk_id=row.chunk_id,
+                    document_id=row.document_id,
+                    score=(float(score) * 2.0) - 1.0,
+                    text=row.text,
+                )
+            )
+    return reranked if reranked else reduced[:top_k]
+
+
+def rerank_retrieval_candidates(
+    query_text: str,
+    candidates: list[RetrievalCandidate],
+    *,
+    top_n: int,
+) -> list[RetrievalCandidate]:
+    limited_top_n = max(1, min(top_n, len(candidates)))
+    if limited_top_n <= 0:
+        return []
+    reranker = _cohere_reranker()
+    if not reranker.available:
+        return candidates[:limited_top_n]
+    rerank_rows = reranker.rerank(
+        query=query_text,
+        documents=[candidate.text for candidate in candidates],
+        top_n=limited_top_n,
+    )
+    if not rerank_rows:
+        return candidates[:limited_top_n]
+    reranked: list[RetrievalCandidate] = []
+    for index, score in rerank_rows:
+        if 0 <= index < len(candidates):
+            row = candidates[index]
+            reranked.append(
+                RetrievalCandidate(
+                    chunk_id=row.chunk_id,
+                    document_id=row.document_id,
+                    score=(float(score) * 2.0) - 1.0,
+                    text=row.text,
+                )
+            )
+    return reranked if reranked else candidates[:limited_top_n]
 
 
 def memory_top_n(
@@ -253,6 +318,13 @@ def _rewrite_client() -> LlmClient:
     if _REWRITE_CLIENT is None:
         _REWRITE_CLIENT = LlmClient(load_stage_config(stage="rewrite", raw_config={}))
     return _REWRITE_CLIENT
+
+
+def _cohere_reranker() -> CohereReranker:
+    global _RERANKER
+    if _RERANKER is None:
+        _RERANKER = CohereReranker(load_cohere_rerank_config({}))
+    return _RERANKER
 
 
 def _heuristic_rewrite_candidates(
