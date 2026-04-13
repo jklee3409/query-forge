@@ -106,6 +106,8 @@ class LlmClientTest(unittest.TestCase):
 
         self.assertEqual(response["query_ko"], "빈 생성 테스트는 어떻게 하나요?")
         self.assertFalse(response["_llm_meta"]["fallback_used"])
+        call_json = mock_post.call_args.kwargs["json"]
+        self.assertEqual(call_json.get("response_format", {}).get("type"), "json_object")
 
     @patch("pipeline.common.llm_client.requests.post")
     def test_json_field_missing(self, mock_post) -> None:
@@ -238,6 +240,43 @@ class LlmClientTest(unittest.TestCase):
         self.assertEqual(generation_config.get("responseMimeType"), "application/json")
         self.assertIn("responseSchema", generation_config)
         self.assertEqual(generation_config.get("thinkingConfig", {}).get("thinkingBudget"), 0)
+
+    @patch("pipeline.common.llm_client.requests.post")
+    def test_gemini_malformed_response_parts_missing(self, mock_post) -> None:
+        mock_post.return_value = _FakeResponse(
+            status_code=200,
+            body={"candidates": [{"content": {}}]},
+        )
+        client = llm_client.LlmClient(
+            _config(
+                provider="gemini-native",
+                model="gemini-2.5-flash",
+                base_url="https://generativelanguage.googleapis.com/v1beta",
+                api_key="gemini-key",
+                max_retries=0,
+            )
+        )
+
+        with self.assertRaises(RuntimeError):
+            client.chat_json(system_prompt="s", user_prompt="u")
+
+    def test_capability_exposed(self) -> None:
+        gemini_client = llm_client.LlmClient(
+            _config(
+                provider="gemini-native",
+                model="gemini-2.5-flash",
+                base_url="https://generativelanguage.googleapis.com/v1beta",
+                api_key="gemini-key",
+            )
+        )
+        openai_client = llm_client.LlmClient(_config(provider="openai"))
+        gemini_capability = gemini_client.capability()
+        openai_capability = openai_client.capability()
+
+        self.assertTrue(gemini_capability.supportsStructuredOutput)
+        self.assertTrue(gemini_capability.supportsThinkingBudget)
+        self.assertFalse(openai_capability.supportsResponseSchema)
+        self.assertTrue(openai_capability.supportsJsonMode)
 
 
 if __name__ == "__main__":

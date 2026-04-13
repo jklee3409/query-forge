@@ -11,7 +11,7 @@ query-forge:
   prompt-root: ./configs/prompts
   experiment-root: ./configs/experiments
   llm:
-    provider: ${QUERY_FORGE_LLM_PROVIDER:gemini}
+    provider: ${QUERY_FORGE_LLM_PROVIDER:gemini-native}
     model: ${QUERY_FORGE_LLM_MODEL:gemini-2.5-flash}
     summary_model: ${QUERY_FORGE_LLM_SUMMARY_MODEL:gemini-2.5-flash}
     query_model: ${QUERY_FORGE_LLM_QUERY_MODEL:gemini-2.5-flash}

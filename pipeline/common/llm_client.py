@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from abc import ABC, abstractmethod
 import hashlib
 import json
 import logging
@@ -10,7 +11,7 @@ import threading
 import time
 from collections import deque
 from contextlib import contextmanager
-from dataclasses import dataclass, replace
+from dataclasses import asdict, dataclass, replace
 from typing import Any
 
 import requests
@@ -22,7 +23,7 @@ CODE_BLOCK_JSON_PATTERN = re.compile(r"```(?:json)?\s*(.*?)\s*```", re.IGNORECAS
 
 LOGGER = logging.getLogger(__name__)
 RETRYABLE_HTTP_STATUS = {429, 500, 502, 503, 504}
-SUPPORTED_PROVIDERS = {"gemini", "groq", "openai", "mock"}
+SUPPORTED_PROVIDERS = {"gemini-native", "gemini", "groq", "openai", "mock"}
 _WARNED_COMPAT_MODELS: set[str] = set()
 
 
@@ -154,9 +155,196 @@ class LlmStageConfig:
     concurrency_limit: int
 
 
+@dataclass(frozen=True, slots=True)
+class ModelCapability:
+    supportsStructuredOutput: bool
+    supportsResponseSchema: bool
+    supportsThinkingBudget: bool
+    supportsJsonMode: bool
+    supportsStreaming: bool
+
+
+GEMINI_NATIVE_CAPABILITY = ModelCapability(
+    supportsStructuredOutput=True,
+    supportsResponseSchema=True,
+    supportsThinkingBudget=True,
+    supportsJsonMode=True,
+    supportsStreaming=False,
+)
+OPENAI_COMPATIBILITY_CAPABILITY = ModelCapability(
+    supportsStructuredOutput=False,
+    supportsResponseSchema=False,
+    supportsThinkingBudget=False,
+    supportsJsonMode=True,
+    supportsStreaming=False,
+)
+MOCK_CAPABILITY = ModelCapability(
+    supportsStructuredOutput=False,
+    supportsResponseSchema=False,
+    supportsThinkingBudget=False,
+    supportsJsonMode=False,
+    supportsStreaming=False,
+)
+
+
+class LLMClient(ABC):
+    @property
+    @abstractmethod
+    def provider_type(self) -> str:
+        raise NotImplementedError
+
+    @property
+    @abstractmethod
+    def capability(self) -> ModelCapability:
+        raise NotImplementedError
+
+    @abstractmethod
+    def invoke_json(
+        self,
+        *,
+        system_prompt: str,
+        user_prompt: str,
+        response_schema: dict[str, Any] | None,
+    ) -> tuple[requests.Response, str, bool]:
+        raise NotImplementedError
+
+
+class OpenAICompatibleClient(LLMClient):
+    def __init__(self, config: LlmStageConfig) -> None:
+        self._config = config
+
+    @property
+    def provider_type(self) -> str:
+        return "openai"
+
+    @property
+    def capability(self) -> ModelCapability:
+        return OPENAI_COMPATIBILITY_CAPABILITY
+
+    def invoke_json(
+        self,
+        *,
+        system_prompt: str,
+        user_prompt: str,
+        response_schema: dict[str, Any] | None,
+    ) -> tuple[requests.Response, str, bool]:
+        del response_schema
+        payload: dict[str, Any] = {
+            "model": self._config.model,
+            "messages": [
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            "temperature": self._config.temperature,
+            "max_tokens": self._config.max_tokens,
+            "response_format": {"type": "json_object"},
+        }
+        concurrency_limiter = _resolve_concurrency_limiter(self._config)
+        with concurrency_limiter.slot():
+            response = requests.post(
+                f"{self._config.base_url.rstrip('/')}/chat/completions",
+                headers={
+                    "Authorization": f"Bearer {self._config.api_key}",
+                    "Content-Type": "application/json",
+                },
+                json=payload,
+                timeout=self._config.timeout_seconds,
+            )
+        if (
+            self._config.provider in {"gemini", "gemini-native"}
+            and response.status_code == 400
+            and "response_format" in payload
+        ):
+            payload.pop("response_format", None)
+            with concurrency_limiter.slot():
+                response = requests.post(
+                    f"{self._config.base_url.rstrip('/')}/chat/completions",
+                    headers={
+                        "Authorization": f"Bearer {self._config.api_key}",
+                        "Content-Type": "application/json",
+                    },
+                    json=payload,
+                    timeout=self._config.timeout_seconds,
+                )
+            if self._config.model not in _WARNED_COMPAT_MODELS:
+                LOGGER.warning(
+                    "gemini_openai_compat_mode provider=%s model=%s base_url=%s supportsResponseSchema=%s supportsThinkingBudget=%s",
+                    self._config.provider,
+                    self._config.model,
+                    self._config.base_url,
+                    self.capability.supportsResponseSchema,
+                    self.capability.supportsThinkingBudget,
+                )
+                _WARNED_COMPAT_MODELS.add(self._config.model)
+
+        if response.status_code >= 400:
+            return response, response.text or "", False
+        body = _safe_json_body(response)
+        text = _extract_openai_compatible_text(body)
+        return response, text, False
+
+
+class GeminiNativeClient(LLMClient):
+    def __init__(self, config: LlmStageConfig) -> None:
+        self._config = config
+
+    @property
+    def provider_type(self) -> str:
+        return "gemini-native"
+
+    @property
+    def capability(self) -> ModelCapability:
+        return GEMINI_NATIVE_CAPABILITY
+
+    def invoke_json(
+        self,
+        *,
+        system_prompt: str,
+        user_prompt: str,
+        response_schema: dict[str, Any] | None,
+    ) -> tuple[requests.Response, str, bool]:
+        generation_config: dict[str, Any] = {
+            "temperature": self._config.temperature,
+            "maxOutputTokens": self._config.max_tokens,
+            "responseMimeType": "application/json",
+            "responseSchema": _to_gemini_schema(
+                response_schema
+                or {
+                    "type": "object",
+                    "additionalProperties": True,
+                }
+            ),
+        }
+        if self._config.thinking_budget is not None:
+            generation_config["thinkingConfig"] = {"thinkingBudget": self._config.thinking_budget}
+        payload: dict[str, Any] = {
+            "systemInstruction": {"parts": [{"text": system_prompt}]},
+            "contents": [{"role": "user", "parts": [{"text": user_prompt}]}],
+            "generationConfig": generation_config,
+        }
+        endpoint = f"{self._config.base_url.rstrip('/')}/models/{self._config.model}:generateContent"
+        concurrency_limiter = _resolve_concurrency_limiter(self._config)
+        with concurrency_limiter.slot():
+            response = requests.post(
+                endpoint,
+                params={"key": self._config.api_key},
+                headers={"Content-Type": "application/json"},
+                json=payload,
+                timeout=self._config.timeout_seconds,
+            )
+        if response.status_code >= 400:
+            return response, response.text or "", True
+        body = _safe_json_body(response)
+        text = _extract_gemini_text(body)
+        return response, text, True
+
+
 class LlmClient:
     def __init__(self, config: LlmStageConfig) -> None:
         self.config = config
+
+    def capability(self) -> ModelCapability:
+        return _build_provider_client(self.config).capability
 
     def chat_json(
         self,
@@ -185,7 +373,7 @@ class LlmClient:
         for index, target in enumerate(targets):
             fallback_used = index > 0
             try:
-                parsed = self._chat_json_with_target(
+                parsed, attempts_used, capability, structured_output_used, provider_type = self._chat_json_with_target(
                     config=target,
                     system_prompt=system_prompt,
                     user_prompt=user_prompt,
@@ -195,29 +383,39 @@ class LlmClient:
                 )
                 parsed["_llm_meta"] = {
                     "provider": target.provider,
+                    "provider_type": provider_type,
                     "model": target.model,
                     "fallback_used": fallback_used,
+                    "structured_output_used": structured_output_used,
+                    "thinking_budget": target.thinking_budget if capability.supportsThinkingBudget else None,
+                    "retry_count": max(0, attempts_used - 1),
+                    "capability": asdict(capability),
                     "request_purpose": request_purpose,
                     "trace_id": trace_id,
                 }
                 if fallback_used:
                     LOGGER.warning(
-                        "llm_fallback_success purpose=%s trace_id=%s provider=%s model=%s",
+                        "llm_fallback_success purpose=%s trace_id=%s provider=%s provider_type=%s model=%s structured_output=%s thinking_budget=%s retries=%s",
                         request_purpose,
                         trace_id,
                         target.provider,
+                        provider_type,
                         target.model,
+                        structured_output_used,
+                        target.thinking_budget if capability.supportsThinkingBudget else None,
+                        max(0, attempts_used - 1),
                     )
                 return parsed
             except requests.HTTPError as exc:
                 status = exc.response.status_code if exc.response is not None else None
                 if status is not None and 400 <= status < 500 and status != 429:
                     LOGGER.error(
-                        "llm_client_error_no_retry status=%s purpose=%s trace_id=%s provider=%s model=%s",
+                        "llm_client_error_no_retry status=%s purpose=%s trace_id=%s provider=%s provider_type=%s model=%s",
                         status,
                         request_purpose,
                         trace_id,
                         target.provider,
+                        _runtime_provider_type(target),
                         target.model,
                     )
                     raise
@@ -225,10 +423,11 @@ class LlmClient:
             except _RetryableLlmError as exc:
                 last_exception = exc
                 LOGGER.warning(
-                    "llm_target_failed_retryable purpose=%s trace_id=%s provider=%s model=%s fallback_used=%s reason=%s",
+                    "llm_target_failed_retryable purpose=%s trace_id=%s provider=%s provider_type=%s model=%s fallback_used=%s reason=%s",
                     request_purpose,
                     trace_id,
                     target.provider,
+                    _runtime_provider_type(target),
                     target.model,
                     fallback_used,
                     str(exc),
@@ -236,10 +435,11 @@ class LlmClient:
             except Exception as exc:  # noqa: BLE001
                 last_exception = exc
                 LOGGER.exception(
-                    "llm_target_failed_unexpected purpose=%s trace_id=%s provider=%s model=%s",
+                    "llm_target_failed_unexpected purpose=%s trace_id=%s provider=%s provider_type=%s model=%s",
                     request_purpose,
                     trace_id,
                     target.provider,
+                    _runtime_provider_type(target),
                     target.model,
                 )
 
@@ -256,7 +456,30 @@ class LlmClient:
         response_schema: dict[str, Any] | None,
         request_purpose: str,
         trace_id: str | None,
-    ) -> dict[str, Any]:
+    ) -> tuple[dict[str, Any], int, ModelCapability, bool, str]:
+        provider_client = _build_provider_client(config)
+        capability = provider_client.capability
+        provider_type = provider_client.provider_type
+        use_structured_output = bool(response_schema) and capability.supportsStructuredOutput
+        if response_schema and not capability.supportsResponseSchema:
+            LOGGER.info(
+                "llm_schema_fallback_to_prompt_json provider=%s provider_type=%s model=%s purpose=%s trace_id=%s",
+                config.provider,
+                provider_type,
+                config.model,
+                request_purpose,
+                trace_id,
+            )
+        LOGGER.info(
+            "llm_request_start provider=%s provider_type=%s model=%s structured_output=%s thinking_budget=%s purpose=%s trace_id=%s",
+            config.provider,
+            provider_type,
+            config.model,
+            use_structured_output,
+            config.thinking_budget if capability.supportsThinkingBudget else None,
+            request_purpose,
+            trace_id,
+        )
         max_attempts = max(1, int(config.max_retries) + 1)
         estimated_tokens = _estimate_request_tokens(
             system_prompt=system_prompt,
@@ -271,8 +494,7 @@ class LlmClient:
             self._throttle(config=config, estimated_tokens=estimated_tokens)
             response = None
             try:
-                response, response_text = self._post_json_generation(
-                    config=config,
+                response, response_text, structured_output_used = provider_client.invoke_json(
                     system_prompt=system_prompt,
                     user_prompt=user_prompt,
                     response_schema=response_schema,
@@ -283,6 +505,7 @@ class LlmClient:
                     break
                 self._sleep_with_retry_log(
                     config=config,
+                    provider_type=provider_type,
                     attempt=attempt,
                     max_attempts=max_attempts,
                     reason=f"missing_content_{type(exc).__name__}",
@@ -297,6 +520,7 @@ class LlmClient:
                     break
                 self._sleep_with_retry_log(
                     config=config,
+                    provider_type=provider_type,
                     attempt=attempt,
                     max_attempts=max_attempts,
                     reason="timeout",
@@ -311,6 +535,7 @@ class LlmClient:
                     break
                 self._sleep_with_retry_log(
                     config=config,
+                    provider_type=provider_type,
                     attempt=attempt,
                     max_attempts=max_attempts,
                     reason=type(exc).__name__,
@@ -331,6 +556,7 @@ class LlmClient:
                 retry_after = _parse_retry_after(response=response)
                 self._sleep_with_retry_log(
                     config=config,
+                    provider_type=provider_type,
                     attempt=attempt,
                     max_attempts=max_attempts,
                     reason=f"http_{status_code}",
@@ -345,18 +571,21 @@ class LlmClient:
                 response.raise_for_status()
                 parsed = _parse_json_text(
                     response_text,
-                    allow_markdown_fallback=(attempt + 1 >= max_attempts and response_schema is None),
+                    allow_markdown_fallback=(
+                        attempt + 1 >= max_attempts and (response_schema is None or not structured_output_used)
+                    ),
                 )
                 _validate_against_schema(parsed, response_schema)
             except requests.HTTPError as exc:
                 status = exc.response.status_code if exc.response is not None else None
                 if status is not None and 400 <= status < 500 and status != 429:
                     LOGGER.error(
-                        "llm_http_non_retryable status=%s purpose=%s trace_id=%s provider=%s model=%s prompt=%s",
+                        "llm_http_non_retryable status=%s purpose=%s trace_id=%s provider=%s provider_type=%s model=%s prompt=%s",
                         status,
                         request_purpose,
                         trace_id,
                         config.provider,
+                        provider_type,
                         config.model,
                         prompt_fingerprint,
                     )
@@ -366,6 +595,7 @@ class LlmClient:
                     break
                 self._sleep_with_retry_log(
                     config=config,
+                    provider_type=provider_type,
                     attempt=attempt,
                     max_attempts=max_attempts,
                     reason=f"http_{status}",
@@ -380,6 +610,7 @@ class LlmClient:
                     break
                 self._sleep_with_retry_log(
                     config=config,
+                    provider_type=provider_type,
                     attempt=attempt,
                     max_attempts=max_attempts,
                     reason=f"parse_{type(exc).__name__}",
@@ -395,6 +626,7 @@ class LlmClient:
                     break
                 self._sleep_with_retry_log(
                     config=config,
+                    provider_type=provider_type,
                     attempt=attempt,
                     max_attempts=max_attempts,
                     reason="json_not_object",
@@ -403,7 +635,7 @@ class LlmClient:
                     prompt_fingerprint=prompt_fingerprint,
                 )
                 continue
-            return parsed
+            return parsed, attempt + 1, capability, structured_output_used, provider_type
 
         if retryable_failure:
             raise _RetryableLlmError("LLM request failed after retry budget.") from retryable_failure
@@ -413,6 +645,7 @@ class LlmClient:
         self,
         *,
         config: LlmStageConfig,
+        provider_type: str,
         attempt: int,
         max_attempts: int,
         reason: str,
@@ -423,11 +656,12 @@ class LlmClient:
     ) -> None:
         wait = max(min_wait, _compute_backoff_seconds(config=config, attempt=attempt))
         LOGGER.warning(
-            "llm_retry reason=%s purpose=%s trace_id=%s provider=%s model=%s attempt=%s/%s wait=%.3fs prompt=%s",
+            "llm_retry reason=%s purpose=%s trace_id=%s provider=%s provider_type=%s model=%s attempt=%s/%s wait=%.3fs prompt=%s",
             reason,
             request_purpose,
             trace_id,
             config.provider,
+            provider_type,
             config.model,
             attempt + 1,
             max_attempts,
@@ -435,149 +669,6 @@ class LlmClient:
             prompt_fingerprint,
         )
         time.sleep(wait)
-
-    def _post_json_generation(
-        self,
-        *,
-        config: LlmStageConfig,
-        system_prompt: str,
-        user_prompt: str,
-        response_schema: dict[str, Any] | None,
-    ) -> tuple[requests.Response, str]:
-        if _is_gemini_native_mode(config):
-            return self._post_gemini_native(
-                config=config,
-                system_prompt=system_prompt,
-                user_prompt=user_prompt,
-                response_schema=response_schema,
-            )
-        return self._post_openai_compatible(
-            config=config,
-            system_prompt=system_prompt,
-            user_prompt=user_prompt,
-            response_schema=response_schema,
-        )
-
-    def _post_openai_compatible(
-        self,
-        *,
-        config: LlmStageConfig,
-        system_prompt: str,
-        user_prompt: str,
-        response_schema: dict[str, Any] | None,
-    ) -> tuple[requests.Response, str]:
-        payload: dict[str, Any] = {
-            "model": config.model,
-            "messages": [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
-            ],
-            "temperature": config.temperature,
-            "max_tokens": config.max_tokens,
-        }
-        if response_schema:
-            payload["response_format"] = {
-                "type": "json_schema",
-                "json_schema": {
-                    "name": "query_forge_structured_output",
-                    "schema": response_schema,
-                },
-            }
-        else:
-            payload["response_format"] = {"type": "json_object"}
-
-        concurrency_limiter = _resolve_concurrency_limiter(config)
-        with concurrency_limiter.slot():
-            response = requests.post(
-                f"{config.base_url.rstrip('/')}/chat/completions",
-                headers={
-                    "Authorization": f"Bearer {config.api_key}",
-                    "Content-Type": "application/json",
-                },
-                json=payload,
-                timeout=config.timeout_seconds,
-            )
-
-        if (
-            config.provider == "gemini"
-            and response.status_code == 400
-            and "response_format" in payload
-        ):
-            payload.pop("response_format", None)
-            with concurrency_limiter.slot():
-                response = requests.post(
-                    f"{config.base_url.rstrip('/')}/chat/completions",
-                    headers={
-                        "Authorization": f"Bearer {config.api_key}",
-                        "Content-Type": "application/json",
-                    },
-                    json=payload,
-                    timeout=config.timeout_seconds,
-                )
-            if config.model not in _WARNED_COMPAT_MODELS:
-                # OpenAI-compatible Gemini route does not expose responseMimeType/responseSchema/thinkingBudget.
-                LOGGER.warning(
-                    "gemini_openai_compat_mode provider=%s model=%s base_url=%s",
-                    config.provider,
-                    config.model,
-                    config.base_url,
-                )
-                _WARNED_COMPAT_MODELS.add(config.model)
-
-        if response.status_code >= 400:
-            return response, response.text or ""
-        body = _safe_json_body(response)
-        text = _extract_openai_compatible_text(body)
-        return response, text
-
-    def _post_gemini_native(
-        self,
-        *,
-        config: LlmStageConfig,
-        system_prompt: str,
-        user_prompt: str,
-        response_schema: dict[str, Any] | None,
-    ) -> tuple[requests.Response, str]:
-        generation_config: dict[str, Any] = {
-            "temperature": config.temperature,
-            "maxOutputTokens": config.max_tokens,
-            "responseMimeType": "application/json",
-            "responseSchema": _to_gemini_schema(
-                response_schema
-                or {
-                    "type": "object",
-                    "additionalProperties": True,
-                }
-            ),
-        }
-        if config.thinking_budget is not None:
-            generation_config["thinkingConfig"] = {"thinkingBudget": config.thinking_budget}
-
-        payload: dict[str, Any] = {
-            "systemInstruction": {"parts": [{"text": system_prompt}]},
-            "contents": [
-                {
-                    "role": "user",
-                    "parts": [{"text": user_prompt}],
-                }
-            ],
-            "generationConfig": generation_config,
-        }
-        endpoint = f"{config.base_url.rstrip('/')}/models/{config.model}:generateContent"
-        concurrency_limiter = _resolve_concurrency_limiter(config)
-        with concurrency_limiter.slot():
-            response = requests.post(
-                endpoint,
-                params={"key": config.api_key},
-                headers={"Content-Type": "application/json"},
-                json=payload,
-                timeout=config.timeout_seconds,
-            )
-        if response.status_code >= 400:
-            return response, response.text or ""
-        body = _safe_json_body(response)
-        text = _extract_gemini_text(body)
-        return response, text
 
     def _throttle(self, *, config: LlmStageConfig, estimated_tokens: int) -> None:
         _resolve_rate_limiter(config).acquire(estimated_tokens)
@@ -628,6 +719,39 @@ def _pick(raw: dict[str, Any], *keys: str) -> Any:
     return None
 
 
+def _normalize_provider_name(raw_provider: str) -> str:
+    normalized = str(raw_provider or "").strip().lower().replace("_", "-")
+    if normalized in {"gemini-native", "gemini"}:
+        return normalized
+    if normalized in {"openai-compatible", "openai"}:
+        return "openai"
+    if normalized in {"groq", "mock"}:
+        return normalized
+    return normalized or "openai"
+
+
+def _provider_env_suffix(provider: str) -> str:
+    return re.sub(r"[^A-Z0-9]", "_", provider.upper())
+
+
+def _runtime_provider_type(config: LlmStageConfig) -> str:
+    provider = _normalize_provider_name(config.provider)
+    if provider == "gemini-native":
+        return "gemini-native"
+    if provider == "gemini":
+        if "/openai" not in config.base_url.rstrip("/"):
+            return "gemini-native"
+        return "openai"
+    return "openai"
+
+
+def _build_provider_client(config: LlmStageConfig) -> LLMClient:
+    provider_type = _runtime_provider_type(config)
+    if provider_type == "gemini-native":
+        return GeminiNativeClient(config)
+    return OpenAICompatibleClient(config)
+
+
 def load_stage_config(
     *,
     stage: str,
@@ -636,17 +760,20 @@ def load_stage_config(
     raw_config = raw_config or {}
     llm_block = raw_config.get("llm") if isinstance(raw_config.get("llm"), dict) else {}
     env_stage = stage.upper()
-    provider = str(
-        _pick(
-            raw_config,
-            f"llm_{stage}_provider",
-            "llm_provider",
+    provider = _normalize_provider_name(
+        str(
+            _pick(
+                raw_config,
+                f"llm_{stage}_provider",
+                "llm_provider",
+            )
+            or _pick(llm_block, f"{stage}_provider", "provider")
+            or os.getenv(f"QUERY_FORGE_LLM_{env_stage}_PROVIDER")
+            or os.getenv("QUERY_FORGE_LLM_PROVIDER")
+            or "gemini-native"
         )
-        or _pick(llm_block, f"{stage}_provider", "provider")
-        or os.getenv(f"QUERY_FORGE_LLM_{env_stage}_PROVIDER")
-        or os.getenv("QUERY_FORGE_LLM_PROVIDER")
-        or "gemini"
-    ).strip().lower()
+    )
+    is_gemini_family = provider in {"gemini", "gemini-native"}
 
     default_base_url = _default_base_url(provider)
     base_url = str(
@@ -688,7 +815,7 @@ def load_stage_config(
         or os.getenv("QUERY_FORGE_LLM_TEMPERATURE")
         or 0.2
     )
-    default_max_output_tokens = 384 if provider == "gemini" else 512
+    default_max_output_tokens = 384 if is_gemini_family else 512
     max_tokens = int(
         _pick(raw_config, f"llm_{stage}_max_output_tokens", f"llm_{stage}_max_tokens", "llm_max_output_tokens", "llm_max_tokens")
         or _pick(llm_block, f"{stage}_max_output_tokens", f"{stage}_max_tokens", "max_output_tokens", "max_tokens")
@@ -705,7 +832,7 @@ def load_stage_config(
         or os.getenv("QUERY_FORGE_LLM_TIMEOUT_SECONDS")
         or 45.0
     )
-    default_rpm = 300.0 if provider == "gemini" else 20.0
+    default_rpm = 300.0 if is_gemini_family else 20.0
     requests_per_minute = float(
         _pick(raw_config, f"llm_{stage}_rpm", "llm_rpm")
         or _pick(llm_block, f"{stage}_rpm", "rpm")
@@ -714,7 +841,7 @@ def load_stage_config(
         or default_rpm
     )
     min_interval = 0.0 if requests_per_minute <= 0 else 60.0 / requests_per_minute
-    if provider == "gemini":
+    if is_gemini_family:
         default_tpm = 1_000_000
     elif provider == "groq":
         default_tpm = 6000
@@ -727,7 +854,7 @@ def load_stage_config(
         or os.getenv("QUERY_FORGE_LLM_TPM")
         or default_tpm
     )
-    default_rpd = 10_000 if provider == "gemini" else 0
+    default_rpd = 10_000 if is_gemini_family else 0
     requests_per_day = int(
         _pick(raw_config, f"llm_{stage}_rpd", "llm_rpd")
         or _pick(llm_block, f"{stage}_rpd", "rpd")
@@ -792,7 +919,7 @@ def load_stage_config(
         or os.getenv("QUERY_FORGE_LLM_THINKING_BUDGET")
     )
     if thinking_budget_raw is None or str(thinking_budget_raw).strip() == "":
-        thinking_budget = 0 if provider == "gemini" else None
+        thinking_budget = 0 if is_gemini_family else None
     else:
         thinking_budget = int(thinking_budget_raw)
     concurrency_limit = int(
@@ -800,7 +927,7 @@ def load_stage_config(
         or _pick(llm_block, f"{stage}_concurrency_limit", "concurrency_limit")
         or os.getenv(f"QUERY_FORGE_LLM_{env_stage}_CONCURRENCY_LIMIT")
         or os.getenv("QUERY_FORGE_LLM_CONCURRENCY_LIMIT")
-        or (4 if provider == "gemini" else 2)
+        or (4 if is_gemini_family else 2)
     )
     concurrency_limit = max(1, min(concurrency_limit, 64))
 
@@ -925,47 +1052,51 @@ def _resolve_concurrency_limiter(config: LlmStageConfig) -> _SharedConcurrencyLi
 
 
 def _default_base_url(provider: str) -> str:
-    if provider == "gemini":
+    normalized = _normalize_provider_name(provider)
+    if normalized in {"gemini", "gemini-native"}:
         return "https://generativelanguage.googleapis.com/v1beta"
-    if provider == "groq":
+    if normalized == "groq":
         return "https://api.groq.com/openai/v1"
     return "https://api.openai.com/v1"
 
 
 def _resolve_base_url_for_provider(provider: str) -> str:
-    upper = provider.upper()
+    normalized = _normalize_provider_name(provider)
+    env_suffix = _provider_env_suffix(normalized)
     return (
-        os.getenv(f"QUERY_FORGE_LLM_{upper}_BASE_URL")
-        or _default_base_url(provider)
+        os.getenv(f"QUERY_FORGE_LLM_{env_suffix}_BASE_URL")
+        or _default_base_url(normalized)
     ).strip()
 
 
 def _default_model(provider: str) -> str:
-    if provider == "gemini":
+    normalized = _normalize_provider_name(provider)
+    if normalized in {"gemini", "gemini-native"}:
         return "gemini-2.5-flash"
-    if provider == "groq":
+    if normalized == "groq":
         return "llama-3.1-8b-instant"
     return "gpt-4o-mini"
 
 
 def _resolve_api_key_for_provider(provider: str) -> str:
-    provider = provider.lower().strip()
-    upper = provider.upper()
-    if provider == "gemini":
+    normalized = _normalize_provider_name(provider)
+    env_suffix = _provider_env_suffix(normalized)
+    if normalized in {"gemini", "gemini-native"}:
         return str(
-            os.getenv(f"QUERY_FORGE_LLM_{upper}_API_KEY")
+            os.getenv(f"QUERY_FORGE_LLM_{env_suffix}_API_KEY")
+            or os.getenv("QUERY_FORGE_LLM_GEMINI_API_KEY")
             or os.getenv("GEMINI_API_KEY")
             or ""
         ).strip()
-    if provider == "groq":
+    if normalized == "groq":
         return str(
-            os.getenv(f"QUERY_FORGE_LLM_{upper}_API_KEY")
+            os.getenv(f"QUERY_FORGE_LLM_{env_suffix}_API_KEY")
             or os.getenv("GROQ_API_KEY")
             or ""
         ).strip()
-    if provider == "openai":
+    if normalized == "openai":
         return str(
-            os.getenv(f"QUERY_FORGE_LLM_{upper}_API_KEY")
+            os.getenv(f"QUERY_FORGE_LLM_{env_suffix}_API_KEY")
             or os.getenv("OPENAI_API_KEY")
             or ""
         ).strip()
@@ -1085,22 +1216,19 @@ def _extract_first_balanced_object(text: str) -> str | None:
     return None
 
 
-def _is_gemini_native_mode(config: LlmStageConfig) -> bool:
-    return config.provider == "gemini" and "/openai" not in config.base_url.rstrip("/")
-
-
 def _parse_provider_model_spec(spec: str, *, default_provider: str) -> tuple[str, str]:
     raw = str(spec or "").strip()
     if not raw:
         return "", ""
+    normalized_default = _normalize_provider_name(default_provider)
     if ":" not in raw:
-        return default_provider, raw
+        return normalized_default, raw
     prefix, remainder = raw.split(":", 1)
-    provider = prefix.strip().lower()
+    provider = _normalize_provider_name(prefix)
     model = remainder.strip()
     if provider in SUPPORTED_PROVIDERS and model:
         return provider, model
-    return default_provider, raw
+    return normalized_default, raw
 
 
 def _validate_against_schema(payload: Any, schema: dict[str, Any] | None) -> None:
