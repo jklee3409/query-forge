@@ -1,12 +1,14 @@
 ---
 id: gen_c_v1
 family: query_generation
-version: v3
+version: v4
 status: active
 ---
 
-Strategy C (SAP practical-troubleshooting):
-Generate Korean synthetic queries with SAP flow.
+Strategy hypothesis:
+- C is aggressive practical-troubleshooting strategy for SAP flow.
+- Retrieval tendency: strongest real-world problem-solving signal and style diversity by query type.
+- Difference from A/B: prioritize applied troubleshooting behavior over neutral phrasing.
 
 Inputs:
 - original_chunk_en
@@ -16,45 +18,49 @@ Inputs:
 - answerability_type(single|near|far)
 - query_type(definition|reason|procedure|comparison|short_user|code_mixed|follow_up)
 
-Experiment hypothesis:
-- C should maximize practical troubleshooting realism and retrieval discrimination.
-- Compared with A/B, C should show stronger intent variety by `query_type` and context-sensitive tone.
-
 Rules:
-1. `query_ko` must be Korean developer-native and practically actionable.
-2. Keep technical glossary terms and critical entities in English.
-3. Explicitly prefer troubleshooting, misconfiguration diagnosis, and applied usage intent.
-4. Include concrete retrieval anchors when relevant:
-   annotation, configuration property, bean lifecycle, auto-configuration, transaction, security, testing, web, data access.
-5. Keep query concise, specific, and non-generic.
-6. `style_note` must record the stylistic intent in one short phrase (not meta explanation).
+1. `query_ko` must reflect practical Korean developer intent (search/chat/RAG usage).
+2. Prioritize troubleshooting, misconfiguration diagnosis, and operational fix intent.
+3. Keep key technical entities in English where needed.
+4. Include concrete anchors when relevant: annotation, configuration property, bean lifecycle, auto-configuration, transaction, security, testing, web, data access, actuator, configuration binding.
+5. `style_note` must be a short reason for style choice (e.g., `troubleshooting-cause`, `follow-up-context`, `short-search-intent`), not a long explanation.
+6. Keep query concise, specific, and non-generic.
 
-Answerability bias:
-1. `single`: one chunk direct answer with clear local anchor.
-2. `near`: naturally requires combining nearby chunk details (e.g., trigger + behavior).
-3. `far`: requires linking separated concepts/info in document scope, still answerable.
+Quality targets:
+1. Clear retrieval discrimination against similar chunks.
+2. Strong distinction across `follow_up`, `code_mixed`, `short_user`.
+3. Answerability remains inside `single/near/far` scope.
+4. Avoid textbook tone; prefer applied engineering context.
 
-Query type style control:
-1. `definition`: practical meaning-in-context, not glossary style only.
-2. `reason`: why/cause/background of behavior.
-3. `procedure`: configuration or fix steps.
-4. `comparison`: concrete option/behavior difference.
-5. `short_user`: very short but unambiguous; must keep at least one anchor.
-6. `code_mixed`: Korean base + key technical terms English.
-7. `follow_up`: continuation tone that implies prior turn context.
+Answerability guidance:
+1. `single`: directly answerable from one chunk with explicit anchor.
+2. `near`: adjacent chunk linkage needed for complete answer.
+3. `far`: separated evidence linkage needed; still answerable and meaningful.
+
+Query type control:
+1. `definition`: practical definition in usage context.
+2. `reason`: root cause / why behavior occurs.
+3. `procedure`: setup/apply/fix sequence.
+4. `comparison`: concrete difference between options/configs.
+5. `short_user`: short but specific, anchor mandatory.
+6. `code_mixed`: Korean base + essential English technical terms.
+7. `follow_up`: continuation tone with implicit prior context.
 
 Forbidden patterns:
-1. Source sentence copy or near-copy.
-2. Template-like textbook phrasing.
-3. Generic questions applicable to almost any Spring chunk.
-4. Out-of-scope or unanswerable question for target evidence.
-5. Long, noisy, multi-intent query.
+1. Source chunk copy or near-copy.
+2. Generic question that fits many unrelated chunks.
+3. Yes/no-only or out-of-scope question.
+4. Excessively long or overly compressed ambiguous wording.
+5. Style mismatch with `query_type` or `answerability_type`.
+6. Any non-JSON text output.
 
-Output contract (strict JSON):
-1. Output exactly one JSON object. No markdown, no code fence, no trailing text.
-2. Required fields must be present and non-empty strings.
-3. `query_type` and `answerability_type` must be exact echo of input labels.
-4. Keep `query_ko` <= 160 chars and `style_note` <= 80 chars.
+Output contract:
+1. Structured output is enforced by runtime, but output must remain exactly one JSON object.
+2. No markdown, no code fence, no trailing text.
+3. Required fields must be non-empty.
+4. `query_type` and `answerability_type` must exactly echo input labels.
+5. Keep `query_ko` <= 160 chars and `style_note` <= 80 chars.
+6. If possible, first char `{` and last char `}`.
 
 Output schema:
 {
@@ -63,3 +69,6 @@ Output schema:
   "answerability_type": "...",
   "style_note": "..."
 }
+
+Internal self-check (do not output):
+- style reason clear, anchor present, answerability scope ok, single JSON object only.

@@ -1,55 +1,67 @@
 ---
 id: gen_b_v1
 family: query_generation
-version: v3
+version: v4
 status: active
 ---
 
-Strategy B (Korean-native baseline):
-English original -> Korean translation -> Korean summary -> Korean synthetic query.
+Strategy hypothesis:
+- B is Korean-native strategy: maximize Korean developer search tone while keeping technical anchors.
+- Retrieval tendency: user-like wording with preserved anchor signal after translation/summarization.
+- Difference from A: prioritize Korean query naturalness, explicitly controlling anchor loss.
 
-Experiment hypothesis:
-- Korean-first composition improves user-likeness for Korean developers.
-- Retrieval quality is maintained if key technical anchors remain in English and survive summarization.
-- Difference from A: prioritize Korean practical tone first, while explicitly guarding against anchor loss.
+Inputs:
+- original_chunk_en
+- query_type(definition|reason|procedure|comparison|short_user|code_mixed|follow_up)
+- answerability_type(single|near|far)
 
 Rules:
-1. `translated_chunk_ko` must be faithful and concise; preserve key entities/terms in English when needed.
-2. `summary_ko` must retain retrieval-critical anchors, not abstract them away.
-3. `query_ko` must sound like a real Korean developer input (search/chatbot style), not a textbook sentence.
-4. Prefer problem-solving, configuration-cause, procedure, and comparison intents.
-5. Include concrete Spring anchors when relevant:
-   annotation, configuration property, bean lifecycle, auto-configuration, transaction, security, testing, web, data access.
-6. Keep question compact but specific enough to distinguish target chunk(s).
+1. `translated_chunk_ko` must be faithful and concise.
+2. Preserve critical technical entities in English where needed (class/annotation/property/API names).
+3. `summary_ko` must keep retrieval-critical anchors and constraints; do not over-abstract.
+4. `query_ko` must sound like real Korean developer search/chat input.
+5. Prefer troubleshooting, configuration-cause, procedure, and comparison intent.
+6. Use concrete Spring anchors when relevant: annotation, configuration property, bean lifecycle, auto-configuration, transaction, security, testing, web, data access, actuator, configuration binding.
+7. Keep query short but not vague.
 
-Answerability bias:
-1. `single`: one-chunk answerability with explicit local anchor.
-2. `near`: designed to require combining nearby evidence (adjacent setup/result).
-3. `far`: designed to connect separated document evidence while staying answerable.
+Quality targets:
+1. Query should differentiate the target chunk from nearby similar chunks.
+2. Query must remain answerable within `single/near/far` evidence scope.
+3. Avoid generic high-level wording and textbook-style phrasing.
+4. Avoid too long or too compressed ambiguous wording.
 
-Query type style control:
-1. `definition`: practical usage context included.
-2. `reason`: explicit cause/why question.
-3. `procedure`: step/order/fix intent.
-4. `comparison`: concrete behavior/config difference.
-5. `short_user`: short, specific, non-ambiguous.
-6. `code_mixed`: Korean sentence with core terms in English.
-7. `follow_up`: concise continuation tone from prior context.
+Answerability guidance:
+1. `single`: direct one-chunk answerability with explicit local anchor.
+2. `near`: adjacent chunk linkage improves correctness; one chunk can be slightly insufficient.
+3. `far`: separated evidence linkage required; still answerable in-document.
+
+Query type control:
+1. `definition`: definition with usage context.
+2. `reason`: cause/background of behavior.
+3. `procedure`: setup/apply/fix steps.
+4. `comparison`: concrete config/behavior difference.
+5. `short_user`: short and unambiguous.
+6. `code_mixed`: Korean base with core terms in English.
+7. `follow_up`: concise continuation tone.
 
 Forbidden patterns:
-1. Source sentence copy or minor rewording copy.
-2. Anchor-less generic high-level questions.
-3. Over-broad, yes/no-only, or out-of-scope questions.
-4. Overly long or abstract summary/query that weakens retrieval discrimination.
+1. Source sentence copy or shallow paraphrase copy.
+2. Generic anchor-less question.
+3. Yes/no-only, too broad, or out-of-scope question.
+4. Overly abstract summary that drops retrieval signal.
+5. Style mismatch with `query_type` or `answerability_type`.
+6. Any non-JSON text output.
 
-Output contract (strict JSON):
-1. Output exactly one JSON object. No markdown, no code fence, no trailing text.
-2. Required fields must be present and non-empty.
-3. `query_type` and `answerability_type` must be exact echo of input labels.
-4. Length guidance:
+Output contract:
+1. Runtime structured output is available, but output must still be one JSON object only.
+2. No markdown, no code fence, no trailing text.
+3. Required fields must be present and non-empty.
+4. `query_type` and `answerability_type` must exactly echo input labels.
+5. Length guidance:
    - `translated_chunk_ko` <= 900 chars
    - `summary_ko` <= 320 chars
    - `query_ko` <= 160 chars
+6. If possible, first char `{` and last char `}`.
 
 Output schema:
 {
@@ -59,3 +71,6 @@ Output schema:
   "query_type": "...",
   "answerability_type": "..."
 }
+
+Internal self-check (do not output):
+- anchor retained, answerability scope ok, query style matches type, single JSON object only.
