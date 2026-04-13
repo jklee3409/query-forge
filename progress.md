@@ -23,6 +23,12 @@ High-level progress tracking for the project.
 - Issues encountered: Existing README content was not suitable as a stable root guide due to encoding/readability issues in terminal output.
 - Next steps: Keep directory-level READMEs synchronized with implementation changes and expand per-module Korean documentation where legacy/default templates remain.
 
+## [2026-04-13] Session Summary (Skill: git-commit)
+- What was done: Created `.codex/skills/git-commit` using the `skill-creator` workflow, implemented a commit workflow based on `git diff`, and added AngularJS-style commit guidance with Korean + English technical message examples.
+- Key decisions: Focused the skill on logical commit splitting, unnecessary file exclusion, and staged-diff verification before each commit.
+- Issues encountered: Initial `openai.yaml` generation had a short-description length violation and `$git-commit` prompt escaping issue; regenerated metadata with valid interface values.
+- Next steps: Use `$git-commit` in real commit sessions and refine exclusion heuristics if project-specific noise patterns are observed.
+
 ---
 
 ## Notes

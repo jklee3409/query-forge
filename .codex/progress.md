@@ -3,6 +3,12 @@
 ## Overview
 High-level progress tracking for the project.
 
+## [2026-04-13] Session Summary (Skill Added)
+- What was done: Added `.codex/skills/git-commit` and authored a reusable workflow for git-diff analysis, logical commit splitting, AngularJS commit typing, and unnecessary file exclusion.
+- Key decisions: Embedded Korean + English technical commit message examples directly in `SKILL.md` to enforce output style consistently.
+- Issues encountered: Regenerated `agents/openai.yaml` after interface validation and `$git-commit` prompt escaping corrections.
+- Next steps: Keep this skill updated when repository-specific commit boundaries or exclusion patterns evolve.
+
 ---
 
 ## [2026-04-13] Session Summary
