@@ -17,6 +17,15 @@ query-forge:
     query_model: ${QUERY_FORGE_LLM_QUERY_MODEL:gemini-2.5-flash}
     self_eval_model: ${QUERY_FORGE_LLM_SELF_EVAL_MODEL:gemini-2.5-flash}
     rewrite_model: ${QUERY_FORGE_LLM_REWRITE_MODEL:gemini-2.5-flash}
-    rpm: ${QUERY_FORGE_LLM_RPM:1000}
+    fallback_models: ${QUERY_FORGE_LLM_FALLBACK_MODELS:}
+    max_retries: ${QUERY_FORGE_LLM_MAX_RETRIES:4}
+    backoff_initial_seconds: ${QUERY_FORGE_LLM_BACKOFF_INITIAL_SECONDS:0.75}
+    backoff_max_seconds: ${QUERY_FORGE_LLM_BACKOFF_MAX_SECONDS:12}
+    backoff_multiplier: ${QUERY_FORGE_LLM_BACKOFF_MULTIPLIER:2.0}
+    backoff_jitter_ratio: ${QUERY_FORGE_LLM_BACKOFF_JITTER_RATIO:0.35}
+    thinking_budget: ${QUERY_FORGE_LLM_THINKING_BUDGET:0}
+    max_output_tokens: ${QUERY_FORGE_LLM_MAX_OUTPUT_TOKENS:384}
+    concurrency_limit: ${QUERY_FORGE_LLM_CONCURRENCY_LIMIT:4}
+    rpm: ${QUERY_FORGE_LLM_RPM:300}
     tpm: ${QUERY_FORGE_LLM_TPM:1000000}
     rpd: ${QUERY_FORGE_LLM_RPD:10000}

@@ -22,7 +22,7 @@ Rules:
 - Never use gold document or gold answer.
 - Use concise Korean wording and preserve technical terms in English.
 
-Output format (strict JSON):
+Structured output target fields:
 {
   "candidates": [
     {"label": "explicit_standalone", "query": "..."},

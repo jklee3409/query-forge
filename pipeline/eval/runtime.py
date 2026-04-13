@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import math
 import os
@@ -72,6 +73,27 @@ class RewriteOutcome:
 _REWRITE_CLIENT: LlmClient | None = None
 _REWRITE_PROMPT_TEXT: str | None = None
 _RERANKER: CohereReranker | None = None
+
+REWRITE_RESPONSE_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "required": ["candidates"],
+    "properties": {
+        "candidates": {
+            "type": "array",
+            "minItems": 1,
+            "items": {
+                "type": "object",
+                "required": ["label", "query"],
+                "properties": {
+                    "label": {"type": "string"},
+                    "query": {"type": "string"},
+                },
+                "additionalProperties": True,
+            },
+        },
+    },
+    "additionalProperties": True,
+}
 
 
 def load_eval_samples(
@@ -364,6 +386,7 @@ def build_rewrite_candidates(
     session_context: dict[str, Any],
     candidate_count: int,
 ) -> list[dict[str, str]]:
+    trace_id = f"rewrite:{hashlib.sha1(raw_query.encode('utf-8')).hexdigest()[:12]}"
     response = _rewrite_client().chat_json(
         system_prompt=_rewrite_prompt_text(),
         user_prompt=json.dumps(
@@ -376,6 +399,9 @@ def build_rewrite_candidates(
             ensure_ascii=False,
             indent=2,
         ),
+        response_schema=REWRITE_RESPONSE_SCHEMA,
+        request_purpose="selective_rewrite",
+        trace_id=trace_id,
     )
     candidate_rows = response.get("candidates")
     if not isinstance(candidate_rows, list):

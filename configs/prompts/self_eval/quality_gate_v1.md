@@ -14,7 +14,7 @@ Score each dimension from 1 to 5:
 - korean_naturalness
 - copy_control
 
-Return strict JSON object:
+Structured output target fields:
 {
   "schema_version": "v1",
   "scores": {
@@ -34,4 +34,4 @@ Return strict JSON object:
   "overall_comment": "..."
 }
 
-Do not output text outside JSON.
+The response is validated by API schema. Ensure required fields are present.

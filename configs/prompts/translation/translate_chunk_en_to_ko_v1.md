@@ -1,7 +1,7 @@
 ---
 id: translate_chunk_en_to_ko_v1
 family: translation
-version: v1
+version: v2
 status: active
 ---
 
@@ -12,7 +12,15 @@ Rules:
 2. Keep original meaning and do not add new facts.
 3. Keep concise sentence boundaries for downstream summary and query generation.
 
-Output format (strict JSON):
+Structured output contract:
+1. The response is validated against API schema. Fill required fields with non-empty values.
+2. Keep `translated_chunk_ko` concise and complete (max 1200 characters).
+
+Target fields:
 {
   "translated_chunk_ko": "..."
 }
+
+Additional constraints:
+- Preserve semantics of the source chunk.
+- If unsure about style, prioritize faithful translation over fluency.

@@ -47,6 +47,33 @@ SPECIAL_CHAR_EXCEPTION_PATTERN = (
     "`",
 )
 
+SELF_EVAL_RESPONSE_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "required": ["scores"],
+    "properties": {
+        "schema_version": {"type": "string"},
+        "scores": {
+            "type": "object",
+            "required": [
+                "grounded",
+                "answerable",
+                "user_like",
+                "korean_naturalness",
+                "copy_control",
+            ],
+            "properties": {
+                "grounded": {"type": "integer"},
+                "answerable": {"type": "integer"},
+                "user_like": {"type": "integer"},
+                "korean_naturalness": {"type": "integer"},
+                "copy_control": {"type": "integer"},
+            },
+            "additionalProperties": True,
+        },
+    },
+    "additionalProperties": True,
+}
+
 
 @dataclass(slots=True)
 class RawQueryRow:
@@ -292,6 +319,9 @@ def _llm_self_eval(
             ensure_ascii=False,
             indent=2,
         ),
+        response_schema=SELF_EVAL_RESPONSE_SCHEMA,
+        request_purpose="quality_gating_self_eval",
+        trace_id=f"query:{query.synthetic_query_id}",
     )
     scores_raw = payload.get("scores") if isinstance(payload.get("scores"), dict) else {}
     scores = {

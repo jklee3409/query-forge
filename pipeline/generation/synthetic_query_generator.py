@@ -42,6 +42,51 @@ QUERY_TYPE_LABELS_KO: dict[str, str] = {
     "follow_up": "문맥 의존형 후속 질의",
 }
 
+SUMMARY_EN_RESPONSE_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "required": ["extractive_summary_en"],
+    "properties": {
+        "extractive_summary_en": {"type": "string"},
+        "key_terms": {
+            "type": "array",
+            "items": {"type": "string"},
+        },
+    },
+    "additionalProperties": True,
+}
+
+TRANSLATION_RESPONSE_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "required": ["translated_chunk_ko"],
+    "properties": {
+        "translated_chunk_ko": {"type": "string"},
+    },
+    "additionalProperties": True,
+}
+
+SUMMARY_KO_RESPONSE_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "required": ["summary_ko"],
+    "properties": {
+        "summary_ko": {"type": "string"},
+    },
+    "additionalProperties": True,
+}
+
+QUERY_BASE_RESPONSE_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "required": ["query_ko"],
+    "properties": {
+        "query_ko": {"type": "string"},
+        "query_en": {"type": "string"},
+        "query_code_mixed": {"type": "string"},
+        "query_type": {"type": "string"},
+        "answerability_type": {"type": "string"},
+        "style_note": {"type": "string"},
+    },
+    "additionalProperties": True,
+}
+
 
 @dataclass(slots=True)
 class ChunkRow:
@@ -373,10 +418,21 @@ def _create_asset(
     return str(row["asset_id"])
 
 
-def _llm_json(client: LlmClient, *, prompt_text: str, payload: dict[str, Any]) -> dict[str, Any]:
+def _llm_json(
+    client: LlmClient,
+    *,
+    prompt_text: str,
+    payload: dict[str, Any],
+    response_schema: dict[str, Any],
+    request_purpose: str,
+    trace_id: str,
+) -> dict[str, Any]:
     return client.chat_json(
         system_prompt=prompt_text,
         user_prompt=json.dumps(payload, ensure_ascii=False, indent=2),
+        response_schema=response_schema,
+        request_purpose=request_purpose,
+        trace_id=trace_id,
     )
 
 
@@ -409,6 +465,9 @@ def _resolve_or_create_summary_en(
             "product": chunk.product_name,
             "chunk_text_en": chunk.chunk_text,
         },
+        response_schema=SUMMARY_EN_RESPONSE_SCHEMA,
+        request_purpose="summary_extraction_en",
+        trace_id=f"chunk:{chunk.chunk_id}",
     )
     summary_en = str(response.get("extractive_summary_en") or response.get("summary_en") or "").strip()
     if not summary_en:
@@ -455,6 +514,9 @@ def _resolve_or_create_translated_chunk(
             "title": chunk.title,
             "chunk_text_en": chunk.chunk_text,
         },
+        response_schema=TRANSLATION_RESPONSE_SCHEMA,
+        request_purpose="translate_chunk_en_to_ko",
+        trace_id=f"chunk:{chunk.chunk_id}",
     )
     translated = str(response.get("translated_chunk_ko") or "").strip()
     if not translated:
@@ -503,6 +565,9 @@ def _resolve_or_create_summary_ko(
             "chunk_id": chunk.chunk_id,
             "source_text_ko": source_text_ko,
         },
+        response_schema=SUMMARY_KO_RESPONSE_SCHEMA,
+        request_purpose="summary_extraction_ko",
+        trace_id=f"chunk:{chunk.chunk_id}",
     )
     summary_ko = str(response.get("summary_ko") or "").strip()
     if not summary_ko:
@@ -1004,6 +1069,9 @@ def run_generation(
                     query_client,
                     prompt_text=query_prompt_text,
                     payload=query_payload,
+                    response_schema=QUERY_BASE_RESPONSE_SCHEMA,
+                    request_purpose="generate_query",
+                    trace_id=f"query:{stable_query_id}",
                 )
                 query_text, extra_trace = _extract_query_text(
                     generation_strategy=generation_strategy,
@@ -1015,6 +1083,9 @@ def run_generation(
                         query_client,
                         prompt_text=query_prompt_text,
                         payload={**query_payload, "retry_hint": "query_text_must_not_be_empty"},
+                        response_schema=QUERY_BASE_RESPONSE_SCHEMA,
+                        request_purpose="generate_query_retry",
+                        trace_id=f"query:{stable_query_id}",
                     )
                     query_text, extra_trace = _extract_query_text(
                         generation_strategy=generation_strategy,

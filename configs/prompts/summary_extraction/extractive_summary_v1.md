@@ -1,7 +1,7 @@
 ---
 id: extractive_summary_v1
 family: summary_extraction
-version: v1
+version: v2
 status: active
 ---
 
@@ -13,9 +13,19 @@ Task:
 3. Keep technical terms, class names, annotations, config keys, and CLI commands unchanged.
 4. Do not infer beyond the provided chunk.
 
-Output format (strict JSON):
+Structured output contract:
+1. The response is validated against API schema. Fill required fields with non-empty values.
+2. Keep output concise to avoid truncation:
+   - `extractive_summary_en`: max 320 characters
+   - `key_terms`: 3-6 items, short noun phrases
+
+Target fields:
 {
   "extractive_summary_en": "...",
   "key_terms": ["...", "..."],
   "grounding_note": "all claims are from source chunk"
 }
+
+Additional constraints:
+- `grounding_note` must be exactly "all claims are from source chunk".
+- If the input is noisy, still return best-effort grounded extractive summary from the input text.
