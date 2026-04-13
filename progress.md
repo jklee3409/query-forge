@@ -17,6 +17,12 @@ High-level progress tracking for the project.
 - Issues encountered: Existing workspace had unrelated modifications; this session avoided reverting non-target files and validated only touched paths.
 - Next steps: Apply migration in target DB, then run admin GUI generation/gating smoke checks and verify A/B/C/D strategy counts independently.
 
+## [2026-04-13] Session Summary (Root README Rewrite)
+- What was done: Rewrote root `README.md` in Korean narrative form and aligned content with `.codex/AGENTS.md` requirements (project objective, research overview/details, methodology, and fixed end-to-end flow).
+- Key decisions: Replaced the previous experiment-report style README with project-level guidance that emphasizes A/B/C/D strategy separation, selective/dynamic gating, and retrieval-aware evaluation dataset constraints.
+- Issues encountered: Existing README content was not suitable as a stable root guide due to encoding/readability issues in terminal output.
+- Next steps: Keep directory-level READMEs synchronized with implementation changes and expand per-module Korean documentation where legacy/default templates remain.
+
 ---
 
 ## Notes

@@ -1,195 +1,45 @@
-# Query Forge: A/C 1차 End-to-End 실험 결과
+# Query Forge
 
-본 문서는 2026-04-08에 수행한 **단일 문서 기반 A/C 비교 실험**의 전체 결과를 정리한다.  
-요청에 따라 실패가 반복된 방식(B/D)은 이번 1차 실험에서 스킵했고, LLM 호출 수를 최소화하기 위해 문서 1개와 소규모 질의 수로 실행했다.
+Query Forge는 연구 중심 RAG(Retrieval-Augmented Generation) 시스템을 구축하기 위한 프로젝트다. 이 저장소는 문서 수집부터 전처리, synthetic query 생성, 품질 게이팅, memory 구성, 평가 데이터셋 구축, retrieval/answer 평가까지의 전 과정을 일관된 파이프라인으로 관리한다.
 
----
+프로젝트의 핵심 목적은 단순 데모가 아니라, A/B/C/D 생성 전략을 분리해 실험하고 재현 가능한 방식으로 성능 차이를 검증하는 데 있다. 이를 위해 파이프라인 순서, 데이터 스키마, 실험 설정을 코드와 설정 파일로 명시하고, 운영 화면(Admin GUI)에서 주요 파라미터를 조정할 수 있도록 설계했다.
 
-## 1) 실험 범위와 제한
+## 연구 개요
 
-- 대상 문서: `doc_9cda44a0542f929e` (Method Security)
-- 문서 수: 1개
-- 생성 방식: **A, C만 수행**
-- 생성 입력 청크: 각 방식 `limit_chunks=3`
-- 합성 질의 생성 결과:
-  - A: 3건
-  - C: 5건
-- 게이팅: 각 방식 1회 실행 (총 2회)
-- 평가셋: 단일 문서 기반 수동 구축 6문항 (`e2e_ac_doc1_v1`)
-- RAG 평가 모드: `raw_only`, `selective_rewrite`
+이 프로젝트는 synthetic query를 네 가지 방법론으로 생성한다. A는 번역체 성향의 한국어 질의, B는 자연스러운 한국어 개발자 질의, C는 구조적이고 다단계 추론을 유도하는 질의, D는 한국어와 영어 기술 용어가 섞인 code-mixed 질의를 다룬다. 각 전략은 실험 단계에서 서로 대체 가능한 옵션이 아니라, 비교 대상 자체로 취급된다.
 
-> 참고: 로컬 Ollama(`llama3.2:latest`)를 사용했으며, 결과 품질은 상용 모델 대비 보수적으로 해석해야 한다.
+연구 관점에서 중요한 점은 전략별 결과를 명확히 분리하고, 같은 코퍼스를 기준으로 질의 스타일만 바꿔 비교 가능하게 유지하는 것이다. 이 원칙은 생성 단계뿐 아니라 gating, memory, eval 단계까지 동일하게 적용된다.
 
----
+## 연구 상세
 
-## 2) 실행 이력 (핵심 run)
+synthetic query 원천 데이터는 `synthetic_queries_raw_a`, `synthetic_queries_raw_b`, `synthetic_queries_raw_c`, `synthetic_queries_raw_d`처럼 전략별 테이블로 분리해 저장한다. 단일 raw 테이블로 합치지 않는 이유는 전략 효과를 단계별로 추적하고, 실험 중간에 특정 전략만 선택적으로 재실행할 수 있게 하기 위해서다.
 
-- `e2e_gen_a`: `63da919f-f461-4d01-bd32-05da56e4f841`
-- `e2e_gen_c`: `c38d752d-0f93-4c95-abfb-6684cffe8f1f`
-- `e2e_gate_a`: `418dc6b4-9c64-4327-8eb4-3d7f58b0c108`
-- `e2e_gate_c`: `b4337d47-34fe-4475-95aa-9e0628792377`
-- `e2e_eval_a`: `1c350e37-0afd-4865-9862-b665f3b1ea96`
-- `e2e_eval_c`: `7c78e435-c6ea-487e-a488-b905d3de1ee2`
+quality gating은 전략 선택을 먼저 수행한 뒤 적용한다. 즉 A만 게이팅하거나, B만 게이팅하거나, A와 C를 묶어 게이팅하는 시나리오를 모두 지원한다. 또한 게이팅 임계값과 가중치는 요청 단위로 동적으로 주입되며, Admin GUI에서 조정 가능한 값을 하드코딩하지 않는 것을 기본 원칙으로 한다.
 
----
+평가 데이터셋은 일반적인 QA 쌍이 아니라 retrieval-aware 구조를 따른다. 각 샘플은 `user_query_ko`와 함께 `expected_doc_ids`, `expected_chunk_ids`, `expected_answer_key_points`를 포함해 정답의 근거 문서와 청크를 명시해야 한다. 이 제약은 hallucination을 줄이고, retrieval 품질과 answer 품질을 분리해 진단하기 위한 설계다.
 
-## 3) A/C 프롬프트 예시 (각 1개)
+## 방법론
 
-### A 방식 프롬프트 예시 (`configs/prompts/query_generation/gen_a_v1.md`)
+방법론의 중심은 실험 설정 기반 실행이다. 프롬프트와 실험 파라미터는 `configs/`에서 관리하고, 실행 결과는 run 단위로 추적한다. 데이터베이스 스키마는 Flyway migration으로 버전 관리하며, 특히 전략 분리 저장 구조는 `V17__split_strategy_raw_tables_and_drop_legacy_raw.sql`을 통해 반영된다.
+
+실행 계층은 Python 파이프라인과 Spring Boot 백엔드로 나뉜다. Python 파이프라인은 데이터/실험 처리의 본체를 담당하고, 백엔드는 Admin GUI와 실행 오케스트레이션, 실험 결과 조회 기능을 제공한다. 이 구조를 통해 연구 코드와 운영 인터페이스를 분리하면서도 실험 반복 비용을 줄인다.
+
+## End-to-End 프로젝트 흐름
+
+프로젝트의 고정 파이프라인 순서는 아래와 같으며, 단계 순서를 변경하지 않는 것을 원칙으로 한다.
 
 ```text
-Strategy A:
-English original -> English extractive summary -> English synthetic query -> Korean translation.
-
-Rules:
-1. Generate concise and realistic English user question first.
-2. Translate to Korean while preserving technical terms in English form.
+collect -> preprocess -> chunk -> glossary -> import
+-> generate-queries -> gate-queries -> build-memory
+-> build-eval-dataset -> eval-retrieval -> eval-answer
 ```
 
-### C 방식 프롬프트 예시 (`configs/prompts/query_generation/gen_c_v1.md`)
+초기 다섯 단계는 코퍼스를 수집하고 검색 가능한 형태로 정규화하는 구간이다. 이후 단계는 synthetic query 생성과 품질 통제, memory 구성, 평가셋 구축, retrieval/answer 성능 측정으로 이어진다. 실험 보고서는 각 실행 결과를 바탕으로 전략별 성능 차이를 해석하는 방식으로 작성한다.
 
-```text
-You generate Korean synthetic user queries with SAP flow.
+## 빠른 시작
 
-Inputs:
-- original_chunk_en
-- extractive_summary_en
-- extractive_summary_ko
-- glossary_terms_keep_english
-```
+로컬 실행은 PostgreSQL(pgvector) 준비 후 파이프라인 명령을 순차 실행하는 방식이 기본이다. 루트에서 `make up`으로 데이터베이스를 띄우고, `.env.example`을 참고해 API 키와 실험 설정을 구성한 뒤, `make generate-queries EXPERIMENT=<실험명>`처럼 단계별 명령을 실행하면 된다. 백엔드 Admin GUI가 필요하면 `make run-backend`로 서버를 실행해 상태와 결과를 확인한다.
 
----
+## 디렉터리 안내
 
-## 4) 합성 질의 생성/게이팅 결과
-
-### 생성 결과
-
-| 방식 | 생성 수 | query_type 분포 | answerability 분포 |
-| --- | ---: | --- | --- |
-| A | 3 | definition 1, comparison 1, reason 1 | single 2, far 1 |
-| C | 5 | procedure 4, comparison 1 | single 2, near 1, far 2 |
-
-### 게이팅 생존 결과 (full_gating, 1회씩)
-
-| 방식 | 입력 | 최종 승인 | 생존율 |
-| --- | ---: | ---: | ---: |
-| A | 3 | 3 | 100% |
-| C | 5 | 5 | 100% |
-
-추가 진단(저장된 `rejection_reasons` 토큰 빈도):
-
-- A: `korean_ratio_low` 3회, `copy_ratio_high` 1회
-- C: `length_out_of_range` 4회, `token_count_out_of_range` 4회, `korean_ratio_low` 2회
-
-> 이번 1차 실험은 안정 실행을 위해 게이팅 스위치를 보수적으로 설정했고(`final_score_threshold=0.0`), 탈락 없이 통과시켰다.  
-> 따라서 위 reason은 탈락 사유가 아니라 품질 경고 신호로 해석한다.
-
----
-
-## 5) RAG 품질 비교 결과 (A vs C)
-
-평가셋: `e2e_ac_doc1_v1` (6문항, 단일 문서 수동 구축)
-
-### A 방식 (`e2e_eval_a`)
-
-| 모드 | Recall@5 | Hit@5 | MRR@10 | nDCG@10 | Rewrite 수용률 | Rewrite 거절률 | Avg confidence delta |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| raw_only | 0.3333 | 0.3333 | 0.2222 | 0.3200 | 0.0000 | 0.0000 | 0.0000 |
-| selective_rewrite | 0.1667 | 0.1667 | 0.1667 | 0.1667 | 0.5000 | 0.5000 | +0.0180 |
-
-- selective rewrite 적용 시 MRR/nDCG가 하락했다.
-- `bad_rewrite_rate` = 0.6667 (적용된 rewrite 중 성능 악화 비율이 높음)
-
-### C 방식 (`e2e_eval_c`)
-
-| 모드 | Recall@5 | Hit@5 | MRR@10 | nDCG@10 | Rewrite 수용률 | Rewrite 거절률 | Avg confidence delta |
-| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| raw_only | 0.3333 | 0.3333 | 0.2222 | 0.3200 | 0.0000 | 0.0000 | 0.0000 |
-| selective_rewrite | 0.3333 | 0.3333 | 0.2222 | 0.3200 | 0.0000 | 1.0000 | -0.0143 |
-
-- selective rewrite가 전부 거절되어 raw와 동일 성능을 유지했다.
-- 1차 결과 해석: **C는 보수적으로 raw 품질을 유지**, A는 일부 rewrite 채택으로 성능 변동이 컸다.
-
----
-
-## 6) 테스트 데이터셋 구축 과정과 이유
-
-이번 실험의 평가셋은 자동 생성이 아니라 단일 문서를 직접 읽고 수동으로 구성했다.
-
-- dataset: `e2e_ac_doc1_v1`
-- dataset_id: `55bd5f88-c6f3-4d83-9353-557ad63d56b8`
-- 총 6문항 (dev 3, test 3)
-- 분포:
-  - query_category: procedure 4, comparison 1, reason 1
-  - answerability: single 4, multi 2
-
-구축 이유:
-
-1. 1차 실험에서 빠르게 재현 가능한 최소 문항 수를 유지하면서도, single/multi와 유형 차이를 동시에 관찰하기 위해.
-2. 합성 질의 기반 메모리의 효과를 보려면 정답 chunk가 명시된 문항이 필요해, 각 문항의 `expected_chunk_ids`를 수동 지정.
-3. B/D 스킵 상황에서 A/C 비교만 우선 검증하기 위해 평가셋 규모를 의도적으로 작게 제한.
-
----
-
-## 7) 관리자 GUI 그래프 반영
-
-요구사항에 맞춰 관리자 화면에서 그래프 확인이 가능하도록 반영했다.
-
-- 합성 질의 페이지: 방식별 생성량 그래프
-- 게이팅 페이지: 게이팅 퍼널 그래프
-- RAG 테스트 페이지: 핵심 지표(Recall/Hit/MRR/nDCG) 그래프
-
-관련 수정 파일:
-
-- `backend/src/main/resources/templates/admin/synthetic-queries.html`
-- `backend/src/main/resources/templates/admin/quality-gating.html`
-- `backend/src/main/resources/templates/admin/rag-tests.html`
-- `backend/src/main/resources/static/admin/console.js`
-- `backend/src/main/resources/static/admin/admin.css`
-
----
-
-## 8) 실험 중 실패와 최소 수정 대응
-
-실패 구간은 기존 기능 전체를 바꾸지 않고, 오류 지점만 최소 수정했다.
-
-1. LLM 응답 JSON 파싱 실패/재시도 부족
-   - `pipeline/common/llm_client.py`에 재시도/backoff 및 fallback 처리 강화
-2. 생성 결과 빈 질의 응답
-   - `pipeline/generation/synthetic_query_generator.py`에 추출 fallback/빈 질의 스킵 처리
-3. 게이팅 INSERT placeholder mismatch
-   - `pipeline/gating/quality_gating.py` SQL placeholder 정합성 수정
-4. 평가 저장 시 FK 오류 (`retrieval_results.document_id_fkey`)
-   - `pipeline/eval/retrieval_eval.py`에서 legacy FK 충돌을 피하도록 `document_id/chunk_id`는 NULL 저장하고 실제 ID는 metadata에 저장
-
----
-
-## 9) 재현 커맨드 (A/C만)
-
-```bash
-# 1) A/C 생성
-python pipeline/cli.py generate-queries --experiment e2e_gen_a
-python pipeline/cli.py generate-queries --experiment e2e_gen_c
-
-# 2) A 게이팅 + A 메모리
-python pipeline/cli.py gate-queries --experiment e2e_gate_a
-python pipeline/cli.py build-memory --experiment e2e_gate_a
-
-# 3) C 게이팅 + C 메모리
-python pipeline/cli.py gate-queries --experiment e2e_gate_c
-python pipeline/cli.py build-memory --experiment e2e_gate_c
-
-# 4) 평가
-python pipeline/cli.py eval-retrieval --experiment e2e_eval_a
-python pipeline/cli.py eval-retrieval --experiment e2e_eval_c
-```
-
----
-
-## 10) 1차 결론
-
-단일 문서/소규모 호출 조건의 1차 실험에서:
-
-- 생성량은 C가 A보다 많았고(5 vs 3), 문장 품질 경고는 C에서 더 많이 관찰됨.
-- selective rewrite는 A에서 일부 채택되었지만 성능 하락 가능성이 컸고, C는 보수적으로 전부 거절되어 baseline 유지.
-- 다음 단계는 동일 파이프라인에서 문항 수를 점진 확장하고, 게이팅 threshold를 실제 탈락이 발생하는 수준으로 올려 A/C 차이를 재검증하는 것이다.
+`pipeline/`은 연구 파이프라인 코드, `backend/`는 Admin API/UI와 DB migration, `configs/`는 실험/프롬프트 설정, `data/`는 산출물과 데이터셋, `docs/`는 문서화 자산, `infra/`는 인프라 및 SQL 관련 파일, `scripts/`는 보조 자동화 스크립트를 담당한다. 각 디렉터리의 구현 세부 사항은 해당 디렉터리의 `README.md`에서 확인할 수 있다.
