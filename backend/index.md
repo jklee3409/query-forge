@@ -26,3 +26,4 @@ Spring Boot backend for Admin Console APIs, RAG APIs, pipeline command orchestra
 - Legacy single-table `synthetic_queries_raw` is retired by migration `V17`.
 - Read paths use `synthetic_queries_raw_all` (union view over `synthetic_queries_raw_a/b/c/d`).
 - Write/provenance updates for synthetic raw rows are strategy-table specific.
+- Admin gating result API supports strategy filtering via `method_code` and paging via `limit/offset`.

@@ -13,6 +13,14 @@ High-level progress tracking for the project.
 
 ---
 
+## [2026-04-13] Session Summary (Gating Result UX)
+- What was done: Updated `GatingPage.jsx` to add method filter (`A/B/C/D`) for per-query gating result lookup and added pagination controls for result browsing.
+- Key decisions: Adopted offset pagination with fixed page size (`20`) and `hasNext` detection from `limit = pageSize + 1` response rows.
+- Issues encountered: Existing page text had mixed encoding artifacts; this session prioritized stable runtime behavior/API linkage over label cleanup.
+- Next steps: Validate UI behavior with multi-page batches and confirm method filter interacts correctly with selected gating batch context.
+
+---
+
 ## Notes
 - Keep this file concise
 - Only record important changes

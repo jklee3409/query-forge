@@ -17,6 +17,12 @@ High-level backend progress tracking.
 - Issues encountered: Required explicit coverage for deletion scope (target method only, running rows preserved), so integration test data setup was expanded.
 - Next steps: Execute admin QA scenario (same method re-run) and monitor batch/result/history tables for non-accumulating behavior.
 
+## [2026-04-13] Session Summary (Gating Results Filter + Pagination)
+- What was done: Extended gating results API to accept `method_code` filter and updated admin gating UI to support method-specific result filtering with page-based navigation (`limit/offset`).
+- Key decisions: Reused existing endpoint shape (`List<GatingResultRow>`) and implemented frontend pagination via `pageSize + 1` probing (`hasNext`) to avoid API contract break.
+- Issues encountered: Existing UI file had mixed encoding text blocks; functional rewrite of `GatingPage.jsx` was applied while preserving API payload shape.
+- Next steps: Run Admin GUI smoke test for A/B/C/D filter combinations and verify page transitions against large batches.
+
 ---
 
 ## Notes

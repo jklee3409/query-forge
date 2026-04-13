@@ -35,6 +35,12 @@ High-level progress tracking for the project.
 - Issues encountered: Needed to preserve in-flight gating jobs, so cleanup scope excludes `planned/running` statuses.
 - Next steps: Validate from Admin GUI by running A-method gating twice and confirming prior batch/result rows are replaced by the latest run context.
 
+## [2026-04-13] Session Summary (Gating Filter + Pagination)
+- What was done: Added method-based filtering (`method_code`) for admin gating result queries and implemented result table pagination in `frontend/src/pages/GatingPage.jsx`.
+- Key decisions: Kept backend response shape unchanged (`List<GatingResultRow>`) and implemented frontend paging with `limit/offset` + `pageSize+1` next-page probing.
+- Issues encountered: Frontend file contained mixed-encoding labels; focused on behavior/API consistency first and deferred pure text normalization.
+- Next steps: Perform Admin GUI smoke checks for A/B/C/D filtering and confirm result-page navigation across larger gating batches.
+
 ---
 
 ## Notes

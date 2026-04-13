@@ -33,5 +33,10 @@
 
 ---
 
+## Recent Update
+- Gating result view supports `methodCode` filter and `limit/offset` pagination UI.
+
+---
+
 ## Notes
 - Update this file when structure or responsibilities change
