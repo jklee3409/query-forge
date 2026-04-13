@@ -29,6 +29,12 @@ High-level progress tracking for the project.
 - Issues encountered: Initial `openai.yaml` generation had a short-description length violation and `$git-commit` prompt escaping issue; regenerated metadata with valid interface values.
 - Next steps: Use `$git-commit` in real commit sessions and refine exclusion heuristics if project-specific noise patterns are observed.
 
+## [2026-04-13] Session Summary (Admin Gating Reset)
+- What was done: Updated admin gating run flow to clear previous completed/failed/cancelled gating batches for the same generation method before creating a new gating batch, and added an integration test for cleanup scope.
+- Key decisions: Cleanup nulls `synthetic_queries_gated.gating_batch_id` first, then deletes target `quality_gating_batch` rows so dependent per-batch artifacts are removed via FK cascade without touching running batches.
+- Issues encountered: Needed to preserve in-flight gating jobs, so cleanup scope excludes `planned/running` statuses.
+- Next steps: Validate from Admin GUI by running A-method gating twice and confirming prior batch/result rows are replaced by the latest run context.
+
 ---
 
 ## Notes
