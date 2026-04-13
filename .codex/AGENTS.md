@@ -240,6 +240,19 @@ All `README.md` files must be written in Korean.
 Technical terms may remain in English.
 README content should be written in descriptive narrative form, not as fragment-only bullet lists.
 
+### 4.4 Code Modification Rules
+
+Before making changes, agents must review both the frontend and backend code paths related to the requirement.
+
+Agents must:
+- inspect the existing implementation across frontend and backend before editing code
+- modify only the code that is necessary to satisfy the requirement
+- avoid unnecessary rewrites, large-scale refactors, or speculative additions
+- prefer reusing existing code, extending existing modules, or integrating with the current structure
+- keep changes minimal, targeted, and consistent with the current architecture
+
+Agents must not replace working code with entirely new implementations unless the existing structure clearly cannot satisfy the requirement.
+
 ## 5. Repository Map (Agent Quick Index)
 
 This section is a table-of-contents map so agents can understand the project structure quickly.
