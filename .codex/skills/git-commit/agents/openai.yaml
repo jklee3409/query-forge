@@ -1,0 +1,4 @@
+interface:
+  display_name: "Git Commit KR+EN"
+  short_description: "Split logical commits from git diff using AngularJS types"
+  default_prompt: "Use $git-commit to analyze current git diff, split logical commits, and draft AngularJS-style commit messages using Korean + English technical terms."
