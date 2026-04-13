@@ -17,11 +17,19 @@ RETRY_IN_SECONDS_PATTERN = re.compile(r"try again in\s*([0-9]+(?:\.[0-9]+)?)s", 
 
 
 class _SharedRateLimiter:
-    def __init__(self, *, min_interval_seconds: float, tokens_per_minute: int) -> None:
+    def __init__(
+        self,
+        *,
+        min_interval_seconds: float,
+        tokens_per_minute: int,
+        requests_per_day: int,
+    ) -> None:
         self.min_interval_seconds = max(0.0, float(min_interval_seconds))
         self.tokens_per_minute = max(0, int(tokens_per_minute))
+        self.requests_per_day = max(0, int(requests_per_day))
         self._last_call_at = 0.0
         self._token_events: deque[tuple[float, int]] = deque()
+        self._request_events: deque[float] = deque()
         self._lock = threading.Lock()
 
     def acquire(self, estimated_tokens: int) -> None:
@@ -32,7 +40,8 @@ class _SharedRateLimiter:
 
                 wait_interval = self.min_interval_seconds - (now - self._last_call_at)
                 wait_tokens = self._wait_for_tokens(now, estimated_tokens)
-                wait_seconds = max(wait_interval, wait_tokens, 0.0)
+                wait_requests_per_day = self._wait_for_requests_per_day(now)
+                wait_seconds = max(wait_interval, wait_tokens, wait_requests_per_day, 0.0)
 
                 if wait_seconds <= 0.0:
                     now = time.monotonic()
@@ -40,6 +49,8 @@ class _SharedRateLimiter:
                     self._last_call_at = now
                     if self.tokens_per_minute > 0 and estimated_tokens > 0:
                         self._token_events.append((now, estimated_tokens))
+                    if self.requests_per_day > 0:
+                        self._request_events.append(now)
                     return
                 time.sleep(wait_seconds)
 
@@ -58,9 +69,24 @@ class _SharedRateLimiter:
         oldest = self._token_events[0][0] if self._token_events else now
         return max(0.0, (oldest + 60.0) - now)
 
+    def _wait_for_requests_per_day(self, now: float) -> float:
+        if self.requests_per_day <= 0:
+            return 0.0
+        used_requests = len(self._request_events)
+        overflow = (used_requests + 1) - self.requests_per_day
+        if overflow <= 0:
+            return 0.0
+        for index, timestamp in enumerate(self._request_events):
+            if (index + 1) >= overflow:
+                return max(0.0, (timestamp + 86400.0) - now)
+        oldest = self._request_events[0] if self._request_events else now
+        return max(0.0, (oldest + 86400.0) - now)
+
     def _evict_expired(self, now: float) -> None:
         while self._token_events and (now - self._token_events[0][0]) >= 60.0:
             self._token_events.popleft()
+        while self._request_events and (now - self._request_events[0]) >= 86400.0:
+            self._request_events.popleft()
 
 
 _RATE_LIMITERS: dict[str, _SharedRateLimiter] = {}
@@ -78,6 +104,7 @@ class LlmStageConfig:
     timeout_seconds: float
     min_interval_seconds: float
     tokens_per_minute: int
+    requests_per_day: int
     chars_per_token: float
 
 
@@ -89,7 +116,7 @@ class LlmClient:
     def chat_json(self, *, system_prompt: str, user_prompt: str) -> dict[str, Any]:
         if self.config.provider == "mock":
             return {"mock": True}
-        payload = {
+        payload: dict[str, Any] = {
             "model": self.config.model,
             "messages": [
                 {"role": "system", "content": system_prompt},
@@ -99,6 +126,7 @@ class LlmClient:
             "max_tokens": self.config.max_tokens,
             "response_format": {"type": "json_object"},
         }
+        retried_without_response_format = False
         max_attempts = int(os.getenv("QUERY_FORGE_LLM_MAX_RETRIES") or "6")
         max_attempts = max(1, min(max_attempts, 12))
         estimated_tokens = _estimate_request_tokens(
@@ -124,6 +152,16 @@ class LlmClient:
                 if attempt + 1 >= max_attempts:
                     raise
                 time.sleep(min(30.0, 1.5 * (2 ** attempt)))
+                continue
+
+            if (
+                response.status_code == 400
+                and self.config.provider == "gemini"
+                and "response_format" in payload
+                and not retried_without_response_format
+            ):
+                retried_without_response_format = True
+                payload.pop("response_format", None)
                 continue
 
             if response.status_code in {429, 500, 502, 503, 504}:
@@ -196,10 +234,15 @@ def load_stage_config(
         or _pick(llm_block, f"{stage}_provider", "provider")
         or os.getenv(f"QUERY_FORGE_LLM_{env_stage}_PROVIDER")
         or os.getenv("QUERY_FORGE_LLM_PROVIDER")
-        or "groq"
+        or "gemini"
     ).strip().lower()
 
-    default_base_url = "https://api.groq.com/openai/v1" if provider == "groq" else "https://api.openai.com/v1"
+    if provider == "gemini":
+        default_base_url = "https://generativelanguage.googleapis.com/v1beta/openai"
+    elif provider == "groq":
+        default_base_url = "https://api.groq.com/openai/v1"
+    else:
+        default_base_url = "https://api.openai.com/v1"
     base_url = str(
         _pick(raw_config, f"llm_{stage}_base_url", "llm_base_url")
         or _pick(llm_block, f"{stage}_base_url", "base_url")
@@ -208,7 +251,12 @@ def load_stage_config(
         or default_base_url
     ).strip()
 
-    default_model = "llama-3.1-8b-instant" if provider == "groq" else "gpt-4o-mini"
+    if provider == "gemini":
+        default_model = "gemini-2.5-flash"
+    elif provider == "groq":
+        default_model = "llama-3.1-8b-instant"
+    else:
+        default_model = "gpt-4o-mini"
     model = str(
         _pick(raw_config, f"llm_{stage}_model", "llm_model")
         or _pick(llm_block, f"{stage}_model", "model")
@@ -222,6 +270,7 @@ def load_stage_config(
         or _pick(llm_block, f"{stage}_api_key", "api_key")
         or os.getenv(f"QUERY_FORGE_LLM_{env_stage}_API_KEY")
         or os.getenv("QUERY_FORGE_LLM_API_KEY")
+        or os.getenv("GEMINI_API_KEY")
         or os.getenv("GROQ_API_KEY")
         or os.getenv("OPENAI_API_KEY")
         or ""
@@ -230,7 +279,7 @@ def load_stage_config(
     if provider != "mock" and not api_key:
         raise RuntimeError(
             f"LLM API key is required for provider={provider}. "
-            "Set QUERY_FORGE_LLM_API_KEY or GROQ_API_KEY."
+            "Set QUERY_FORGE_LLM_API_KEY (or GEMINI_API_KEY / GROQ_API_KEY / OPENAI_API_KEY)."
         )
 
     temperature = float(
@@ -254,21 +303,35 @@ def load_stage_config(
         or os.getenv("QUERY_FORGE_LLM_TIMEOUT_SECONDS")
         or 45.0
     )
+    default_rpm = 1000.0 if provider == "gemini" else 20.0
     requests_per_minute = float(
         _pick(raw_config, f"llm_{stage}_rpm", "llm_rpm")
         or _pick(llm_block, f"{stage}_rpm", "rpm")
         or os.getenv(f"QUERY_FORGE_LLM_{env_stage}_RPM")
         or os.getenv("QUERY_FORGE_LLM_RPM")
-        or 20.0
+        or default_rpm
     )
     min_interval = 0.0 if requests_per_minute <= 0 else 60.0 / requests_per_minute
-    default_tpm = 6000 if provider == "groq" else 0
+    if provider == "gemini":
+        default_tpm = 1_000_000
+    elif provider == "groq":
+        default_tpm = 6000
+    else:
+        default_tpm = 0
     tokens_per_minute = int(
         _pick(raw_config, f"llm_{stage}_tpm", "llm_tpm")
         or _pick(llm_block, f"{stage}_tpm", "tpm")
         or os.getenv(f"QUERY_FORGE_LLM_{env_stage}_TPM")
         or os.getenv("QUERY_FORGE_LLM_TPM")
         or default_tpm
+    )
+    default_rpd = 10_000 if provider == "gemini" else 0
+    requests_per_day = int(
+        _pick(raw_config, f"llm_{stage}_rpd", "llm_rpd")
+        or _pick(llm_block, f"{stage}_rpd", "rpd")
+        or os.getenv(f"QUERY_FORGE_LLM_{env_stage}_RPD")
+        or os.getenv("QUERY_FORGE_LLM_RPD")
+        or default_rpd
     )
     chars_per_token = float(
         _pick(raw_config, f"llm_{stage}_chars_per_token", "llm_chars_per_token")
@@ -287,6 +350,7 @@ def load_stage_config(
         timeout_seconds=timeout_seconds,
         min_interval_seconds=min_interval,
         tokens_per_minute=tokens_per_minute,
+        requests_per_day=requests_per_day,
         chars_per_token=chars_per_token,
     )
 
@@ -334,7 +398,7 @@ def _extract_retry_after_from_body(body_text: str) -> float:
 def _resolve_rate_limiter(config: LlmStageConfig) -> _SharedRateLimiter:
     key = (
         f"{config.provider}|{config.base_url.rstrip('/')}|{config.model}|"
-        f"{config.min_interval_seconds:.6f}|{config.tokens_per_minute}"
+        f"{config.min_interval_seconds:.6f}|{config.tokens_per_minute}|{config.requests_per_day}"
     )
     with _RATE_LIMITERS_LOCK:
         limiter = _RATE_LIMITERS.get(key)
@@ -342,6 +406,7 @@ def _resolve_rate_limiter(config: LlmStageConfig) -> _SharedRateLimiter:
             limiter = _SharedRateLimiter(
                 min_interval_seconds=config.min_interval_seconds,
                 tokens_per_minute=config.tokens_per_minute,
+                requests_per_day=config.requests_per_day,
             )
             _RATE_LIMITERS[key] = limiter
         return limiter

@@ -102,7 +102,7 @@ public class AdminConsoleService {
             config.put("llm_rewrite_model", model);
         }
         if (request.llmRpm() != null) {
-            config.put("llm_rpm", clampRange(request.llmRpm(), 1, 120, "llm_rpm"));
+            config.put("llm_rpm", clampRange(request.llmRpm(), 1, 1000, "llm_rpm"));
         }
 
         UUID batchId = repository.createGenerationBatch(
@@ -559,13 +559,15 @@ public class AdminConsoleService {
         config.put("enable_diversity", true);
         config.put("enable_anti_copy", true);
         config.put("gating_preset", "full_gating");
-        config.put("llm_provider", "groq");
-        config.put("llm_model", "llama-3.1-8b-instant");
-        config.put("llm_summary_model", "llama-3.1-8b-instant");
-        config.put("llm_query_model", "llama-3.1-8b-instant");
-        config.put("llm_self_eval_model", "llama-3.1-8b-instant");
-        config.put("llm_rewrite_model", "llama-3.1-8b-instant");
-        config.put("llm_rpm", 20);
+        config.put("llm_provider", "gemini");
+        config.put("llm_model", "gemini-2.5-flash");
+        config.put("llm_summary_model", "gemini-2.5-flash");
+        config.put("llm_query_model", "gemini-2.5-flash");
+        config.put("llm_self_eval_model", "gemini-2.5-flash");
+        config.put("llm_rewrite_model", "gemini-2.5-flash");
+        config.put("llm_rpm", 1000);
+        config.put("llm_tpm", 1_000_000);
+        config.put("llm_rpd", 10_000);
         config.put("llm_batch_size", 20);
         config.put("memory_top_n", 5);
         config.put("rewrite_candidate_count", 3);

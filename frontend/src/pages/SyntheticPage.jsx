@@ -5,7 +5,7 @@ import { queryString, requestJson, toNumber } from '../lib/api.js'
 import { fmtTime, shortId } from '../lib/format.js'
 import { usePolling } from '../lib/hooks.js'
 
-const DEFAULT_LLM_MODEL = 'llama-3.1-8b-instant'
+const DEFAULT_LLM_MODEL = 'gemini-2.5-flash'
 
 export function SyntheticPage({ notify }) {
   const pageSize = 20
@@ -30,7 +30,7 @@ export function SyntheticPage({ notify }) {
     avgQueriesPerChunk: '2.0',
     maxTotalQueries: '40',
     llmModel: DEFAULT_LLM_MODEL,
-    llmRpm: '20',
+    llmRpm: '1000',
   })
 
   const [filterForm, setFilterForm] = useState({
@@ -248,8 +248,8 @@ export function SyntheticPage({ notify }) {
           <label className="filter-field filter-field--small">청크 수 제한<input type="number" min="1" value={runForm.limitChunks} onChange={(event) => setRunForm((prev) => ({ ...prev, limitChunks: event.target.value }))} /></label>
           <label className="filter-field filter-field--small">청크당 평균 질의<input type="number" min="0.2" max="20" step="0.1" value={runForm.avgQueriesPerChunk} onChange={(event) => setRunForm((prev) => ({ ...prev, avgQueriesPerChunk: event.target.value }))} /></label>
           <label className="filter-field filter-field--small">최대 생성 질의<input type="number" min="1" max="500" value={runForm.maxTotalQueries} onChange={(event) => setRunForm((prev) => ({ ...prev, maxTotalQueries: event.target.value }))} /></label>
-          <label className="filter-field">Groq 모델<input value={runForm.llmModel} onChange={(event) => setRunForm((prev) => ({ ...prev, llmModel: event.target.value }))} /></label>
-          <label className="filter-field filter-field--small">LLM RPM<input type="number" min="1" max="120" value={runForm.llmRpm} onChange={(event) => setRunForm((prev) => ({ ...prev, llmRpm: event.target.value }))} /></label>
+          <label className="filter-field">Gemini 모델<input value={runForm.llmModel} onChange={(event) => setRunForm((prev) => ({ ...prev, llmModel: event.target.value }))} /></label>
+          <label className="filter-field filter-field--small">LLM RPM<input type="number" min="1" max="1000" value={runForm.llmRpm} onChange={(event) => setRunForm((prev) => ({ ...prev, llmRpm: event.target.value }))} /></label>
           <div className="filter-field filter-field--small"><button type="submit" className="button button--primary">생성 실행</button></div>
         </form>
       </section>
