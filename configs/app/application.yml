@@ -12,12 +12,12 @@ query-forge:
   experiment-root: ./configs/experiments
   llm:
     provider: ${QUERY_FORGE_LLM_PROVIDER:gemini-native}
-    model: ${QUERY_FORGE_LLM_MODEL:gemini-2.5-flash}
-    summary_model: ${QUERY_FORGE_LLM_SUMMARY_MODEL:gemini-2.5-flash}
-    query_model: ${QUERY_FORGE_LLM_QUERY_MODEL:gemini-2.5-flash}
-    self_eval_model: ${QUERY_FORGE_LLM_SELF_EVAL_MODEL:gemini-2.5-flash}
-    rewrite_model: ${QUERY_FORGE_LLM_REWRITE_MODEL:gemini-2.5-flash}
-    fallback_models: ${QUERY_FORGE_LLM_FALLBACK_MODELS:}
+    model: ${QUERY_FORGE_LLM_MODEL:gemini-2.5-flash-lite}
+    summary_model: ${QUERY_FORGE_LLM_SUMMARY_MODEL:gemini-2.5-flash-lite}
+    query_model: ${QUERY_FORGE_LLM_QUERY_MODEL:gemini-2.5-flash-lite}
+    self_eval_model: ${QUERY_FORGE_LLM_SELF_EVAL_MODEL:gemini-2.5-flash-lite}
+    rewrite_model: ${QUERY_FORGE_LLM_REWRITE_MODEL:gemini-2.5-flash-lite}
+    fallback_models: ${QUERY_FORGE_LLM_FALLBACK_MODELS:gemini-2.5-flash}
     max_retries: ${QUERY_FORGE_LLM_MAX_RETRIES:4}
     backoff_initial_seconds: ${QUERY_FORGE_LLM_BACKOFF_INITIAL_SECONDS:0.75}
     backoff_max_seconds: ${QUERY_FORGE_LLM_BACKOFF_MAX_SECONDS:12}

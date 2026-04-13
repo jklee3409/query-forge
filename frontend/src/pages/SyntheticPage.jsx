@@ -5,7 +5,7 @@ import { queryString, requestJson, toNumber } from '../lib/api.js'
 import { fmtTime, shortId } from '../lib/format.js'
 import { usePolling } from '../lib/hooks.js'
 
-const DEFAULT_LLM_MODEL = 'gemini-2.5-flash'
+const DEFAULT_LLM_MODEL = 'gemini-2.5-flash-lite'
 
 export function SyntheticPage({ notify }) {
   const pageSize = 20

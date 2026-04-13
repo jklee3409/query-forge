@@ -905,13 +905,16 @@ def load_stage_config(
         or os.getenv("QUERY_FORGE_LLM_BACKOFF_JITTER_RATIO")
         or 0.35
     )
-    fallback_models = _parse_fallback_models(
+    fallback_models_raw = (
         _pick(raw_config, f"llm_{stage}_fallback_models", "llm_fallback_models")
         or _pick(llm_block, f"{stage}_fallback_models", "fallback_models")
         or os.getenv(f"QUERY_FORGE_LLM_{env_stage}_FALLBACK_MODELS")
         or os.getenv("QUERY_FORGE_LLM_FALLBACK_MODELS")
         or ""
     )
+    fallback_models = _parse_fallback_models(fallback_models_raw)
+    if not fallback_models:
+        fallback_models = _default_fallback_models(provider, model)
     thinking_budget_raw = (
         _pick(raw_config, f"llm_{stage}_thinking_budget", "llm_thinking_budget")
         or _pick(llm_block, f"{stage}_thinking_budget", "thinking_budget")
@@ -1072,10 +1075,18 @@ def _resolve_base_url_for_provider(provider: str) -> str:
 def _default_model(provider: str) -> str:
     normalized = _normalize_provider_name(provider)
     if normalized in {"gemini", "gemini-native"}:
-        return "gemini-2.5-flash"
+        return "gemini-2.5-flash-lite"
     if normalized == "groq":
         return "llama-3.1-8b-instant"
     return "gpt-4o-mini"
+
+
+def _default_fallback_models(provider: str, model: str) -> tuple[str, ...]:
+    normalized = _normalize_provider_name(provider)
+    normalized_model = (model or "").strip().lower()
+    if normalized in {"gemini", "gemini-native"} and normalized_model == "gemini-2.5-flash-lite":
+        return ("gemini-2.5-flash",)
+    return ()
 
 
 def _resolve_api_key_for_provider(provider: str) -> str:

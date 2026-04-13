@@ -560,11 +560,12 @@ public class AdminConsoleService {
         config.put("enable_anti_copy", true);
         config.put("gating_preset", "full_gating");
         config.put("llm_provider", "gemini");
-        config.put("llm_model", "gemini-2.5-flash");
-        config.put("llm_summary_model", "gemini-2.5-flash");
-        config.put("llm_query_model", "gemini-2.5-flash");
-        config.put("llm_self_eval_model", "gemini-2.5-flash");
-        config.put("llm_rewrite_model", "gemini-2.5-flash");
+        config.put("llm_model", "gemini-2.5-flash-lite");
+        config.put("llm_summary_model", "gemini-2.5-flash-lite");
+        config.put("llm_query_model", "gemini-2.5-flash-lite");
+        config.put("llm_self_eval_model", "gemini-2.5-flash-lite");
+        config.put("llm_rewrite_model", "gemini-2.5-flash-lite");
+        config.put("llm_fallback_models", "gemini-2.5-flash");
         config.put("llm_rpm", 1000);
         config.put("llm_tpm", 1_000_000);
         config.put("llm_rpd", 10_000);
