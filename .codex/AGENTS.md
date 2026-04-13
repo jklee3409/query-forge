@@ -239,3 +239,161 @@ Each major directory should have its own `README.md` describing its implementati
 All `README.md` files must be written in Korean.
 Technical terms may remain in English.
 README content should be written in descriptive narrative form, not as fragment-only bullet lists.
+
+## 5. Repository Map (Agent Quick Index)
+
+This section is a table-of-contents map so agents can understand the project structure quickly.
+For each directory, it lists core features, key methods (or entry points), and related markdown document paths.
+
+### 5.1 Root (`/`)
+- Core features: Integrates the full research pipeline (`collect` -> `eval-answer`) with backend, frontend, and infra.
+- Key methods/entry points:
+  - `pipeline/cli.py::main`, `pipeline/cli.py::build_parser`
+  - `backend/src/main/java/io/queryforge/backend/QueryForgeApplication.java`
+- Documentation paths:
+  - `README.md`
+  - `index.md`
+  - `progress.md`
+
+### 5.2 `.codex/`
+- Core features: Codex agent rules, progress logs, and agent-facing indexes.
+- Key methods/entry points: No runtime application methods (operations/rules documentation directory).
+- Documentation paths:
+  - `.codex/AGENTS.md`
+  - `.codex/index.md`
+  - `.codex/progress.md`
+
+### 5.3 `backend/` (Spring Boot)
+- Core features: Admin Console API, Pipeline Admin API, RAG API, LLM job orchestration, DB migrations.
+- Key methods/entry points:
+  - `RagController.ask`, `previewRewrite`, `queryTrace`, `runExperimentCommand`
+  - `RagService.ask`, `previewRewrite`, `reindex`, `readEvalReport`
+  - `PipelineAdminService.startCollect`, `startNormalize`, `startChunk`, `startGlossary`, `startImport`, `startFullIngest`
+  - `AdminConsoleService.runSyntheticGeneration`, `runGating`, `runRagTest`
+  - `LlmJobService.createGenerationJob`, `createGatingJob`, `createRagTestJob`, `pauseJob`, `resumeJob`, `cancelJob`, `retryJob`
+  - `DocumentArtifactStoreService.materialize*`, `persist*`
+  - `RagRepository.findTopChunksByEmbedding`, `findMemoryTopN`, `createOnlineQuery`, `insertRerankResults`
+- Documentation paths:
+  - `backend/README.md`
+  - `backend/index.md`
+  - `backend/progress.md`
+
+### 5.4 `pipeline/` (Python)
+- Core features: Collection, preprocessing, chunking, glossary extraction, import, synthetic generation, gating, memory build, eval dataset build, retrieval eval, answer eval.
+- Key methods/entry points:
+  - `cli.py::main` (full pipeline command dispatcher)
+  - `collectors/spring_docs_collector.py::collect_documents`
+  - `preprocess/normalize_docs.py::normalize_documents`
+  - `preprocess/chunk_docs.py::build_chunks_and_glossary`
+  - `preprocess/extract_glossary.py::build_glossary_only`
+  - `loaders/import_corpus_to_postgres.py::run_import`
+  - `generation/synthetic_query_generator.py::run_generation`, `run_generation_from_env`
+  - `gating/quality_gating.py::run_quality_gating`, `run_quality_gating_from_env`
+  - `memory/build_memory.py::run_memory_build`, `run_memory_build_from_env`
+  - `datasets/build_eval_dataset.py::run_eval_dataset_builder`, `run_eval_dataset_builder_from_env`
+  - `eval/retrieval_eval.py::run_retrieval_eval`, `eval/answer_eval.py::run_answer_eval`
+  - `eval/runtime.py::retrieve_top_k`, `run_selective_rewrite`
+  - `common/experiment_config.py::load_experiment_config`, `common/llm_client.py::load_stage_config`
+- Documentation paths:
+  - `pipeline/README.md`
+  - `pipeline/index.md`
+  - `pipeline/progress.md`
+
+### 5.5 `frontend/` (React + Vite)
+- Core features: Admin console UI (pipeline/synthetic queries/gating/RAG tests) and chat UI.
+- Key methods/entry points:
+  - `src/App.jsx::App`, `AdminApp`, `navigate`
+  - `src/pages/PipelinePage.jsx::triggerPipeline`, `showDocumentDetail`
+  - `src/pages/SyntheticPage.jsx::executeRun`, `loadQueries`, `openQueryDetail`
+  - `src/pages/GatingPage.jsx::runGating`, `loadFunnel`, `loadResults`
+  - `src/pages/RagPage.jsx::runRag`, `openRunDetail`, `openRewriteDetail`
+  - `src/pages/ChatPage.jsx::ask`, `reindex`
+  - `src/lib/api.js::requestJson`, `queryString`, `toNumber`
+  - `src/lib/hooks.js::usePolling`
+- Documentation paths:
+  - `frontend/README.md`
+  - `frontend/index.md`
+  - `frontend/progress.md`
+
+### 5.6 `configs/`
+- Core features: App settings (`app/`), experiment presets (`experiments/`), and prompt asset versioning (`prompts/`).
+- Key methods (consumers):
+  - `pipeline/common/experiment_config.py::load_experiment_config`
+  - `pipeline/common/llm_client.py::load_stage_config`
+  - `pipeline/common/prompt_assets.py::parse_prompt_asset`, `load_and_register_prompt`
+- Documentation paths:
+  - `configs/README.md`
+  - `configs/index.md`
+  - `configs/progress.md`
+  - `configs/prompts/query_generation/gen_a_v1.md`
+  - `configs/prompts/query_generation/gen_b_v1.md`
+  - `configs/prompts/query_generation/gen_c_v1.md`
+  - `configs/prompts/query_generation/gen_d_v1.md`
+  - `configs/prompts/rewrite/selective_rewrite_v1.md`
+  - `configs/prompts/self_eval/quality_gate_v1.md`
+  - `configs/prompts/summary_extraction/extractive_summary_v1.md`
+  - `configs/prompts/summary_extraction/summarize_ko_v1.md`
+  - `configs/prompts/translation/translate_chunk_en_to_ko_v1.md`
+
+### 5.7 `data/`
+- Core features: Storage for raw/processed/synthetic/eval/reports artifacts.
+- Key methods/entry points: No standalone runtime methods; read/write is handled by `pipeline/*` stages.
+- Documentation paths:
+  - `data/README.md`
+  - `data/index.md`
+  - `data/progress.md`
+  - `data/raw/README.md`
+  - `data/processed/README.md`
+  - `data/synthetic/README.md`
+  - `data/eval/README.md`
+  - `data/reports/README.md`
+
+### 5.8 `docs/`
+- Core features: API/architecture/UI/experiment documentation.
+- Key methods/entry points: No runtime methods (project documentation repository).
+- Documentation paths:
+  - `docs/README.md`
+  - `docs/index.md`
+  - `docs/progress.md`
+  - `docs/api/README.md`
+  - `docs/api/admin_pipeline_api.md`
+  - `docs/api/corpus_admin_api.md`
+  - `docs/api/rag_api.md`
+  - `docs/architecture/README.md`
+  - `docs/architecture/overview.md`
+  - `docs/architecture/corpus_storage.md`
+  - `docs/architecture/pipeline_orchestration.md`
+  - `docs/ui/README.md`
+  - `docs/ui/admin_backoffice.md`
+  - `docs/experiments/README.md`
+  - `docs/experiments/dataset_design.md`
+  - `docs/experiments/monitoring_trace.md`
+  - `docs/experiments/latest_report.md`
+  - `docs/experiments/latest_answer_report.md`
+  - `docs/experiments/first_baseline_template.md`
+  - `docs/experiments/best_rewrite_cases.md`
+  - `docs/experiments/bad_rewrite_cases.md`
+
+### 5.9 `infra/`
+- Core features: Docker/PostgreSQL operational notes and SQL support docs.
+- Key methods/entry points: No runtime methods (operations documentation focused).
+- Documentation paths:
+  - `infra/README.md`
+  - `infra/index.md`
+  - `infra/progress.md`
+  - `infra/docker/README.md`
+  - `infra/docker/postgres/README.md`
+  - `infra/sql/README.md`
+
+### 5.10 `scripts/`
+- Core features: Local bootstrap, backend runner, and pipeline command wrappers.
+- Key methods/entry points:
+  - `bootstrap-local.ps1::Ensure-Venv`, `Wait-ForPostgres`, `Start-BackendIfNeeded`, `Resolve-CorpusArtifacts`, `Import-Corpus`
+  - `pipeline.ps1` (wraps `pipeline/cli.py` commands)
+  - `run-backend.ps1` (runs `backend/gradlew.bat bootRun`)
+  - `dev-up.ps1`, `dev-down.ps1` (docker compose up/down)
+  - `import_corpus.sh` (`python pipeline/cli.py import-corpus`)
+- Documentation paths:
+  - `scripts/README.md`
+  - `scripts/index.md`
+  - `scripts/progress.md`
