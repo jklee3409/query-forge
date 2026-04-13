@@ -16,6 +16,7 @@ export function GatingPage({ notify }) {
   const [llmJobs, setLlmJobs] = useState([])
   const [selectedBatchId, setSelectedBatchId] = useState('')
   const [resultFilter, setResultFilter] = useState({ methodCode: '' })
+  const [funnelFilter, setFunnelFilter] = useState({ methodCode: '' })
   const [resultPage, setResultPage] = useState(0)
   const [resultHasNextPage, setResultHasNextPage] = useState(false)
   const [modal, setModal] = useState(null)
@@ -34,6 +35,7 @@ export function GatingPage({ notify }) {
     ruleMaxLengthLong: '100',
     ruleMinTokens: '2',
     ruleMaxTokens: '20',
+    ruleMinKoreanRatio: '',
     llmWeight: '0.35',
     utilityWeight: '0.50',
     diversityWeight: '0.15',
@@ -71,9 +73,16 @@ export function GatingPage({ notify }) {
     }
   }
 
-  const loadFunnel = async (batchId) => {
-    if (!batchId) return
-    setFunnel(await requestJson(`/api/admin/console/gating/batches/${batchId}/funnel`))
+  const loadFunnel = async (batchId, methodCode = funnelFilter.methodCode) => {
+    if (!batchId) {
+      setFunnel(null)
+      return
+    }
+    const query = queryString({ method_code: methodCode || null })
+    const url = query
+      ? `/api/admin/console/gating/batches/${batchId}/funnel?${query}`
+      : `/api/admin/console/gating/batches/${batchId}/funnel`
+    setFunnel(await requestJson(url))
   }
 
   const loadResults = async (batchId, page = 0, methodCode = resultFilter.methodCode) => {
@@ -107,7 +116,10 @@ export function GatingPage({ notify }) {
     if (!selectedBatchId) return
     const initialPage = 0
     setResultPage(initialPage)
-    Promise.all([loadFunnel(selectedBatchId), loadResults(selectedBatchId, initialPage, resultFilter.methodCode)]).catch((error) => notify(error.message, 'error'))
+    Promise.all([
+      loadFunnel(selectedBatchId, funnelFilter.methodCode),
+      loadResults(selectedBatchId, initialPage, resultFilter.methodCode),
+    ]).catch((error) => notify(error.message, 'error'))
   }, [selectedBatchId])
 
   usePolling(true, 5000, async () => {
@@ -138,6 +150,7 @@ export function GatingPage({ notify }) {
           ruleMaxLengthLong: toNumber(form.ruleMaxLengthLong),
           ruleMinTokens: toNumber(form.ruleMinTokens),
           ruleMaxTokens: toNumber(form.ruleMaxTokens),
+          ruleMinKoreanRatio: toNumber(form.ruleMinKoreanRatio),
           llmWeight: toNumber(form.llmWeight),
           utilityWeight: toNumber(form.utilityWeight),
           diversityWeight: toNumber(form.diversityWeight),
@@ -225,6 +238,16 @@ export function GatingPage({ notify }) {
     }
   }
 
+  const applyFunnelFilter = async (event) => {
+    event.preventDefault()
+    if (!selectedBatchId) return
+    try {
+      await loadFunnel(selectedBatchId, funnelFilter.methodCode)
+    } catch (error) {
+      notify(error.message, 'error')
+    }
+  }
+
   const funnelCards = [
     { label: '생성 총량', value: funnel?.generatedTotal ?? 0 },
     { label: 'Rule 통과', value: funnel?.passedRule ?? 0 },
@@ -266,8 +289,9 @@ export function GatingPage({ notify }) {
               <NumberInput label="짧은 질의 최대 길이" value={form.ruleMaxLengthShort} onChange={(value) => setForm((prev) => ({ ...prev, ruleMaxLengthShort: value }))} />
               <NumberInput label="일반 질의 최소 길이" value={form.ruleMinLengthLong} onChange={(value) => setForm((prev) => ({ ...prev, ruleMinLengthLong: value }))} />
               <NumberInput label="일반 질의 최대 길이" value={form.ruleMaxLengthLong} onChange={(value) => setForm((prev) => ({ ...prev, ruleMaxLengthLong: value }))} />
-              <NumberInput label="최소 토큰" value={form.ruleMinTokens} onChange={(value) => setForm((prev) => ({ ...prev, ruleMinTokens: value }))} />
-              <NumberInput label="최대 토큰" value={form.ruleMaxTokens} onChange={(value) => setForm((prev) => ({ ...prev, ruleMaxTokens: value }))} />
+              <NumberInput label="최소 토큰(단어 수 하한)" value={form.ruleMinTokens} onChange={(value) => setForm((prev) => ({ ...prev, ruleMinTokens: value }))} />
+              <NumberInput label="최대 토큰(단어 수 상한)" value={form.ruleMaxTokens} onChange={(value) => setForm((prev) => ({ ...prev, ruleMaxTokens: value }))} />
+              <NumberInput label="최소 한글 비중(0~1, 비우면 기본값)" step="0.01" value={form.ruleMinKoreanRatio} onChange={(value) => setForm((prev) => ({ ...prev, ruleMinKoreanRatio: value }))} />
             </StageCard>
             <StageCard title="LLM" checked={form.enableLlmSelfEval} onToggle={(checked) => setForm((prev) => ({ ...prev, enableLlmSelfEval: checked }))}>
               <NumberInput label="LLM 가중치" step="0.01" value={form.llmWeight} onChange={(value) => setForm((prev) => ({ ...prev, llmWeight: value }))} />
@@ -320,13 +344,24 @@ export function GatingPage({ notify }) {
 
       <LlmJobsTable jobs={llmJobs} onAction={executeLlmAction} onDetail={openJobDetail} />
 
-      <section className="summary-grid">
-        {funnelCards.map((card) => (
-          <article className="summary-card" key={card.label}>
-            <div className="summary-card__label">{card.label}</div>
-            <div className="summary-card__value">{card.value}</div>
-          </article>
-        ))}
+      <section className="table-shell">
+        <div className="table-header"><div className="table-title">게이팅 퍼널</div></div>
+        <form className="filter-bar" onSubmit={applyFunnelFilter}>
+          <label className="filter-field">생성 방식
+            <select value={funnelFilter.methodCode} onChange={(event) => setFunnelFilter((prev) => ({ ...prev, methodCode: event.target.value }))}>
+              <option value="">전체</option>{methods.map((method) => <option key={method.methodCode} value={method.methodCode}>{method.methodCode}</option>)}
+            </select>
+          </label>
+          <div className="filter-field filter-field--small"><button type="submit" className="button button--primary" disabled={!selectedBatchId}>조회</button></div>
+        </form>
+        <section className="summary-grid">
+          {funnelCards.map((card) => (
+            <article className="summary-card" key={card.label}>
+              <div className="summary-card__label">{card.label}</div>
+              <div className="summary-card__value">{card.value}</div>
+            </article>
+          ))}
+        </section>
       </section>
 
       <section className="table-shell">

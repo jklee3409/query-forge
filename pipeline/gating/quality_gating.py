@@ -407,7 +407,11 @@ def _rule_pass(
         reasons.append("copy_ratio_high")
 
     ratio = korean_ratio(stripped)
-    min_korean_ratio = 0.20 if query.query_type == "code_mixed" else 0.40
+    min_korean_ratio = float(config.raw.get("rule_min_korean_ratio", 0.40))
+    min_korean_ratio_code_mixed = float(config.raw.get("rule_min_korean_ratio_code_mixed", 0.20))
+    min_korean_ratio = max(0.0, min(1.0, min_korean_ratio))
+    min_korean_ratio_code_mixed = max(0.0, min(1.0, min_korean_ratio_code_mixed))
+    min_korean_ratio = min_korean_ratio_code_mixed if query.query_type == "code_mixed" else min_korean_ratio
     if ratio < min_korean_ratio:
         reasons.append("korean_ratio_low")
 

@@ -123,8 +123,8 @@ public class AdminConsoleService {
         return repository.findGatingBatches(limit);
     }
 
-    public AdminConsoleDtos.GatingFunnelResponse getGatingFunnel(UUID gatingBatchId) {
-        return repository.findGatingFunnel(gatingBatchId);
+    public AdminConsoleDtos.GatingFunnelResponse getGatingFunnel(UUID gatingBatchId, String methodCode) {
+        return repository.findGatingFunnel(gatingBatchId, normalizeOptionalMethodCode(methodCode));
     }
 
     public List<AdminConsoleDtos.GatingResultRow> listGatingResults(
@@ -134,10 +134,7 @@ public class AdminConsoleService {
             Integer limit,
             Integer offset
     ) {
-        String normalizedMethodCode = methodCode == null || methodCode.isBlank()
-                ? null
-                : methodCode.trim().toUpperCase();
-        return repository.findGatingResults(gatingBatchId, normalizedMethodCode, queryType, limit, offset);
+        return repository.findGatingResults(gatingBatchId, normalizeOptionalMethodCode(methodCode), queryType, limit, offset);
     }
 
     @Transactional
@@ -204,6 +201,8 @@ public class AdminConsoleService {
         config.put("rule_max_len_long", ruleConfig.get("rule_max_len_long"));
         config.put("rule_min_tokens", ruleConfig.get("rule_min_tokens"));
         config.put("rule_max_tokens", ruleConfig.get("rule_max_tokens"));
+        config.put("rule_min_korean_ratio", ruleConfig.get("rule_min_korean_ratio"));
+        config.put("rule_min_korean_ratio_code_mixed", ruleConfig.get("rule_min_korean_ratio_code_mixed"));
         config.put("retrieval_utility_weights", utilityScoreWeights);
         config.put("gating_weights", gatingWeights);
         config.put("utility_threshold", utilityThreshold);
@@ -401,6 +400,13 @@ public class AdminConsoleService {
         return value.trim().toUpperCase();
     }
 
+    private String normalizeOptionalMethodCode(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        return value.trim().toUpperCase();
+    }
+
     private String normalizeVersionName(String value) {
         if (value == null || value.isBlank()) {
             return "v" + Instant.now().toEpochMilli();
@@ -478,6 +484,12 @@ public class AdminConsoleService {
         ruleConfig.put("rule_max_len_long", request.ruleMaxLengthLong() == null ? 100 : clampRange(request.ruleMaxLengthLong(), 1, 400, "rule_max_len_long"));
         ruleConfig.put("rule_min_tokens", request.ruleMinTokens() == null ? 2 : clampRange(request.ruleMinTokens(), 1, 120, "rule_min_tokens"));
         ruleConfig.put("rule_max_tokens", request.ruleMaxTokens() == null ? 20 : clampRange(request.ruleMaxTokens(), 1, 120, "rule_max_tokens"));
+        double minKoreanRatio = request.ruleMinKoreanRatio() == null
+                ? 0.40d
+                : clampRange(request.ruleMinKoreanRatio(), 0.0d, 1.0d, "rule_min_korean_ratio");
+        double minKoreanRatioCodeMixed = request.ruleMinKoreanRatio() == null ? 0.20d : minKoreanRatio;
+        ruleConfig.put("rule_min_korean_ratio", minKoreanRatio);
+        ruleConfig.put("rule_min_korean_ratio_code_mixed", minKoreanRatioCodeMixed);
         return ruleConfig;
     }
 
@@ -590,6 +602,8 @@ public class AdminConsoleService {
         config.put("rule_max_len_long", 100);
         config.put("rule_min_tokens", 2);
         config.put("rule_max_tokens", 20);
+        config.put("rule_min_korean_ratio", 0.40);
+        config.put("rule_min_korean_ratio_code_mixed", 0.20);
         config.put(
                 "retrieval_utility_weights",
                 Map.of(

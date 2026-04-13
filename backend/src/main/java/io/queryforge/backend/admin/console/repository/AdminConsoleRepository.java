@@ -1030,18 +1030,59 @@ public class AdminConsoleRepository {
         );
     }
 
-    public AdminConsoleDtos.GatingFunnelResponse findGatingFunnel(UUID gatingBatchId) {
+    public AdminConsoleDtos.GatingFunnelResponse findGatingFunnel(UUID gatingBatchId, String methodCode) {
         AdminConsoleDtos.GatingBatchRow batch = findGatingBatch(gatingBatchId)
                 .orElseThrow(() -> new IllegalArgumentException("gating batch not found: " + gatingBatchId));
-        int generatedTotal = findStagePassedCount(gatingBatchId, "generated");
-        int passedRule = findStagePassedCount(gatingBatchId, "rule_filter");
-        int passedLlm = findStagePassedCount(gatingBatchId, "llm_self_eval");
-        int passedUtility = findStagePassedCount(gatingBatchId, "retrieval_utility");
-        int passedDiversity = findStagePassedCount(gatingBatchId, "diversity_dedup");
-        int finalAccepted = findStagePassedCount(gatingBatchId, "final_approved");
+        StringBuilder sql = new StringBuilder(
+                """
+                SELECT COUNT(*) AS generated_total,
+                       COUNT(*) FILTER (WHERE COALESCE(rule_pass, TRUE)) AS passed_rule,
+                       COUNT(*) FILTER (
+                           WHERE COALESCE(rule_pass, TRUE)
+                             AND COALESCE((stage_payload_json ->> 'passed_llm_self_eval')::boolean, TRUE)
+                       ) AS passed_llm,
+                       COUNT(*) FILTER (
+                           WHERE COALESCE(rule_pass, TRUE)
+                             AND COALESCE((stage_payload_json ->> 'passed_llm_self_eval')::boolean, TRUE)
+                             AND COALESCE((stage_payload_json ->> 'passed_retrieval_utility')::boolean, TRUE)
+                       ) AS passed_utility,
+                       COUNT(*) FILTER (
+                           WHERE COALESCE(rule_pass, TRUE)
+                             AND COALESCE((stage_payload_json ->> 'passed_llm_self_eval')::boolean, TRUE)
+                             AND COALESCE((stage_payload_json ->> 'passed_retrieval_utility')::boolean, TRUE)
+                             AND COALESCE(diversity_pass, TRUE)
+                       ) AS passed_diversity,
+                       COUNT(*) FILTER (WHERE accepted) AS final_accepted
+                FROM synthetic_query_gating_result
+                WHERE gating_batch_id = :gatingBatchId
+                """
+        );
+        MapSqlParameterSource params = new MapSqlParameterSource("gatingBatchId", gatingBatchId);
+        if (methodCode != null && !methodCode.isBlank()) {
+            sql.append(" AND generation_strategy = :methodCode");
+            params.addValue("methodCode", methodCode.trim().toUpperCase());
+        }
+        Integer[] counts = jdbcTemplate.queryForObject(
+                sql.toString(),
+                params,
+                (rs, rowNum) -> new Integer[]{
+                        rs.getInt("generated_total"),
+                        rs.getInt("passed_rule"),
+                        rs.getInt("passed_llm"),
+                        rs.getInt("passed_utility"),
+                        rs.getInt("passed_diversity"),
+                        rs.getInt("final_accepted")
+                }
+        );
+        int generatedTotal = counts == null ? 0 : intValue(counts[0]);
+        int passedRule = counts == null ? 0 : intValue(counts[1]);
+        int passedLlm = counts == null ? 0 : intValue(counts[2]);
+        int passedUtility = counts == null ? 0 : intValue(counts[3]);
+        int passedDiversity = counts == null ? 0 : intValue(counts[4]);
+        int finalAccepted = counts == null ? 0 : intValue(counts[5]);
         return new AdminConsoleDtos.GatingFunnelResponse(
                 batch.gatingBatchId(),
-                batch.methodCode(),
+                methodCode == null || methodCode.isBlank() ? batch.methodCode() : methodCode.trim().toUpperCase(),
                 batch.gatingPreset(),
                 generatedTotal,
                 passedRule,
@@ -1050,28 +1091,6 @@ public class AdminConsoleRepository {
                 passedDiversity,
                 finalAccepted
         );
-    }
-
-    private int findStagePassedCount(UUID gatingBatchId, String stageName) {
-        String sql = """
-                SELECT COALESCE(
-                    (
-                        SELECT passed_count
-                        FROM quality_gating_stage_result
-                        WHERE gating_batch_id = :gatingBatchId
-                          AND stage_name = :stageName
-                    ),
-                    0
-                )
-                """;
-        Integer value = jdbcTemplate.queryForObject(
-                sql,
-                new MapSqlParameterSource()
-                        .addValue("gatingBatchId", gatingBatchId)
-                        .addValue("stageName", stageName),
-                Integer.class
-        );
-        return intValue(value);
     }
 
     public List<AdminConsoleDtos.GatingResultRow> findGatingResults(

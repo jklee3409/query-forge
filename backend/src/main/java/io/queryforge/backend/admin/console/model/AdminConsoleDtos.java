@@ -177,6 +177,7 @@ public final class AdminConsoleDtos {
             Integer ruleMaxLengthLong,
             Integer ruleMinTokens,
             Integer ruleMaxTokens,
+            Double ruleMinKoreanRatio,
             Double llmWeight,
             Double utilityWeight,
             Double diversityWeight,

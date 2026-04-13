@@ -122,6 +122,55 @@ class AdminConsoleGatingIntegrationTest {
     }
 
     @Test
+    void gatingFunnelSupportsMethodFilter() throws Exception {
+        UUID methodA = jdbcTemplate.getJdbcTemplate().queryForObject(
+                "SELECT generation_method_id FROM synthetic_query_generation_method WHERE method_code = 'A'",
+                UUID.class
+        );
+        assertThat(methodA).isNotNull();
+
+        UUID gatingBatchId = UUID.randomUUID();
+        insertGatingBatch(gatingBatchId, methodA, "completed");
+
+        insertRegistryQuery("sq_funnel_a", "A");
+        insertRegistryQuery("sq_funnel_b", "B");
+
+        insertGatingResult(gatingBatchId, "sq_funnel_a", "A", "A query", true, true, true, true, true, "2026-04-13T10:00:00Z");
+        insertGatingResult(gatingBatchId, "sq_funnel_b", "B", "B query", false, false, false, false, false, "2026-04-13T10:00:01Z");
+
+        mockMvc.perform(get("/api/admin/console/gating/batches/{gatingBatchId}/funnel", gatingBatchId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.generatedTotal").value(2))
+                .andExpect(jsonPath("$.passedRule").value(1))
+                .andExpect(jsonPath("$.passedLlm").value(1))
+                .andExpect(jsonPath("$.passedUtility").value(1))
+                .andExpect(jsonPath("$.passedDiversity").value(1))
+                .andExpect(jsonPath("$.finalAccepted").value(1));
+
+        mockMvc.perform(get("/api/admin/console/gating/batches/{gatingBatchId}/funnel", gatingBatchId)
+                        .param("method_code", "A"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.methodCode").value("A"))
+                .andExpect(jsonPath("$.generatedTotal").value(1))
+                .andExpect(jsonPath("$.passedRule").value(1))
+                .andExpect(jsonPath("$.passedLlm").value(1))
+                .andExpect(jsonPath("$.passedUtility").value(1))
+                .andExpect(jsonPath("$.passedDiversity").value(1))
+                .andExpect(jsonPath("$.finalAccepted").value(1));
+
+        mockMvc.perform(get("/api/admin/console/gating/batches/{gatingBatchId}/funnel", gatingBatchId)
+                        .param("method_code", "B"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.methodCode").value("B"))
+                .andExpect(jsonPath("$.generatedTotal").value(1))
+                .andExpect(jsonPath("$.passedRule").value(0))
+                .andExpect(jsonPath("$.passedLlm").value(0))
+                .andExpect(jsonPath("$.passedUtility").value(0))
+                .andExpect(jsonPath("$.passedDiversity").value(0))
+                .andExpect(jsonPath("$.finalAccepted").value(0));
+    }
+
+    @Test
     void gatingResultsSupportsMethodFilterAndPagination() throws Exception {
         UUID methodA = jdbcTemplate.getJdbcTemplate().queryForObject(
                 "SELECT generation_method_id FROM synthetic_query_generation_method WHERE method_code = 'A'",
@@ -349,6 +398,21 @@ class AdminConsoleGatingIntegrationTest {
     }
 
     private void insertGatingResult(UUID gatingBatchId, String syntheticQueryId, String strategy, String queryText, String createdAtIsoUtc) {
+        insertGatingResult(gatingBatchId, syntheticQueryId, strategy, queryText, true, true, true, true, true, createdAtIsoUtc);
+    }
+
+    private void insertGatingResult(
+            UUID gatingBatchId,
+            String syntheticQueryId,
+            String strategy,
+            String queryText,
+            boolean rulePass,
+            boolean llmPass,
+            boolean utilityPass,
+            boolean diversityPass,
+            boolean accepted,
+            String createdAtIsoUtc
+    ) {
         jdbcTemplate.update(
                 """
                 INSERT INTO synthetic_query_gating_result (
@@ -356,6 +420,9 @@ class AdminConsoleGatingIntegrationTest {
                     synthetic_query_id,
                     query_text,
                     generation_strategy,
+                    rule_pass,
+                    stage_payload_json,
+                    diversity_pass,
                     accepted,
                     created_at
                 ) VALUES (
@@ -363,7 +430,10 @@ class AdminConsoleGatingIntegrationTest {
                     :syntheticQueryId,
                     :queryText,
                     :strategy,
-                    TRUE,
+                    :rulePass,
+                    CAST(:stagePayloadJson AS jsonb),
+                    :diversityPass,
+                    :accepted,
                     CAST(:createdAtIsoUtc AS timestamptz)
                 )
                 """,
@@ -372,6 +442,10 @@ class AdminConsoleGatingIntegrationTest {
                         .addValue("syntheticQueryId", syntheticQueryId)
                         .addValue("queryText", queryText)
                         .addValue("strategy", strategy)
+                        .addValue("rulePass", rulePass)
+                        .addValue("stagePayloadJson", "{\"passed_llm_self_eval\":" + llmPass + ",\"passed_retrieval_utility\":" + utilityPass + "}")
+                        .addValue("diversityPass", diversityPass)
+                        .addValue("accepted", accepted)
                         .addValue("createdAtIsoUtc", createdAtIsoUtc)
         );
     }

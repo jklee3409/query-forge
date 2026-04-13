@@ -85,8 +85,11 @@ public class AdminConsoleController {
     }
 
     @GetMapping("/gating/batches/{gatingBatchId}/funnel")
-    public AdminConsoleDtos.GatingFunnelResponse gatingFunnel(@PathVariable UUID gatingBatchId) {
-        return service.getGatingFunnel(gatingBatchId);
+    public AdminConsoleDtos.GatingFunnelResponse gatingFunnel(
+            @PathVariable UUID gatingBatchId,
+            @RequestParam(name = "method_code", required = false) String methodCode
+    ) {
+        return service.getGatingFunnel(gatingBatchId, methodCode);
     }
 
     @GetMapping("/gating/batches/{gatingBatchId}/results")
