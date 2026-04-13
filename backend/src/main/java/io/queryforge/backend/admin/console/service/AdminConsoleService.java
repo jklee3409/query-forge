@@ -176,6 +176,8 @@ public class AdminConsoleService {
         stageConfig.put("diversity_threshold_same_doc", diversityThresholdSameDoc);
         stageConfig.put("final_score_threshold", finalScoreThreshold);
 
+        repository.clearCompletedGatingResults(method.generationMethodId(), request.generationBatchId());
+
         UUID gatingBatchId = repository.createGatingBatch(
                 gatingPreset,
                 method.generationMethodId(),

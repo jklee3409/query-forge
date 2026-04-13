@@ -1,5 +1,6 @@
 package io.queryforge.backend.admin.console;
 
+import io.queryforge.backend.admin.console.repository.AdminConsoleRepository;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -72,6 +73,9 @@ class AdminConsoleGatingIntegrationTest {
     @Autowired
     private NamedParameterJdbcTemplate jdbcTemplate;
 
+    @Autowired
+    private AdminConsoleRepository adminConsoleRepository;
+
     @Test
     void gatingFunnelReturnsZeroCountsWhenStageResultRowsAreMissing() throws Exception {
         UUID methodId = jdbcTemplate.getJdbcTemplate().queryForObject(
@@ -115,5 +119,203 @@ class AdminConsoleGatingIntegrationTest {
                 .andExpect(jsonPath("$.passedUtility").value(0))
                 .andExpect(jsonPath("$.passedDiversity").value(0))
                 .andExpect(jsonPath("$.finalAccepted").value(0));
+    }
+
+    @Test
+    void clearCompletedGatingResultsRemovesOnlyCompletedRowsForTargetMethod() {
+        UUID methodA = jdbcTemplate.getJdbcTemplate().queryForObject(
+                "SELECT generation_method_id FROM synthetic_query_generation_method WHERE method_code = 'A'",
+                UUID.class
+        );
+        UUID methodB = jdbcTemplate.getJdbcTemplate().queryForObject(
+                "SELECT generation_method_id FROM synthetic_query_generation_method WHERE method_code = 'B'",
+                UUID.class
+        );
+        assertThat(methodA).isNotNull();
+        assertThat(methodB).isNotNull();
+
+        UUID completedBatchA = UUID.randomUUID();
+        UUID runningBatchA = UUID.randomUUID();
+        UUID completedBatchB = UUID.randomUUID();
+        insertGatingBatch(completedBatchA, methodA, "completed");
+        insertGatingBatch(runningBatchA, methodA, "running");
+        insertGatingBatch(completedBatchB, methodB, "completed");
+
+        insertRegistryQuery("sq_a_completed", "A");
+        insertRegistryQuery("sq_a_running", "A");
+        insertRegistryQuery("sq_b_completed", "B");
+
+        insertGatedRow("gated_a_completed", "sq_a_completed", completedBatchA);
+        insertGatedRow("gated_a_running", "sq_a_running", runningBatchA);
+        insertGatedRow("gated_b_completed", "sq_b_completed", completedBatchB);
+
+        insertBatchArtifacts(completedBatchA, "sq_a_completed");
+        insertBatchArtifacts(completedBatchB, "sq_b_completed");
+
+        int removed = adminConsoleRepository.clearCompletedGatingResults(methodA, null);
+        assertThat(removed).isEqualTo(1);
+
+        assertThat(countRows("SELECT COUNT(*) FROM quality_gating_batch WHERE gating_batch_id = :id", completedBatchA)).isZero();
+        assertThat(countRows("SELECT COUNT(*) FROM quality_gating_batch WHERE gating_batch_id = :id", runningBatchA)).isEqualTo(1);
+        assertThat(countRows("SELECT COUNT(*) FROM quality_gating_batch WHERE gating_batch_id = :id", completedBatchB)).isEqualTo(1);
+
+        assertThat(countRows("SELECT COUNT(*) FROM synthetic_query_gating_result WHERE gating_batch_id = :id", completedBatchA)).isZero();
+        assertThat(countRows("SELECT COUNT(*) FROM synthetic_query_gating_history WHERE gating_batch_id = :id", completedBatchA)).isZero();
+        assertThat(countRows("SELECT COUNT(*) FROM quality_gating_stage_result WHERE gating_batch_id = :id", completedBatchA)).isZero();
+
+        UUID completedBatchRef = jdbcTemplate.queryForObject(
+                "SELECT gating_batch_id FROM synthetic_queries_gated WHERE gated_query_id = 'gated_a_completed'",
+                new MapSqlParameterSource(),
+                UUID.class
+        );
+        UUID runningBatchRef = jdbcTemplate.queryForObject(
+                "SELECT gating_batch_id FROM synthetic_queries_gated WHERE gated_query_id = 'gated_a_running'",
+                new MapSqlParameterSource(),
+                UUID.class
+        );
+        UUID methodBBatchRef = jdbcTemplate.queryForObject(
+                "SELECT gating_batch_id FROM synthetic_queries_gated WHERE gated_query_id = 'gated_b_completed'",
+                new MapSqlParameterSource(),
+                UUID.class
+        );
+        assertThat(completedBatchRef).isNull();
+        assertThat(runningBatchRef).isEqualTo(runningBatchA);
+        assertThat(methodBBatchRef).isEqualTo(completedBatchB);
+    }
+
+    private void insertGatingBatch(UUID gatingBatchId, UUID methodId, String status) {
+        jdbcTemplate.update(
+                """
+                INSERT INTO quality_gating_batch (
+                    gating_batch_id,
+                    gating_preset,
+                    generation_method_id,
+                    stage_config_json,
+                    status,
+                    created_by
+                ) VALUES (
+                    :gatingBatchId,
+                    'full_gating',
+                    :generationMethodId,
+                    '{}'::jsonb,
+                    :status,
+                    'test-admin'
+                )
+                """,
+                new MapSqlParameterSource()
+                        .addValue("gatingBatchId", gatingBatchId)
+                        .addValue("generationMethodId", methodId)
+                        .addValue("status", status)
+        );
+    }
+
+    private void insertRegistryQuery(String syntheticQueryId, String strategy) {
+        jdbcTemplate.update(
+                """
+                INSERT INTO synthetic_query_registry (
+                    synthetic_query_id,
+                    generation_strategy
+                ) VALUES (
+                    :syntheticQueryId,
+                    :strategy
+                )
+                """,
+                new MapSqlParameterSource()
+                        .addValue("syntheticQueryId", syntheticQueryId)
+                        .addValue("strategy", strategy)
+        );
+    }
+
+    private void insertGatedRow(String gatedQueryId, String syntheticQueryId, UUID gatingBatchId) {
+        jdbcTemplate.update(
+                """
+                INSERT INTO synthetic_queries_gated (
+                    gated_query_id,
+                    synthetic_query_id,
+                    gating_batch_id,
+                    gating_preset,
+                    final_decision
+                ) VALUES (
+                    :gatedQueryId,
+                    :syntheticQueryId,
+                    :gatingBatchId,
+                    'full_gating',
+                    TRUE
+                )
+                """,
+                new MapSqlParameterSource()
+                        .addValue("gatedQueryId", gatedQueryId)
+                        .addValue("syntheticQueryId", syntheticQueryId)
+                        .addValue("gatingBatchId", gatingBatchId)
+        );
+    }
+
+    private void insertBatchArtifacts(UUID gatingBatchId, String syntheticQueryId) {
+        jdbcTemplate.update(
+                """
+                INSERT INTO synthetic_query_gating_result (
+                    gating_batch_id,
+                    synthetic_query_id,
+                    query_text,
+                    accepted
+                ) VALUES (
+                    :gatingBatchId,
+                    :syntheticQueryId,
+                    :queryText,
+                    TRUE
+                )
+                """,
+                new MapSqlParameterSource()
+                        .addValue("gatingBatchId", gatingBatchId)
+                        .addValue("syntheticQueryId", syntheticQueryId)
+                        .addValue("queryText", syntheticQueryId + " text")
+        );
+        jdbcTemplate.update(
+                """
+                INSERT INTO synthetic_query_gating_history (
+                    gating_batch_id,
+                    synthetic_query_id,
+                    stage_name,
+                    stage_order
+                ) VALUES (
+                    :gatingBatchId,
+                    :syntheticQueryId,
+                    'rule_filter',
+                    1
+                )
+                """,
+                new MapSqlParameterSource()
+                        .addValue("gatingBatchId", gatingBatchId)
+                        .addValue("syntheticQueryId", syntheticQueryId)
+        );
+        jdbcTemplate.update(
+                """
+                INSERT INTO quality_gating_stage_result (
+                    gating_batch_id,
+                    stage_name,
+                    stage_order,
+                    input_count,
+                    passed_count,
+                    rejected_count
+                ) VALUES (
+                    :gatingBatchId,
+                    'generated',
+                    0,
+                    1,
+                    1,
+                    0
+                )
+                """,
+                new MapSqlParameterSource("gatingBatchId", gatingBatchId)
+        );
+    }
+
+    private long countRows(String sql, UUID id) {
+        Long value = jdbcTemplate.queryForObject(
+                sql,
+                new MapSqlParameterSource("id", id),
+                Long.class
+        );
+        return value == null ? 0L : value;
     }
 }

@@ -613,6 +613,42 @@ public class AdminConsoleRepository {
     }
 
     @Transactional
+    public int clearCompletedGatingResults(UUID generationMethodId, UUID generationBatchId) {
+        StringBuilder targetSql = new StringBuilder(
+                """
+                SELECT gating_batch_id
+                FROM quality_gating_batch
+                WHERE generation_method_id = :generationMethodId
+                  AND status IN ('completed', 'failed', 'cancelled')
+                """
+        );
+        MapSqlParameterSource targetParams = new MapSqlParameterSource("generationMethodId", generationMethodId);
+        if (generationBatchId != null) {
+            targetSql.append(" AND generation_batch_id = :generationBatchId");
+            targetParams.addValue("generationBatchId", generationBatchId);
+        }
+        List<UUID> gatingBatchIds = jdbcTemplate.query(
+                targetSql.toString(),
+                targetParams,
+                (rs, rowNum) -> readUuid(rs, "gating_batch_id")
+        );
+        if (gatingBatchIds.isEmpty()) {
+            return 0;
+        }
+
+        MapSqlParameterSource cleanupParams = new MapSqlParameterSource("gatingBatchIds", gatingBatchIds);
+        jdbcTemplate.update(
+                "UPDATE synthetic_queries_gated SET gating_batch_id = NULL WHERE gating_batch_id IN (:gatingBatchIds)",
+                cleanupParams
+        );
+        jdbcTemplate.update(
+                "DELETE FROM quality_gating_batch WHERE gating_batch_id IN (:gatingBatchIds)",
+                cleanupParams
+        );
+        return gatingBatchIds.size();
+    }
+
+    @Transactional
     public UUID createGatingBatch(
             String gatingPreset,
             UUID generationMethodId,
