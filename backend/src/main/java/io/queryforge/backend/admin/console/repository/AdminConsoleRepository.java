@@ -1076,6 +1076,7 @@ public class AdminConsoleRepository {
 
     public List<AdminConsoleDtos.GatingResultRow> findGatingResults(
             UUID gatingBatchId,
+            String methodCode,
             String queryType,
             Integer limit,
             Integer offset
@@ -1105,6 +1106,10 @@ public class AdminConsoleRepository {
                 """
         );
         MapSqlParameterSource params = new MapSqlParameterSource("gatingBatchId", gatingBatchId);
+        if (methodCode != null && !methodCode.isBlank()) {
+            sql.append(" AND gr.generation_strategy = :methodCode");
+            params.addValue("methodCode", methodCode.trim().toUpperCase());
+        }
         if (queryType != null && !queryType.isBlank()) {
             sql.append(" AND gr.query_type = :queryType");
             params.addValue("queryType", queryType.trim());

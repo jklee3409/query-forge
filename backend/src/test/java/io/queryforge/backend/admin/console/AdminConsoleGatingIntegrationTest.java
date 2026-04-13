@@ -122,6 +122,44 @@ class AdminConsoleGatingIntegrationTest {
     }
 
     @Test
+    void gatingResultsSupportsMethodFilterAndPagination() throws Exception {
+        UUID methodA = jdbcTemplate.getJdbcTemplate().queryForObject(
+                "SELECT generation_method_id FROM synthetic_query_generation_method WHERE method_code = 'A'",
+                UUID.class
+        );
+        assertThat(methodA).isNotNull();
+
+        UUID gatingBatchId = UUID.randomUUID();
+        insertGatingBatch(gatingBatchId, methodA, "completed");
+
+        insertRegistryQuery("sq_a_older", "A");
+        insertRegistryQuery("sq_b_mid", "B");
+        insertRegistryQuery("sq_a_newer", "A");
+
+        insertGatingResult(gatingBatchId, "sq_a_older", "A", "A older", "2026-04-13T10:00:00Z");
+        insertGatingResult(gatingBatchId, "sq_b_mid", "B", "B mid", "2026-04-13T10:00:01Z");
+        insertGatingResult(gatingBatchId, "sq_a_newer", "A", "A newer", "2026-04-13T10:00:02Z");
+
+        mockMvc.perform(get("/api/admin/console/gating/batches/{gatingBatchId}/results", gatingBatchId)
+                        .param("method_code", "A")
+                        .param("limit", "1")
+                        .param("offset", "0"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].syntheticQueryId").value("sq_a_newer"))
+                .andExpect(jsonPath("$[0].generationStrategy").value("A"));
+
+        mockMvc.perform(get("/api/admin/console/gating/batches/{gatingBatchId}/results", gatingBatchId)
+                        .param("method_code", "A")
+                        .param("limit", "1")
+                        .param("offset", "1"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].syntheticQueryId").value("sq_a_older"))
+                .andExpect(jsonPath("$[0].generationStrategy").value("A"));
+    }
+
+    @Test
     void clearCompletedGatingResultsRemovesOnlyCompletedRowsForTargetMethod() {
         UUID methodA = jdbcTemplate.getJdbcTemplate().queryForObject(
                 "SELECT generation_method_id FROM synthetic_query_generation_method WHERE method_code = 'A'",
@@ -307,6 +345,34 @@ class AdminConsoleGatingIntegrationTest {
                 )
                 """,
                 new MapSqlParameterSource("gatingBatchId", gatingBatchId)
+        );
+    }
+
+    private void insertGatingResult(UUID gatingBatchId, String syntheticQueryId, String strategy, String queryText, String createdAtIsoUtc) {
+        jdbcTemplate.update(
+                """
+                INSERT INTO synthetic_query_gating_result (
+                    gating_batch_id,
+                    synthetic_query_id,
+                    query_text,
+                    generation_strategy,
+                    accepted,
+                    created_at
+                ) VALUES (
+                    :gatingBatchId,
+                    :syntheticQueryId,
+                    :queryText,
+                    :strategy,
+                    TRUE,
+                    CAST(:createdAtIsoUtc AS timestamptz)
+                )
+                """,
+                new MapSqlParameterSource()
+                        .addValue("gatingBatchId", gatingBatchId)
+                        .addValue("syntheticQueryId", syntheticQueryId)
+                        .addValue("queryText", queryText)
+                        .addValue("strategy", strategy)
+                        .addValue("createdAtIsoUtc", createdAtIsoUtc)
         );
     }
 

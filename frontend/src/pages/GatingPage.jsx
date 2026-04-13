@@ -1,11 +1,13 @@
 import { useEffect, useState } from 'react'
 import { DetailCard, IdBadge, Modal, NumberInput, StageCard, StatusBadge } from '../components/Common.jsx'
 import { LlmJobsTable } from '../components/LlmJobsTable.jsx'
-import { requestJson, toNumber } from '../lib/api.js'
+import { queryString, requestJson, toNumber } from '../lib/api.js'
 import { shortId } from '../lib/format.js'
 import { usePolling } from '../lib/hooks.js'
 
 export function GatingPage({ notify }) {
+  const resultPageSize = 20
+
   const [methods, setMethods] = useState([])
   const [batches, setBatches] = useState([])
   const [gatingBatches, setGatingBatches] = useState([])
@@ -13,6 +15,9 @@ export function GatingPage({ notify }) {
   const [funnel, setFunnel] = useState(null)
   const [llmJobs, setLlmJobs] = useState([])
   const [selectedBatchId, setSelectedBatchId] = useState('')
+  const [resultFilter, setResultFilter] = useState({ methodCode: '' })
+  const [resultPage, setResultPage] = useState(0)
+  const [resultHasNextPage, setResultHasNextPage] = useState(false)
   const [modal, setModal] = useState(null)
 
   const [form, setForm] = useState({
@@ -61,7 +66,9 @@ export function GatingPage({ notify }) {
     const rows = await requestJson('/api/admin/console/gating/batches?limit=50')
     const normalized = Array.isArray(rows) ? rows : []
     setGatingBatches(normalized)
-    if (!selectedBatchId && normalized.length > 0) setSelectedBatchId(normalized[0].gatingBatchId)
+    if (!selectedBatchId && normalized.length > 0) {
+      setSelectedBatchId(normalized[0].gatingBatchId)
+    }
   }
 
   const loadFunnel = async (batchId) => {
@@ -69,10 +76,21 @@ export function GatingPage({ notify }) {
     setFunnel(await requestJson(`/api/admin/console/gating/batches/${batchId}/funnel`))
   }
 
-  const loadResults = async (batchId) => {
-    if (!batchId) return setResults([])
-    const rows = await requestJson(`/api/admin/console/gating/batches/${batchId}/results?limit=120`)
-    setResults(Array.isArray(rows) ? rows : [])
+  const loadResults = async (batchId, page = 0, methodCode = resultFilter.methodCode) => {
+    if (!batchId) {
+      setResults([])
+      setResultHasNextPage(false)
+      return
+    }
+    const query = queryString({
+      method_code: methodCode || null,
+      limit: resultPageSize + 1,
+      offset: page * resultPageSize,
+    })
+    const rows = await requestJson(`/api/admin/console/gating/batches/${batchId}/results?${query}`)
+    const normalized = Array.isArray(rows) ? rows : []
+    setResultHasNextPage(normalized.length > resultPageSize)
+    setResults(normalized.slice(0, resultPageSize))
   }
 
   const loadLlmJobs = async () => {
@@ -87,7 +105,9 @@ export function GatingPage({ notify }) {
 
   useEffect(() => {
     if (!selectedBatchId) return
-    Promise.all([loadFunnel(selectedBatchId), loadResults(selectedBatchId)]).catch((error) => notify(error.message, 'error'))
+    const initialPage = 0
+    setResultPage(initialPage)
+    Promise.all([loadFunnel(selectedBatchId), loadResults(selectedBatchId, initialPage, resultFilter.methodCode)]).catch((error) => notify(error.message, 'error'))
   }, [selectedBatchId])
 
   usePolling(true, 5000, async () => {
@@ -152,7 +172,7 @@ export function GatingPage({ notify }) {
           <DetailCard label="프리셋 / 방식" value={`${batch.gatingPreset || '-'} / ${batch.methodCode || '-'}`} />
           <DetailCard label="처리 / 승인" value={`${batch.processedCount ?? 0} / ${batch.acceptedCount ?? 0}`} />
           <DetailCard label="설정(stage_config_json)" value={JSON.stringify(batch.stageConfig || {}, null, 2)} />
-          <DetailCard label="리젝션 요약" value={JSON.stringify(batch.rejectionSummary || {}, null, 2)} />
+          <DetailCard label="리젝트 요약" value={JSON.stringify(batch.rejectionSummary || {}, null, 2)} />
         </div>
       ),
     })
@@ -160,7 +180,11 @@ export function GatingPage({ notify }) {
 
   const executeLlmAction = async (jobId, action) => {
     try {
-      await requestJson(`/api/admin/console/llm-jobs/${jobId}/${action}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })
+      await requestJson(`/api/admin/console/llm-jobs/${jobId}/${action}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: '{}',
+      })
       await loadLlmJobs()
       notify(`JOB ${action} 요청을 전송했습니다.`)
     } catch (error) {
@@ -189,6 +213,18 @@ export function GatingPage({ notify }) {
     }
   }
 
+  const applyResultFilter = async (event) => {
+    event.preventDefault()
+    if (!selectedBatchId) return
+    try {
+      const initialPage = 0
+      setResultPage(initialPage)
+      await loadResults(selectedBatchId, initialPage, resultFilter.methodCode)
+    } catch (error) {
+      notify(error.message, 'error')
+    }
+  }
+
   const funnelCards = [
     { label: '생성 총량', value: funnel?.generatedTotal ?? 0 },
     { label: 'Rule 통과', value: funnel?.passedRule ?? 0 },
@@ -201,7 +237,7 @@ export function GatingPage({ notify }) {
   const renderStageStatus = (value) => {
     if (value === true) return <StatusBadge value="success" label="통과" />
     if (value === false) return <StatusBadge value="failed" label="실패" />
-    return <StatusBadge value="queued" label="미실시" />
+    return <StatusBadge value="queued" label="미사용" />
   }
 
   return (
@@ -226,10 +262,10 @@ export function GatingPage({ notify }) {
           </label>
           <div className="stage-config-grid">
             <StageCard title="Rule" checked={form.enableRuleFilter} onToggle={(checked) => setForm((prev) => ({ ...prev, enableRuleFilter: checked }))}>
-              <NumberInput label="짧은 질의 최소 글자" value={form.ruleMinLengthShort} onChange={(value) => setForm((prev) => ({ ...prev, ruleMinLengthShort: value }))} />
-              <NumberInput label="짧은 질의 최대 글자" value={form.ruleMaxLengthShort} onChange={(value) => setForm((prev) => ({ ...prev, ruleMaxLengthShort: value }))} />
-              <NumberInput label="일반 질의 최소 글자" value={form.ruleMinLengthLong} onChange={(value) => setForm((prev) => ({ ...prev, ruleMinLengthLong: value }))} />
-              <NumberInput label="일반 질의 최대 글자" value={form.ruleMaxLengthLong} onChange={(value) => setForm((prev) => ({ ...prev, ruleMaxLengthLong: value }))} />
+              <NumberInput label="짧은 질의 최소 길이" value={form.ruleMinLengthShort} onChange={(value) => setForm((prev) => ({ ...prev, ruleMinLengthShort: value }))} />
+              <NumberInput label="짧은 질의 최대 길이" value={form.ruleMaxLengthShort} onChange={(value) => setForm((prev) => ({ ...prev, ruleMaxLengthShort: value }))} />
+              <NumberInput label="일반 질의 최소 길이" value={form.ruleMinLengthLong} onChange={(value) => setForm((prev) => ({ ...prev, ruleMinLengthLong: value }))} />
+              <NumberInput label="일반 질의 최대 길이" value={form.ruleMaxLengthLong} onChange={(value) => setForm((prev) => ({ ...prev, ruleMaxLengthLong: value }))} />
               <NumberInput label="최소 토큰" value={form.ruleMinTokens} onChange={(value) => setForm((prev) => ({ ...prev, ruleMinTokens: value }))} />
               <NumberInput label="최대 토큰" value={form.ruleMaxTokens} onChange={(value) => setForm((prev) => ({ ...prev, ruleMaxTokens: value }))} />
             </StageCard>
@@ -265,7 +301,7 @@ export function GatingPage({ notify }) {
         <div className="table-header"><div className="table-title">게이팅 배치 이력</div><button type="button" className="button" onClick={() => Promise.all([loadGatingBatches(), loadLlmJobs()]).catch((error) => notify(error.message, 'error'))}>새로고침</button></div>
         <div className="table-wrap">
           <table className="data-table">
-            <thead><tr><th>게이팅 배치 ID</th><th>프리셋</th><th>방식</th><th>상태</th><th>처리 수</th><th>승인 수</th><th>승인율</th><th>상세</th></tr></thead>
+            <thead><tr><th>게이팅 배치 ID</th><th>프리셋</th><th>방식</th><th>상태</th><th>처리 수</th><th>승인 수</th><th>승인률</th><th>상세</th></tr></thead>
             <tbody>
               {gatingBatches.map((batch) => {
                 const acceptance = batch.processedCount > 0 ? ((batch.acceptedCount / batch.processedCount) * 100).toFixed(1) : '0.0'
@@ -295,6 +331,14 @@ export function GatingPage({ notify }) {
 
       <section className="table-shell">
         <div className="table-header"><div className="table-title">질의별 게이팅 결과</div></div>
+        <form className="filter-bar" onSubmit={applyResultFilter}>
+          <label className="filter-field">생성 방식
+            <select value={resultFilter.methodCode} onChange={(event) => setResultFilter((prev) => ({ ...prev, methodCode: event.target.value }))}>
+              <option value="">전체</option>{methods.map((method) => <option key={method.methodCode} value={method.methodCode}>{method.methodCode}</option>)}
+            </select>
+          </label>
+          <div className="filter-field filter-field--small"><button type="submit" className="button button--primary" disabled={!selectedBatchId}>조회</button></div>
+        </form>
         <div className="table-wrap">
           <table className="data-table">
             <thead><tr><th>질의 ID</th><th>질의 문장</th><th>유형</th><th>Rule</th><th>LLM</th><th>Utility</th><th>Diversity</th><th>Final</th><th>리젝트 단계</th><th>리젝트 사유</th><th>최종</th></tr></thead>
@@ -312,6 +356,29 @@ export function GatingPage({ notify }) {
               ))}
             </tbody>
           </table>
+        </div>
+        <div className="pagination">
+          <button
+            type="button"
+            className="button"
+            disabled={!selectedBatchId || resultPage === 0}
+            onClick={() => {
+              const nextPage = Math.max(0, resultPage - 1)
+              setResultPage(nextPage)
+              loadResults(selectedBatchId, nextPage, resultFilter.methodCode).catch((error) => notify(error.message, 'error'))
+            }}
+          >이전</button>
+          <div className="pagination__label">페이지 {resultPage + 1}</div>
+          <button
+            type="button"
+            className="button"
+            disabled={!selectedBatchId || !resultHasNextPage}
+            onClick={() => {
+              const nextPage = resultPage + 1
+              setResultPage(nextPage)
+              loadResults(selectedBatchId, nextPage, resultFilter.methodCode).catch((error) => notify(error.message, 'error'))
+            }}
+          >다음</button>
         </div>
       </section>
 

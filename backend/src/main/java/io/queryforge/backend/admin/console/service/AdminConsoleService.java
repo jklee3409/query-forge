@@ -129,11 +129,15 @@ public class AdminConsoleService {
 
     public List<AdminConsoleDtos.GatingResultRow> listGatingResults(
             UUID gatingBatchId,
+            String methodCode,
             String queryType,
             Integer limit,
             Integer offset
     ) {
-        return repository.findGatingResults(gatingBatchId, queryType, limit, offset);
+        String normalizedMethodCode = methodCode == null || methodCode.isBlank()
+                ? null
+                : methodCode.trim().toUpperCase();
+        return repository.findGatingResults(gatingBatchId, normalizedMethodCode, queryType, limit, offset);
     }
 
     @Transactional
