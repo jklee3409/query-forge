@@ -27,3 +27,5 @@ Spring Boot backend for Admin Console APIs, RAG APIs, pipeline command orchestra
 - Read paths use `synthetic_queries_raw_all` (union view over `synthetic_queries_raw_a/b/c/d`).
 - Write/provenance updates for synthetic raw rows are strategy-table specific.
 - Admin gating result API supports strategy filtering via `method_code` and paging via `limit/offset`.
+- Admin gating funnel API supports optional strategy filtering via `method_code` (`전체/A/B/C/D`).
+- Admin gating config supports dynamic rule-level Korean ratio thresholds via request payload (`ruleMinKoreanRatio`).

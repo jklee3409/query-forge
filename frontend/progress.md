@@ -19,6 +19,12 @@ High-level progress tracking for the project.
 - Issues encountered: Existing page text had mixed encoding artifacts; this session prioritized stable runtime behavior/API linkage over label cleanup.
 - Next steps: Validate UI behavior with multi-page batches and confirm method filter interacts correctly with selected gating batch context.
 
+## [2026-04-13] Session Summary (Gating Rule Ratio + Funnel Filter UX)
+- What was done: Added Rule-stage Korean ratio input (`최소 한글 비중`), clarified token labels, and added funnel filter controls for `전체/A/B/C/D` in `GatingPage.jsx`.
+- Key decisions: Kept the existing run form structure and injected the new parameter as `ruleMinKoreanRatio` without changing other payload contracts.
+- Issues encountered: Funnel filter required separate state and apply action to avoid coupling with result-table pagination/filter lifecycle.
+- Next steps: Run GUI verification for filter transitions and confirm funnel cards update correctly per method.
+
 ---
 
 ## Notes

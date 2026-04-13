@@ -35,6 +35,8 @@
 
 ## Recent Update
 - Gating result view supports `methodCode` filter and `limit/offset` pagination UI.
+- Gating run Rule stage supports configurable Korean-ratio input (`ruleMinKoreanRatio`).
+- Gating funnel summary cards support method-based filtering (`전체/A/B/C/D`).
 
 ---
 
