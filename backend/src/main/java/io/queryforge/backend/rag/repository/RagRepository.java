@@ -144,7 +144,7 @@ public class RagRepository {
                        r.generation_batch_id
                 FROM memory_entries m
                 JOIN synthetic_queries_gated g ON g.gated_query_id = m.source_gated_query_id
-                LEFT JOIN synthetic_queries_raw r ON r.synthetic_query_id = g.synthetic_query_id
+                LEFT JOIN synthetic_queries_raw_all r ON r.synthetic_query_id = g.synthetic_query_id
                 WHERE m.query_embedding IS NOT NULL
                   AND (:gatingPreset IS NULL OR g.gating_preset = :gatingPreset)
                 ORDER BY m.query_embedding <=> CAST(:embedding AS halfvec)

@@ -60,7 +60,7 @@ def _latest_gating_run_id(
             f"""
             SELECT g.metadata ->> 'experiment_run_id' AS run_id
             FROM synthetic_queries_gated g
-            JOIN synthetic_queries_raw r ON r.synthetic_query_id = g.synthetic_query_id
+            JOIN synthetic_queries_raw_all r ON r.synthetic_query_id = g.synthetic_query_id
             WHERE g.gating_preset = %s
               {where_strategy}
             ORDER BY g.created_at DESC
@@ -112,7 +112,7 @@ def _load_gated_rows(
                    r.prompt_hash,
                    c.product_name
             FROM synthetic_queries_gated g
-            JOIN synthetic_queries_raw r ON r.synthetic_query_id = g.synthetic_query_id
+            JOIN synthetic_queries_raw_all r ON r.synthetic_query_id = g.synthetic_query_id
             LEFT JOIN corpus_chunks c ON c.chunk_id = r.chunk_id_source
             WHERE g.gating_preset = %s
               AND g.final_decision = TRUE

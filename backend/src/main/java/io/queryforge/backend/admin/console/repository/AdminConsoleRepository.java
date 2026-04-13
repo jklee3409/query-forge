@@ -24,6 +24,13 @@ import java.util.UUID;
 @Transactional(readOnly = true)
 public class AdminConsoleRepository {
 
+    private static final List<String> STRATEGY_RAW_TABLES = List.of(
+            "synthetic_queries_raw_a",
+            "synthetic_queries_raw_b",
+            "synthetic_queries_raw_c",
+            "synthetic_queries_raw_d"
+    );
+
     private final NamedParameterJdbcTemplate jdbcTemplate;
     private final ObjectMapper objectMapper;
 
@@ -174,23 +181,9 @@ public class AdminConsoleRepository {
 
     @Transactional
     public void syncSyntheticQueryBatchProvenance(UUID batchId, UUID sourceGenerationRunId) {
-        String updateRawSql = """
-                UPDATE synthetic_queries_raw r
-                SET generation_batch_id = :batchId,
-                    generation_method_id = b.generation_method_id,
-                    prompt_template_version = COALESCE(r.prompt_template_version, r.prompt_version),
-                    language_profile = COALESCE(r.language_profile, CASE WHEN r.query_type = 'code_mixed' THEN 'code_mixed' ELSE 'ko' END),
-                    normalized_query_text = COALESCE(r.normalized_query_text, lower(regexp_replace(trim(r.query_text), '\\s+', ' ', 'g')))
-                FROM synthetic_query_generation_batch b
-                WHERE b.batch_id = :batchId
-                  AND r.experiment_run_id = :sourceGenerationRunId
-                """;
-        jdbcTemplate.update(
-                updateRawSql,
-                new MapSqlParameterSource()
-                        .addValue("batchId", batchId)
-                        .addValue("sourceGenerationRunId", sourceGenerationRunId)
-        );
+        for (String tableName : STRATEGY_RAW_TABLES) {
+            updateStrategyRawBatchProvenance(tableName, batchId, sourceGenerationRunId);
+        }
 
         String linkSql = """
                 INSERT INTO synthetic_query_source_link (
@@ -208,7 +201,7 @@ public class AdminConsoleRepository {
                            'generation_batch_id', :batchId::text,
                            'source_generation_run_id', :sourceGenerationRunId::text
                        )
-                FROM synthetic_queries_raw r
+                FROM synthetic_queries_raw_all r
                 WHERE r.experiment_run_id = :sourceGenerationRunId
                 ON CONFLICT (synthetic_query_id, source_chunk_id, source_role) DO UPDATE
                 SET source_doc_id = EXCLUDED.source_doc_id,
@@ -378,7 +371,7 @@ public class AdminConsoleRepository {
                            WHERE g.synthetic_query_id = r.synthetic_query_id
                              AND g.final_decision = TRUE
                        ) AS gated
-                FROM synthetic_queries_raw r
+                FROM synthetic_queries_raw_all r
                 LEFT JOIN synthetic_query_generation_batch b
                   ON b.batch_id = r.generation_batch_id
                   OR (r.generation_batch_id IS NULL AND b.source_generation_run_id = r.experiment_run_id)
@@ -465,7 +458,7 @@ public class AdminConsoleRepository {
                        r.prompt_hash,
                        r.llm_output::text AS raw_output,
                        r.metadata::text AS metadata
-                FROM synthetic_queries_raw r
+                FROM synthetic_queries_raw_all r
                 LEFT JOIN corpus_chunks c
                   ON c.chunk_id = r.chunk_id_source
                 WHERE r.synthetic_query_id = :queryId
@@ -509,7 +502,7 @@ public class AdminConsoleRepository {
                 )::text AS payload
                 FROM (
                     SELECT r.generation_strategy, COUNT(*) AS cnt
-                    FROM synthetic_queries_raw r
+                    FROM synthetic_queries_raw_all r
                     LEFT JOIN synthetic_query_generation_batch b
                       ON b.source_generation_run_id = r.experiment_run_id
                     WHERE 1=1
@@ -539,7 +532,7 @@ public class AdminConsoleRepository {
                     FROM synthetic_query_generation_batch b
                     JOIN synthetic_query_generation_method m
                       ON m.generation_method_id = b.generation_method_id
-                    LEFT JOIN synthetic_queries_raw r
+                    LEFT JOIN synthetic_queries_raw_all r
                       ON r.experiment_run_id = b.source_generation_run_id
                     WHERE 1=1
                 """ + batchWhere + """
@@ -556,7 +549,7 @@ public class AdminConsoleRepository {
                 )::text AS payload
                 FROM (
                     SELECT r.query_type, COUNT(*) AS cnt
-                    FROM synthetic_queries_raw r
+                    FROM synthetic_queries_raw_all r
                     LEFT JOIN synthetic_query_generation_batch b
                       ON b.source_generation_run_id = r.experiment_run_id
                     WHERE 1=1
@@ -574,7 +567,7 @@ public class AdminConsoleRepository {
                 )::text AS payload
                 FROM (
                     SELECT COALESCE(c.version_label, 'unknown') AS version_label, COUNT(*) AS cnt
-                    FROM synthetic_queries_raw r
+                    FROM synthetic_queries_raw_all r
                     LEFT JOIN synthetic_query_generation_batch b
                       ON b.source_generation_run_id = r.experiment_run_id
                     LEFT JOIN corpus_chunks c
@@ -603,7 +596,7 @@ public class AdminConsoleRepository {
                 """
         );
         long glossaryCount = queryLong("SELECT COUNT(*) FROM corpus_glossary_terms WHERE is_active = TRUE");
-        long syntheticCount = queryLong("SELECT COUNT(*) FROM synthetic_queries_raw");
+        long syntheticCount = queryLong("SELECT COUNT(*) FROM synthetic_queries_raw_all");
         long gatedAcceptedCount = queryLong("SELECT COUNT(*) FROM synthetic_queries_gated WHERE final_decision = TRUE");
         long memoryCount = queryLong("SELECT COUNT(*) FROM memory_entries");
         long ragRunCount = queryLong("SELECT COUNT(*) FROM rag_test_run");
@@ -773,7 +766,7 @@ public class AdminConsoleRepository {
                        ),
                        g.created_at
                 FROM synthetic_queries_gated g
-                JOIN synthetic_queries_raw r
+                JOIN synthetic_queries_raw_all r
                   ON r.synthetic_query_id = g.synthetic_query_id
                 WHERE g.metadata ->> 'experiment_run_id' = :sourceGatingRunId
                 """;
@@ -1958,6 +1951,26 @@ public class AdminConsoleRepository {
                 readInstant(rs, "started_at"),
                 readInstant(rs, "finished_at"),
                 readJson(rs, "metrics_json")
+        );
+    }
+
+    private void updateStrategyRawBatchProvenance(String tableName, UUID batchId, UUID sourceGenerationRunId) {
+        String sql = """
+                UPDATE %s r
+                SET generation_batch_id = :batchId,
+                    generation_method_id = b.generation_method_id,
+                    prompt_template_version = COALESCE(r.prompt_template_version, r.prompt_version),
+                    language_profile = COALESCE(r.language_profile, CASE WHEN r.query_type = 'code_mixed' THEN 'code_mixed' ELSE 'ko' END),
+                    normalized_query_text = COALESCE(r.normalized_query_text, lower(regexp_replace(trim(r.query_text), '\\s+', ' ', 'g')))
+                FROM synthetic_query_generation_batch b
+                WHERE b.batch_id = :batchId
+                  AND r.experiment_run_id = :sourceGenerationRunId
+                """.formatted(tableName);
+        jdbcTemplate.update(
+                sql,
+                new MapSqlParameterSource()
+                        .addValue("batchId", batchId)
+                        .addValue("sourceGenerationRunId", sourceGenerationRunId)
         );
     }
 

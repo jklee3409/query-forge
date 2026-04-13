@@ -122,7 +122,7 @@ def _latest_generation_run_id(
         cursor.execute(
             """
             SELECT experiment_run_id
-            FROM synthetic_queries_raw
+            FROM synthetic_queries_raw_all
             WHERE generation_strategy = ANY(%s)
             ORDER BY created_at DESC
             LIMIT 1
@@ -179,7 +179,7 @@ def _load_raw_queries(
                    generation_strategy,
                    source_summary,
                    metadata
-            FROM synthetic_queries_raw
+            FROM synthetic_queries_raw_all
             WHERE generation_strategy = ANY(%s)
             {where_run}
             ORDER BY created_at ASC

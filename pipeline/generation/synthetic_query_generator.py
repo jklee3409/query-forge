@@ -87,6 +87,13 @@ QUERY_BASE_RESPONSE_SCHEMA: dict[str, Any] = {
     "additionalProperties": True,
 }
 
+STRATEGY_RAW_TABLES: dict[str, str] = {
+    "A": "synthetic_queries_raw_a",
+    "B": "synthetic_queries_raw_b",
+    "C": "synthetic_queries_raw_c",
+    "D": "synthetic_queries_raw_d",
+}
+
 
 @dataclass(slots=True)
 class ChunkRow:
@@ -636,29 +643,38 @@ def _extract_query_text(
     return str(response.get("query_ko") or "").strip() or _fallback_query_text(), {}
 
 
+def _raw_table_for_strategy(generation_strategy: str) -> str:
+    normalized = generation_strategy.strip().upper()
+    table_name = STRATEGY_RAW_TABLES.get(normalized)
+    if table_name is None:
+        raise ValueError(f"unsupported generation strategy: {generation_strategy}")
+    return table_name
+
+
 def _find_cached_query(
     connection: psycopg.Connection[Any],
     *,
+    table_name: str,
     synthetic_query_id: str,
     source_fingerprint: str,
     prompt_template_version: str,
-    generation_strategy: str,
 ) -> bool:
+    statement = sql.SQL(
+        """
+        SELECT 1
+        FROM {table_name}
+        WHERE synthetic_query_id = %s
+          AND source_fingerprint = %s
+          AND prompt_template_version = %s
+        """
+    ).format(table_name=sql.Identifier(table_name))
     with connection.cursor() as cursor:
         cursor.execute(
-            """
-            SELECT 1
-            FROM synthetic_queries_raw
-            WHERE synthetic_query_id = %s
-              AND source_fingerprint = %s
-              AND prompt_template_version = %s
-              AND generation_strategy = %s
-            """,
+            statement,
             (
                 synthetic_query_id,
                 source_fingerprint,
                 prompt_template_version,
-                generation_strategy,
             ),
         )
         return cursor.fetchone() is not None
@@ -667,6 +683,7 @@ def _find_cached_query(
 def _attach_cached_query(
     connection: psycopg.Connection[Any],
     *,
+    table_name: str,
     synthetic_query_id: str,
     generation_method_id: str | None,
     generation_batch_id: str | None,
@@ -674,17 +691,20 @@ def _attach_cached_query(
     llm_model: str,
     generation_asset_ids: list[str],
 ) -> None:
+    statement = sql.SQL(
+        """
+        UPDATE {table_name}
+        SET generation_method_id = %s,
+            generation_batch_id = %s,
+            llm_provider = %s,
+            llm_model = %s,
+            generation_asset_ids = %s
+        WHERE synthetic_query_id = %s
+        """
+    ).format(table_name=sql.Identifier(table_name))
     with connection.cursor() as cursor:
         cursor.execute(
-            """
-            UPDATE synthetic_queries_raw
-            SET generation_method_id = %s,
-                generation_batch_id = %s,
-                llm_provider = %s,
-                llm_model = %s,
-                generation_asset_ids = %s
-            WHERE synthetic_query_id = %s
-            """,
+            statement,
             (
                 generation_method_id,
                 generation_batch_id,
@@ -944,6 +964,7 @@ def run_generation(
                 generation_strategy = strategy
                 if config.enable_code_mixed and query_type == "code_mixed":
                     generation_strategy = "D"
+                raw_table_name = _raw_table_for_strategy(generation_strategy)
                 generation_method_id = method_id_cache.get(generation_strategy)
                 query_prompt_asset = prompts.query_assets[generation_strategy]
                 query_prompt_text = prompts.query_texts[generation_strategy]
@@ -1025,13 +1046,14 @@ def run_generation(
 
                 if _find_cached_query(
                     connection,
+                    table_name=raw_table_name,
                     synthetic_query_id=stable_query_id,
                     source_fingerprint=source_fingerprint,
                     prompt_template_version=query_prompt_asset.version,
-                    generation_strategy=generation_strategy,
                 ):
                     _attach_cached_query(
                         connection,
+                        table_name=raw_table_name,
                         synthetic_query_id=stable_query_id,
                         generation_method_id=generation_method_id,
                         generation_batch_id=generation_batch_id,
@@ -1156,7 +1178,7 @@ def run_generation(
                         }
                     ),
                 }
-                _insert_query_row(connection, table_name="synthetic_queries_raw", payload=payload)
+                _insert_query_row(connection, table_name=raw_table_name, payload=payload)
                 _insert_source_link(
                     connection,
                     synthetic_query_id=stable_query_id,
