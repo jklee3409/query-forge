@@ -239,6 +239,7 @@ class LlmClientTest(unittest.TestCase):
         generation_config = call_json["generationConfig"]
         self.assertEqual(generation_config.get("responseMimeType"), "application/json")
         self.assertIn("responseSchema", generation_config)
+        self.assertNotIn("additionalProperties", json.dumps(generation_config["responseSchema"]))
         self.assertEqual(generation_config.get("thinkingConfig", {}).get("thinkingBudget"), 0)
 
     @patch("pipeline.common.llm_client.requests.post")

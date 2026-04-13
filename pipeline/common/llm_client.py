@@ -1329,8 +1329,6 @@ def _to_gemini_schema(schema: dict[str, Any]) -> dict[str, Any]:
         }
     if isinstance(schema.get("items"), dict):
         mapped["items"] = _to_gemini_schema(schema["items"])
-    if "additionalProperties" in schema:
-        mapped["additionalProperties"] = schema["additionalProperties"]
     return mapped
 
 
