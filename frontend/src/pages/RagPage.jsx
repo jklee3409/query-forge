@@ -712,22 +712,24 @@ export function RagPage({ notify }) {
                 <span className="compare-pill compare-pill--a">{shortId(compareRuns[0].ragTestRunId)}</span>
                 <span className="compare-pill compare-pill--b">{shortId(compareRuns[1].ragTestRunId)}</span>
               </div>
-              <div className="compare-grid">
+              <div className="compare-grid compare-grid--vertical">
                 {compareRows.map((row) => {
                   const leftPct = row.left == null ? 0 : Math.max(0, Math.min(100, (row.left / row.max) * 100))
                   const rightPct = row.right == null ? 0 : Math.max(0, Math.min(100, (row.right / row.max) * 100))
                   return (
-                    <div key={row.key} className="compare-row">
-                      <div className="compare-row__label">{row.label}</div>
-                      <div className="compare-bar-stack">
-                        <div className="compare-bar compare-bar--a" style={{ width: `${leftPct}%` }}>
-                          <span>{formatMetric(row.left)}</span>
+                    <article key={row.key} className="compare-metric">
+                      <div className="compare-metric__label">{row.label}</div>
+                      <div className="compare-metric__plot">
+                        <div className="compare-metric__col">
+                          <div className="compare-metric__bar compare-metric__bar--a" style={{ height: `${leftPct}%` }} />
+                          <div className="compare-metric__value">{formatMetric(row.left)}</div>
                         </div>
-                        <div className="compare-bar compare-bar--b" style={{ width: `${rightPct}%` }}>
-                          <span>{formatMetric(row.right)}</span>
+                        <div className="compare-metric__col">
+                          <div className="compare-metric__bar compare-metric__bar--b" style={{ height: `${rightPct}%` }} />
+                          <div className="compare-metric__value">{formatMetric(row.right)}</div>
                         </div>
                       </div>
-                    </div>
+                    </article>
                   )
                 })}
               </div>
@@ -788,11 +790,19 @@ export function RagPage({ notify }) {
                 return (
                   <tr key={run.ragTestRunId}>
                     <td>
-                      <input
-                        type="checkbox"
-                        checked={compareRunIds.includes(run.ragTestRunId)}
-                        onChange={() => toggleCompareRun(run.ragTestRunId)}
-                      />
+                      <label className={`compare-check ${compareRunIds.includes(run.ragTestRunId) ? 'is-selected' : ''}`}>
+                        <input
+                          type="checkbox"
+                          checked={compareRunIds.includes(run.ragTestRunId)}
+                          onChange={() => toggleCompareRun(run.ragTestRunId)}
+                        />
+                        <span className="compare-check__box" aria-hidden="true">
+                          {compareRunIds.includes(run.ragTestRunId) ? '✓' : ''}
+                        </span>
+                        <span className="compare-check__text">
+                          {compareRunIds.includes(run.ragTestRunId) ? '선택됨' : '선택'}
+                        </span>
+                      </label>
                     </td>
                     <td><IdBadge value={run.ragTestRunId} /></td>
                     <td><StatusBadge value={run.status} /></td>

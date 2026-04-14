@@ -40,6 +40,7 @@
 - RAG run form now distinguishes `official` vs `exploratory` discipline, with official bundled comparison controls (`gating_effect` / `rewrite_effect`) and explicit snapshot identity payloads.
 - RAG run detail now exposes retrieval per-mode payload (`retrieval_by_mode`) instead of relying only on single collapsed summary values.
 - RAG page now includes option-meaning helper text, snapshot-method deduplication lock, and two-run visual comparison charts for quality/performance test review.
+- RAG compare chart now uses vertical metric cards, and test-history compare selection uses labeled custom checkbox controls for clearer state visibility.
 - Global admin theme/layout has been refreshed to a modern production-style dashboard aesthetic via `App.jsx` + `styles.css`.
 - Gating funnel summary cards support method-based filtering (`전체/A/B/C/D`).
 

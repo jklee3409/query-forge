@@ -3,6 +3,12 @@
 ## Overview
 High-level progress tracking for the project.
 
+## [2026-04-15] Session Summary (RAG Compare Visualization + Selection UX)
+- What was done: Refactored `RagPage.jsx` comparison chart from horizontal bar rows to vertical metric cards and replaced run-compare checkbox cells with a labeled custom selector (`선택` / `선택됨`).
+- Key decisions: Kept metric source and compare-run behavior unchanged while improving scanability for side-by-side run review.
+- Issues encountered: Existing default checkbox had low visual affordance in dense table context; custom control now shows explicit selected state text and colored check box.
+- Next steps: Validate mobile/table readability with long run lists and confirm operator preference on vertical chart density.
+
 ---
 
 ## [2026-04-13] Session Summary
