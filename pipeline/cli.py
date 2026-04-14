@@ -8,6 +8,7 @@ from pathlib import Path
 
 from collectors.spring_docs_collector import collect_documents
 from datasets.build_eval_dataset import run_eval_dataset_builder_from_env
+from datasets.import_eval_jsonl import run_eval_jsonl_import
 from eval.answer_eval import run_answer_eval_from_env
 from eval.retrieval_eval import run_retrieval_eval_from_env
 from gating.quality_gating import run_quality_gating_from_env
@@ -30,6 +31,7 @@ COMMANDS = (
     "gate-queries",
     "build-memory",
     "build-eval-dataset",
+    "import-eval-jsonl",
     "eval-retrieval",
     "eval-answer",
 )
@@ -131,6 +133,18 @@ def build_parser() -> argparse.ArgumentParser:
         subparser.add_argument("--experiment", default="scaffold")
         subparser.add_argument("--log-level", default="INFO")
 
+    import_eval = subparsers.add_parser("import-eval-jsonl")
+    import_eval.add_argument("--eval-dev", default="data/eval/human_eval_dev.jsonl")
+    import_eval.add_argument("--eval-test", default="data/eval/human_eval_test.jsonl")
+    import_eval.add_argument("--keep-existing", action="store_true")
+    import_eval.add_argument("--database-url", default=None)
+    import_eval.add_argument("--db-host", default="localhost")
+    import_eval.add_argument("--db-port", type=int, default=5432)
+    import_eval.add_argument("--db-name", default="query_forge")
+    import_eval.add_argument("--db-user", default="query_forge")
+    import_eval.add_argument("--db-password", default="query_forge")
+    import_eval.add_argument("--log-level", default="INFO")
+
     return parser
 
 
@@ -225,6 +239,22 @@ def main() -> int:
 
     if args.command == "build-eval-dataset":
         summary = run_eval_dataset_builder_from_env(args.experiment)
+        LOGGER.info("[pipeline] command=%s finished summary=%s", args.command, summary)
+        print(json.dumps(summary, ensure_ascii=False, indent=2))
+        return 0
+
+    if args.command == "import-eval-jsonl":
+        summary = run_eval_jsonl_import(
+            eval_dev_path=Path(args.eval_dev),
+            eval_test_path=Path(args.eval_test),
+            replace_splits=not bool(args.keep_existing),
+            database_url=args.database_url,
+            db_host=args.db_host,
+            db_port=args.db_port,
+            db_name=args.db_name,
+            db_user=args.db_user,
+            db_password=args.db_password,
+        )
         LOGGER.info("[pipeline] command=%s finished summary=%s", args.command, summary)
         print(json.dumps(summary, ensure_ascii=False, indent=2))
         return 0
