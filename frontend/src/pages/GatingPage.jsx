@@ -7,6 +7,7 @@ import { usePolling } from '../lib/hooks.js'
 
 export function GatingPage({ notify }) {
   const resultPageSize = 20
+  const normalizeMethodCode = (value) => String(value || '').trim().toUpperCase()
 
   const [methods, setMethods] = useState([])
   const [batches, setBatches] = useState([])
@@ -20,6 +21,22 @@ export function GatingPage({ notify }) {
   const [resultPage, setResultPage] = useState(0)
   const [resultHasNextPage, setResultHasNextPage] = useState(false)
   const [modal, setModal] = useState(null)
+
+  const pickDefaultGatingBatchId = (rows) => {
+    if (!Array.isArray(rows) || rows.length === 0) return ''
+    const completed = rows.find((row) => String(row.status || '').toLowerCase() === 'completed')
+    return (completed || rows[0]).gatingBatchId
+  }
+
+  const findLatestCompletedBatchIdByMethod = (methodCode) => {
+    const normalizedMethodCode = normalizeMethodCode(methodCode)
+    const target = gatingBatches.find((batch) => {
+      if (String(batch.status || '').toLowerCase() !== 'completed') return false
+      if (!normalizedMethodCode) return true
+      return normalizeMethodCode(batch.methodCode) === normalizedMethodCode
+    })
+    return target?.gatingBatchId || ''
+  }
 
   const [form, setForm] = useState({
     methodCode: '',
@@ -61,6 +78,8 @@ export function GatingPage({ notify }) {
     const normalizedMethods = Array.isArray(methodRows) ? methodRows : []
     setMethods(normalizedMethods)
     setForm((prev) => ({ ...prev, methodCode: prev.methodCode || normalizedMethods[0]?.methodCode || '' }))
+    setResultFilter((prev) => ({ ...prev, methodCode: prev.methodCode || normalizedMethods[0]?.methodCode || '' }))
+    setFunnelFilter((prev) => ({ ...prev, methodCode: prev.methodCode || normalizedMethods[0]?.methodCode || '' }))
     setBatches(Array.isArray(batchRows) ? batchRows : [])
   }
 
@@ -68,8 +87,9 @@ export function GatingPage({ notify }) {
     const rows = await requestJson('/api/admin/console/gating/batches?limit=50')
     const normalized = Array.isArray(rows) ? rows : []
     setGatingBatches(normalized)
-    if (!selectedBatchId && normalized.length > 0) {
-      setSelectedBatchId(normalized[0].gatingBatchId)
+    const hasSelected = Boolean(selectedBatchId) && normalized.some((batch) => batch.gatingBatchId === selectedBatchId)
+    if (!hasSelected) {
+      setSelectedBatchId(pickDefaultGatingBatchId(normalized))
     }
   }
 
@@ -113,14 +133,21 @@ export function GatingPage({ notify }) {
   }, [])
 
   useEffect(() => {
-    if (!selectedBatchId) return
+    if (!gatingBatches.length) {
+      setFunnel(null)
+      setResults([])
+      setResultHasNextPage(false)
+      return
+    }
     const initialPage = 0
     setResultPage(initialPage)
+    const funnelBatchId = findLatestCompletedBatchIdByMethod(funnelFilter.methodCode)
+    const resultBatchId = findLatestCompletedBatchIdByMethod(resultFilter.methodCode)
     Promise.all([
-      loadFunnel(selectedBatchId, funnelFilter.methodCode),
-      loadResults(selectedBatchId, initialPage, resultFilter.methodCode),
+      loadFunnel(funnelBatchId, funnelFilter.methodCode),
+      loadResults(resultBatchId, initialPage, resultFilter.methodCode),
     ]).catch((error) => notify(error.message, 'error'))
-  }, [selectedBatchId])
+  }, [gatingBatches, funnelFilter.methodCode, resultFilter.methodCode])
 
   usePolling(true, 5000, async () => {
     try {
@@ -133,7 +160,7 @@ export function GatingPage({ notify }) {
   const runGating = async (event) => {
     event.preventDefault()
     try {
-      const created = await requestJson('/api/admin/console/gating/batches/run', {
+      await requestJson('/api/admin/console/gating/batches/run', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -169,7 +196,6 @@ export function GatingPage({ notify }) {
         }),
       })
       await Promise.all([loadGatingBatches(), loadLlmJobs()])
-      setSelectedBatchId(created.gatingBatchId)
       notify('Quality Gating 배치를 등록했습니다.')
     } catch (error) {
       notify(error.message, 'error')
@@ -228,11 +254,11 @@ export function GatingPage({ notify }) {
 
   const applyResultFilter = async (event) => {
     event.preventDefault()
-    if (!selectedBatchId) return
     try {
       const initialPage = 0
       setResultPage(initialPage)
-      await loadResults(selectedBatchId, initialPage, resultFilter.methodCode)
+      const batchId = findLatestCompletedBatchIdByMethod(resultFilter.methodCode)
+      await loadResults(batchId, initialPage, resultFilter.methodCode)
     } catch (error) {
       notify(error.message, 'error')
     }
@@ -240,13 +266,16 @@ export function GatingPage({ notify }) {
 
   const applyFunnelFilter = async (event) => {
     event.preventDefault()
-    if (!selectedBatchId) return
     try {
-      await loadFunnel(selectedBatchId, funnelFilter.methodCode)
+      const batchId = findLatestCompletedBatchIdByMethod(funnelFilter.methodCode)
+      await loadFunnel(batchId, funnelFilter.methodCode)
     } catch (error) {
       notify(error.message, 'error')
     }
   }
+
+  const resultReferenceBatchId = findLatestCompletedBatchIdByMethod(resultFilter.methodCode)
+  const funnelReferenceBatchId = findLatestCompletedBatchIdByMethod(funnelFilter.methodCode)
 
   const funnelCards = [
     { label: '생성 총량', value: funnel?.generatedTotal ?? 0 },
@@ -352,7 +381,7 @@ export function GatingPage({ notify }) {
               <option value="">전체</option>{methods.map((method) => <option key={method.methodCode} value={method.methodCode}>{method.methodCode}</option>)}
             </select>
           </label>
-          <div className="filter-field filter-field--small"><button type="submit" className="button button--primary" disabled={!selectedBatchId}>조회</button></div>
+          <div className="filter-field filter-field--small"><button type="submit" className="button button--primary" disabled={!funnelReferenceBatchId}>조회</button></div>
         </form>
         <section className="summary-grid">
           {funnelCards.map((card) => (
@@ -372,7 +401,7 @@ export function GatingPage({ notify }) {
               <option value="">전체</option>{methods.map((method) => <option key={method.methodCode} value={method.methodCode}>{method.methodCode}</option>)}
             </select>
           </label>
-          <div className="filter-field filter-field--small"><button type="submit" className="button button--primary" disabled={!selectedBatchId}>조회</button></div>
+          <div className="filter-field filter-field--small"><button type="submit" className="button button--primary" disabled={!resultReferenceBatchId}>조회</button></div>
         </form>
         <div className="table-wrap">
           <table className="data-table">
@@ -396,22 +425,22 @@ export function GatingPage({ notify }) {
           <button
             type="button"
             className="button"
-            disabled={!selectedBatchId || resultPage === 0}
+            disabled={!resultReferenceBatchId || resultPage === 0}
             onClick={() => {
               const nextPage = Math.max(0, resultPage - 1)
               setResultPage(nextPage)
-              loadResults(selectedBatchId, nextPage, resultFilter.methodCode).catch((error) => notify(error.message, 'error'))
+              loadResults(resultReferenceBatchId, nextPage, resultFilter.methodCode).catch((error) => notify(error.message, 'error'))
             }}
           >이전</button>
           <div className="pagination__label">페이지 {resultPage + 1}</div>
           <button
             type="button"
             className="button"
-            disabled={!selectedBatchId || !resultHasNextPage}
+            disabled={!resultReferenceBatchId || !resultHasNextPage}
             onClick={() => {
               const nextPage = resultPage + 1
               setResultPage(nextPage)
-              loadResults(selectedBatchId, nextPage, resultFilter.methodCode).catch((error) => notify(error.message, 'error'))
+              loadResults(resultReferenceBatchId, nextPage, resultFilter.methodCode).catch((error) => notify(error.message, 'error'))
             }}
           >다음</button>
         </div>
