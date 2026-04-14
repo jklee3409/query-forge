@@ -3,6 +3,12 @@
 ## Overview
 High-level progress tracking for the project.
 
+## [2026-04-15] Session Summary (RAG Eval Reset + Rewrite Adoption + Admin UX)
+- What was done: Rebuilt eval dataset via `build-eval-dataset` (method-1 path), improved rewrite adoption logic in pipeline runtime, updated Admin RAG compare chart to vertical layout, and replaced run-compare selector with a clearer custom checkbox UI.
+- Key decisions: Kept Admin execution path intact (`/api/admin/console/rag/tests/run`) and reran two exploratory tests with the same conditions as previous target runs after deleting prior RAG test history/results.
+- Issues encountered: Long-running answer eval stage required extended monitoring; both reruns completed after prolonged `eval-answer` runtime.
+- Next steps: Add pre-eval dataset/corpus ID consistency guard and monitor rewrite adoption quality with current `confidence + retrieval-shift` scoring.
+
 ## [2026-04-14] Session Summary (RAG Eval Parallelization + Run Cleanup)
 - What was done: Read `.codex/AGENTS.md`, cancelled active RAG runs (`41a804bf-7b43-46dd-a4de-592f08ddac89`, `f3360ef2-7d04-42ec-acc6-ff1382568892`), removed run-specific temporary artifacts (experiment configs/reports and related DB rows), and implemented sample-level parallel processing for `eval-retrieval` and `eval-answer`.
 - Key decisions: Parallelized only computation/LLM call paths via `ThreadPoolExecutor` while keeping DB writes sequential to preserve transactional safety and deterministic ordering; added configurable eval concurrency (`retrieval_eval_concurrency` / `answer_eval_concurrency` / `eval_concurrency` with env fallbacks).
