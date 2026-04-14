@@ -16,6 +16,7 @@ public record AdminPipelineProperties(
         String glossaryOutputPath,
         String relationsOutputPath,
         String visualizationOutputPath,
-        int maxLogChars
+        int maxLogChars,
+        long experimentCommandTimeoutSeconds
 ) {
 }

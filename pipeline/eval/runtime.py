@@ -159,9 +159,10 @@ def load_chunk_items(connection: psycopg.Connection[Any]) -> list[ChunkItem]:
     with connection.cursor() as cursor:
         cursor.execute(
             """
-            SELECT chunk_id, document_id, chunk_text
-            FROM corpus_chunks
-            ORDER BY document_id, chunk_index_in_document
+            SELECT c.chunk_id, c.document_id, c.chunk_text
+            FROM corpus_chunks c
+            JOIN corpus_documents d ON d.document_id = c.document_id
+            ORDER BY c.document_id, c.chunk_index_in_document
             """
         )
         rows = cursor.fetchall()

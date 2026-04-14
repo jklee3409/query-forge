@@ -490,7 +490,10 @@ public class LlmJobRepository {
         String sql = """
                 UPDATE llm_job_item
                 SET item_status = 'running',
-                    started_at = COALESCE(started_at, NOW())
+                    started_at = NOW(),
+                    finished_at = NULL,
+                    error_message = NULL,
+                    result_json = '{}'::jsonb
                 WHERE job_item_id = :jobItemId
                 """;
         jdbcTemplate.update(sql, new MapSqlParameterSource("jobItemId", jobItemId));
@@ -506,6 +509,20 @@ public class LlmJobRepository {
                     error_message = NULL
                 WHERE job_id = :jobId
                   AND item_status = 'running'
+                """;
+        jdbcTemplate.update(sql, new MapSqlParameterSource("jobId", jobId));
+    }
+
+    @Transactional
+    public void prepareItemsForRetry(UUID jobId) {
+        String sql = """
+                UPDATE llm_job_item
+                SET item_status = CASE WHEN item_status = 'completed' THEN 'completed' ELSE 'queued' END,
+                    started_at = CASE WHEN item_status = 'completed' THEN started_at ELSE NULL END,
+                    finished_at = CASE WHEN item_status = 'completed' THEN finished_at ELSE NULL END,
+                    error_message = CASE WHEN item_status = 'completed' THEN error_message ELSE NULL END,
+                    result_json = CASE WHEN item_status = 'completed' THEN result_json ELSE '{}'::jsonb END
+                WHERE job_id = :jobId
                 """;
         jdbcTemplate.update(sql, new MapSqlParameterSource("jobId", jobId));
     }

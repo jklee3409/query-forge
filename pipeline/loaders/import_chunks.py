@@ -61,6 +61,24 @@ def fetch_section_presence(
         return {str(row["section_id"]): row for row in cursor.fetchall()}
 
 
+def fetch_document_presence(
+    connection: psycopg.Connection[Any],
+    document_ids: list[str],
+) -> set[str]:
+    if not document_ids:
+        return set()
+    with connection.cursor() as cursor:
+        cursor.execute(
+            """
+            SELECT document_id
+            FROM corpus_documents
+            WHERE document_id = ANY(%s)
+            """,
+            (document_ids,),
+        )
+        return {str(row["document_id"]) for row in cursor.fetchall()}
+
+
 def fetch_existing_chunks(
     connection: psycopg.Connection[Any],
     chunk_ids: list[str],
@@ -120,6 +138,10 @@ def import_chunks(
         document_ids=options.document_ids,
         raw_documents=raw_documents,
     )
+    document_presence = fetch_document_presence(
+        connection,
+        sorted({str(row["document_id"]) for row in chunk_rows}),
+    )
     section_ids = sorted(
         {
             section_id
@@ -135,6 +157,19 @@ def import_chunks(
     upserts: list[tuple[Any, ...]] = []
 
     for row in sorted(chunk_rows, key=lambda item: (item["document_id"], item["chunk_index_in_doc"])):
+        document_id = str(row["document_id"])
+        if document_id not in document_presence:
+            stats.skipped += 1
+            if len(stats.errors) < 50:
+                stats.errors.append(
+                    {
+                        "chunk_id": str(row["chunk_id"]),
+                        "document_id": document_id,
+                        "reason": "missing_document",
+                    }
+                )
+            continue
+
         metadata = dict(row.get("metadata") or {})
         candidate_section_ids = [
             str(value)
@@ -156,7 +191,7 @@ def import_chunks(
 
         candidate = {
             "chunk_id": str(row["chunk_id"]),
-            "document_id": str(row["document_id"]),
+            "document_id": document_id,
             "section_id": primary_section_id,
             "chunk_index_in_document": int(row["chunk_index_in_doc"]),
             "chunk_index_in_section": chunk_index_in_section,

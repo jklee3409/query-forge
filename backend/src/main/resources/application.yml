@@ -49,3 +49,4 @@ query-forge:
       relations-output-path: ${QUERY_FORGE_RELATIONS_OUTPUT:data/processed/chunk_neighbors.sql}
       visualization-output-path: ${QUERY_FORGE_VISUALIZATION_OUTPUT:data/processed/chunking_visualization.md}
       max-log-chars: ${QUERY_FORGE_MAX_LOG_CHARS:12000}
+      experiment-command-timeout-seconds: ${QUERY_FORGE_EXPERIMENT_TIMEOUT_SECONDS:14400}

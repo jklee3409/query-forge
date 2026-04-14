@@ -105,8 +105,8 @@ def _load_candidates(connection: psycopg.Connection[Any], limit: int = 800) -> l
             FROM memory_entries m
             JOIN synthetic_queries_gated g ON g.gated_query_id = m.source_gated_query_id
             JOIN synthetic_queries_raw_all r ON r.synthetic_query_id = g.synthetic_query_id
-            LEFT JOIN corpus_documents d ON d.document_id = m.target_doc_id
-            LEFT JOIN corpus_chunks c ON c.chunk_id = m.chunk_id_source
+            JOIN corpus_documents d ON d.document_id = m.target_doc_id
+            JOIN corpus_chunks c ON c.chunk_id = m.chunk_id_source
             ORDER BY m.created_at DESC
             LIMIT %s
             """,

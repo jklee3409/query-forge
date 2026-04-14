@@ -110,7 +110,8 @@ class DocumentArtifactStoreServiceTest {
                 "data/processed/glossary_terms.jsonl",
                 "data/processed/chunk_neighbors.sql",
                 "data/processed/chunking_visualization.md",
-                12000
+                12000,
+                14400
         );
         SourceCatalogService sourceCatalogService = new SourceCatalogService(properties, mock(PipelineAdminRepository.class));
         return new DocumentArtifactStoreService(properties, sourceCatalogService, objectMapper);

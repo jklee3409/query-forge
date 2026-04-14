@@ -21,6 +21,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
+import java.util.concurrent.TimeUnit;
 import java.util.stream.Stream;
 
 @Service
@@ -69,7 +70,28 @@ public class ExperimentPipelineService {
             CompletableFuture<String> stderrFuture = CompletableFuture.supplyAsync(
                     () -> readStream(process.getErrorStream())
             );
-            int exitCode = process.waitFor();
+            long timeoutSeconds = Math.max(60L, properties.experimentCommandTimeoutSeconds());
+            boolean finished = process.waitFor(timeoutSeconds, TimeUnit.SECONDS);
+            if (!finished) {
+                process.destroy();
+                if (!process.waitFor(10, TimeUnit.SECONDS)) {
+                    process.destroyForcibly();
+                    process.waitFor(10, TimeUnit.SECONDS);
+                }
+                String stdout = stdoutFuture.join();
+                String stderr = stderrFuture.join();
+                String timeoutMessage = "command timed out after " + timeoutSeconds + " seconds";
+                JsonNode summary = parseSummary(stdout);
+                return new RagDtos.ExperimentCommandResponse(
+                        command,
+                        experiment,
+                        124,
+                        summary,
+                        trim(stdout),
+                        trim(timeoutMessage + System.lineSeparator() + stderr)
+                );
+            }
+            int exitCode = process.exitValue();
             String stdout = stdoutFuture.join();
             String stderr = stderrFuture.join();
             JsonNode summary = parseSummary(stdout);
