@@ -49,6 +49,12 @@ High-level progress tracking for the project.
 - Issues encountered: Needed to balance stronger visual identity with existing table-heavy workflows, so spacing/contrast/typography were tuned for dense operational screens.
 - Next steps: Validate mobile sidebar behavior and table readability at smaller breakpoints with real admin traffic patterns.
 
+## [2026-04-14] Session Summary (Official RAG Comparison Controls + Per-Mode Exposure)
+- What was done: Extended `RagPage.jsx` with official run controls (`runDiscipline`, `officialComparisonType`), bundled gating snapshot selectors (`ungated/rule_only/full_gating`), request payload wiring (`comparisonGatingBatchIds`), and detail modal exposure for `retrieval_by_mode`.
+- Key decisions: In official `gating_effect`, legacy single snapshot selector is disabled and dedicated three-snapshot bundle is enforced in UI before submit.
+- Issues encountered: Existing file had mixed-encoding history, so controls were inserted with minimal surface-area changes and then validated by production build.
+- Next steps: Operator smoke-test for official `rewrite_effect` and `gating_effect` workflows and verify explicit failure messages for missing/incompatible snapshots.
+
 ---
 
 ## Notes

@@ -3,6 +3,24 @@
 ## Overview
 High-level pipeline progress tracking.
 
+## [2026-04-14] Session Summary (Memory/Eval Dataset Integrity Guard)
+- What was done: Updated memory build and eval-dataset candidate loading to require valid `corpus_documents` + `corpus_chunks` joins instead of permissive left joins.
+- Key decisions: Filtered invalid gated/raw references at read time so downstream stages do not ingest stale IDs into `memory_entries` or eval sampling flows.
+- Issues encountered: Legacy-shadow-dependent records can survive from earlier runs; strict corpus joins avoid reusing those rows.
+- Next steps: Validate `build-memory -> build-eval-dataset -> eval-*` flow in migrated DB and confirm skipped-invalid behavior is stable.
+
+## [2026-04-14] Session Summary (Eval Corpus FK Hardening)
+- What was done: Updated `eval/runtime.py::load_chunk_items` to join `corpus_documents` and exclude orphan chunks, and updated `loaders/import_chunks.py` to skip chunk rows referencing missing documents.
+- Key decisions: Prevented invalid `document_id` propagation at both read path (evaluation runtime) and write path (corpus import) to stop recurring FK mismatches.
+- Issues encountered: Existing DB contained historical orphan chunks from periods without document FK enforcement.
+- Next steps: Run import/eval smoke after Flyway apply to confirm no new orphan chunk references are produced.
+
+## [2026-04-14] Session Summary (AGENTS 3.6 Retrieval/Answer Eval Alignment)
+- What was done: Added official comparison retrieval modes (`memory_only_rule_only`, `memory_only_full_gating`) with per-snapshot source-run mapping support, fixed sample-mode evaluator parameter wiring under concurrency, and added explicit answer metrics (`correctness`, `grounding`, `hallucination_rate`) to summary/detail outputs.
+- Key decisions: Preserved per-mode metrics instead of collapsing to a single mode and stored retrieved doc/chunk IDs in metadata for `rerank_results` to stay robust under mixed FK environments.
+- Issues encountered: Concurrent retrieval eval path had argument mismatch risk after mode extension; function signatures and caller wiring were normalized.
+- Next steps: Run official comparison smoke tests to verify bundled modes, per-mode summaries, and answer-level metric reporting consistency.
+
 ---
 
 ## [2026-04-13] Session Summary (Synthetic Raw Split)
