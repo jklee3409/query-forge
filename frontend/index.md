@@ -36,7 +36,9 @@
 ## Recent Update
 - Gating result view supports `methodCode` filter and `limit/offset` pagination UI.
 - Gating run Rule stage supports configurable Korean-ratio input (`ruleMinKoreanRatio`).
-- RAG run form supports snapshot-based evaluation through `sourceGatingBatchId` with preset/method-compatible candidate filtering.
+- RAG run form supports snapshot-based evaluation through `sourceGatingBatchId`, listing all completed snapshots and validating source run/preset/method compatibility at run-time.
+- RAG page now includes option-meaning helper text, snapshot-method deduplication lock, and two-run visual comparison charts for quality/performance test review.
+- Global admin theme/layout has been refreshed to a modern production-style dashboard aesthetic via `App.jsx` + `styles.css`.
 - Gating funnel summary cards support method-based filtering (`전체/A/B/C/D`).
 
 ---

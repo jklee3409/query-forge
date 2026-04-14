@@ -47,6 +47,18 @@ High-level progress tracking for the project.
 - Issues encountered: Existing eval path loaded memory entries across runs; added source gating run filtering in runtime retrieval/rewrite path to prevent cross-run memory mixing.
 - Next steps: Execute admin GUI smoke for snapshot vs auto-latest runs and compare retrieval/answer reports for deterministic reruns.
 
+## [2026-04-14] Session Summary (RAG Snapshot Dropdown Visibility)
+- What was done: Adjusted Admin RAG snapshot dropdown behavior to show all completed gating snapshots and added runtime refresh wiring for gating batch list updates.
+- Key decisions: Moved compatibility enforcement to run-time validation so UI can expose full snapshot inventory while still blocking incompatible preset/method combinations.
+- Issues encountered: Existing UI filtered snapshot list by effective preset/method, which could hide valid completed snapshots from operator view.
+- Next steps: Validate operator scenario where completed batch count in GUI dropdown matches backend `gating/batches` API result.
+
+## [2026-04-14] Session Summary (RAG UX + Backoffice Visual Refresh)
+- What was done: Redesigned Admin backoffice shell (`frontend/src/App.jsx`, `frontend/src/styles.css`) and rebuilt RAG test UI (`frontend/src/pages/RagPage.jsx`) with clearer control semantics and run-comparison visualization.
+- Key decisions: Resolved snapshot/method duplicated input by auto-locking method selection when snapshot carries a fixed method, while keeping submit-time compatibility validation for safety.
+- Issues encountered: Existing RAG options were hard to interpret, so field-level helper text now explicitly maps GUI knobs to runtime config keys (`rewrite_threshold`, `retrieval_top_k`, `rerank_top_n`).
+- Next steps: Validate operator workflow for two-run chart comparison and collect feedback on metric prioritization in the dashboard.
+
 ## [2026-04-13] Session Summary (Gating Rule Ratio + Funnel Filter)
 - What was done: Added configurable Korean-ratio threshold to admin gating Rule stage (GUI -> backend config -> pipeline rule evaluation), clarified min/max token labels, and added method-based funnel filtering (`전체/A/B/C/D`) in gating execution screen.
 - Key decisions: Preserved legacy defaults by keeping separate defaults for general queries (`0.40`) and code-mixed queries (`0.20`), while applying the same user-entered ratio to both when explicitly set from Admin GUI.

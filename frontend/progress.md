@@ -31,6 +31,24 @@ High-level progress tracking for the project.
 - Issues encountered: When `gatingApplied=false`, stale non-`ungated` snapshot selection can fail validation; UI now computes effective preset and auto-clears invalid selection.
 - Next steps: Smoke-test `Auto (latest matching)` and explicit snapshot reruns to confirm deterministic retrieval/answer comparison.
 
+## [2026-04-14] Session Summary (Snapshot List Visibility Fix)
+- What was done: Updated `RagPage.jsx` so snapshot dropdown lists all completed gating batches, instead of hiding rows by current preset/method filter.
+- Key decisions: Preserved safety by adding pre-submit validation (`sourceGatingRunId` 존재 여부 + `preset/method` 호환성) while exposing non-runnable/ incompatible snapshots with suffix labels.
+- Issues encountered: Snapshot list freshness was limited to initial page load; added polling and refresh-path updates to reload gating batch rows.
+- Next steps: Verify with real data that completed snapshot count in dropdown matches `/api/admin/console/gating/batches` response count.
+
+## [2026-04-14] Session Summary (RAG UX + Backoffice Redesign)
+- What was done: Rebuilt `RagPage.jsx` layout with clearer option semantics, snapshot/method deduplication logic, and a two-run comparison chart section for practical experiment review.
+- Key decisions: When snapshot has a fixed `methodCode`, method selection is auto-locked to prevent redundant conflicting input; compatibility checks are enforced at submit-time.
+- Issues encountered: Existing option labels made runtime behavior unclear, so field-level helper text now maps UI controls to actual experiment config keys (`rewrite_threshold`, `retrieval_top_k`, `rerank_top_n`).
+- Next steps: Collect operator feedback on compare-chart readability and iterate metric set prioritization.
+
+## [2026-04-14] Session Summary (Global Admin Visual Refresh)
+- What was done: Updated `App.jsx` metadata/navigation labels and rebuilt `styles.css` theme for a modern production-style backoffice look and feel.
+- Key decisions: Kept component/class contracts stable so Pipeline/Synthetic/Gating pages inherit visual improvements without API or layout logic regressions.
+- Issues encountered: Needed to balance stronger visual identity with existing table-heavy workflows, so spacing/contrast/typography were tuned for dense operational screens.
+- Next steps: Validate mobile sidebar behavior and table readability at smaller breakpoints with real admin traffic patterns.
+
 ---
 
 ## Notes
