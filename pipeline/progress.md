@@ -17,6 +17,12 @@ High-level pipeline progress tracking.
 - Issues encountered: Needed backward compatibility for existing experiment configs that do not define the new keys.
 - Next steps: Validate with admin-triggered gating runs using custom Korean-ratio values.
 
+## [2026-04-14] Session Summary (Snapshot-Bound Eval Filtering)
+- What was done: Updated memory/eval runtime to support snapshot-bound filtering via `source_gating_run_id` and propagated this filter through retrieval/answer evaluation and selective rewrite paths.
+- Key decisions: Added `source_generation_strategies` fallback in memory build config parsing and preserved backward compatibility with existing `memory_generation_strategies`.
+- Issues encountered: Without run-id filtering, memory lookup could mix entries from different gating runs; this was resolved by reading `memory_entries.metadata.source_gate_run_id` and filtering in `memory_top_n`.
+- Next steps: Validate repeated runs against the same snapshot to confirm stable metrics and verify behavior when snapshot is omitted.
+
 ---
 
 ## Notes

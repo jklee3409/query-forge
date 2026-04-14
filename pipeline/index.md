@@ -28,3 +28,4 @@ Python pipeline for data processing, synthetic query generation, quality gating,
 - Gating/memory/eval reads use `synthetic_queries_raw_all` (union view over split tables).
 - This directory assumes DB migration `V17` is applied before runtime execution.
 - Quality gating rule thresholds include configurable Korean-ratio keys (`rule_min_korean_ratio`, `rule_min_korean_ratio_code_mixed`).
+- Retrieval/answer evaluation can be pinned to a snapshot via `source_gating_run_id`, with memory lookup filtering by `memory_entries.metadata.source_gate_run_id`.

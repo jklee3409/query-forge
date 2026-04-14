@@ -25,6 +25,12 @@ High-level progress tracking for the project.
 - Issues encountered: Funnel filter required separate state and apply action to avoid coupling with result-table pagination/filter lifecycle.
 - Next steps: Run GUI verification for filter transitions and confirm funnel cards update correctly per method.
 
+## [2026-04-14] Session Summary (RAG Snapshot Selection UX)
+- What was done: Extended `RagPage.jsx` with `Gating Snapshot` selector and added `sourceGatingBatchId` to RAG test run payload.
+- Key decisions: Snapshot candidates are filtered to completed batches with `sourceGatingRunId`, selected method compatibility, and effective preset compatibility.
+- Issues encountered: When `gatingApplied=false`, stale non-`ungated` snapshot selection can fail validation; UI now computes effective preset and auto-clears invalid selection.
+- Next steps: Smoke-test `Auto (latest matching)` and explicit snapshot reruns to confirm deterministic retrieval/answer comparison.
+
 ---
 
 ## Notes

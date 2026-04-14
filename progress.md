@@ -41,6 +41,12 @@ High-level progress tracking for the project.
 - Issues encountered: Frontend file contained mixed-encoding labels; focused on behavior/API consistency first and deferred pure text normalization.
 - Next steps: Perform Admin GUI smoke checks for A/B/C/D filtering and confirm result-page navigation across larger gating batches.
 
+## [2026-04-14] Session Summary (RAG Snapshot Evaluation Wiring)
+- What was done: Added snapshot-aware RAG test flow by introducing optional `sourceGatingBatchId` in rag run request, validating selected gating batch (completed/preset/method match), and wiring fixed `source_gating_run_id` into experiment config.
+- Key decisions: Preserved backward compatibility with auto-latest behavior when no snapshot batch is selected, and aligned Python config keys by writing both `memory_generation_strategies` and `source_generation_strategies`.
+- Issues encountered: Existing eval path loaded memory entries across runs; added source gating run filtering in runtime retrieval/rewrite path to prevent cross-run memory mixing.
+- Next steps: Execute admin GUI smoke for snapshot vs auto-latest runs and compare retrieval/answer reports for deterministic reruns.
+
 ## [2026-04-13] Session Summary (Gating Rule Ratio + Funnel Filter)
 - What was done: Added configurable Korean-ratio threshold to admin gating Rule stage (GUI -> backend config -> pipeline rule evaluation), clarified min/max token labels, and added method-based funnel filtering (`전체/A/B/C/D`) in gating execution screen.
 - Key decisions: Preserved legacy defaults by keeping separate defaults for general queries (`0.40`) and code-mixed queries (`0.20`), while applying the same user-entered ratio to both when explicitly set from Admin GUI.
