@@ -458,6 +458,27 @@ def confidence_score(
     return (0.6 * top1) + (0.3 * top3) + (0.1 * dense)
 
 
+def _top_chunk_ids(retrieval: list[RetrievalCandidate], *, top_n: int = 5) -> list[str]:
+    return [item.chunk_id for item in retrieval[:top_n] if item.chunk_id]
+
+
+def _retrieval_shift_score(
+    raw_retrieval: list[RetrievalCandidate],
+    candidate_retrieval: list[RetrievalCandidate],
+) -> float:
+    raw_ids = _top_chunk_ids(raw_retrieval)
+    candidate_ids = _top_chunk_ids(candidate_retrieval)
+    if not raw_ids and not candidate_ids:
+        return 0.0
+    raw_set = set(raw_ids)
+    candidate_set = set(candidate_ids)
+    union = raw_set | candidate_set
+    overlap = raw_set & candidate_set
+    jaccard_distance = 1.0 - (len(overlap) / max(1, len(union)))
+    top1_changed = 1.0 if raw_ids and candidate_ids and raw_ids[0] != candidate_ids[0] else 0.0
+    return (0.7 * jaccard_distance) + (0.3 * top1_changed)
+
+
 def run_selective_rewrite(
     *,
     raw_query: str,
@@ -496,10 +517,14 @@ def run_selective_rewrite(
     for template in candidate_templates:
         retrieved = retrieve_top_k(template["query"], chunks, top_k=retrieval_top_k)
         dense = memory_items[0]["similarity"] if memory_items else 0.0
-        score = confidence_score(retrieved, dense)
+        base_confidence = confidence_score(retrieved, dense)
+        retrieval_shift = _retrieval_shift_score(raw_retrieval, retrieved)
+        score = base_confidence + (0.08 * retrieval_shift)
         candidate = {
             "label": template["label"],
             "query": template["query"],
+            "base_confidence": base_confidence,
+            "retrieval_shift_score": retrieval_shift,
             "confidence": score,
             "retrieval": retrieved,
         }
@@ -522,14 +547,19 @@ def run_selective_rewrite(
         )
 
     delta = best_candidate["confidence"] - raw_confidence
-    should_apply = force_rewrite or (delta >= threshold)
+    normalized_raw_query = " ".join(raw_query.split()).strip().lower()
+    normalized_best_query = " ".join(str(best_candidate["query"]).split()).strip().lower()
+    same_query = normalized_raw_query == normalized_best_query
+    should_apply = force_rewrite or (not same_query and delta >= threshold)
     final_query = best_candidate["query"] if should_apply else raw_query
     final_retrieval = best_candidate["retrieval"] if should_apply else raw_retrieval
     reason = (
-        "delta_above_threshold"
-        if should_apply and not force_rewrite
-        else "forced"
+        "forced"
+        if should_apply and force_rewrite
+        else "delta_above_threshold"
         if should_apply
+        else "candidate_same_as_raw"
+        if same_query
         else "delta_below_threshold"
     )
 
@@ -545,6 +575,8 @@ def run_selective_rewrite(
                 {
                     "label": candidate["label"],
                     "query": candidate["query"],
+                    "base_confidence": candidate.get("base_confidence", candidate["confidence"]),
+                    "retrieval_shift_score": candidate.get("retrieval_shift_score", 0.0),
                     "confidence": candidate["confidence"],
                 }
                 for candidate in candidates

@@ -3,6 +3,12 @@
 ## Overview
 High-level backend progress tracking.
 
+## [2026-04-15] Session Summary (RAG Detail Metric Contribution Enrichment)
+- What was done: Updated `LlmJobService.loadRewriteCasesForRun` to persist extended rewrite contribution fields into `rag_test_result_detail.metric_contribution` (`raw_confidence`, `best_candidate_confidence`, `confidence_delta`, `rewrite_reason`).
+- Key decisions: Kept existing detail-row schema intact and enriched JSON payload only, so UI/debug consumers can inspect rewrite decisions without DB schema changes.
+- Issues encountered: Existing ingestion path only saved retrieval metric deltas (`raw_mrr/mode_mrr/raw_ndcg/mode_ndcg`), which obscured rewrite decision diagnostics.
+- Next steps: Expose new contribution fields in run-detail UI if deeper per-sample rewrite analysis is needed.
+
 ## [2026-04-14] Session Summary (RAG Job Retry/Timeout Stabilization)
 - What was done: Hardened LLM job execution to resume from completed job items on retry, reset non-completed items safely before retry, and clear stale timestamps/messages when rerunning items.
 - Key decisions: Prevented repeated execution of already-completed RAG stages during retry and added experiment subprocess timeout control (`query-forge.admin.pipeline.experiment-command-timeout-seconds`).

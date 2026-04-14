@@ -595,13 +595,17 @@ public class LlmJobService {
                     continue;
                 }
                 AdminConsoleRepository.EvalSampleMeta meta = sampleMetaMap.get(sampleId);
-                JsonNode metricContribution = objectMapper.valueToTree(Map.of(
-                        "mode", row.path("mode").asText(""),
-                        "raw_mrr", row.path("raw_mrr").asDouble(0.0),
-                        "mode_mrr", row.path("mode_mrr").asDouble(0.0),
-                        "raw_ndcg", row.path("raw_ndcg").asDouble(0.0),
-                        "mode_ndcg", row.path("mode_ndcg").asDouble(0.0)
-                ));
+                Map<String, Object> metricContributionPayload = new LinkedHashMap<>();
+                metricContributionPayload.put("mode", row.path("mode").asText(""));
+                metricContributionPayload.put("raw_mrr", row.path("raw_mrr").asDouble(0.0));
+                metricContributionPayload.put("mode_mrr", row.path("mode_mrr").asDouble(0.0));
+                metricContributionPayload.put("raw_ndcg", row.path("raw_ndcg").asDouble(0.0));
+                metricContributionPayload.put("mode_ndcg", row.path("mode_ndcg").asDouble(0.0));
+                metricContributionPayload.put("raw_confidence", row.path("raw_confidence").asDouble(0.0));
+                metricContributionPayload.put("best_candidate_confidence", row.path("best_candidate_confidence").asDouble(0.0));
+                metricContributionPayload.put("confidence_delta", row.path("confidence_delta").asDouble(0.0));
+                metricContributionPayload.put("rewrite_reason", row.path("rewrite_reason").asText(""));
+                JsonNode metricContribution = objectMapper.valueToTree(metricContributionPayload);
                 boolean hitTarget = row.path("mode_mrr").asDouble(0.0) > 0.0 || row.path("mode_ndcg").asDouble(0.0) > 0.0;
                 details.add(new AdminConsoleDtos.RagTestResultDetailRow(
                         UUID.randomUUID(),

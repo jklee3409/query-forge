@@ -3,6 +3,12 @@
 ## Overview
 High-level pipeline progress tracking.
 
+## [2026-04-15] Session Summary (Rewrite Adoption Logic + Eval Dataset Rebuild)
+- What was done: Updated `eval/runtime.py::run_selective_rewrite` to include retrieval-shift-aware candidate scoring and rebuilt eval dataset with `python pipeline/cli.py build-eval-dataset --experiment exp4`.
+- Key decisions: Rewrite decision now uses `confidence + retrieval_shift_bonus` (top-k shift/Jaccard + top1 change) and blocks no-op rewrites where candidate query is identical to raw query.
+- Issues encountered: Existing eval dataset had stale expected IDs; rebuilding restored corpus-grounded expected doc/chunk IDs and removed mismatch-driven zero metrics.
+- Next steps: Add explicit preflight guard to fail eval when expected IDs do not map to current corpus.
+
 ## [2026-04-14] Session Summary (Memory/Eval Dataset Integrity Guard)
 - What was done: Updated memory build and eval-dataset candidate loading to require valid `corpus_documents` + `corpus_chunks` joins instead of permissive left joins.
 - Key decisions: Filtered invalid gated/raw references at read time so downstream stages do not ingest stale IDs into `memory_entries` or eval sampling flows.
