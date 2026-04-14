@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 
 import java.time.Instant;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 
 public final class AdminConsoleDtos {
@@ -279,6 +280,9 @@ public final class AdminConsoleDtos {
             List<String> methodCodes,
             List<UUID> generationBatchIds,
             UUID sourceGatingBatchId,
+            Map<String, UUID> comparisonGatingBatchIds,
+            Boolean officialRun,
+            String officialComparisonType,
             Boolean gatingApplied,
             String gatingPreset,
             Boolean rewriteEnabled,

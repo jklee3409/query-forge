@@ -110,10 +110,11 @@ def _load_gated_rows(
                    g.final_score,
                    r.prompt_version,
                    r.prompt_hash,
-                   c.product_name
+                   sc.product_name
             FROM synthetic_queries_gated g
             JOIN synthetic_queries_raw_all r ON r.synthetic_query_id = g.synthetic_query_id
-            LEFT JOIN corpus_chunks c ON c.chunk_id = r.chunk_id_source
+            JOIN corpus_documents td ON td.document_id = r.target_doc_id
+            JOIN corpus_chunks sc ON sc.chunk_id = r.chunk_id_source
             WHERE g.gating_preset = %s
               AND g.final_decision = TRUE
               {where_source}
@@ -144,6 +145,26 @@ def _load_gated_rows(
         )
         for row in rows
     ]
+
+
+def _parse_comparison_snapshots(raw_value: Any) -> dict[str, dict[str, str]]:
+    if not isinstance(raw_value, dict):
+        return {}
+    snapshots: dict[str, dict[str, str]] = {}
+    for preset, payload in raw_value.items():
+        if not isinstance(preset, str) or not preset.strip():
+            continue
+        if not isinstance(payload, dict):
+            continue
+        source_run_id = str(payload.get("source_gating_run_id") or "").strip()
+        gating_batch_id = str(payload.get("gating_batch_id") or "").strip()
+        if not source_run_id:
+            continue
+        snapshots[preset.strip().lower()] = {
+            "source_gating_run_id": source_run_id,
+            "gating_batch_id": gating_batch_id,
+        }
+    return snapshots
 
 
 def _upsert_query_embedding(
@@ -229,118 +250,142 @@ def run_memory_build(
                 continue
             strategy_filters.append(normalized)
         configured_gating_run_id = str(config.raw.get("source_gating_run_id") or "").strip() or None
-        source_run_id = configured_gating_run_id or _latest_gating_run_id(
-            connection,
-            config.gating_preset,
-            strategy_filters,
-        )
-        rows = _load_gated_rows(
-            connection,
-            preset=config.gating_preset,
-            source_run_id=source_run_id,
-            strategies=strategy_filters,
-        )
+        comparison_snapshots = _parse_comparison_snapshots(config.raw.get("comparison_snapshots"))
+        snapshot_plan: list[tuple[str, str | None, str | None]] = []
+        if comparison_snapshots:
+            for preset, payload in comparison_snapshots.items():
+                snapshot_plan.append(
+                    (
+                        preset,
+                        payload.get("source_gating_run_id"),
+                        payload.get("gating_batch_id"),
+                    )
+                )
+        else:
+            source_run_id = configured_gating_run_id or _latest_gating_run_id(
+                connection,
+                config.gating_preset,
+                strategy_filters,
+            )
+            snapshot_plan.append((config.gating_preset, source_run_id, str(config.raw.get("source_gating_batch_id") or "").strip() or None))
 
         inserted_memory_ids: list[str] = []
-        for row in rows:
-            memory_id = str(uuid.uuid4())
-            embedding = embed_text(row.query_text)
-            embedding_literal = embedding_to_halfvec_literal(embedding)
-            with connection.cursor() as cursor:
-                cursor.execute(
-                    """
-                    DELETE FROM memory_entries
-                    WHERE source_gated_query_id = %s
-                    """,
-                    (row.gated_query_id,),
-                )
-                cursor.execute(
-                    """
-                    INSERT INTO memory_entries (
-                        memory_id,
-                        source_gated_query_id,
-                        query_text,
-                        query_type,
-                        generation_strategy,
-                        target_chunk_ids,
-                        target_doc_id,
-                        chunk_id_source,
-                        product,
-                        glossary_terms,
-                        llm_scores,
-                        utility_score,
-                        novelty_score,
-                        final_score,
-                        prompt_version,
-                        prompt_hash,
-                        query_embedding,
-                        metadata
-                    ) VALUES (
-                        %s, %s, %s, %s, %s, %s, %s, %s, %s,
-                        %s, %s, %s, %s, %s, %s, %s, CAST(%s AS halfvec), %s
+        built_by_snapshot: dict[str, int] = {}
+        total_rows = 0
+        primary_source_run_id: str | None = None
+        for preset, source_run_id, source_batch_id in snapshot_plan:
+            if primary_source_run_id is None and source_run_id:
+                primary_source_run_id = source_run_id
+            rows = _load_gated_rows(
+                connection,
+                preset=preset,
+                source_run_id=source_run_id,
+                strategies=strategy_filters,
+            )
+            built_by_snapshot[preset] = len(rows)
+            total_rows += len(rows)
+            for row in rows:
+                memory_id = str(uuid.uuid4())
+                embedding = embed_text(row.query_text)
+                embedding_literal = embedding_to_halfvec_literal(embedding)
+                with connection.cursor() as cursor:
+                    cursor.execute(
+                        """
+                        DELETE FROM memory_entries
+                        WHERE source_gated_query_id = %s
+                        """,
+                        (row.gated_query_id,),
                     )
-                    """,
-                    (
-                        memory_id,
-                        row.gated_query_id,
-                        row.query_text,
-                        row.query_type,
-                        row.generation_strategy,
-                        Jsonb(row.target_chunk_ids),
-                        row.target_doc_id,
-                        row.chunk_id_source,
-                        row.product_name,
-                        Jsonb(row.glossary_terms),
-                        Jsonb(row.llm_scores),
-                        row.utility_score,
-                        row.novelty_score,
-                        row.final_score,
-                        row.prompt_version,
-                        row.prompt_hash,
-                        embedding_literal,
-                        Jsonb(
-                            {
-                                "source_gate_run_id": source_run_id,
-                                "memory_build_run_id": run_context.experiment_run_id,
-                            }
+                    cursor.execute(
+                        """
+                        INSERT INTO memory_entries (
+                            memory_id,
+                            source_gated_query_id,
+                            query_text,
+                            query_type,
+                            generation_strategy,
+                            target_chunk_ids,
+                            target_doc_id,
+                            chunk_id_source,
+                            product,
+                            glossary_terms,
+                            llm_scores,
+                            utility_score,
+                            novelty_score,
+                            final_score,
+                            prompt_version,
+                            prompt_hash,
+                            query_embedding,
+                            metadata
+                        ) VALUES (
+                            %s, %s, %s, %s, %s, %s, %s, %s, %s,
+                            %s, %s, %s, %s, %s, %s, %s, CAST(%s AS halfvec), %s
+                        )
+                        """,
+                        (
+                            memory_id,
+                            row.gated_query_id,
+                            row.query_text,
+                            row.query_type,
+                            row.generation_strategy,
+                            Jsonb(row.target_chunk_ids),
+                            row.target_doc_id,
+                            row.chunk_id_source,
+                            row.product_name,
+                            Jsonb(row.glossary_terms),
+                            Jsonb(row.llm_scores),
+                            row.utility_score,
+                            row.novelty_score,
+                            row.final_score,
+                            row.prompt_version,
+                            row.prompt_hash,
+                            embedding_literal,
+                            Jsonb(
+                                {
+                                    "gating_preset": preset,
+                                    "source_gate_run_id": source_run_id,
+                                    "source_gating_batch_id": source_batch_id,
+                                    "memory_build_run_id": run_context.experiment_run_id,
+                                }
+                            ),
                         ),
-                    ),
-                )
+                    )
 
-            _upsert_query_embedding(
-                connection,
-                owner_type="memory",
-                owner_id=memory_id,
-                embedding_model="hash-embedding-v1",
-                embedding_values=embedding,
-                metadata={"source_gated_query_id": row.gated_query_id},
-            )
-            _upsert_query_embedding(
-                connection,
-                owner_type="synthetic_gated",
-                owner_id=row.gated_query_id,
-                embedding_model="hash-embedding-v1",
-                embedding_values=embedding,
-                metadata={"synthetic_query_id": row.synthetic_query_id},
-            )
-            _upsert_query_embedding(
-                connection,
-                owner_type="synthetic_raw",
-                owner_id=row.synthetic_query_id,
-                embedding_model="hash-embedding-v1",
-                embedding_values=embedding,
-                metadata={"gated_query_id": row.gated_query_id},
-            )
-            if len(inserted_memory_ids) < 20:
-                inserted_memory_ids.append(memory_id)
+                _upsert_query_embedding(
+                    connection,
+                    owner_type="memory",
+                    owner_id=memory_id,
+                    embedding_model="hash-embedding-v1",
+                    embedding_values=embedding,
+                    metadata={"source_gated_query_id": row.gated_query_id},
+                )
+                _upsert_query_embedding(
+                    connection,
+                    owner_type="synthetic_gated",
+                    owner_id=row.gated_query_id,
+                    embedding_model="hash-embedding-v1",
+                    embedding_values=embedding,
+                    metadata={"synthetic_query_id": row.synthetic_query_id},
+                )
+                _upsert_query_embedding(
+                    connection,
+                    owner_type="synthetic_raw",
+                    owner_id=row.synthetic_query_id,
+                    embedding_model="hash-embedding-v1",
+                    embedding_values=embedding,
+                    metadata={"gated_query_id": row.gated_query_id},
+                )
+                if len(inserted_memory_ids) < 20:
+                    inserted_memory_ids.append(memory_id)
 
         summary = {
             "experiment_key": config.experiment_key,
             "experiment_run_id": run_context.experiment_run_id,
             "gating_preset": config.gating_preset,
-            "source_gating_run_id": source_run_id,
+            "source_gating_run_id": primary_source_run_id,
             "source_generation_strategies": strategy_filters,
-            "memory_entries_built": len(rows),
+            "memory_entries_built": total_rows,
+            "memory_entries_by_snapshot": built_by_snapshot,
             "preview_memory_ids": inserted_memory_ids,
             "embedding_model": "hash-embedding-v1",
         }

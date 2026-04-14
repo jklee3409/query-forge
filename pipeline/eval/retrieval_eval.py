@@ -3,9 +3,11 @@ from __future__ import annotations
 import csv
 import json
 import logging
+import os
 import statistics
 import time
 from collections import defaultdict
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any
 
@@ -48,11 +50,29 @@ METRIC_KEYS = ("recall@5", "hit@5", "mrr@10", "ndcg@10")
 MODES = (
     "raw_only",
     "memory_only_ungated",
+    "memory_only_rule_only",
+    "memory_only_full_gating",
     "memory_only_gated",
     "rewrite_always",
     "selective_rewrite",
     "selective_rewrite_with_session",
 )
+
+
+def _resolve_eval_concurrency(raw_config: dict[str, Any]) -> int:
+    value = (
+        raw_config.get("retrieval_eval_concurrency")
+        or raw_config.get("eval_concurrency")
+        or os.getenv("QUERY_FORGE_RETRIEVAL_EVAL_CONCURRENCY")
+        or os.getenv("QUERY_FORGE_EVAL_CONCURRENCY")
+        or os.getenv("QUERY_FORGE_LLM_CONCURRENCY_LIMIT")
+        or 4
+    )
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        parsed = 4
+    return max(1, min(parsed, 32))
 
 
 def _mean(rows: list[float]) -> float:
@@ -148,6 +168,7 @@ def _evaluate_mode(
     config: Any,
     memory_strategy_filters: list[str],
     source_gating_run_id: str | None,
+    comparison_source_runs: dict[str, str],
 ) -> tuple[dict[str, float], dict[str, Any], list[Any]]:
     if mode == "raw_only":
         retrieval = retrieve_top_k(sample.query_text, chunks, top_k=config.retrieval_top_k)
@@ -167,13 +188,21 @@ def _evaluate_mode(
         )
         return metrics, rewrite_info, retrieval
 
-    if mode == "memory_only_ungated":
+    if mode in {"memory_only_ungated", "memory_only_rule_only", "memory_only_full_gating", "memory_only_gated"}:
+        preset_by_mode = {
+            "memory_only_ungated": "ungated",
+            "memory_only_rule_only": "rule_only",
+            "memory_only_full_gating": "full_gating",
+            "memory_only_gated": config.gating_preset,
+        }
+        preset_filter = preset_by_mode.get(mode, config.gating_preset)
+        source_run_filter = comparison_source_runs.get(preset_filter, source_gating_run_id)
         top_memory = memory_top_n(
             sample.query_text,
             memories,
             top_n=config.memory_top_n,
-            preset_filter="ungated",
-            source_gate_run_id=source_gating_run_id,
+            preset_filter=preset_filter,
+            source_gate_run_id=source_run_filter,
             strategy_filters=memory_strategy_filters,
         )
         final_query = top_memory[0]["query_text"] if top_memory else sample.query_text
@@ -190,37 +219,7 @@ def _evaluate_mode(
                 "raw_confidence": 0.0,
                 "best_candidate_confidence": 0.0,
                 "final_query": final_query,
-                "rewrite_reason": "memory_lookup",
-                "memory_top_n": top_memory,
-                "candidates": [],
-            },
-            retrieval,
-        )
-
-    if mode == "memory_only_gated":
-        top_memory = memory_top_n(
-            sample.query_text,
-            memories,
-            top_n=config.memory_top_n,
-            preset_filter=config.gating_preset,
-            source_gate_run_id=source_gating_run_id,
-            strategy_filters=memory_strategy_filters,
-        )
-        final_query = top_memory[0]["query_text"] if top_memory else sample.query_text
-        retrieval = retrieve_top_k(final_query, chunks, top_k=config.retrieval_top_k)
-        metrics = retrieval_metrics(
-            expected_chunk_ids=sample.expected_chunk_ids,
-            expected_doc_ids=sample.expected_doc_ids,
-            retrieved=retrieval,
-        )
-        return (
-            metrics,
-            {
-                "rewrite_applied": bool(top_memory),
-                "raw_confidence": 0.0,
-                "best_candidate_confidence": 0.0,
-                "final_query": final_query,
-                "rewrite_reason": "memory_lookup",
+                "rewrite_reason": f"memory_lookup:{preset_filter}",
                 "memory_top_n": top_memory,
                 "candidates": [],
             },
@@ -261,6 +260,39 @@ def _evaluate_mode(
         },
         retrieval,
     )
+
+
+def _evaluate_sample_mode(
+    *,
+    sample: EvalSample,
+    mode: str,
+    chunks: Any,
+    memories: Any,
+    config: Any,
+    memory_strategy_filters: list[str],
+    source_gating_run_id: str | None,
+    comparison_source_runs: dict[str, str],
+) -> dict[str, Any]:
+    started = time.perf_counter()
+    metrics, rewrite_info, retrieval = _evaluate_mode(
+        mode=mode,
+        sample=sample,
+        chunks=chunks,
+        memories=memories,
+        config=config,
+        memory_strategy_filters=memory_strategy_filters,
+        source_gating_run_id=source_gating_run_id,
+        comparison_source_runs=comparison_source_runs,
+    )
+    elapsed_ms = (time.perf_counter() - started) * 1000.0
+    return {
+        "sample": sample,
+        "mode": mode,
+        "metrics": metrics,
+        "rewrite_info": rewrite_info,
+        "retrieval": retrieval,
+        "elapsed_ms": elapsed_ms,
+    }
 
 
 def run_retrieval_eval(
@@ -309,14 +341,30 @@ def run_retrieval_eval(
             if str(item).strip()
         ]
         source_gating_run_id = str(config.raw.get("source_gating_run_id") or "").strip() or None
+        comparison_source_runs: dict[str, str] = {}
+        comparison_snapshots = config.raw.get("comparison_snapshots")
+        if isinstance(comparison_snapshots, dict):
+            for preset, payload in comparison_snapshots.items():
+                if not isinstance(preset, str) or not isinstance(payload, dict):
+                    continue
+                run_id = str(payload.get("source_gating_run_id") or "").strip()
+                if run_id:
+                    comparison_source_runs[preset.strip().lower()] = run_id
         configured_modes = [
             str(item).strip()
             for item in (config.raw.get("retrieval_modes") or [])
             if str(item).strip()
         ]
         active_modes = [mode for mode in configured_modes if mode in MODES] or list(MODES)
+        eval_concurrency = _resolve_eval_concurrency(config.raw)
 
         samples = load_eval_samples(connection, dataset_id=dataset_id)
+        LOGGER.info(
+            "retrieval_eval_parallelism samples=%s modes=%s concurrency=%s",
+            len(samples),
+            len(active_modes),
+            eval_concurrency,
+        )
         chunks = load_chunk_items(connection)
         memories = load_memory_items(connection)
         raw_metrics_by_sample: dict[str, dict[str, float]] = {}
@@ -334,22 +382,70 @@ def run_retrieval_eval(
                 (run_context.experiment_run_id,),
             )
 
-        for sample in samples:
-            for mode in active_modes:
-                started = time.perf_counter()
-                metrics, rewrite_info, retrieval = _evaluate_mode(
-                    mode=mode,
-                    sample=sample,
-                    chunks=chunks,
-                    memories=memories,
-                    config=config,
-                    memory_strategy_filters=memory_strategy_filters,
-                    source_gating_run_id=source_gating_run_id,
+        work_items = [
+            (sample, mode)
+            for sample in samples
+            for mode in active_modes
+        ]
+        evaluated: list[dict[str, Any]] = []
+        if eval_concurrency <= 1 or len(work_items) <= 1:
+            for sample, mode in work_items:
+                evaluated.append(
+                    _evaluate_sample_mode(
+                        sample=sample,
+                        mode=mode,
+                        chunks=chunks,
+                        memories=memories,
+                        config=config,
+                        memory_strategy_filters=memory_strategy_filters,
+                        source_gating_run_id=source_gating_run_id,
+                        comparison_source_runs=comparison_source_runs,
+                    )
                 )
-                elapsed_ms = (time.perf_counter() - started) * 1000.0
-                latency_by_mode[mode].append(elapsed_ms)
+        else:
+            with ThreadPoolExecutor(max_workers=min(eval_concurrency, len(work_items))) as pool:
+                futures = [
+                    pool.submit(
+                        _evaluate_sample_mode,
+                        sample=sample,
+                        mode=mode,
+                        chunks=chunks,
+                        memories=memories,
+                        config=config,
+                        memory_strategy_filters=memory_strategy_filters,
+                        source_gating_run_id=source_gating_run_id,
+                        comparison_source_runs=comparison_source_runs,
+                    )
+                    for sample, mode in work_items
+                ]
+                for future in as_completed(futures):
+                    evaluated.append(future.result())
 
-                row = {
+        mode_rank = {mode: index for index, mode in enumerate(active_modes)}
+        evaluated.sort(
+            key=lambda row: (
+                row["sample"].sample_id,
+                mode_rank.get(row["mode"], 999),
+            )
+        )
+
+        raw_metrics_by_sample = {
+            row["sample"].sample_id: row["metrics"]
+            for row in evaluated
+            if row["mode"] == "raw_only"
+        }
+
+        for row in evaluated:
+            sample = row["sample"]
+            mode = row["mode"]
+            metrics = row["metrics"]
+            rewrite_info = row["rewrite_info"]
+            retrieval = row["retrieval"]
+            elapsed_ms = float(row["elapsed_ms"])
+
+            latency_by_mode[mode].append(elapsed_ms)
+            mode_scores[mode].append(
+                {
                     "sample_id": sample.sample_id,
                     "split": sample.split,
                     "category": sample.query_category,
@@ -362,69 +458,70 @@ def run_retrieval_eval(
                     ),
                     "latency_ms": elapsed_ms,
                 }
-                mode_scores[mode].append(row)
-                rewrite_rows[mode].append(
-                    {
-                        "sample_id": sample.sample_id,
-                        "mode": mode,
-                        "rewrite_applied": bool(rewrite_info["rewrite_applied"]),
-                        "raw_confidence": rewrite_info["raw_confidence"],
-                        "best_candidate_confidence": rewrite_info["best_candidate_confidence"],
-                        "confidence_delta": rewrite_info["best_candidate_confidence"] - rewrite_info["raw_confidence"],
-                        "final_query": rewrite_info["final_query"],
-                        "rewrite_reason": rewrite_info["rewrite_reason"],
-                        "raw_mrr": raw_metrics_by_sample.get(sample.sample_id, {}).get("mrr@10", 0.0),
-                        "mode_mrr": metrics["mrr@10"],
-                        "raw_ndcg": raw_metrics_by_sample.get(sample.sample_id, {}).get("ndcg@10", 0.0),
-                        "mode_ndcg": metrics["ndcg@10"],
-                        "memory_top_n": rewrite_info.get("memory_top_n", []),
-                        "rewrite_candidates": rewrite_info.get("candidates", []),
-                        "retrieved_top_k": [
-                            {
-                                "chunk_id": item.chunk_id,
-                                "document_id": item.document_id,
-                                "score": item.score,
-                            }
-                            for item in retrieval[:5]
-                        ],
-                    }
-                )
+            )
+            rewrite_rows[mode].append(
+                {
+                    "sample_id": sample.sample_id,
+                    "mode": mode,
+                    "rewrite_applied": bool(rewrite_info["rewrite_applied"]),
+                    "raw_confidence": rewrite_info["raw_confidence"],
+                    "best_candidate_confidence": rewrite_info["best_candidate_confidence"],
+                    "confidence_delta": rewrite_info["best_candidate_confidence"] - rewrite_info["raw_confidence"],
+                    "final_query": rewrite_info["final_query"],
+                    "rewrite_reason": rewrite_info["rewrite_reason"],
+                    "raw_mrr": raw_metrics_by_sample.get(sample.sample_id, {}).get("mrr@10", 0.0),
+                    "mode_mrr": metrics["mrr@10"],
+                    "raw_ndcg": raw_metrics_by_sample.get(sample.sample_id, {}).get("ndcg@10", 0.0),
+                    "mode_ndcg": metrics["ndcg@10"],
+                    "memory_top_n": rewrite_info.get("memory_top_n", []),
+                    "rewrite_candidates": rewrite_info.get("candidates", []),
+                    "retrieved_top_k": [
+                        {
+                            "chunk_id": item.chunk_id,
+                            "document_id": item.document_id,
+                            "score": item.score,
+                        }
+                        for item in retrieval[:5]
+                    ],
+                }
+            )
 
-                if mode == "raw_only":
-                    raw_metrics_by_sample[sample.sample_id] = metrics
-
-                with connection.cursor() as cursor:
-                    for rank, item in enumerate(retrieval, start=1):
-                        cursor.execute(
-                            """
-                            INSERT INTO retrieval_results (
-                                eval_sample_id,
-                                result_scope,
-                                rank,
-                                document_id,
-                                chunk_id,
-                                retriever_name,
-                                score,
-                                metadata
-                            ) VALUES (%s, 'eval', %s, %s, %s, %s, %s, %s)
-                            """,
-                            (
-                                sample.sample_id,
-                                rank,
-                                None,
-                                None,
-                                "hash-embedding-v1",
-                                item.score,
-                                Jsonb(
-                                    {
-                                        "mode": mode,
-                                        "experiment_run_id": run_context.experiment_run_id,
-                                        "retrieved_document_id": item.document_id,
-                                        "retrieved_chunk_id": item.chunk_id,
-                                    }
-                                ),
+        with connection.cursor() as cursor:
+            for row in evaluated:
+                sample = row["sample"]
+                mode = row["mode"]
+                retrieval = row["retrieval"]
+                for rank, item in enumerate(retrieval, start=1):
+                    cursor.execute(
+                        """
+                        INSERT INTO retrieval_results (
+                            eval_sample_id,
+                            result_scope,
+                            rank,
+                            document_id,
+                            chunk_id,
+                            retriever_name,
+                            score,
+                            metadata
+                        ) VALUES (%s, 'eval', %s, %s, %s, %s, %s, %s)
+                        """,
+                        (
+                            sample.sample_id,
+                            rank,
+                            None,
+                            None,
+                            "hash-embedding-v1",
+                            item.score,
+                            Jsonb(
+                                {
+                                    "mode": mode,
+                                    "experiment_run_id": run_context.experiment_run_id,
+                                    "retrieved_document_id": item.document_id,
+                                    "retrieved_chunk_id": item.chunk_id,
+                                }
                             ),
-                        )
+                        ),
+                    )
 
         summary_rows: list[dict[str, Any]] = []
         category_rows: list[dict[str, Any]] = []
@@ -505,6 +602,7 @@ def run_retrieval_eval(
             "experiment_run_id": run_context.experiment_run_id,
             "dataset_id": dataset_id,
             "source_gating_run_id": source_gating_run_id,
+            "comparison_source_runs": comparison_source_runs,
             "memory_generation_strategies": memory_strategy_filters,
             "active_modes": active_modes,
             "summary": summary_rows,

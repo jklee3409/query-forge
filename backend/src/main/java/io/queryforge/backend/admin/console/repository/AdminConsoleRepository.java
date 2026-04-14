@@ -1438,6 +1438,103 @@ public class AdminConsoleRepository {
         );
     }
 
+    public Optional<JsonNode> findRagTestRunConfig(UUID runId) {
+        String sql = """
+                SELECT config_json::text AS config_json
+                FROM rag_test_run_config
+                WHERE rag_test_run_id = :runId
+                """;
+        List<String> rows = jdbcTemplate.query(
+                sql,
+                new MapSqlParameterSource("runId", runId),
+                (rs, rowNum) -> rs.getString("config_json")
+        );
+        return rows.stream().findFirst().map(this::readJson);
+    }
+
+    public String findRagDatasetVersion(UUID runId) {
+        String sql = """
+                SELECT COALESCE(d.version, '')
+                FROM rag_test_run r
+                LEFT JOIN eval_dataset d
+                  ON d.dataset_id = r.dataset_id
+                WHERE r.rag_test_run_id = :runId
+                """;
+        List<String> rows = jdbcTemplate.query(
+                sql,
+                new MapSqlParameterSource("runId", runId),
+                (rs, rowNum) -> rs.getString(1)
+        );
+        return rows.stream().findFirst().orElse("");
+    }
+
+    @Transactional
+    public void upsertRagExperimentRecord(
+            UUID runId,
+            String snapshotId,
+            JsonNode generationStrategy,
+            JsonNode gatingConfig,
+            Integer memorySize,
+            JsonNode retrievalConfig,
+            JsonNode rewriteConfig,
+            String datasetVersion,
+            Instant runTimestamp,
+            JsonNode metrics
+    ) {
+        String sql = """
+                INSERT INTO rag_eval_experiment_record (
+                    record_id,
+                    rag_test_run_id,
+                    snapshot_id,
+                    generation_strategy,
+                    gating_config,
+                    memory_size,
+                    retrieval_config,
+                    rewrite_config,
+                    dataset_version,
+                    run_timestamp,
+                    metrics
+                ) VALUES (
+                    gen_random_uuid(),
+                    :runId,
+                    :snapshotId,
+                    CAST(:generationStrategy AS jsonb),
+                    CAST(:gatingConfig AS jsonb),
+                    :memorySize,
+                    CAST(:retrievalConfig AS jsonb),
+                    CAST(:rewriteConfig AS jsonb),
+                    :datasetVersion,
+                    :runTimestamp,
+                    CAST(:metrics AS jsonb)
+                )
+                ON CONFLICT (rag_test_run_id) DO UPDATE
+                SET snapshot_id = EXCLUDED.snapshot_id,
+                    generation_strategy = EXCLUDED.generation_strategy,
+                    gating_config = EXCLUDED.gating_config,
+                    memory_size = EXCLUDED.memory_size,
+                    retrieval_config = EXCLUDED.retrieval_config,
+                    rewrite_config = EXCLUDED.rewrite_config,
+                    dataset_version = EXCLUDED.dataset_version,
+                    run_timestamp = EXCLUDED.run_timestamp,
+                    metrics = EXCLUDED.metrics,
+                    updated_at = NOW()
+                """;
+        jdbcTemplate.update(
+                sql,
+                new MapSqlParameterSource()
+                        .addValue("runId", runId)
+                        .addValue("snapshotId", snapshotId)
+                        .addValue("generationStrategy", generationStrategy.toString())
+                        .addValue("gatingConfig", gatingConfig.toString())
+                        .addValue("memorySize", memorySize == null ? 0 : memorySize)
+                        .addValue("retrievalConfig", retrievalConfig.toString())
+                        .addValue("rewriteConfig", rewriteConfig.toString())
+                        .addValue("datasetVersion", datasetVersion == null ? "" : datasetVersion)
+                        .addValue("runTimestamp", Timestamp.from(runTimestamp == null ? Instant.now() : runTimestamp))
+                        .addValue("metrics", metrics.toString())
+        );
+    }
+
     @Transactional
     public void completeRagTestRun(UUID runId, JsonNode metricsJson, UUID sourceExperimentRunId) {
         String sql = """
@@ -1770,7 +1867,23 @@ public class AdminConsoleRepository {
                     'rewrite_rejection_rate', rewrite_rejection_rate,
                     'average_confidence_delta', average_confidence_delta,
                     'answer_metrics', answer_metrics,
-                    'metrics_json', metrics_json
+                    'metrics_json', metrics_json,
+                    'experiment_record',
+                    (
+                        SELECT jsonb_build_object(
+                            'snapshot_id', er.snapshot_id,
+                            'generation_strategy', er.generation_strategy,
+                            'gating_config', er.gating_config,
+                            'memory_size', er.memory_size,
+                            'retrieval_config', er.retrieval_config,
+                            'rewrite_config', er.rewrite_config,
+                            'dataset_version', er.dataset_version,
+                            'run_timestamp', er.run_timestamp,
+                            'metrics', er.metrics
+                        )
+                        FROM rag_eval_experiment_record er
+                        WHERE er.rag_test_run_id = :runId
+                    )
                 )::text AS payload
                 FROM rag_test_result_summary
                 WHERE rag_test_run_id = :runId

@@ -10,6 +10,9 @@ const METRIC_DEFS = [
   { key: 'hit_at_5', label: 'Hit@5', max: 1 },
   { key: 'mrr_at_10', label: 'MRR@10', max: 1 },
   { key: 'ndcg_at_10', label: 'nDCG@10', max: 1 },
+  { key: 'correctness', label: 'Correctness', max: 1 },
+  { key: 'grounding', label: 'Grounding', max: 1 },
+  { key: 'hallucination_rate', label: 'Hallucination', max: 1 },
   { key: 'answer_relevance', label: 'Answer Relevance', max: 1 },
   { key: 'faithfulness', label: 'Faithfulness', max: 1 },
   { key: 'context_recall', label: 'Context Recall', max: 1 },
@@ -44,18 +47,39 @@ function firstMetricNumber(values) {
 
 function extractRunMetrics(metricsJson) {
   const payload = parseMetricsNode(metricsJson)
-  const summaryRaw = payload.summary
-  const summary = Array.isArray(summaryRaw)
-    ? summaryRaw.find((row) => String(row?.mode || '').includes('selective')) || summaryRaw[0] || {}
-    : (summaryRaw && typeof summaryRaw === 'object' ? summaryRaw : {})
+  const retrievalPayload = parseMetricsNode(payload.retrieval || payload.metrics_json?.retrieval || payload)
+  const answerPayload = parseMetricsNode(payload.answer || payload.metrics_json?.answer)
+  const answerSummary = parseMetricsNode(answerPayload.summary || answerPayload)
+  const summaryRaw = Array.isArray(retrievalPayload.summary) ? retrievalPayload.summary : []
+  const byMode = summaryRaw.reduce((acc, row) => {
+    const mode = String(row?.mode || '')
+    if (!mode) return acc
+    acc[mode] = row
+    return acc
+  }, {})
+  const representativeMode = String(payload.representative_mode || retrievalPayload.representative_mode || '')
+  const preferredModes = [
+    representativeMode,
+    'selective_rewrite',
+    'selective_rewrite_with_session',
+    'memory_only_full_gating',
+    'memory_only_gated',
+    'raw_only',
+  ].filter(Boolean)
+  const summary = preferredModes.map((mode) => byMode[mode]).find(Boolean) || {}
   return {
+    representative_mode: summary.mode || representativeMode || '-',
+    by_mode: byMode,
     recall_at_5: firstMetricNumber([payload.recall_at_5, payload.recallAt5, summary.recall_at_5, summary['recall@5']]),
     hit_at_5: firstMetricNumber([payload.hit_at_5, payload.hitAt5, summary.hit_at_5, summary['hit@5']]),
     mrr_at_10: firstMetricNumber([payload.mrr_at_10, payload.mrrAt10, summary.mrr_at_10, summary['mrr@10']]),
     ndcg_at_10: firstMetricNumber([payload.ndcg_at_10, payload.ndcgAt10, summary.ndcg_at_10, summary['ndcg@10']]),
-    answer_relevance: firstMetricNumber([payload.answer_relevance, summary.answer_relevance]),
-    faithfulness: firstMetricNumber([payload.faithfulness, summary.faithfulness]),
-    context_recall: firstMetricNumber([payload.context_recall, summary.context_recall]),
+    correctness: firstMetricNumber([payload.correctness, answerSummary.correctness]),
+    grounding: firstMetricNumber([payload.grounding, answerSummary.grounding]),
+    hallucination_rate: firstMetricNumber([payload.hallucination_rate, answerSummary.hallucination_rate]),
+    answer_relevance: firstMetricNumber([payload.answer_relevance, answerSummary.answer_relevance]),
+    faithfulness: firstMetricNumber([payload.faithfulness, answerSummary.faithfulness]),
+    context_recall: firstMetricNumber([payload.context_recall, answerSummary.context_recall]),
   }
 }
 
@@ -77,8 +101,13 @@ export function RagPage({ notify }) {
 
   const [form, setForm] = useState({
     datasetId: '',
+    runDiscipline: 'exploratory',
+    officialComparisonType: 'rewrite_effect',
     gatingPreset: 'full_gating',
     sourceGatingBatchId: '',
+    officialGatingUngatedBatchId: '',
+    officialGatingRuleOnlyBatchId: '',
+    officialGatingFullGatingBatchId: '',
     threshold: '0.05',
     retrievalTopK: '20',
     rerankTopN: '5',
@@ -174,6 +203,40 @@ export function RagPage({ notify }) {
   }, [form.sourceGatingBatchId, gatingBatches])
 
   useEffect(() => {
+    if (form.runDiscipline !== 'official' || form.officialComparisonType !== 'gating_effect') return
+    if (!form.sourceGatingBatchId) return
+    setForm((prev) => ({ ...prev, sourceGatingBatchId: '' }))
+  }, [form.runDiscipline, form.officialComparisonType, form.sourceGatingBatchId])
+
+  useEffect(() => {
+    const hasUngated = gatingBatches.some((batch) => batch.gatingBatchId === form.officialGatingUngatedBatchId)
+    const hasRuleOnly = gatingBatches.some((batch) => batch.gatingBatchId === form.officialGatingRuleOnlyBatchId)
+    const hasFullGating = gatingBatches.some((batch) => batch.gatingBatchId === form.officialGatingFullGatingBatchId)
+    if (hasUngated && hasRuleOnly && hasFullGating) return
+    const nextUngated = hasUngated ? form.officialGatingUngatedBatchId : ''
+    const nextRuleOnly = hasRuleOnly ? form.officialGatingRuleOnlyBatchId : ''
+    const nextFullGating = hasFullGating ? form.officialGatingFullGatingBatchId : ''
+    if (
+      nextUngated === form.officialGatingUngatedBatchId
+      && nextRuleOnly === form.officialGatingRuleOnlyBatchId
+      && nextFullGating === form.officialGatingFullGatingBatchId
+    ) {
+      return
+    }
+    setForm((prev) => ({
+      ...prev,
+      officialGatingUngatedBatchId: nextUngated,
+      officialGatingRuleOnlyBatchId: nextRuleOnly,
+      officialGatingFullGatingBatchId: nextFullGating,
+    }))
+  }, [
+    form.officialGatingUngatedBatchId,
+    form.officialGatingRuleOnlyBatchId,
+    form.officialGatingFullGatingBatchId,
+    gatingBatches,
+  ])
+
+  useEffect(() => {
     setCompareRunIds((prev) => {
       const next = prev.filter((id) => tests.some((run) => run.ragTestRunId === id)).slice(0, 2)
       if (next.length === prev.length && next.every((item, index) => item === prev[index])) return prev
@@ -187,6 +250,14 @@ export function RagPage({ notify }) {
     if (!Array.isArray(methodCodes) || methodCodes.length === 0) return true
     if (!batch.methodCode) return true
     return methodCodes.includes(String(batch.methodCode).toUpperCase())
+  }
+
+  function snapshotOptionLabel(batch, expectedPreset = null) {
+    const compatible = expectedPreset
+      ? isSnapshotCompatible(batch, expectedPreset, methodCodesForRun)
+      : isSnapshotCompatible(batch, effectiveGatingPreset, methodCodesForRun)
+    const runnable = Boolean(batch?.sourceGatingRunId)
+    return `${shortId(batch.gatingBatchId)} | ${batch.gatingPreset} | ${batch.methodCode || '-'} | ${fmtTime(batch.finishedAt)}${runnable ? '' : ' | unavailable(no source run)'}${compatible ? '' : ' | incompatible'}`
   }
 
   const handleToggleMethod = (methodCode, checked) => {
@@ -203,7 +274,38 @@ export function RagPage({ notify }) {
       notify('최소 1개 생성 방식을 선택해야 합니다.', 'error')
       return
     }
+    const officialRun = form.runDiscipline === 'official'
     const runGatingPreset = effectiveGatingPreset
+    if (officialRun && form.officialComparisonType === 'rewrite_effect' && !form.sourceGatingBatchId) {
+      notify('공식 rewrite-effect 실행은 source snapshot 선택이 필수입니다.', 'error')
+      return
+    }
+    if (officialRun && form.officialComparisonType === 'gating_effect') {
+      if (!form.officialGatingUngatedBatchId || !form.officialGatingRuleOnlyBatchId || !form.officialGatingFullGatingBatchId) {
+        notify('공식 gating-effect 실행은 ungated/rule_only/full_gating 스냅샷 3개가 모두 필요합니다.', 'error')
+        return
+      }
+      const requiredSnapshots = [
+        { id: form.officialGatingUngatedBatchId, preset: 'ungated', label: 'ungated' },
+        { id: form.officialGatingRuleOnlyBatchId, preset: 'rule_only', label: 'rule_only' },
+        { id: form.officialGatingFullGatingBatchId, preset: 'full_gating', label: 'full_gating' },
+      ]
+      for (const required of requiredSnapshots) {
+        const snapshot = snapshotBatches.find((batch) => batch.gatingBatchId === required.id)
+        if (!snapshot) {
+          notify(`공식 gating-effect ${required.label} snapshot을 찾을 수 없습니다.`, 'error')
+          return
+        }
+        if (!snapshot.sourceGatingRunId) {
+          notify(`공식 gating-effect ${required.label} snapshot에 source_gating_run_id가 없습니다.`, 'error')
+          return
+        }
+        if (!isSnapshotCompatible(snapshot, required.preset, methodCodesForRun)) {
+          notify(`공식 gating-effect ${required.label} snapshot이 preset/method와 호환되지 않습니다.`, 'error')
+          return
+        }
+      }
+    }
     if (form.sourceGatingBatchId) {
       const snapshot = selectedSnapshot
       if (!snapshot) {
@@ -227,7 +329,18 @@ export function RagPage({ notify }) {
           datasetId: form.datasetId,
           methodCodes: methodCodesForRun,
           gatingPreset: runGatingPreset,
-          sourceGatingBatchId: form.sourceGatingBatchId || null,
+          sourceGatingBatchId: officialRun && form.officialComparisonType === 'gating_effect'
+            ? null
+            : form.sourceGatingBatchId || null,
+          comparisonGatingBatchIds: officialRun && form.officialComparisonType === 'gating_effect'
+            ? {
+                ungated: form.officialGatingUngatedBatchId || null,
+                rule_only: form.officialGatingRuleOnlyBatchId || null,
+                full_gating: form.officialGatingFullGatingBatchId || null,
+              }
+            : null,
+          officialRun,
+          officialComparisonType: officialRun ? form.officialComparisonType : null,
           gatingApplied: Boolean(form.gatingApplied),
           rewriteEnabled: Boolean(form.rewriteEnabled),
           selectiveRewrite: Boolean(form.selectiveRewrite),
@@ -311,6 +424,9 @@ export function RagPage({ notify }) {
     try {
       const payload = await requestJson(`/api/admin/console/rag/tests/${runId}?detail_limit=100`)
       const summary = payload.summary || {}
+      const metricsJson = parseMetricsNode(summary.metrics_json)
+      const retrievalByMode = parseMetricsNode(metricsJson.retrieval_by_mode)
+      const retrievalByModeRows = Object.values(retrievalByMode).filter((row) => row && typeof row === 'object')
       const details = Array.isArray(payload.details) ? payload.details : []
       setModal({
         title: `RAG 실행 상세 · ${shortId(runId)}`,
@@ -322,6 +438,7 @@ export function RagPage({ notify }) {
               <article className="summary-card"><div className="summary-card__label">MRR@10</div><div className="summary-card__value">{summary.mrr_at_10 == null ? '-' : Number(summary.mrr_at_10).toFixed(4)}</div></article>
               <article className="summary-card"><div className="summary-card__label">nDCG@10</div><div className="summary-card__value">{summary.ndcg_at_10 == null ? '-' : Number(summary.ndcg_at_10).toFixed(4)}</div></article>
             </div>
+            <DetailCard label="retrieval_by_mode" value={JSON.stringify(retrievalByModeRows, null, 2)} />
             <DetailCard label="detail_rows" value={JSON.stringify(details, null, 2)} />
           </div>
         ),
@@ -398,20 +515,91 @@ export function RagPage({ notify }) {
               </select>
               <span className="field-hint">테스트 입력 샘플 집합입니다.</span>
             </label>
+            <label className="filter-field">Run Discipline
+              <select value={form.runDiscipline} onChange={(event) => setForm((prev) => ({ ...prev, runDiscipline: event.target.value }))}>
+                <option value="exploratory">exploratory</option>
+                <option value="official">official</option>
+              </select>
+              <span className="field-hint">official 실행은 snapshot/비교 조건 강제 검증이 적용됩니다.</span>
+            </label>
+            <label className="filter-field">Official Comparison Type
+              <select
+                value={form.officialComparisonType}
+                disabled={form.runDiscipline !== 'official'}
+                onChange={(event) => setForm((prev) => ({ ...prev, officialComparisonType: event.target.value }))}
+              >
+                <option value="rewrite_effect">rewrite_effect</option>
+                <option value="gating_effect">gating_effect</option>
+              </select>
+              <span className="field-hint">official 전용: 한 번에 하나의 비교축만 허용합니다.</span>
+            </label>
+            {form.runDiscipline === 'official' && form.officialComparisonType === 'gating_effect' && (
+              <>
+                <label className="filter-field">Official Snapshot (ungated)
+                  <select value={form.officialGatingUngatedBatchId} onChange={(event) => setForm((prev) => ({ ...prev, officialGatingUngatedBatchId: event.target.value }))}>
+                    <option value="">Select ungated snapshot</option>
+                    {snapshotBatches
+                      .filter((batch) => batch.gatingPreset === 'ungated')
+                      .map((batch) => (
+                        <option key={batch.gatingBatchId} value={batch.gatingBatchId}>
+                          {snapshotOptionLabel(batch, 'ungated')}
+                        </option>
+                      ))}
+                  </select>
+                  <span className="field-hint">공식 gating-effect 비교용 ungated snapshot입니다.</span>
+                </label>
+                <label className="filter-field">Official Snapshot (rule_only)
+                  <select value={form.officialGatingRuleOnlyBatchId} onChange={(event) => setForm((prev) => ({ ...prev, officialGatingRuleOnlyBatchId: event.target.value }))}>
+                    <option value="">Select rule_only snapshot</option>
+                    {snapshotBatches
+                      .filter((batch) => batch.gatingPreset === 'rule_only')
+                      .map((batch) => (
+                        <option key={batch.gatingBatchId} value={batch.gatingBatchId}>
+                          {snapshotOptionLabel(batch, 'rule_only')}
+                        </option>
+                      ))}
+                  </select>
+                  <span className="field-hint">공식 gating-effect 비교용 rule_only snapshot입니다.</span>
+                </label>
+                <label className="filter-field">Official Snapshot (full_gating)
+                  <select value={form.officialGatingFullGatingBatchId} onChange={(event) => setForm((prev) => ({ ...prev, officialGatingFullGatingBatchId: event.target.value }))}>
+                    <option value="">Select full_gating snapshot</option>
+                    {snapshotBatches
+                      .filter((batch) => batch.gatingPreset === 'full_gating')
+                      .map((batch) => (
+                        <option key={batch.gatingBatchId} value={batch.gatingBatchId}>
+                          {snapshotOptionLabel(batch, 'full_gating')}
+                        </option>
+                      ))}
+                  </select>
+                  <span className="field-hint">공식 gating-effect 비교용 full_gating snapshot입니다.</span>
+                </label>
+              </>
+            )}
             <label className="filter-field">Gating Snapshot
-              <select value={form.sourceGatingBatchId} onChange={(event) => setForm((prev) => ({ ...prev, sourceGatingBatchId: event.target.value }))}>
-                <option value="">Auto (latest matching)</option>
+              <select
+                value={form.sourceGatingBatchId}
+                disabled={form.runDiscipline === 'official' && form.officialComparisonType === 'gating_effect'}
+                onChange={(event) => setForm((prev) => ({ ...prev, sourceGatingBatchId: event.target.value }))}
+              >
+                <option value="">
+                  {form.runDiscipline === 'official'
+                    ? (form.officialComparisonType === 'gating_effect' ? 'Not used for official gating-effect' : 'Select snapshot (required)')
+                    : 'Auto (latest matching)'}
+                </option>
                 {snapshotBatches.map((batch) => {
-                  const compatible = isSnapshotCompatible(batch, effectiveGatingPreset, methodCodesForRun)
-                  const runnable = Boolean(batch.sourceGatingRunId)
                   return (
                     <option key={batch.gatingBatchId} value={batch.gatingBatchId}>
-                      {`${shortId(batch.gatingBatchId)} | ${batch.gatingPreset} | ${batch.methodCode || '-'} | ${fmtTime(batch.finishedAt)}${runnable ? '' : ' | unavailable(no source run)'}${compatible ? '' : ' | incompatible'}`}
+                      {snapshotOptionLabel(batch)}
                     </option>
                   )
                 })}
               </select>
-              <span className="field-hint">완료된 게이팅 배치 전체를 표시합니다. 실행 시 호환성 검증을 수행합니다.</span>
+              <span className="field-hint">
+                {form.runDiscipline === 'official' && form.officialComparisonType === 'gating_effect'
+                  ? 'official gating-effect에서는 위 3개 전용 snapshot을 사용합니다.'
+                  : '완료된 게이팅 배치 전체를 표시합니다. 실행 시 호환성 검증을 수행합니다.'}
+              </span>
             </label>
             <label className="filter-field">게이팅 프리셋
               <select

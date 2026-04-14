@@ -3,8 +3,10 @@ from __future__ import annotations
 import csv
 import json
 import logging
+import os
 import re
 import statistics
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any
 
@@ -72,6 +74,120 @@ def _write_csv(path: Path, rows: list[dict[str, Any]], fieldnames: list[str]) ->
             writer.writerow(row)
 
 
+def _resolve_eval_concurrency(raw_config: dict[str, Any]) -> int:
+    value = (
+        raw_config.get("answer_eval_concurrency")
+        or raw_config.get("eval_concurrency")
+        or os.getenv("QUERY_FORGE_ANSWER_EVAL_CONCURRENCY")
+        or os.getenv("QUERY_FORGE_EVAL_CONCURRENCY")
+        or os.getenv("QUERY_FORGE_LLM_CONCURRENCY_LIMIT")
+        or 4
+    )
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        parsed = 4
+    return max(1, min(parsed, 32))
+
+
+def _evaluate_answer_sample(
+    *,
+    sample: Any,
+    chunks: Any,
+    memories: Any,
+    config: Any,
+    rewrite_enabled: bool,
+    selective_rewrite: bool,
+    gating_applied: bool,
+    source_gating_run_id: str | None,
+    memory_strategy_filters: list[str],
+) -> dict[str, Any]:
+    if rewrite_enabled:
+        rewrite_outcome, retrieval = run_selective_rewrite(
+            raw_query=sample.query_text,
+            session_context=sample.dialog_context if config.use_session_context else {},
+            chunks=chunks,
+            memories=memories,
+            memory_top_n_value=config.memory_top_n,
+            candidate_count=config.rewrite_candidate_count,
+            threshold=config.rewrite_threshold,
+            retrieval_top_k=config.retrieval_top_k,
+            preset_filter=config.gating_preset if gating_applied else "ungated",
+            source_gate_run_id=source_gating_run_id,
+            strategy_filters=memory_strategy_filters,
+            force_rewrite=not selective_rewrite,
+        )
+    else:
+        retrieval = retrieve_top_k(sample.query_text, chunks, top_k=config.retrieval_top_k)
+        rewrite_outcome = RewriteOutcome(
+            final_query=sample.query_text,
+            rewrite_applied=False,
+            rewrite_reason="rewrite_disabled",
+            raw_confidence=0.0,
+            best_candidate_confidence=0.0,
+            memory_top_n=[],
+            candidates=[],
+        )
+    reranked = rerank_retrieval_candidates(
+        rewrite_outcome.final_query if rewrite_enabled else sample.query_text,
+        retrieval,
+        top_n=config.rerank_top_n,
+    )
+    answer_segments = [
+        extract_extractive_summary(item.text, max_sentences=1)
+        for item in reranked[:2]
+    ]
+    answer_text = " ".join(segment for segment in answer_segments if segment).strip()
+
+    expected_points = " ".join(
+        [point for point in sample.dialog_context.get("expected_answer_key_points", [])]
+    )
+    if not expected_points:
+        expected_points = " ".join(sample.expected_chunk_ids)
+    correctness = _overlap_ratio(expected_points, answer_text)
+    keyword_overlap = _overlap_ratio(
+        " ".join(sample.expected_chunk_ids + sample.expected_doc_ids),
+        answer_text,
+    )
+    answer_relevance = _overlap_ratio(sample.query_text, answer_text)
+    context_blob = " ".join([item.text for item in reranked])
+    grounding = _overlap_ratio(answer_text, context_blob)
+    hallucination_rate = max(0.0, 1.0 - grounding)
+    faithfulness = 1.0 - min(1.0, copy_ratio(answer_text, context_blob, ngram=3))
+
+    covered_expected = sum(
+        1 for expected_chunk_id in sample.expected_chunk_ids if any(item.chunk_id == expected_chunk_id for item in reranked)
+    )
+    context_recall = covered_expected / max(1, len(sample.expected_chunk_ids))
+    context_precision = covered_expected / max(1, len(reranked))
+
+    metrics = {
+        "correctness": correctness,
+        "grounding": grounding,
+        "hallucination_rate": hallucination_rate,
+        "keyword_overlap": keyword_overlap,
+        "answer_relevance": answer_relevance,
+        "faithfulness": faithfulness,
+        "context_precision": context_precision,
+        "context_recall": context_recall,
+        "rewrite_applied": rewrite_outcome.rewrite_applied,
+    }
+    return {
+        "sample": sample,
+        "metrics": metrics,
+        "sample_row": {
+            "sample_id": sample.sample_id,
+            "split": sample.split,
+            "category": sample.query_category,
+            "final_query": rewrite_outcome.final_query,
+            "answer_text": answer_text,
+            **metrics,
+        },
+        "reranked": reranked,
+        "final_query": rewrite_outcome.final_query,
+    }
+
+
 def run_answer_eval(
     *,
     experiment: str,
@@ -121,9 +237,14 @@ def run_answer_eval(
         rewrite_enabled = bool(config.raw.get("rewrite_enabled", True))
         selective_rewrite = bool(config.raw.get("selective_rewrite", True))
         gating_applied = bool(config.raw.get("gating_applied", True))
+        eval_concurrency = _resolve_eval_concurrency(config.raw)
         samples = load_eval_samples(connection, dataset_id=dataset_id)
+        LOGGER.info(
+            "answer_eval_parallelism samples=%s concurrency=%s",
+            len(samples),
+            eval_concurrency,
+        )
         chunks = load_chunk_items(connection)
-        chunk_index = {chunk.chunk_id: chunk for chunk in chunks}
         memories = load_memory_items(connection)
 
         sample_rows: list[dict[str, Any]] = []
@@ -137,83 +258,51 @@ def run_answer_eval(
                 (f"answer_eval:{config.experiment_key}",),
             )
 
-        for sample in samples:
-            if rewrite_enabled:
-                rewrite_outcome, retrieval = run_selective_rewrite(
-                    raw_query=sample.query_text,
-                    session_context=sample.dialog_context if config.use_session_context else {},
-                    chunks=chunks,
-                    memories=memories,
-                    memory_top_n_value=config.memory_top_n,
-                    candidate_count=config.rewrite_candidate_count,
-                    threshold=config.rewrite_threshold,
-                    retrieval_top_k=config.retrieval_top_k,
-                    preset_filter=config.gating_preset if gating_applied else "ungated",
-                    source_gate_run_id=source_gating_run_id,
-                    strategy_filters=memory_strategy_filters,
-                    force_rewrite=not selective_rewrite,
+        evaluated: list[dict[str, Any]] = []
+        if eval_concurrency <= 1 or len(samples) <= 1:
+            for sample in samples:
+                evaluated.append(
+                    _evaluate_answer_sample(
+                        sample=sample,
+                        chunks=chunks,
+                        memories=memories,
+                        config=config,
+                        rewrite_enabled=rewrite_enabled,
+                        selective_rewrite=selective_rewrite,
+                        gating_applied=gating_applied,
+                        source_gating_run_id=source_gating_run_id,
+                        memory_strategy_filters=memory_strategy_filters,
+                    )
                 )
-            else:
-                retrieval = retrieve_top_k(sample.query_text, chunks, top_k=config.retrieval_top_k)
-                rewrite_outcome = RewriteOutcome(
-                    final_query=sample.query_text,
-                    rewrite_applied=False,
-                    rewrite_reason="rewrite_disabled",
-                    raw_confidence=0.0,
-                    best_candidate_confidence=0.0,
-                    memory_top_n=[],
-                    candidates=[],
-                )
-            reranked = rerank_retrieval_candidates(
-                rewrite_outcome.final_query if rewrite_enabled else sample.query_text,
-                retrieval,
-                top_n=config.rerank_top_n,
-            )
-            answer_segments = [
-                extract_extractive_summary(item.text, max_sentences=1)
-                for item in reranked[:2]
-            ]
-            answer_text = " ".join(segment for segment in answer_segments if segment).strip()
+        else:
+            with ThreadPoolExecutor(max_workers=min(eval_concurrency, len(samples))) as pool:
+                futures = [
+                    pool.submit(
+                        _evaluate_answer_sample,
+                        sample=sample,
+                        chunks=chunks,
+                        memories=memories,
+                        config=config,
+                        rewrite_enabled=rewrite_enabled,
+                        selective_rewrite=selective_rewrite,
+                        gating_applied=gating_applied,
+                        source_gating_run_id=source_gating_run_id,
+                        memory_strategy_filters=memory_strategy_filters,
+                    )
+                    for sample in samples
+                ]
+                for future in as_completed(futures):
+                    evaluated.append(future.result())
 
-            expected_points = " ".join(
-                [point for point in sample.dialog_context.get("expected_answer_key_points", [])]
-            )
-            if not expected_points:
-                expected_points = " ".join(sample.expected_chunk_ids)
+        evaluated.sort(key=lambda row: row["sample"].sample_id)
+        sample_rows = [row["sample_row"] for row in evaluated]
 
-            keyword_overlap = _overlap_ratio(
-                " ".join(sample.expected_chunk_ids + sample.expected_doc_ids),
-                answer_text,
-            )
-            answer_relevance = _overlap_ratio(sample.query_text, answer_text)
-            context_blob = " ".join([item.text for item in reranked])
-            faithfulness = 1.0 - min(1.0, copy_ratio(answer_text, context_blob, ngram=3))
-
-            covered_expected = sum(
-                1 for expected_chunk_id in sample.expected_chunk_ids if any(item.chunk_id == expected_chunk_id for item in reranked)
-            )
-            context_recall = covered_expected / max(1, len(sample.expected_chunk_ids))
-            context_precision = covered_expected / max(1, len(reranked))
-
-            metrics = {
-                "keyword_overlap": keyword_overlap,
-                "answer_relevance": answer_relevance,
-                "faithfulness": faithfulness,
-                "context_precision": context_precision,
-                "context_recall": context_recall,
-                "rewrite_applied": rewrite_outcome.rewrite_applied,
-            }
-            sample_rows.append(
-                {
-                    "sample_id": sample.sample_id,
-                    "split": sample.split,
-                    "category": sample.query_category,
-                    "final_query": rewrite_outcome.final_query,
-                    "answer_text": answer_text,
-                    **metrics,
-                }
-            )
-            with connection.cursor() as cursor:
+        with connection.cursor() as cursor:
+            for row in evaluated:
+                sample = row["sample"]
+                metrics = row["metrics"]
+                reranked = row["reranked"]
+                final_query = row["final_query"]
                 cursor.execute(
                     """
                     INSERT INTO eval_judgments (
@@ -247,20 +336,25 @@ def run_answer_eval(
                         (
                             sample.sample_id,
                             rank,
-                            item.document_id,
-                            item.chunk_id,
+                            None,
+                            None,
                             "cohere-rerank-hybrid",
                             item.score,
                             Jsonb(
                                 {
                                     "experiment_run_id": run_context.experiment_run_id,
-                                    "final_query": rewrite_outcome.final_query,
+                                    "final_query": final_query,
+                                    "retrieved_document_id": item.document_id,
+                                    "retrieved_chunk_id": item.chunk_id,
                                 }
                             ),
                         ),
                     )
 
         summary = {
+            "correctness": _mean([row["correctness"] for row in sample_rows]),
+            "grounding": _mean([row["grounding"] for row in sample_rows]),
+            "hallucination_rate": _mean([row["hallucination_rate"] for row in sample_rows]),
             "keyword_overlap": _mean([row["keyword_overlap"] for row in sample_rows]),
             "answer_relevance": _mean([row["answer_relevance"] for row in sample_rows]),
             "faithfulness": _mean([row["faithfulness"] for row in sample_rows]),
@@ -302,6 +396,9 @@ def run_answer_eval(
                 "category",
                 "final_query",
                 "answer_text",
+                "correctness",
+                "grounding",
+                "hallucination_rate",
                 "keyword_overlap",
                 "answer_relevance",
                 "faithfulness",

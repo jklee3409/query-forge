@@ -28,6 +28,10 @@ import java.util.UUID;
 public class AdminConsoleService {
 
     private static final String DEFAULT_DATASET_KEY = "human_eval_default";
+    private static final String RUN_DISCIPLINE_OFFICIAL = "official";
+    private static final String RUN_DISCIPLINE_EXPLORATORY = "exploratory";
+    private static final String COMPARISON_GATING_EFFECT = "gating_effect";
+    private static final String COMPARISON_REWRITE_EFFECT = "rewrite_effect";
 
     private final AdminConsoleRepository repository;
     private final LlmJobService llmJobService;
@@ -299,6 +303,21 @@ public class AdminConsoleService {
             throw new IllegalArgumentException("at least one generation method is required");
         }
         List<UUID> batchIds = request.generationBatchIds() == null ? List.of() : request.generationBatchIds();
+        String runDiscipline = normalizeRunDiscipline(request.officialRun());
+        String officialComparisonType = normalizeOfficialComparisonType(request.officialComparisonType(), runDiscipline);
+        Map<String, UUID> comparisonBatchIds = normalizeComparisonBatchIds(request.comparisonGatingBatchIds());
+
+        if (RUN_DISCIPLINE_OFFICIAL.equals(runDiscipline)) {
+            if (methodCodes.size() != 1) {
+                throw new IllegalArgumentException("official comparison runs require exactly one generation method");
+            }
+            if (!batchIds.isEmpty()) {
+                throw new IllegalArgumentException(
+                        "official comparison runs must not provide generation_batch_ids (use explicit snapshot identities only)"
+                );
+            }
+        }
+
         boolean gatingApplied = request.gatingApplied() == null || request.gatingApplied();
         String gatingPreset = gatingApplied ? normalizeGatingPreset(request.gatingPreset()) : "ungated";
         boolean rewriteEnabled = request.rewriteEnabled() == null || request.rewriteEnabled();
@@ -308,6 +327,74 @@ public class AdminConsoleService {
         int rerankTopN = request.rerankTopN() != null && request.rerankTopN() > 0 ? request.rerankTopN() : 5;
         double threshold = request.threshold() != null ? request.threshold() : 0.05d;
         UUID sourceGatingBatchId = request.sourceGatingBatchId();
+
+        if (RUN_DISCIPLINE_OFFICIAL.equals(runDiscipline) && COMPARISON_GATING_EFFECT.equals(officialComparisonType)) {
+            if (sourceGatingBatchId != null) {
+                throw new IllegalArgumentException(
+                        "official gating-effect runs must use comparison_gating_batch_ids only (no source_gating_batch_id)"
+                );
+            }
+            if (!comparisonBatchIds.keySet().containsAll(List.of("ungated", "rule_only", "full_gating"))
+                    || comparisonBatchIds.size() != 3) {
+                throw new IllegalArgumentException(
+                        "official gating-effect runs require comparison_gating_batch_ids for ungated, rule_only, full_gating"
+                );
+            }
+            if (request.rewriteEnabled() != null && request.rewriteEnabled()) {
+                throw new IllegalArgumentException("official gating-effect runs must not enable rewrite");
+            }
+            if (Boolean.FALSE.equals(request.gatingApplied())) {
+                throw new IllegalArgumentException("official gating-effect runs require gating_applied=true");
+            }
+            if (request.gatingPreset() != null && !request.gatingPreset().isBlank()
+                    && !"full_gating".equalsIgnoreCase(request.gatingPreset().trim())) {
+                throw new IllegalArgumentException("official gating-effect runs require gating_preset=full_gating");
+            }
+            if (Boolean.TRUE.equals(request.selectiveRewrite()) || Boolean.TRUE.equals(request.useSessionContext())) {
+                throw new IllegalArgumentException("official gating-effect runs must not include rewrite variants");
+            }
+            gatingApplied = true;
+            gatingPreset = "full_gating";
+            rewriteEnabled = false;
+            selectiveRewrite = false;
+            useSessionContext = false;
+        }
+
+        if (RUN_DISCIPLINE_OFFICIAL.equals(runDiscipline) && COMPARISON_REWRITE_EFFECT.equals(officialComparisonType)) {
+            if (!comparisonBatchIds.isEmpty()) {
+                throw new IllegalArgumentException(
+                        "official rewrite-effect runs must use source_gating_batch_id only (no comparison_gating_batch_ids)"
+                );
+            }
+            if (sourceGatingBatchId == null) {
+                throw new IllegalArgumentException("official rewrite-effect runs require explicit source_gating_batch_id");
+            }
+            if (Boolean.FALSE.equals(request.gatingApplied())) {
+                throw new IllegalArgumentException("official rewrite-effect runs require gating_applied=true");
+            }
+            if (Boolean.FALSE.equals(request.rewriteEnabled())) {
+                throw new IllegalArgumentException("official rewrite-effect runs require rewrite_enabled=true");
+            }
+            if (Boolean.FALSE.equals(request.selectiveRewrite())) {
+                throw new IllegalArgumentException("official rewrite-effect runs require selective_rewrite=true");
+            }
+            if (Boolean.TRUE.equals(request.useSessionContext())) {
+                throw new IllegalArgumentException("official rewrite-effect runs require use_session_context=false");
+            }
+            AdminConsoleDtos.GatingBatchRow sourceBatch = repository.findGatingBatch(sourceGatingBatchId)
+                    .orElseThrow(() -> new IllegalArgumentException("gating batch not found: " + sourceGatingBatchId));
+            if (request.gatingPreset() != null && !request.gatingPreset().isBlank()
+                    && !sourceBatch.gatingPreset().equalsIgnoreCase(request.gatingPreset().trim())) {
+                throw new IllegalArgumentException(
+                        "official rewrite-effect runs require gating_preset to match selected source snapshot"
+                );
+            }
+            gatingApplied = true;
+            gatingPreset = sourceBatch.gatingPreset();
+            rewriteEnabled = true;
+            selectiveRewrite = true;
+            useSessionContext = false;
+        }
 
         String experimentName = "admin_eval_" + UUID.randomUUID().toString().replace("-", "").substring(0, 12);
         JsonNode methodCodesNode = objectMapper.valueToTree(methodCodes);
@@ -341,16 +428,110 @@ public class AdminConsoleService {
         config.put("rewrite_threshold", threshold);
         config.put("retrieval_top_k", retrievalTopK);
         config.put("rerank_top_n", rerankTopN);
-        config.put("retrieval_modes", resolveRetrievalModes(rewriteEnabled, selectiveRewrite, useSessionContext));
-
-        Optional<UUID> sourceGatingRunId = resolveSourceGatingRunId(methodCodes, gatingPreset, sourceGatingBatchId);
-        if (sourceGatingBatchId != null) {
-            config.put("source_gating_batch_id", sourceGatingBatchId.toString());
+        config.put("run_discipline", runDiscipline);
+        if (RUN_DISCIPLINE_OFFICIAL.equals(runDiscipline)) {
+            config.put("official_comparison_type", officialComparisonType);
+            config.put("official_variable_axis", officialComparisonType);
+            config.put("official_isolation_validated", true);
         }
-        sourceGatingRunId.ifPresent(uuid -> config.put("source_gating_run_id", uuid.toString()));
+
+        boolean requireExplicitSnapshot = RUN_DISCIPLINE_OFFICIAL.equals(runDiscipline);
+        if (RUN_DISCIPLINE_OFFICIAL.equals(runDiscipline) && COMPARISON_GATING_EFFECT.equals(officialComparisonType)) {
+            Map<String, Object> comparisonSnapshots = new LinkedHashMap<>();
+            UUID ungatedRunId = resolveSourceGatingRunId(methodCodes, "ungated", comparisonBatchIds.get("ungated"), true)
+                    .orElseThrow(() -> new IllegalStateException("ungated snapshot source run not found"));
+            UUID ruleOnlyRunId = resolveSourceGatingRunId(methodCodes, "rule_only", comparisonBatchIds.get("rule_only"), true)
+                    .orElseThrow(() -> new IllegalStateException("rule_only snapshot source run not found"));
+            UUID fullGatingRunId = resolveSourceGatingRunId(methodCodes, "full_gating", comparisonBatchIds.get("full_gating"), true)
+                    .orElseThrow(() -> new IllegalStateException("full_gating snapshot source run not found"));
+
+            comparisonSnapshots.put(
+                    "ungated",
+                    Map.of(
+                            "gating_batch_id", comparisonBatchIds.get("ungated").toString(),
+                            "source_gating_run_id", ungatedRunId.toString()
+                    )
+            );
+            comparisonSnapshots.put(
+                    "rule_only",
+                    Map.of(
+                            "gating_batch_id", comparisonBatchIds.get("rule_only").toString(),
+                            "source_gating_run_id", ruleOnlyRunId.toString()
+                    )
+            );
+            comparisonSnapshots.put(
+                    "full_gating",
+                    Map.of(
+                            "gating_batch_id", comparisonBatchIds.get("full_gating").toString(),
+                            "source_gating_run_id", fullGatingRunId.toString()
+                    )
+            );
+            config.put("comparison_gating_batch_ids", comparisonBatchIds);
+            config.put("comparison_snapshots", comparisonSnapshots);
+            config.put(
+                    "retrieval_modes",
+                    List.of("memory_only_ungated", "memory_only_rule_only", "memory_only_full_gating")
+            );
+            config.put("snapshot_id", comparisonBatchIds.get("full_gating").toString());
+        } else if (RUN_DISCIPLINE_OFFICIAL.equals(runDiscipline)
+                && COMPARISON_REWRITE_EFFECT.equals(officialComparisonType)) {
+            Optional<UUID> sourceGatingRunId = resolveSourceGatingRunId(
+                    methodCodes,
+                    gatingPreset,
+                    sourceGatingBatchId,
+                    true
+            );
+            config.put("retrieval_modes", List.of("raw_only", "memory_only_gated", "rewrite_always", "selective_rewrite"));
+            config.put("source_gating_batch_id", sourceGatingBatchId.toString());
+            config.put("snapshot_id", sourceGatingBatchId.toString());
+            sourceGatingRunId.ifPresent(uuid -> config.put("source_gating_run_id", uuid.toString()));
+        } else {
+            config.put("retrieval_modes", resolveRetrievalModes(rewriteEnabled, selectiveRewrite, useSessionContext));
+            Optional<UUID> sourceGatingRunId = resolveSourceGatingRunId(
+                    methodCodes,
+                    gatingPreset,
+                    sourceGatingBatchId,
+                    requireExplicitSnapshot
+            );
+            if (sourceGatingBatchId != null) {
+                config.put("source_gating_batch_id", sourceGatingBatchId.toString());
+                config.put("snapshot_id", sourceGatingBatchId.toString());
+            }
+            sourceGatingRunId.ifPresent(uuid -> config.put("source_gating_run_id", uuid.toString()));
+        }
 
         writeExperimentConfig(experimentName, config);
         repository.upsertRagTestRunConfig(runId, objectMapper.valueToTree(config));
+        String initialSnapshotId = firstNonBlank(
+                config.get("snapshot_id") == null ? null : String.valueOf(config.get("snapshot_id")),
+                sourceGatingBatchId == null ? null : sourceGatingBatchId.toString(),
+                "UNSPECIFIED"
+        );
+        Map<String, Object> initialGatingConfig = new LinkedHashMap<>();
+        initialGatingConfig.put("gating_preset", gatingPreset);
+        initialGatingConfig.put("gating_applied", gatingApplied);
+        initialGatingConfig.put("comparison_snapshots", config.get("comparison_snapshots"));
+        Map<String, Object> initialRetrievalConfig = new LinkedHashMap<>();
+        initialRetrievalConfig.put("retrieval_top_k", retrievalTopK);
+        initialRetrievalConfig.put("rerank_top_n", rerankTopN);
+        initialRetrievalConfig.put("retrieval_modes", config.get("retrieval_modes"));
+        Map<String, Object> initialRewriteConfig = new LinkedHashMap<>();
+        initialRewriteConfig.put("rewrite_enabled", rewriteEnabled);
+        initialRewriteConfig.put("selective_rewrite", selectiveRewrite);
+        initialRewriteConfig.put("use_session_context", useSessionContext);
+        initialRewriteConfig.put("rewrite_threshold", threshold);
+        repository.upsertRagExperimentRecord(
+                runId,
+                initialSnapshotId,
+                objectMapper.valueToTree(methodCodes),
+                objectMapper.valueToTree(initialGatingConfig),
+                0,
+                objectMapper.valueToTree(initialRetrievalConfig),
+                objectMapper.valueToTree(initialRewriteConfig),
+                repository.findRagDatasetVersion(runId),
+                Instant.now(),
+                objectMapper.createObjectNode()
+        );
         llmJobService.createRagTestJob(runId, experimentName, defaultCreatedBy(request.createdBy()));
         return repository.findRagTestRun(runId)
                 .orElseThrow(() -> new IllegalStateException("rag test run not found after enqueue: " + runId));
@@ -369,9 +550,15 @@ public class AdminConsoleService {
     private Optional<UUID> resolveSourceGatingRunId(
             List<String> methodCodes,
             String gatingPreset,
-            UUID sourceGatingBatchId
+            UUID sourceGatingBatchId,
+            boolean requireExplicit
     ) {
         if (sourceGatingBatchId == null) {
+            if (requireExplicit) {
+                throw new IllegalArgumentException(
+                        "official evaluation runs require explicit source_gating_batch_id (auto-latest disabled)"
+                );
+            }
             return findLatestMatchingGatingRun(methodCodes, gatingPreset);
         }
         AdminConsoleDtos.GatingBatchRow batch = repository.findGatingBatch(sourceGatingBatchId)
@@ -393,6 +580,52 @@ public class AdminConsoleService {
             throw new IllegalArgumentException("gating batch has no source_gating_run_id: " + sourceGatingBatchId);
         }
         return Optional.of(batch.sourceGatingRunId());
+    }
+
+    private String normalizeRunDiscipline(Boolean officialRun) {
+        return Boolean.TRUE.equals(officialRun) ? RUN_DISCIPLINE_OFFICIAL : RUN_DISCIPLINE_EXPLORATORY;
+    }
+
+    private String normalizeOfficialComparisonType(String value, String runDiscipline) {
+        if (!RUN_DISCIPLINE_OFFICIAL.equals(runDiscipline)) {
+            return null;
+        }
+        if (value == null || value.isBlank()) {
+            throw new IllegalArgumentException(
+                    "official comparison runs require official_comparison_type (gating_effect or rewrite_effect)"
+            );
+        }
+        String normalized = value.trim().toLowerCase();
+        if (!List.of(COMPARISON_GATING_EFFECT, COMPARISON_REWRITE_EFFECT).contains(normalized)) {
+            throw new IllegalArgumentException("unsupported official_comparison_type: " + value);
+        }
+        return normalized;
+    }
+
+    private Map<String, UUID> normalizeComparisonBatchIds(Map<String, UUID> value) {
+        if (value == null || value.isEmpty()) {
+            return Map.of();
+        }
+        LinkedHashMap<String, UUID> normalized = new LinkedHashMap<>();
+        value.forEach((key, batchId) -> {
+            if (key == null || key.isBlank() || batchId == null) {
+                return;
+            }
+            normalized.put(key.trim().toLowerCase(), batchId);
+        });
+        return normalized;
+    }
+
+    private String firstNonBlank(String... values) {
+        if (values == null || values.length == 0) {
+            return "";
+        }
+        for (String value : values) {
+            if (value != null && !value.isBlank()) {
+                return value.trim();
+            }
+        }
+        return "";
     }
 
     private List<String> resolveRetrievalModes(boolean rewriteEnabled, boolean selectiveRewrite, boolean useSessionContext) {

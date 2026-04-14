@@ -208,6 +208,7 @@ public class LlmJobService {
     @Transactional
     public void retryJob(UUID jobId) {
         llmJobRepository.retryFailed(jobId);
+        llmJobRepository.prepareItemsForRetry(jobId);
         enqueue(jobId);
     }
 
@@ -300,9 +301,30 @@ public class LlmJobService {
         int totalItems = Math.max(1, items.size());
         int processed = 0;
         Map<String, JsonNode> resultByCommand = new LinkedHashMap<>();
+        for (AdminConsoleDtos.LlmJobItemRow item : items) {
+            String command = item.payloadJson().path("command").asText(item.itemType());
+            if ("completed".equalsIgnoreCase(item.itemStatus())) {
+                resultByCommand.putIfAbsent(command, item.resultJson());
+                processed += 1;
+            }
+        }
+        if (processed > 0) {
+            llmJobRepository.markJobProgress(
+                    job.jobId(),
+                    processed,
+                    totalItems,
+                    (processed * 100.0) / totalItems,
+                    objectMapper.valueToTree(Map.of("resume_from_completed_items", processed))
+            );
+        }
 
         try {
             for (AdminConsoleDtos.LlmJobItemRow item : items) {
+                String command = item.payloadJson().path("command").asText(item.itemType());
+                String experiment = item.payloadJson().path("experiment").asText(job.experimentName());
+                if ("completed".equalsIgnoreCase(item.itemStatus())) {
+                    continue;
+                }
                 AdminConsoleDtos.LlmJobRow current = llmJobRepository.findJob(job.jobId())
                         .orElseThrow(() -> new IllegalStateException("llm job missing while running: " + job.jobId()));
                 if ("pause_requested".equalsIgnoreCase(current.jobStatus())) {
@@ -317,8 +339,6 @@ public class LlmJobService {
                     return;
                 }
                 llmJobRepository.markItemRunning(item.jobItemId());
-                String command = item.payloadJson().path("command").asText(item.itemType());
-                String experiment = item.payloadJson().path("experiment").asText(job.experimentName());
                 RagDtos.ExperimentCommandResponse response = experimentPipelineService.run(
                         new RagDtos.ExperimentCommandRequest(command, experiment)
                 );
@@ -396,8 +416,12 @@ public class LlmJobService {
             JsonNode retrievalSummary = resultByCommand.getOrDefault("eval-retrieval", objectMapper.createObjectNode());
             JsonNode answerSummary = resultByCommand.getOrDefault("eval-answer", objectMapper.createObjectNode());
             JsonNode memorySummary = resultByCommand.getOrDefault("build-memory", objectMapper.createObjectNode());
-            JsonNode summaryRow = firstArrayItem(retrievalSummary.path("summary"));
-            JsonNode latencyRow = firstArrayItem(retrievalSummary.path("latency_summary"));
+            JsonNode summaryRows = retrievalSummary.path("summary");
+            JsonNode latencyRows = retrievalSummary.path("latency_summary");
+            Map<String, JsonNode> summaryByMode = rowsByMode(summaryRows);
+            Map<String, JsonNode> latencyByMode = rowsByMode(latencyRows);
+            JsonNode summaryRow = selectRepresentativeModeRow(summaryByMode);
+            JsonNode latencyRow = selectLatencyRow(summaryRow, latencyByMode);
             JsonNode answerMetrics = answerSummary.path("summary");
 
             Double recall = nullableDouble(summaryRow.path("recall@5"));
@@ -413,6 +437,9 @@ public class LlmJobService {
             metrics.put("retrieval", retrievalSummary);
             metrics.put("answer", answerSummary);
             metrics.put("memory", memorySummary);
+            metrics.put("retrieval_by_mode", objectMapper.valueToTree(summaryByMode));
+            metrics.put("latency_by_mode", objectMapper.valueToTree(latencyByMode));
+            metrics.put("representative_mode", summaryRow.path("mode").asText(""));
             JsonNode metricsJson = objectMapper.valueToTree(metrics);
             UUID sourceExperimentRunId = asUuid(retrievalSummary.path("experiment_run_id").asText(null));
             adminConsoleRepository.upsertRagSummary(
@@ -426,6 +453,52 @@ public class LlmJobService {
                     rejectionRate,
                     avgConfidenceDelta,
                     answerMetrics.isMissingNode() ? objectMapper.createObjectNode() : answerMetrics,
+                    metricsJson
+            );
+            JsonNode runConfig = adminConsoleRepository.findRagTestRunConfig(job.ragTestRunId())
+                    .orElseGet(objectMapper::createObjectNode);
+            String snapshotId = firstNonBlank(
+                    runConfig.path("snapshot_id").asText(""),
+                    runConfig.path("source_gating_batch_id").asText(""),
+                    "UNSPECIFIED"
+            );
+            JsonNode generationStrategies = runConfig.path("memory_generation_strategies").isArray()
+                    ? runConfig.path("memory_generation_strategies")
+                    : runConfig.path("source_generation_strategies");
+            if (!generationStrategies.isArray()) {
+                generationStrategies = objectMapper.createArrayNode();
+            }
+            Map<String, Object> gatingConfig = new LinkedHashMap<>();
+            gatingConfig.put("gating_preset", runConfig.path("gating_preset").asText(""));
+            gatingConfig.put("gating_applied", runConfig.path("gating_applied").asBoolean(true));
+            gatingConfig.put("comparison_snapshots", nullableJson(runConfig.get("comparison_snapshots")));
+
+            Map<String, Object> retrievalConfig = new LinkedHashMap<>();
+            retrievalConfig.put("retrieval_top_k", runConfig.path("retrieval_top_k").asInt(20));
+            retrievalConfig.put("rerank_top_n", runConfig.path("rerank_top_n").asInt(5));
+            retrievalConfig.put("retrieval_modes", nullableJson(runConfig.get("retrieval_modes")));
+            retrievalConfig.put("active_modes", nullableJson(retrievalSummary.get("active_modes")));
+
+            Map<String, Object> rewriteConfig = new LinkedHashMap<>();
+            rewriteConfig.put("rewrite_enabled", runConfig.path("rewrite_enabled").asBoolean(true));
+            rewriteConfig.put("selective_rewrite", runConfig.path("selective_rewrite").asBoolean(true));
+            rewriteConfig.put("use_session_context", runConfig.path("use_session_context").asBoolean(false));
+            rewriteConfig.put("rewrite_threshold", runConfig.path("rewrite_threshold").asDouble(0.05));
+
+            Integer memorySize = memorySummary.path("memory_entries_built").isNumber()
+                    ? memorySummary.path("memory_entries_built").asInt()
+                    : null;
+            String datasetVersion = adminConsoleRepository.findRagDatasetVersion(job.ragTestRunId());
+            adminConsoleRepository.upsertRagExperimentRecord(
+                    job.ragTestRunId(),
+                    snapshotId,
+                    generationStrategies,
+                    objectMapper.valueToTree(gatingConfig),
+                    memorySize,
+                    objectMapper.valueToTree(retrievalConfig),
+                    objectMapper.valueToTree(rewriteConfig),
+                    datasetVersion,
+                    Instant.now(),
                     metricsJson
             );
             List<AdminConsoleDtos.RagTestResultDetailRow> details = loadRewriteCasesForRun(job.ragTestRunId(), job.experimentName());
@@ -450,6 +523,7 @@ public class LlmJobService {
         if (nextRetry <= maxRetries) {
             long backoffSeconds = (long) Math.min(60, Math.pow(2, nextRetry) * 2);
             Instant nextRunAt = Instant.now().plusSeconds(backoffSeconds);
+            llmJobRepository.prepareItemsForRetry(job.jobId());
             llmJobRepository.queueJobWithBackoff(job.jobId(), nextRetry, nextRunAt, exception.getMessage());
             scheduleEnqueue(job.jobId(), backoffSeconds);
             return;
@@ -569,6 +643,56 @@ public class LlmJobService {
         return node;
     }
 
+    private Map<String, JsonNode> rowsByMode(JsonNode node) {
+        Map<String, JsonNode> rows = new LinkedHashMap<>();
+        if (node == null || !node.isArray()) {
+            return rows;
+        }
+        for (JsonNode row : node) {
+            if (row == null || !row.isObject()) {
+                continue;
+            }
+            String mode = row.path("mode").asText("").trim();
+            if (mode.isEmpty()) {
+                continue;
+            }
+            rows.put(mode, row);
+        }
+        return rows;
+    }
+
+    private JsonNode selectRepresentativeModeRow(Map<String, JsonNode> rowsByMode) {
+        if (rowsByMode.isEmpty()) {
+            return objectMapper.createObjectNode();
+        }
+        List<String> priority = List.of(
+                "selective_rewrite",
+                "selective_rewrite_with_session",
+                "memory_only_full_gating",
+                "memory_only_gated",
+                "raw_only"
+        );
+        for (String candidate : priority) {
+            JsonNode row = rowsByMode.get(candidate);
+            if (row != null && !row.isMissingNode()) {
+                return row;
+            }
+        }
+        return rowsByMode.values().iterator().next();
+    }
+
+    private JsonNode selectLatencyRow(JsonNode summaryRow, Map<String, JsonNode> latencyByMode) {
+        if (summaryRow == null || summaryRow.isMissingNode() || latencyByMode.isEmpty()) {
+            return objectMapper.createObjectNode();
+        }
+        String mode = summaryRow.path("mode").asText("");
+        JsonNode row = latencyByMode.get(mode);
+        if (row == null || row.isMissingNode()) {
+            return objectMapper.createObjectNode();
+        }
+        return row;
+    }
+
     private JsonNode firstArrayItem(JsonNode node) {
         if (node == null || !node.isArray() || node.isEmpty()) {
             return objectMapper.createObjectNode();
@@ -581,6 +705,18 @@ public class LlmJobService {
             return null;
         }
         return node.asDouble();
+    }
+
+    private String firstNonBlank(String... values) {
+        if (values == null || values.length == 0) {
+            return "";
+        }
+        for (String value : values) {
+            if (value != null && !value.isBlank()) {
+                return value.trim();
+            }
+        }
+        return "";
     }
 
     private UUID asUuid(String value) {
