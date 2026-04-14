@@ -159,9 +159,18 @@ export function RagPage({ notify }) {
   const openDatasetItems = async (datasetId) => {
     try {
       const rows = await requestJson(`/api/admin/console/rag/datasets/${datasetId}/items?limit=30`)
+      const preview = (Array.isArray(rows) ? rows : [])
+        .map((row) => {
+          const method = row.targetMethod ? `[${row.targetMethod}] ` : ''
+          const focus = Array.isArray(row.evaluationFocus) && row.evaluationFocus.length > 0
+            ? ` (${row.evaluationFocus.join(',')})`
+            : ''
+          return `[${row.sampleId}] ${method}${row.queryCategory} - ${row.userQueryKo}${focus}`
+        })
+        .join('\n')
       setModal({
         title: `평가 문항 미리보기 · ${shortId(datasetId)}`,
-        body: <DetailCard label="samples" value={(Array.isArray(rows) ? rows : []).map((row) => `[${row.sampleId}] ${row.queryCategory} - ${row.userQueryKo}`).join('\n')} />,
+        body: <DetailCard label="samples" value={preview} />,
       })
     } catch (error) {
       notify(error.message, 'error')

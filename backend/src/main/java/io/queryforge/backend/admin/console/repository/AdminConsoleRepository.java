@@ -1303,7 +1303,9 @@ public class AdminConsoleRepository {
                        s.query_category,
                        s.single_or_multi_chunk,
                        s.user_query_ko,
-                       s.dialog_context::text AS dialog_context
+                       s.dialog_context::text AS dialog_context,
+                       s.metadata ->> 'target_method' AS target_method,
+                       COALESCE(s.metadata -> 'evaluation_focus', '[]'::jsonb)::text AS evaluation_focus
                 FROM eval_dataset_item i
                 JOIN eval_samples s
                   ON s.sample_id = i.sample_id
@@ -1325,7 +1327,9 @@ public class AdminConsoleRepository {
                         rs.getString("query_category"),
                         rs.getString("single_or_multi_chunk"),
                         rs.getString("user_query_ko"),
-                        readJson(rs, "dialog_context")
+                        readJson(rs, "dialog_context"),
+                        rs.getString("target_method"),
+                        readJson(rs, "evaluation_focus")
                 )
         );
     }

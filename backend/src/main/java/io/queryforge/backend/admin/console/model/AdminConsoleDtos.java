@@ -268,7 +268,9 @@ public final class AdminConsoleDtos {
             String queryCategory,
             String singleOrMultiChunk,
             String userQueryKo,
-            JsonNode dialogContext
+            JsonNode dialogContext,
+            String targetMethod,
+            JsonNode evaluationFocus
     ) {
     }
 
