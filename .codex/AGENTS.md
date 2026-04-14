@@ -202,6 +202,189 @@ Agents MUST NOT:
 - ignore chunk grounding
 - ignore A/B/C/D differences
 
+---
+
+## 3.6 RAG End-to-End Quality Evaluation (CRITICAL)
+
+This section defines the mandatory evaluation methodology for the RAG system.
+
+Agents MUST follow this procedure to ensure:
+- reproducible experiments
+- fair comparison between strategies
+- measurable impact of each pipeline stage
+
+---
+
+### 3.6.1 Evaluation Scope
+
+RAG evaluation MUST be conducted at three levels:
+
+1. Synthetic Query Quality
+2. Retrieval Performance
+3. End-to-End RAG Performance
+
+---
+
+### 3.6.2 Synthetic Query Quality Evaluation
+
+Agents MUST evaluate generated queries BEFORE gating using:
+
+- fluency
+- adequacy
+- answerability
+- copy ratio
+- diversity
+
+This stage validates whether queries are natural, grounded, and useful.
+
+---
+
+### 3.6.3 Quality Gating Evaluation
+
+Agents MUST compare the following conditions:
+
+- ungated queries
+- rule-based filtered queries
+- fully gated queries (Rule + LLM + Utility + Diversity)
+
+Evaluation metrics:
+
+- Recall@5
+- Hit@5
+- MRR@10
+- nDCG@10
+
+Agents MUST NOT skip intermediate stages.
+
+---
+
+### 3.6.4 Snapshot-Based Evaluation (MANDATORY)
+
+In this project, RAG evaluation MAY be conducted using snapshot-based memory states.
+
+A snapshot is defined as:
+
+- a fixed set of synthetic queries
+- after a specific generation + gating pipeline
+- stored as a memory state
+
+Examples:
+
+- A-only snapshot
+- C-only snapshot
+- A+C mixed snapshot
+- gated vs ungated snapshot
+
+Agents MUST treat each snapshot as an independent experimental condition.
+
+Each snapshot MUST:
+
+- have a unique identifier
+- record generation strategy (A/B/C/D)
+- record gating configuration
+- record creation timestamp or batch id
+
+When running RAG evaluation, agents MUST:
+
+- explicitly select the snapshot
+- use the snapshot as retrieval memory
+- NOT mix snapshots unless explicitly intended
+
+---
+
+### 3.6.5 Query Rewrite Evaluation
+
+For each snapshot, agents MUST evaluate:
+
+- raw query retrieval
+- snapshot-based memory retrieval
+- snapshot + rewrite
+- snapshot + selective rewrite
+
+Agents MUST:
+
+- compare rewrite vs non-rewrite
+- verify improvement through metrics
+- NOT assume rewrite is always beneficial
+
+Selective rewrite MUST be treated as the final strategy.
+
+---
+
+### 3.6.6 Final RAG Evaluation (END-TO-END)
+
+Agents MUST evaluate full pipeline configurations:
+
+Baseline:
+- raw query + dense retrieval
+
+Experiments:
+- snapshot-based memory retrieval
+- gated memory retrieval
+- rewrite strategies
+- selective rewrite
+
+Evaluation MUST include:
+
+Retrieval metrics:
+- Recall@5
+- MRR@10
+- nDCG@10
+
+Answer-level evaluation:
+- correctness
+- grounding
+- hallucination rate
+
+---
+
+### 3.6.7 Experiment Design Rules (MANDATORY)
+
+Agents MUST:
+
+- ensure evaluation consistency by:
+  - using the SAME evaluation dataset OR
+  - controlling the SAME snapshot
+- isolate only ONE variable per experiment
+- log all configurations
+- store results in `data/reports/`
+
+Agents MUST NOT:
+
+- mix multiple variables at once
+- change dataset or snapshot unintentionally
+- perform ungrounded evaluation
+
+---
+
+### 3.6.8 Dataset Requirements
+
+Evaluation MUST use datasets defined in Section 3.5.
+
+Agents MUST ensure:
+
+- all queries are answerable from corpus
+- expected_doc_ids are correct
+- expected_chunk_ids are correct
+
+---
+
+### 3.6.9 Logging and Reproducibility
+
+Each evaluation run MUST record:
+
+- snapshot_id
+- generation_strategy (A/B/C/D)
+- gating_config
+- memory_size
+- retrieval_config
+- rewrite_config
+- evaluation metrics
+
+All results MUST be reproducible and comparable.
+
+---
+
 ## 4. Execution and Documentation Rules
 
 ### 4.1 Root Progress Tracking
