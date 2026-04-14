@@ -217,11 +217,17 @@ def run_memory_build(
             run_label="build-memory",
         )
 
-        strategy_filters = [
-            str(item).upper()
-            for item in (config.raw.get("source_generation_strategies") or [config.generation_strategy])
-            if str(item).strip()
-        ]
+        configured_strategies = (
+            config.raw.get("source_generation_strategies")
+            or config.raw.get("memory_generation_strategies")
+            or [config.generation_strategy]
+        )
+        strategy_filters: list[str] = []
+        for item in configured_strategies:
+            normalized = str(item).upper().strip()
+            if not normalized or normalized in strategy_filters:
+                continue
+            strategy_filters.append(normalized)
         configured_gating_run_id = str(config.raw.get("source_gating_run_id") or "").strip() or None
         source_run_id = configured_gating_run_id or _latest_gating_run_id(
             connection,

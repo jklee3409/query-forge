@@ -307,6 +307,7 @@ public class AdminConsoleService {
         int retrievalTopK = request.retrievalTopK() != null && request.retrievalTopK() > 0 ? request.retrievalTopK() : 20;
         int rerankTopN = request.rerankTopN() != null && request.rerankTopN() > 0 ? request.rerankTopN() : 5;
         double threshold = request.threshold() != null ? request.threshold() : 0.05d;
+        UUID sourceGatingBatchId = request.sourceGatingBatchId();
 
         String experimentName = "admin_eval_" + UUID.randomUUID().toString().replace("-", "").substring(0, 12);
         JsonNode methodCodesNode = objectMapper.valueToTree(methodCodes);
@@ -332,6 +333,7 @@ public class AdminConsoleService {
         Map<String, Object> config = baseExperimentConfig(experimentName, methodCodes.getFirst());
         config.put("dataset_id", request.datasetId().toString());
         config.put("memory_generation_strategies", methodCodes);
+        config.put("source_generation_strategies", methodCodes);
         config.put("gating_preset", gatingPreset);
         config.put("rewrite_enabled", rewriteEnabled);
         config.put("selective_rewrite", selectiveRewrite);
@@ -341,7 +343,10 @@ public class AdminConsoleService {
         config.put("rerank_top_n", rerankTopN);
         config.put("retrieval_modes", resolveRetrievalModes(rewriteEnabled, selectiveRewrite, useSessionContext));
 
-        Optional<UUID> sourceGatingRunId = findLatestMatchingGatingRun(methodCodes, gatingPreset);
+        Optional<UUID> sourceGatingRunId = resolveSourceGatingRunId(methodCodes, gatingPreset, sourceGatingBatchId);
+        if (sourceGatingBatchId != null) {
+            config.put("source_gating_batch_id", sourceGatingBatchId.toString());
+        }
         sourceGatingRunId.ifPresent(uuid -> config.put("source_gating_run_id", uuid.toString()));
 
         writeExperimentConfig(experimentName, config);
@@ -359,6 +364,35 @@ public class AdminConsoleService {
                 .filter(item -> item.methodCode() == null || methodCodes.contains(item.methodCode().toUpperCase()))
                 .map(AdminConsoleDtos.GatingBatchRow::sourceGatingRunId)
                 .findFirst();
+    }
+
+    private Optional<UUID> resolveSourceGatingRunId(
+            List<String> methodCodes,
+            String gatingPreset,
+            UUID sourceGatingBatchId
+    ) {
+        if (sourceGatingBatchId == null) {
+            return findLatestMatchingGatingRun(methodCodes, gatingPreset);
+        }
+        AdminConsoleDtos.GatingBatchRow batch = repository.findGatingBatch(sourceGatingBatchId)
+                .orElseThrow(() -> new IllegalArgumentException("gating batch not found: " + sourceGatingBatchId));
+        if (!"completed".equalsIgnoreCase(batch.status())) {
+            throw new IllegalArgumentException("gating batch is not completed: " + sourceGatingBatchId);
+        }
+        if (!gatingPreset.equalsIgnoreCase(batch.gatingPreset())) {
+            throw new IllegalArgumentException(
+                    "gating batch preset mismatch: expected=" + gatingPreset + ", actual=" + batch.gatingPreset()
+            );
+        }
+        if (batch.methodCode() != null && !methodCodes.contains(batch.methodCode().toUpperCase())) {
+            throw new IllegalArgumentException(
+                    "gating batch method mismatch: expected one of=" + methodCodes + ", actual=" + batch.methodCode()
+            );
+        }
+        if (batch.sourceGatingRunId() == null) {
+            throw new IllegalArgumentException("gating batch has no source_gating_run_id: " + sourceGatingBatchId);
+        }
+        return Optional.of(batch.sourceGatingRunId());
     }
 
     private List<String> resolveRetrievalModes(boolean rewriteEnabled, boolean selectiveRewrite, boolean useSessionContext) {

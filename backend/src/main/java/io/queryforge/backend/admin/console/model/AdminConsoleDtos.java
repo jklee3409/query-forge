@@ -276,6 +276,7 @@ public final class AdminConsoleDtos {
             UUID datasetId,
             List<String> methodCodes,
             List<UUID> generationBatchIds,
+            UUID sourceGatingBatchId,
             Boolean gatingApplied,
             String gatingPreset,
             Boolean rewriteEnabled,

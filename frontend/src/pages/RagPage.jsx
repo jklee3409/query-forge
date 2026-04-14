@@ -9,6 +9,7 @@ export function RagPage({ notify }) {
   const [methods, setMethods] = useState([])
   const [datasets, setDatasets] = useState([])
   const [tests, setTests] = useState([])
+  const [gatingBatches, setGatingBatches] = useState([])
   const [rewriteLogs, setRewriteLogs] = useState([])
   const [llmJobs, setLlmJobs] = useState([])
   const [modal, setModal] = useState(null)
@@ -17,6 +18,7 @@ export function RagPage({ notify }) {
   const [form, setForm] = useState({
     datasetId: '',
     gatingPreset: 'full_gating',
+    sourceGatingBatchId: '',
     threshold: '0.05',
     retrievalTopK: '20',
     rerankTopN: '5',
@@ -45,6 +47,11 @@ export function RagPage({ notify }) {
     setTests(Array.isArray(rows) ? rows : [])
   }
 
+  const loadGatingBatches = async () => {
+    const rows = await requestJson('/api/admin/console/gating/batches?limit=100')
+    setGatingBatches(Array.isArray(rows) ? rows : [])
+  }
+
   const loadRewriteLogs = async () => {
     const rows = await requestJson('/api/admin/console/rewrite/logs?limit=100')
     setRewriteLogs(Array.isArray(rows) ? rows : [])
@@ -57,7 +64,7 @@ export function RagPage({ notify }) {
   }
 
   useEffect(() => {
-    Promise.all([loadMethods(), loadDatasets(), loadTests(), loadRewriteLogs(), loadLlmJobs()]).catch((error) => notify(error.message, 'error'))
+    Promise.all([loadMethods(), loadDatasets(), loadTests(), loadGatingBatches(), loadRewriteLogs(), loadLlmJobs()]).catch((error) => notify(error.message, 'error'))
   }, [])
 
   usePolling(true, 5000, async () => {
@@ -74,6 +81,7 @@ export function RagPage({ notify }) {
       notify('최소 1개 생성 방식을 선택해주세요.', 'error')
       return
     }
+    const runGatingPreset = form.gatingApplied ? form.gatingPreset : 'ungated'
     try {
       const created = await requestJson('/api/admin/console/rag/tests/run', {
         method: 'POST',
@@ -81,7 +89,8 @@ export function RagPage({ notify }) {
         body: JSON.stringify({
           datasetId: form.datasetId,
           methodCodes: selectedMethods,
-          gatingPreset: form.gatingPreset,
+          gatingPreset: runGatingPreset,
+          sourceGatingBatchId: form.sourceGatingBatchId || null,
           gatingApplied: Boolean(form.gatingApplied),
           rewriteEnabled: Boolean(form.rewriteEnabled),
           selectiveRewrite: Boolean(form.selectiveRewrite),
@@ -129,6 +138,23 @@ export function RagPage({ notify }) {
       notify(error.message, 'error')
     }
   }
+
+  const effectiveGatingPreset = form.gatingApplied ? form.gatingPreset : 'ungated'
+  const snapshotBatches = gatingBatches.filter((batch) => {
+    if (!batch || String(batch.status || '').toLowerCase() !== 'completed') return false
+    if (!batch.sourceGatingRunId) return false
+    if (batch.gatingPreset !== effectiveGatingPreset) return false
+    if (selectedMethods.length === 0) return true
+    if (!batch.methodCode) return true
+    return selectedMethods.includes(String(batch.methodCode).toUpperCase())
+  })
+
+  useEffect(() => {
+    if (!form.sourceGatingBatchId) return
+    const valid = snapshotBatches.some((batch) => batch.gatingBatchId === form.sourceGatingBatchId)
+    if (valid) return
+    setForm((prev) => ({ ...prev, sourceGatingBatchId: '' }))
+  }, [form.sourceGatingBatchId, snapshotBatches])
 
   const openDatasetItems = async (datasetId) => {
     try {
@@ -198,6 +224,16 @@ export function RagPage({ notify }) {
           <label className="filter-field">게이팅 프리셋
             <select value={form.gatingPreset} onChange={(event) => setForm((prev) => ({ ...prev, gatingPreset: event.target.value }))}>
               <option value="ungated">ungated</option><option value="rule_only">rule_only</option><option value="rule_plus_llm">rule_plus_llm</option><option value="full_gating">full_gating</option>
+            </select>
+          </label>
+          <label className="filter-field">Gating Snapshot
+            <select value={form.sourceGatingBatchId} onChange={(event) => setForm((prev) => ({ ...prev, sourceGatingBatchId: event.target.value }))}>
+              <option value="">Auto (latest matching)</option>
+              {snapshotBatches.map((batch) => (
+                <option key={batch.gatingBatchId} value={batch.gatingBatchId}>
+                  {`${shortId(batch.gatingBatchId)} | ${batch.gatingPreset} | ${batch.methodCode || '-'} | ${fmtTime(batch.finishedAt)}`}
+                </option>
+              ))}
             </select>
           </label>
           <label className="filter-field filter-field--small">Rewrite Threshold<input type="number" min="0" max="1" step="0.01" value={form.threshold} onChange={(event) => setForm((prev) => ({ ...prev, threshold: event.target.value }))} /></label>

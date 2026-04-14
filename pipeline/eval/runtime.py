@@ -48,6 +48,7 @@ class MemoryItem:
     target_chunk_ids: list[str]
     gating_preset: str
     generation_strategy: str
+    source_gate_run_id: str | None
     embedding: list[float]
 
 
@@ -184,7 +185,8 @@ def load_memory_items(connection: psycopg.Connection[Any]) -> list[MemoryItem]:
                    m.target_doc_id,
                    m.target_chunk_ids,
                    g.gating_preset,
-                   m.generation_strategy
+                   m.generation_strategy,
+                   m.metadata ->> 'source_gate_run_id' AS source_gate_run_id
             FROM memory_entries m
             JOIN synthetic_queries_gated g ON g.gated_query_id = m.source_gated_query_id
             ORDER BY m.created_at DESC
@@ -199,6 +201,7 @@ def load_memory_items(connection: psycopg.Connection[Any]) -> list[MemoryItem]:
             target_chunk_ids=list(row["target_chunk_ids"] or []),
             gating_preset=str(row["gating_preset"]),
             generation_strategy=str(row["generation_strategy"]),
+            source_gate_run_id=str(row["source_gate_run_id"]) if row["source_gate_run_id"] else None,
             embedding=embed_text(str(row["query_text"])),
         )
         for row in rows
@@ -293,6 +296,7 @@ def memory_top_n(
     *,
     top_n: int,
     preset_filter: str | None = None,
+    source_gate_run_id: str | None = None,
     strategy_filters: list[str] | None = None,
 ) -> list[dict[str, Any]]:
     query_embedding = embed_text(query_text)
@@ -300,6 +304,8 @@ def memory_top_n(
     scored = []
     for memory in memories:
         if preset_filter and memory.gating_preset != preset_filter:
+            continue
+        if source_gate_run_id and memory.source_gate_run_id != source_gate_run_id:
             continue
         if strategy_set and memory.generation_strategy.upper() not in strategy_set:
             continue
@@ -462,6 +468,7 @@ def run_selective_rewrite(
     threshold: float,
     retrieval_top_k: int,
     preset_filter: str | None = None,
+    source_gate_run_id: str | None = None,
     strategy_filters: list[str] | None = None,
     force_rewrite: bool = False,
 ) -> tuple[RewriteOutcome, list[RetrievalCandidate]]:
@@ -470,6 +477,7 @@ def run_selective_rewrite(
         memories,
         top_n=memory_top_n_value,
         preset_filter=preset_filter,
+        source_gate_run_id=source_gate_run_id,
         strategy_filters=strategy_filters,
     )
     raw_retrieval = retrieve_top_k(raw_query, chunks, top_k=retrieval_top_k)

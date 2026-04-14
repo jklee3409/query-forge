@@ -117,6 +117,7 @@ def run_answer_eval(
             for item in (config.raw.get("memory_generation_strategies") or [])
             if str(item).strip()
         ]
+        source_gating_run_id = str(config.raw.get("source_gating_run_id") or "").strip() or None
         rewrite_enabled = bool(config.raw.get("rewrite_enabled", True))
         selective_rewrite = bool(config.raw.get("selective_rewrite", True))
         gating_applied = bool(config.raw.get("gating_applied", True))
@@ -148,6 +149,7 @@ def run_answer_eval(
                     threshold=config.rewrite_threshold,
                     retrieval_top_k=config.retrieval_top_k,
                     preset_filter=config.gating_preset if gating_applied else "ungated",
+                    source_gate_run_id=source_gating_run_id,
                     strategy_filters=memory_strategy_filters,
                     force_rewrite=not selective_rewrite,
                 )
@@ -271,6 +273,7 @@ def run_answer_eval(
             "experiment_key": config.experiment_key,
             "experiment_run_id": run_context.experiment_run_id,
             "dataset_id": dataset_id,
+            "source_gating_run_id": source_gating_run_id,
             "memory_generation_strategies": memory_strategy_filters,
             "rewrite_enabled": rewrite_enabled,
             "selective_rewrite": selective_rewrite,

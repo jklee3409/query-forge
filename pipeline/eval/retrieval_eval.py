@@ -147,6 +147,7 @@ def _evaluate_mode(
     memories: Any,
     config: Any,
     memory_strategy_filters: list[str],
+    source_gating_run_id: str | None,
 ) -> tuple[dict[str, float], dict[str, Any], list[Any]]:
     if mode == "raw_only":
         retrieval = retrieve_top_k(sample.query_text, chunks, top_k=config.retrieval_top_k)
@@ -172,6 +173,7 @@ def _evaluate_mode(
             memories,
             top_n=config.memory_top_n,
             preset_filter="ungated",
+            source_gate_run_id=source_gating_run_id,
             strategy_filters=memory_strategy_filters,
         )
         final_query = top_memory[0]["query_text"] if top_memory else sample.query_text
@@ -201,6 +203,7 @@ def _evaluate_mode(
             memories,
             top_n=config.memory_top_n,
             preset_filter=config.gating_preset,
+            source_gate_run_id=source_gating_run_id,
             strategy_filters=memory_strategy_filters,
         )
         final_query = top_memory[0]["query_text"] if top_memory else sample.query_text
@@ -236,6 +239,7 @@ def _evaluate_mode(
         threshold=config.rewrite_threshold,
         retrieval_top_k=config.retrieval_top_k,
         preset_filter=config.gating_preset if mode != "rewrite_always" else None,
+        source_gate_run_id=source_gating_run_id,
         strategy_filters=memory_strategy_filters,
         force_rewrite=force_rewrite,
     )
@@ -304,6 +308,7 @@ def run_retrieval_eval(
             for item in (config.raw.get("memory_generation_strategies") or [])
             if str(item).strip()
         ]
+        source_gating_run_id = str(config.raw.get("source_gating_run_id") or "").strip() or None
         configured_modes = [
             str(item).strip()
             for item in (config.raw.get("retrieval_modes") or [])
@@ -339,6 +344,7 @@ def run_retrieval_eval(
                     memories=memories,
                     config=config,
                     memory_strategy_filters=memory_strategy_filters,
+                    source_gating_run_id=source_gating_run_id,
                 )
                 elapsed_ms = (time.perf_counter() - started) * 1000.0
                 latency_by_mode[mode].append(elapsed_ms)
@@ -498,6 +504,7 @@ def run_retrieval_eval(
             "experiment_key": config.experiment_key,
             "experiment_run_id": run_context.experiment_run_id,
             "dataset_id": dataset_id,
+            "source_gating_run_id": source_gating_run_id,
             "memory_generation_strategies": memory_strategy_filters,
             "active_modes": active_modes,
             "summary": summary_rows,
