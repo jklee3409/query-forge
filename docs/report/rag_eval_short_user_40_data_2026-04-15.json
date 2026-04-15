@@ -1,0 +1,1131 @@
+{
+  "runs": {
+    "old_a": {
+      "run": {
+        "rag_test_run_id": "a280116f-790f-42cc-bae0-653dd2a52c8b",
+        "status": "completed",
+        "dataset_id": "dd92f265-d35e-43f3-9dc7-bdc8243a3054",
+        "dataset_key": "human_eval_default",
+        "dataset_name": "기본 평가 데이터셋 (eval_samples)",
+        "dataset_version": "v1",
+        "generation_method_codes": [
+          "A"
+        ],
+        "gating_applied": true,
+        "gating_preset": "full_gating",
+        "rewrite_enabled": true,
+        "selective_rewrite": true,
+        "use_session_context": false,
+        "threshold": 0.05,
+        "retrieval_top_k": 10,
+        "rerank_top_n": 5,
+        "experiment_config_name": "admin_eval_2bf9c6527ba3",
+        "started_at": "2026-04-14 15:14:36.273773+00:00",
+        "finished_at": "2026-04-14 17:01:50.523895+00:00",
+        "metrics_json": {
+          "answer": {
+            "summary": {
+              "grounding": 1.0,
+              "correctness": 0.0,
+              "faithfulness": 0.04794818502194937,
+              "context_recall": 0.18928571428571428,
+              "keyword_overlap": 0.0,
+              "answer_relevance": 0.10999813887031933,
+              "context_precision": 0.04428571428571429,
+              "hallucination_rate": 0.0,
+              "rewrite_adoption_rate": 0.6357142857142857
+            },
+            "dataset_id": "dd92f265-d35e-43f3-9dc7-bdc8243a3054",
+            "sample_count": 140,
+            "experiment_key": "admin_eval_2bf9c6527ba3",
+            "rewrite_enabled": true,
+            "experiment_run_id": "262491ad-f0cd-4c67-96a2-053012490b35",
+            "selective_rewrite": true,
+            "source_gating_run_id": "0b3e50d2-6d06-4853-bda0-c01fb2c5acee",
+            "memory_generation_strategies": [
+              "A"
+            ]
+          },
+          "memory": {
+            "gating_preset": "full_gating",
+            "experiment_key": "admin_eval_2bf9c6527ba3",
+            "embedding_model": "hash-embedding-v1",
+            "experiment_run_id": "3f7024dd-012f-443e-bdae-ba2803c02e3e",
+            "preview_memory_ids": [
+              "3fa325d0-fcbe-4463-b0d0-956b00cfa1a6",
+              "ab77992d-35eb-4650-a785-2070ec3b7225",
+              "086c5e73-a088-45dd-b61a-641437693627",
+              "73b194ce-7a18-4a52-b680-75e25507e886",
+              "9c036353-caf9-4aa3-812d-d553121f8c90",
+              "399d659a-7749-43c6-9da3-66e23510b875",
+              "9e857ff7-89f3-4232-be8b-6ab06608e3bc",
+              "b18b9cac-6d00-4d26-8a70-f112d9558005",
+              "69ca245b-a21f-4354-befd-65eae63b8bd0",
+              "67705975-5b89-4769-a097-a2e890a9cd92",
+              "0ab62b47-60be-4a96-8e14-503748e6fb5c",
+              "0037ec2c-38ed-4309-ba60-1012d264fcfa",
+              "b8f46e1b-a1d9-4844-b2c1-7fd22f331c6f",
+              "af623f31-10a9-4636-b2f9-f22fafb899a3",
+              "f264095a-b906-4901-864b-fbef3acc1468",
+              "f0d78fca-9a2b-4186-bf69-5064773336fd",
+              "94a05038-2098-42ad-9124-bd3c79f79731",
+              "8a78b424-ef60-499a-bc0d-c145bd1ae803",
+              "f76bdb71-f94d-4df2-a1bf-e09a25cb4a82",
+              "094168bd-d5f2-4e12-add5-68162976ed5c"
+            ],
+            "memory_entries_built": 127,
+            "source_gating_run_id": "0b3e50d2-6d06-4853-bda0-c01fb2c5acee",
+            "memory_entries_by_snapshot": {
+              "full_gating": 127
+            },
+            "source_generation_strategies": [
+              "A"
+            ]
+          },
+          "retrieval": {
+            "summary": [
+              {
+                "mode": "selective_rewrite",
+                "hit@5": 0.22142857142857142,
+                "mrr@10": 0.1531235827664399,
+                "ndcg@10": 0.19391232811302517,
+                "recall@5": 0.20357142857142857,
+                "adoption_rate": 0.6428571428571429,
+                "bad_rewrite_rate": 0.0,
+                "rewrite_gain_mrr": 0.1531235827664399,
+                "rewrite_gain_ndcg": 0.19391232811302517,
+                "avg_confidence_delta": 0.057106349206349195,
+                "rewrite_rejection_rate": 0.35714285714285715
+              }
+            ],
+            "dataset_id": "dd92f265-d35e-43f3-9dc7-bdc8243a3054",
+            "active_modes": [
+              "selective_rewrite"
+            ],
+            "experiment_key": "admin_eval_2bf9c6527ba3",
+            "latency_summary": [
+              {
+                "mode": "selective_rewrite",
+                "avg_latency_ms": 79419.04667571402,
+                "p95_latency_ms": 86796.85379999864
+              }
+            ],
+            "category_summary": [
+              {
+                "mode": "selective_rewrite",
+                "hit@5": 0.18,
+                "mrr@10": 0.11985714285714286,
+                "ndcg@10": 0.17994947511437162,
+                "category": "general_ko",
+                "recall@5": 0.17
+              },
+              {
+                "mode": "selective_rewrite",
+                "hit@5": 0.36666666666666664,
+                "mrr@10": 0.29,
+                "ndcg@10": 0.3145038375547581,
+                "category": "troubleshooting",
+                "recall@5": 0.31666666666666665
+              },
+              {
+                "mode": "selective_rewrite",
+                "hit@5": 0.25,
+                "mrr@10": 0.17222222222222222,
+                "ndcg@10": 0.19301462578425205,
+                "category": "short_user",
+                "recall@5": 0.25
+              },
+              {
+                "mode": "selective_rewrite",
+                "hit@5": 0.2,
+                "mrr@10": 0.12333333333333334,
+                "ndcg@10": 0.18619573921028498,
+                "category": "code_mixed",
+                "recall@5": 0.2
+              },
+              {
+                "mode": "selective_rewrite",
+                "hit@5": 0.1,
+                "mrr@10": 0.041666666666666664,
+                "ndcg@10": 0.05654648767857288,
+                "category": "follow_up",
+                "recall@5": 0.075
+              }
+            ],
+            "experiment_run_id": "fb3e94bb-fdd2-4466-9393-5ea2189ba81b",
+            "source_gating_run_id": "0b3e50d2-6d06-4853-bda0-c01fb2c5acee",
+            "comparison_source_runs": {},
+            "memory_generation_strategies": [
+              "A"
+            ]
+          },
+          "latency_by_mode": {
+            "selective_rewrite": {
+              "mode": "selective_rewrite",
+              "avg_latency_ms": 79419.04667571402,
+              "p95_latency_ms": 86796.85379999864
+            }
+          },
+          "retrieval_by_mode": {
+            "selective_rewrite": {
+              "mode": "selective_rewrite",
+              "hit@5": 0.22142857142857142,
+              "mrr@10": 0.1531235827664399,
+              "ndcg@10": 0.19391232811302517,
+              "recall@5": 0.20357142857142857,
+              "adoption_rate": 0.6428571428571429,
+              "bad_rewrite_rate": 0.0,
+              "rewrite_gain_mrr": 0.1531235827664399,
+              "rewrite_gain_ndcg": 0.19391232811302517,
+              "avg_confidence_delta": 0.057106349206349195,
+              "rewrite_rejection_rate": 0.35714285714285715
+            }
+          },
+          "representative_mode": "selective_rewrite"
+        },
+        "recall_at_5": 0.20357142857142857,
+        "hit_at_5": 0.22142857142857142,
+        "mrr_at_10": 0.1531235827664399,
+        "ndcg_at_10": 0.19391232811302517,
+        "latency_avg_ms": 79419.04667571402,
+        "rewrite_acceptance_rate": 0.6428571428571429,
+        "answer_metrics": {
+          "grounding": 1.0,
+          "correctness": 0.0,
+          "faithfulness": 0.04794818502194937,
+          "context_recall": 0.18928571428571428,
+          "keyword_overlap": 0.0,
+          "answer_relevance": 0.10999813887031933,
+          "context_precision": 0.04428571428571429,
+          "hallucination_rate": 0.0,
+          "rewrite_adoption_rate": 0.6357142857142857
+        }
+      },
+      "detail_agg": {
+        "sample_count": 140,
+        "rewrite_applied_count": 90,
+        "avg_raw_mrr": 0.0,
+        "avg_mode_mrr": 0.15312358276643992,
+        "avg_mrr_delta": 0.15312358276643992,
+        "avg_raw_ndcg": 0.0,
+        "avg_mode_ndcg": 0.19391232811302517,
+        "avg_ndcg_delta": 0.19391232811302517,
+        "avg_confidence_delta": 0.057106349206349216,
+        "improved_mrr_count": 43,
+        "same_mrr_count": 97,
+        "degraded_mrr_count": 0
+      },
+      "rewrite_reason_distribution": [
+        {
+          "rewrite_reason": "delta_above_threshold",
+          "count": 90
+        },
+        {
+          "rewrite_reason": "delta_below_threshold",
+          "count": 47
+        },
+        {
+          "rewrite_reason": "candidate_same_as_raw",
+          "count": 3
+        }
+      ],
+      "query_category_distribution": [
+        {
+          "query_category": "general_ko",
+          "count": 50
+        },
+        {
+          "query_category": "troubleshooting",
+          "count": 30
+        },
+        {
+          "query_category": "code_mixed",
+          "count": 20
+        },
+        {
+          "query_category": "follow_up",
+          "count": 20
+        },
+        {
+          "query_category": "short_user",
+          "count": 20
+        }
+      ]
+    },
+    "old_c": {
+      "run": {
+        "rag_test_run_id": "4de77cb4-76d0-4be3-9158-31c037504425",
+        "status": "completed",
+        "dataset_id": "dd92f265-d35e-43f3-9dc7-bdc8243a3054",
+        "dataset_key": "human_eval_default",
+        "dataset_name": "기본 평가 데이터셋 (eval_samples)",
+        "dataset_version": "v1",
+        "generation_method_codes": [
+          "C"
+        ],
+        "gating_applied": true,
+        "gating_preset": "full_gating",
+        "rewrite_enabled": true,
+        "selective_rewrite": true,
+        "use_session_context": false,
+        "threshold": 0.05,
+        "retrieval_top_k": 10,
+        "rerank_top_n": 5,
+        "experiment_config_name": "admin_eval_2d129946cbb1",
+        "started_at": "2026-04-14 15:14:36.194876+00:00",
+        "finished_at": "2026-04-14 17:02:05.327697+00:00",
+        "metrics_json": {
+          "answer": {
+            "summary": {
+              "grounding": 1.0,
+              "correctness": 0.0,
+              "faithfulness": 0.04280254624442788,
+              "context_recall": 0.16785714285714284,
+              "keyword_overlap": 0.0,
+              "answer_relevance": 0.11567725142443186,
+              "context_precision": 0.038571428571428576,
+              "hallucination_rate": 0.0,
+              "rewrite_adoption_rate": 0.6928571428571428
+            },
+            "dataset_id": "dd92f265-d35e-43f3-9dc7-bdc8243a3054",
+            "sample_count": 140,
+            "experiment_key": "admin_eval_2d129946cbb1",
+            "rewrite_enabled": true,
+            "experiment_run_id": "4fac4dee-1b82-4503-91e9-a6c46e48917f",
+            "selective_rewrite": true,
+            "source_gating_run_id": "90013387-69fe-462d-9a80-b338d31447be",
+            "memory_generation_strategies": [
+              "C"
+            ]
+          },
+          "memory": {
+            "gating_preset": "full_gating",
+            "experiment_key": "admin_eval_2d129946cbb1",
+            "embedding_model": "hash-embedding-v1",
+            "experiment_run_id": "13517a69-fc2e-472f-93e5-cbbd423fac5d",
+            "preview_memory_ids": [
+              "a7c552b3-3fa6-4451-a3c7-0b36585f27cb",
+              "9d67cecc-7bf2-4a4e-af60-cf3a11674cf7",
+              "a1cb5d6b-4065-4e1a-8027-47dc0c999de9",
+              "43c7c9f7-8a78-4afe-a060-17b4cc428221",
+              "19ab9c45-85e7-4960-8fee-ebf18c574618",
+              "3f192d31-1b49-417d-89a6-9dae17351227",
+              "fb975c04-efa9-4069-9640-304df9e4f876",
+              "fae24dec-2852-4619-bf4f-20dbfc1f8d02",
+              "4106adee-ab36-45a0-bac8-ee7429c47d8e",
+              "f65756c3-f99c-4a59-83fb-090cf07a1be1",
+              "5cf7ea36-e53f-4935-b58f-8ac2e2532e37",
+              "7f8aeb9c-276c-4127-adab-1d7ca8a97ff3",
+              "410d7343-2551-4bd1-8a0d-4e6517a27da8",
+              "0a25407f-3ef1-48a5-95a0-ddbc1f58e358",
+              "c7e4eb55-378e-4cee-adfb-0b490868cb74",
+              "26a32ece-8296-48ee-a2da-a4ab4424be3e",
+              "a4e5614b-6eb3-43da-9270-787d16c1cbd9",
+              "50e0d89c-789a-4ac1-95a1-9a1177d6fb2d",
+              "4ad6fba8-e805-472f-b2f7-ee016b219408",
+              "b410c30c-b2c2-4d8b-885b-046c1c2fbf0f"
+            ],
+            "memory_entries_built": 47,
+            "source_gating_run_id": "90013387-69fe-462d-9a80-b338d31447be",
+            "memory_entries_by_snapshot": {
+              "full_gating": 47
+            },
+            "source_generation_strategies": [
+              "C"
+            ]
+          },
+          "retrieval": {
+            "summary": [
+              {
+                "mode": "selective_rewrite",
+                "hit@5": 0.2,
+                "mrr@10": 0.14416383219954648,
+                "ndcg@10": 0.1980524102054199,
+                "recall@5": 0.18214285714285713,
+                "adoption_rate": 0.6571428571428571,
+                "bad_rewrite_rate": 0.0,
+                "rewrite_gain_mrr": 0.14416383219954648,
+                "rewrite_gain_ndcg": 0.1980524102054199,
+                "avg_confidence_delta": 0.058066666666666676,
+                "rewrite_rejection_rate": 0.34285714285714286
+              }
+            ],
+            "dataset_id": "dd92f265-d35e-43f3-9dc7-bdc8243a3054",
+            "active_modes": [
+              "selective_rewrite"
+            ],
+            "experiment_key": "admin_eval_2d129946cbb1",
+            "latency_summary": [
+              {
+                "mode": "selective_rewrite",
+                "avg_latency_ms": 79662.35832214307,
+                "p95_latency_ms": 86796.38759999943
+              }
+            ],
+            "category_summary": [
+              {
+                "mode": "selective_rewrite",
+                "hit@5": 0.16,
+                "mrr@10": 0.10957936507936507,
+                "ndcg@10": 0.1714249121545339,
+                "category": "general_ko",
+                "recall@5": 0.15
+              },
+              {
+                "mode": "selective_rewrite",
+                "hit@5": 0.26666666666666666,
+                "mrr@10": 0.20833333333333334,
+                "ndcg@10": 0.23524028120162344,
+                "category": "troubleshooting",
+                "recall@5": 0.21666666666666667
+              },
+              {
+                "mode": "selective_rewrite",
+                "hit@5": 0.15,
+                "mrr@10": 0.10714285714285714,
+                "ndcg@10": 0.1424218920092725,
+                "category": "short_user",
+                "recall@5": 0.15
+              },
+              {
+                "mode": "selective_rewrite",
+                "hit@5": 0.3,
+                "mrr@10": 0.21000000000000002,
+                "ndcg@10": 0.31344261024186026,
+                "category": "code_mixed",
+                "recall@5": 0.3
+              },
+              {
+                "mode": "selective_rewrite",
+                "hit@5": 0.15,
+                "mrr@10": 0.10555555555555556,
+                "ndcg@10": 0.1490796669980366,
+                "category": "follow_up",
+                "recall@5": 0.125
+              }
+            ],
+            "experiment_run_id": "805b8e12-ff96-4294-a4cb-1da83be7a406",
+            "source_gating_run_id": "90013387-69fe-462d-9a80-b338d31447be",
+            "comparison_source_runs": {},
+            "memory_generation_strategies": [
+              "C"
+            ]
+          },
+          "latency_by_mode": {
+            "selective_rewrite": {
+              "mode": "selective_rewrite",
+              "avg_latency_ms": 79662.35832214307,
+              "p95_latency_ms": 86796.38759999943
+            }
+          },
+          "retrieval_by_mode": {
+            "selective_rewrite": {
+              "mode": "selective_rewrite",
+              "hit@5": 0.2,
+              "mrr@10": 0.14416383219954648,
+              "ndcg@10": 0.1980524102054199,
+              "recall@5": 0.18214285714285713,
+              "adoption_rate": 0.6571428571428571,
+              "bad_rewrite_rate": 0.0,
+              "rewrite_gain_mrr": 0.14416383219954648,
+              "rewrite_gain_ndcg": 0.1980524102054199,
+              "avg_confidence_delta": 0.058066666666666676,
+              "rewrite_rejection_rate": 0.34285714285714286
+            }
+          },
+          "representative_mode": "selective_rewrite"
+        },
+        "recall_at_5": 0.18214285714285713,
+        "hit_at_5": 0.2,
+        "mrr_at_10": 0.14416383219954648,
+        "ndcg_at_10": 0.1980524102054199,
+        "latency_avg_ms": 79662.35832214307,
+        "rewrite_acceptance_rate": 0.6571428571428571,
+        "answer_metrics": {
+          "grounding": 1.0,
+          "correctness": 0.0,
+          "faithfulness": 0.04280254624442788,
+          "context_recall": 0.16785714285714284,
+          "keyword_overlap": 0.0,
+          "answer_relevance": 0.11567725142443186,
+          "context_precision": 0.038571428571428576,
+          "hallucination_rate": 0.0,
+          "rewrite_adoption_rate": 0.6928571428571428
+        }
+      },
+      "detail_agg": {
+        "sample_count": 140,
+        "rewrite_applied_count": 92,
+        "avg_raw_mrr": 0.0,
+        "avg_mode_mrr": 0.14416383219954648,
+        "avg_mrr_delta": 0.14416383219954648,
+        "avg_raw_ndcg": 0.0,
+        "avg_mode_ndcg": 0.19805241020541992,
+        "avg_ndcg_delta": 0.19805241020541992,
+        "avg_confidence_delta": 0.05806666666666667,
+        "improved_mrr_count": 41,
+        "same_mrr_count": 99,
+        "degraded_mrr_count": 0
+      },
+      "rewrite_reason_distribution": [
+        {
+          "rewrite_reason": "delta_above_threshold",
+          "count": 92
+        },
+        {
+          "rewrite_reason": "delta_below_threshold",
+          "count": 47
+        },
+        {
+          "rewrite_reason": "candidate_same_as_raw",
+          "count": 1
+        }
+      ],
+      "query_category_distribution": [
+        {
+          "query_category": "general_ko",
+          "count": 50
+        },
+        {
+          "query_category": "troubleshooting",
+          "count": 30
+        },
+        {
+          "query_category": "code_mixed",
+          "count": 20
+        },
+        {
+          "query_category": "follow_up",
+          "count": 20
+        },
+        {
+          "query_category": "short_user",
+          "count": 20
+        }
+      ]
+    },
+    "new_a": {
+      "run": {
+        "rag_test_run_id": "cfb7587d-649f-457b-9410-0948abb49772",
+        "status": "completed",
+        "dataset_id": "b2d47254-8655-4c9c-81ac-7615677ec5bd",
+        "dataset_key": "human_eval_short_user_40",
+        "dataset_name": "짧은 사용자 질의 평가 데이터셋 (40문항)",
+        "dataset_version": "v1-2026-04-15",
+        "generation_method_codes": [
+          "A"
+        ],
+        "gating_applied": true,
+        "gating_preset": "full_gating",
+        "rewrite_enabled": true,
+        "selective_rewrite": true,
+        "use_session_context": false,
+        "threshold": 0.05,
+        "retrieval_top_k": 10,
+        "rerank_top_n": 5,
+        "experiment_config_name": "admin_eval_6b34ba598f9b",
+        "started_at": "2026-04-14 17:37:21.443554+00:00",
+        "finished_at": "2026-04-14 18:07:46.884359+00:00",
+        "metrics_json": {
+          "answer": {
+            "summary": {
+              "grounding": 1.0,
+              "correctness": 0.0,
+              "faithfulness": 0.04254935144232735,
+              "context_recall": 0.1,
+              "keyword_overlap": 0.0,
+              "answer_relevance": 0.1813095238095238,
+              "context_precision": 0.02,
+              "hallucination_rate": 0.0,
+              "rewrite_adoption_rate": 0.75
+            },
+            "dataset_id": "b2d47254-8655-4c9c-81ac-7615677ec5bd",
+            "sample_count": 40,
+            "experiment_key": "admin_eval_6b34ba598f9b",
+            "rewrite_enabled": true,
+            "experiment_run_id": "c63a2438-eaec-4090-9715-703621bc4aea",
+            "selective_rewrite": true,
+            "source_gating_run_id": "0b3e50d2-6d06-4853-bda0-c01fb2c5acee",
+            "memory_generation_strategies": [
+              "A"
+            ]
+          },
+          "memory": {
+            "gating_preset": "full_gating",
+            "experiment_key": "admin_eval_6b34ba598f9b",
+            "embedding_model": "hash-embedding-v1",
+            "experiment_run_id": "68d51055-0b12-4993-b5ea-a35cc2088dc6",
+            "preview_memory_ids": [
+              "88209f21-d447-40a1-b13a-d0297f4f4c0f",
+              "a781e0f1-6a41-4f58-af49-a94b3553cffb",
+              "468141f1-c735-496c-92f7-86494635c98c",
+              "674ac651-11cb-451c-a9f8-4f943c19479a",
+              "75c4b9c6-118e-4df9-ad82-b546209c8feb",
+              "c9596945-894b-42fd-a246-09183b197e8a",
+              "ec1ec97f-525c-4a70-9d5d-7fbf1a99b002",
+              "03e6c600-ac09-465f-b74f-56096ac08303",
+              "6adedf63-db6f-4f55-a985-72bf9f4080b3",
+              "6469d4e3-bb3c-41f4-b151-426c55c4871a",
+              "063ef7d9-6351-4901-b510-b6e361c7f23a",
+              "ee8ce914-463b-4d2b-a978-616f95510cb1",
+              "8ef34f1b-bdf0-4d1a-96c0-46cb5cd42eb4",
+              "79880a4b-49a1-4ed8-acfc-2b7a6d1423b3",
+              "c0fb2dde-5bb2-4822-af72-b1b293dfb16b",
+              "b8c20f2f-6416-489a-abb6-5522df3b818b",
+              "6d73d44c-ce88-4b2a-859a-a58a44011410",
+              "bd4fcaec-77d3-4f18-b34b-7a3e62b8af35",
+              "f24b7fcb-8eb6-45ad-8d47-cb0590fda4a6",
+              "826c595c-9c9b-4096-911a-135b84d03b57"
+            ],
+            "memory_entries_built": 127,
+            "source_gating_run_id": "0b3e50d2-6d06-4853-bda0-c01fb2c5acee",
+            "memory_entries_by_snapshot": {
+              "full_gating": 127
+            },
+            "source_generation_strategies": [
+              "A"
+            ]
+          },
+          "retrieval": {
+            "summary": [
+              {
+                "mode": "selective_rewrite",
+                "hit@5": 0.075,
+                "mrr@10": 0.07621031746031745,
+                "ndcg@10": 0.13438408531680937,
+                "recall@5": 0.075,
+                "adoption_rate": 0.7,
+                "bad_rewrite_rate": 0.0,
+                "rewrite_gain_mrr": 0.07621031746031745,
+                "rewrite_gain_ndcg": 0.13438408531680937,
+                "avg_confidence_delta": 0.05770000000000001,
+                "rewrite_rejection_rate": 0.3
+              }
+            ],
+            "dataset_id": "b2d47254-8655-4c9c-81ac-7615677ec5bd",
+            "active_modes": [
+              "selective_rewrite"
+            ],
+            "experiment_key": "admin_eval_6b34ba598f9b",
+            "latency_summary": [
+              {
+                "mode": "selective_rewrite",
+                "avg_latency_ms": 78418.58116749936,
+                "p95_latency_ms": 84822.1518999926
+              }
+            ],
+            "category_summary": [
+              {
+                "mode": "selective_rewrite",
+                "hit@5": 0.075,
+                "mrr@10": 0.07621031746031745,
+                "ndcg@10": 0.13438408531680937,
+                "category": "short_user",
+                "recall@5": 0.075
+              }
+            ],
+            "experiment_run_id": "bf892623-b85b-43a6-831b-bc5e0776d99d",
+            "source_gating_run_id": "0b3e50d2-6d06-4853-bda0-c01fb2c5acee",
+            "comparison_source_runs": {},
+            "memory_generation_strategies": [
+              "A"
+            ]
+          },
+          "latency_by_mode": {
+            "selective_rewrite": {
+              "mode": "selective_rewrite",
+              "avg_latency_ms": 78418.58116749936,
+              "p95_latency_ms": 84822.1518999926
+            }
+          },
+          "retrieval_by_mode": {
+            "selective_rewrite": {
+              "mode": "selective_rewrite",
+              "hit@5": 0.075,
+              "mrr@10": 0.07621031746031745,
+              "ndcg@10": 0.13438408531680937,
+              "recall@5": 0.075,
+              "adoption_rate": 0.7,
+              "bad_rewrite_rate": 0.0,
+              "rewrite_gain_mrr": 0.07621031746031745,
+              "rewrite_gain_ndcg": 0.13438408531680937,
+              "avg_confidence_delta": 0.05770000000000001,
+              "rewrite_rejection_rate": 0.3
+            }
+          },
+          "representative_mode": "selective_rewrite"
+        },
+        "recall_at_5": 0.075,
+        "hit_at_5": 0.075,
+        "mrr_at_10": 0.07621031746031745,
+        "ndcg_at_10": 0.13438408531680937,
+        "latency_avg_ms": 78418.58116749936,
+        "rewrite_acceptance_rate": 0.7,
+        "answer_metrics": {
+          "grounding": 1.0,
+          "correctness": 0.0,
+          "faithfulness": 0.04254935144232735,
+          "context_recall": 0.1,
+          "keyword_overlap": 0.0,
+          "answer_relevance": 0.1813095238095238,
+          "context_precision": 0.02,
+          "hallucination_rate": 0.0,
+          "rewrite_adoption_rate": 0.75
+        }
+      },
+      "detail_agg": {
+        "sample_count": 40,
+        "rewrite_applied_count": 28,
+        "avg_raw_mrr": 0.0,
+        "avg_mode_mrr": 0.07621031746031746,
+        "avg_mrr_delta": 0.07621031746031746,
+        "avg_raw_ndcg": 0.0,
+        "avg_mode_ndcg": 0.13438408531680937,
+        "avg_ndcg_delta": 0.13438408531680937,
+        "avg_confidence_delta": 0.057700000000000015,
+        "improved_mrr_count": 10,
+        "same_mrr_count": 30,
+        "degraded_mrr_count": 0
+      },
+      "rewrite_reason_distribution": [
+        {
+          "rewrite_reason": "delta_above_threshold",
+          "count": 28
+        },
+        {
+          "rewrite_reason": "delta_below_threshold",
+          "count": 12
+        }
+      ],
+      "query_category_distribution": [
+        {
+          "query_category": "short_user",
+          "count": 40
+        }
+      ]
+    },
+    "new_c": {
+      "run": {
+        "rag_test_run_id": "2a899769-613b-4463-95e1-fb850fdb73a3",
+        "status": "completed",
+        "dataset_id": "b2d47254-8655-4c9c-81ac-7615677ec5bd",
+        "dataset_key": "human_eval_short_user_40",
+        "dataset_name": "짧은 사용자 질의 평가 데이터셋 (40문항)",
+        "dataset_version": "v1-2026-04-15",
+        "generation_method_codes": [
+          "C"
+        ],
+        "gating_applied": true,
+        "gating_preset": "full_gating",
+        "rewrite_enabled": true,
+        "selective_rewrite": true,
+        "use_session_context": false,
+        "threshold": 0.05,
+        "retrieval_top_k": 10,
+        "rerank_top_n": 5,
+        "experiment_config_name": "admin_eval_15ea37450d1b",
+        "started_at": "2026-04-14 17:37:21.420550+00:00",
+        "finished_at": "2026-04-14 18:07:28.471661+00:00",
+        "metrics_json": {
+          "answer": {
+            "summary": {
+              "grounding": 1.0,
+              "correctness": 0.0,
+              "faithfulness": 0.033998156992641596,
+              "context_recall": 0.125,
+              "keyword_overlap": 0.0,
+              "answer_relevance": 0.16297619047619047,
+              "context_precision": 0.030000000000000006,
+              "hallucination_rate": 0.0,
+              "rewrite_adoption_rate": 0.775
+            },
+            "dataset_id": "b2d47254-8655-4c9c-81ac-7615677ec5bd",
+            "sample_count": 40,
+            "experiment_key": "admin_eval_15ea37450d1b",
+            "rewrite_enabled": true,
+            "experiment_run_id": "18627964-5967-4e7a-9998-58c2ce33d678",
+            "selective_rewrite": true,
+            "source_gating_run_id": "90013387-69fe-462d-9a80-b338d31447be",
+            "memory_generation_strategies": [
+              "C"
+            ]
+          },
+          "memory": {
+            "gating_preset": "full_gating",
+            "experiment_key": "admin_eval_15ea37450d1b",
+            "embedding_model": "hash-embedding-v1",
+            "experiment_run_id": "1637d99a-3eba-4866-8695-2da8e2fe022a",
+            "preview_memory_ids": [
+              "16196c69-a019-44e4-90c1-6291d8162a55",
+              "4c39e4a7-78df-4073-a9e7-d92a6f42dfd3",
+              "33eccbdd-99bc-4b20-826d-5a7ffeb00295",
+              "4d068341-2c10-4394-8558-b1d700d88ab2",
+              "c86862d4-ff7c-493c-8e4c-d2c88600f7c6",
+              "d9bb0b9d-29c5-4c44-ad03-c5e3b5c47fc0",
+              "0db04397-9860-4e45-839f-b782ae3cc284",
+              "85a1a8e4-52f7-4314-a280-3e25a2ac7363",
+              "f5c7006f-c26c-45dd-b9cd-4ca1dae3f1bf",
+              "64b68900-a925-4fbe-a972-a2fd51125978",
+              "e1c2809f-0e14-4eeb-9eff-f5137a271198",
+              "1b506ffa-b579-40ba-b546-77f6a6d45fa9",
+              "9b477568-3d93-44c3-b9cc-0f31da1478a0",
+              "71c2776d-a97f-4498-b45d-67d78c821210",
+              "d6929af6-a610-4128-9963-4c1f4ac252bf",
+              "84f2acac-e37b-41c1-ace6-9ab8de308209",
+              "cfb858e0-b9e0-42d3-8e31-4db9de907074",
+              "8b734f1e-90a2-4aa3-9ed5-4db8dcc1169c",
+              "b5631b3d-b2b8-4cd1-acd3-f9d2e041f133",
+              "a22f6bac-2e27-4c02-940e-1d80f65abc34"
+            ],
+            "memory_entries_built": 47,
+            "source_gating_run_id": "90013387-69fe-462d-9a80-b338d31447be",
+            "memory_entries_by_snapshot": {
+              "full_gating": 47
+            },
+            "source_generation_strategies": [
+              "C"
+            ]
+          },
+          "retrieval": {
+            "summary": [
+              {
+                "mode": "selective_rewrite",
+                "hit@5": 0.125,
+                "mrr@10": 0.07048611111111111,
+                "ndcg@10": 0.13038580700890187,
+                "recall@5": 0.125,
+                "adoption_rate": 0.8,
+                "bad_rewrite_rate": 0.0,
+                "rewrite_gain_mrr": 0.07048611111111111,
+                "rewrite_gain_ndcg": 0.13038580700890187,
+                "avg_confidence_delta": 0.06328333333333333,
+                "rewrite_rejection_rate": 0.2
+              }
+            ],
+            "dataset_id": "b2d47254-8655-4c9c-81ac-7615677ec5bd",
+            "active_modes": [
+              "selective_rewrite"
+            ],
+            "experiment_key": "admin_eval_15ea37450d1b",
+            "latency_summary": [
+              {
+                "mode": "selective_rewrite",
+                "avg_latency_ms": 79761.31740249839,
+                "p95_latency_ms": 86596.89810000418
+              }
+            ],
+            "category_summary": [
+              {
+                "mode": "selective_rewrite",
+                "hit@5": 0.125,
+                "mrr@10": 0.07048611111111111,
+                "ndcg@10": 0.13038580700890187,
+                "category": "short_user",
+                "recall@5": 0.125
+              }
+            ],
+            "experiment_run_id": "c38edaa4-481c-46b5-be67-e018511f1e41",
+            "source_gating_run_id": "90013387-69fe-462d-9a80-b338d31447be",
+            "comparison_source_runs": {},
+            "memory_generation_strategies": [
+              "C"
+            ]
+          },
+          "latency_by_mode": {
+            "selective_rewrite": {
+              "mode": "selective_rewrite",
+              "avg_latency_ms": 79761.31740249839,
+              "p95_latency_ms": 86596.89810000418
+            }
+          },
+          "retrieval_by_mode": {
+            "selective_rewrite": {
+              "mode": "selective_rewrite",
+              "hit@5": 0.125,
+              "mrr@10": 0.07048611111111111,
+              "ndcg@10": 0.13038580700890187,
+              "recall@5": 0.125,
+              "adoption_rate": 0.8,
+              "bad_rewrite_rate": 0.0,
+              "rewrite_gain_mrr": 0.07048611111111111,
+              "rewrite_gain_ndcg": 0.13038580700890187,
+              "avg_confidence_delta": 0.06328333333333333,
+              "rewrite_rejection_rate": 0.2
+            }
+          },
+          "representative_mode": "selective_rewrite"
+        },
+        "recall_at_5": 0.125,
+        "hit_at_5": 0.125,
+        "mrr_at_10": 0.07048611111111111,
+        "ndcg_at_10": 0.13038580700890187,
+        "latency_avg_ms": 79761.31740249839,
+        "rewrite_acceptance_rate": 0.8,
+        "answer_metrics": {
+          "grounding": 1.0,
+          "correctness": 0.0,
+          "faithfulness": 0.033998156992641596,
+          "context_recall": 0.125,
+          "keyword_overlap": 0.0,
+          "answer_relevance": 0.16297619047619047,
+          "context_precision": 0.030000000000000006,
+          "hallucination_rate": 0.0,
+          "rewrite_adoption_rate": 0.775
+        }
+      },
+      "detail_agg": {
+        "sample_count": 40,
+        "rewrite_applied_count": 32,
+        "avg_raw_mrr": 0.0,
+        "avg_mode_mrr": 0.07048611111111111,
+        "avg_mrr_delta": 0.07048611111111111,
+        "avg_raw_ndcg": 0.0,
+        "avg_mode_ndcg": 0.13038580700890187,
+        "avg_ndcg_delta": 0.13038580700890187,
+        "avg_confidence_delta": 0.06328333333333334,
+        "improved_mrr_count": 11,
+        "same_mrr_count": 29,
+        "degraded_mrr_count": 0
+      },
+      "rewrite_reason_distribution": [
+        {
+          "rewrite_reason": "delta_above_threshold",
+          "count": 32
+        },
+        {
+          "rewrite_reason": "delta_below_threshold",
+          "count": 8
+        }
+      ],
+      "query_category_distribution": [
+        {
+          "query_category": "short_user",
+          "count": 40
+        }
+      ]
+    }
+  },
+  "datasets": {
+    "dd92f265-d35e-43f3-9dc7-bdc8243a3054": {
+      "dataset": {
+        "dataset_id": "dd92f265-d35e-43f3-9dc7-bdc8243a3054",
+        "dataset_key": "human_eval_default",
+        "dataset_name": "기본 평가 데이터셋 (eval_samples)",
+        "description": "eval_samples 전체를 자동 동기화한 기본 데이터셋",
+        "version": "v1",
+        "total_items": 180,
+        "category_distribution": {
+          "follow_up": 20,
+          "code_mixed": 20,
+          "general_ko": 50,
+          "short_user": 60,
+          "troubleshooting": 30
+        },
+        "single_multi_distribution": {
+          "multi": 39,
+          "single": 141
+        },
+        "metadata": {},
+        "created_at": "2026-04-07 13:49:20.612404+00:00",
+        "updated_at": "2026-04-14 17:37:20.382766+00:00"
+      },
+      "source_product_distribution": [
+        {
+          "source_product": "spring-framework",
+          "count": 94
+        },
+        {
+          "source_product": "spring-security",
+          "count": 86
+        }
+      ]
+    },
+    "b2d47254-8655-4c9c-81ac-7615677ec5bd": {
+      "dataset": {
+        "dataset_id": "b2d47254-8655-4c9c-81ac-7615677ec5bd",
+        "dataset_key": "human_eval_short_user_40",
+        "dataset_name": "짧은 사용자 질의 평가 데이터셋 (40문항)",
+        "description": "일반 사용자 질문 형태(짧은 구어체) 중심으로 구성한 40문항 retrieval-aware 평가셋",
+        "version": "v1-2026-04-15",
+        "total_items": 40,
+        "category_distribution": {
+          "short_user": 40
+        },
+        "single_multi_distribution": {
+          "multi": 6,
+          "single": 34
+        },
+        "metadata": {
+          "created_at": "2026-04-15",
+          "query_style": "short_user",
+          "source_file": "data\\eval\\human_eval_short_user_test_40.jsonl"
+        },
+        "created_at": "2026-04-14 17:36:26.355881+00:00",
+        "updated_at": "2026-04-14 17:37:00.300890+00:00"
+      },
+      "source_product_distribution": [
+        {
+          "source_product": "spring-framework",
+          "count": 24
+        },
+        {
+          "source_product": "spring-security",
+          "count": 16
+        }
+      ]
+    }
+  },
+  "query_examples": {
+    "default_dataset_by_category": [
+      {
+        "query_category": "code_mixed",
+        "sample_id": "dev-human-051",
+        "user_query_ko": "DataSourceUtils 클래스가 JNDI에서 Connection을 얻고 필요시 닫는 방법을 알려주세요."
+      },
+      {
+        "query_category": "code_mixed",
+        "sample_id": "dev-human-052",
+        "user_query_ko": "@Conditional annotation은 @Bean 등록 전에 어떤 Condition 구현체를 사용할지 결정하는 데 사용되나요?"
+      },
+      {
+        "query_category": "code_mixed",
+        "sample_id": "dev-human-053",
+        "user_query_ko": "jee 스키마에서 jndi-lookup을 사용하여 데이터 소스를 찾는 방법은 무엇인가요?"
+      },
+      {
+        "query_category": "follow_up",
+        "sample_id": "dev-human-061",
+        "user_query_ko": "@MatrixVariable로 모든 매트릭스 변수를 가져오는 방법은 무엇인가요?"
+      },
+      {
+        "query_category": "follow_up",
+        "sample_id": "dev-human-062",
+        "user_query_ko": "@ImportResource를 사용하여 Java 설정에서 XML을 최소한으로 사용하는 방법은 무엇인가요?"
+      },
+      {
+        "query_category": "follow_up",
+        "sample_id": "dev-human-063",
+        "user_query_ko": "@MatrixVariable로 여러 값을 받을 때 MultiValueMap 사용법 알려줘."
+      },
+      {
+        "query_category": "general_ko",
+        "sample_id": "dev-human-001",
+        "user_query_ko": "@ImportResource를 사용하여 XML 설정을 최소화하는 Java-centric 구성 방법을 알려주세요."
+      },
+      {
+        "query_category": "general_ko",
+        "sample_id": "dev-human-002",
+        "user_query_ko": "@Import와 @Configuration 클래스를 사용하여 Bean을 로드하는 방법은 무엇인가요?"
+      },
+      {
+        "query_category": "general_ko",
+        "sample_id": "dev-human-003",
+        "user_query_ko": "@Configuration 클래스에서 @Autowired 사용 시 발생할 수 있는 순환 참조 문제는 무엇인가요?"
+      },
+      {
+        "query_category": "short_user",
+        "sample_id": "dev-human-041",
+        "user_query_ko": "jee 스키마에서 JNDI 객체 조회 시 필요한 preamble은 무엇인가요?"
+      },
+      {
+        "query_category": "short_user",
+        "sample_id": "dev-human-042",
+        "user_query_ko": "jee 스키마에서 JNDI 객체 조회를 어떻게 사용하나요?"
+      },
+      {
+        "query_category": "short_user",
+        "sample_id": "dev-human-043",
+        "user_query_ko": "@MatrixVariable 기본값 설정 및 MultiValueMap 사용법 알려줘"
+      },
+      {
+        "query_category": "troubleshooting",
+        "sample_id": "dev-human-026",
+        "user_query_ko": "Spring XML 설정에서 jee 스키마를 사용하려면 어떤 preamble이 필요한가요? 실행 시 오류가 나는 경우 점검 포인트를 알려주세요."
+      },
+      {
+        "query_category": "troubleshooting",
+        "sample_id": "dev-human-027",
+        "user_query_ko": "Spring XML 설정에서 jee 스키마를 사용하기 위한 preamble은 어떻게 추가하나요? 실행 시 오류가 나는 경우 점검 포인트를 알려주세요."
+      },
+      {
+        "query_category": "troubleshooting",
+        "sample_id": "dev-human-028",
+        "user_query_ko": "Spring XML 설정에서 jee 스키마를 사용하여 JNDI 데이터 소스를 조회하는 방법은 무엇인가요? 실행 시 오류가 나는 경우 점검 포인트를 알려주세요."
+      }
+    ],
+    "short_user_dataset_preview": [
+      {
+        "sample_id": "test-short-user-001",
+        "user_query_ko": "XML JNDI 어디서 설정함?",
+        "source_product": "spring-framework",
+        "single_or_multi_chunk": "single"
+      },
+      {
+        "sample_id": "test-short-user-002",
+        "user_query_ko": "@Configuration @Autowired 설정 우선순위 어케됨?",
+        "source_product": "spring-framework",
+        "single_or_multi_chunk": "single"
+      },
+      {
+        "sample_id": "test-short-user-003",
+        "user_query_ko": "WebFlux @MatrixVariable 기본값 뭐임?",
+        "source_product": "spring-framework",
+        "single_or_multi_chunk": "single"
+      },
+      {
+        "sample_id": "test-short-user-004",
+        "user_query_ko": "XML 파일에서 에러 원인 뭐임?",
+        "source_product": "spring-framework",
+        "single_or_multi_chunk": "single"
+      },
+      {
+        "sample_id": "test-short-user-005",
+        "user_query_ko": "@ImportResource XML 뭐임?",
+        "source_product": "spring-framework",
+        "single_or_multi_chunk": "single"
+      },
+      {
+        "sample_id": "test-short-user-006",
+        "user_query_ko": "DataSourceTransactionManager JDBC 기본값 뭐임?",
+        "source_product": "spring-framework",
+        "single_or_multi_chunk": "multi"
+      },
+      {
+        "sample_id": "test-short-user-007",
+        "user_query_ko": "jee jndi-lookup 선택 기준 뭐임?",
+        "source_product": "spring-framework",
+        "single_or_multi_chunk": "single"
+      },
+      {
+        "sample_id": "test-short-user-008",
+        "user_query_ko": "@Import @Configuration 뭐가 더 나음?",
+        "source_product": "spring-framework",
+        "single_or_multi_chunk": "single"
+      },
+      {
+        "sample_id": "test-short-user-009",
+        "user_query_ko": "DataSourceUtils JNDI 실무에서는 보통 어떻게 씀?",
+        "source_product": "spring-framework",
+        "single_or_multi_chunk": "multi"
+      },
+      {
+        "sample_id": "test-short-user-010",
+        "user_query_ko": "Appendix XML 언제 쓰는거임?",
+        "source_product": "spring-framework",
+        "single_or_multi_chunk": "single"
+      },
+      {
+        "sample_id": "test-short-user-011",
+        "user_query_ko": "@ImportResource @Configuration 이거 왜 필요함?",
+        "source_product": "spring-framework",
+        "single_or_multi_chunk": "single"
+      },
+      {
+        "sample_id": "test-short-user-012",
+        "user_query_ko": "DriverManagerDataSource 설정하는 실무에서는 보통 어떻게 씀?",
+        "source_product": "spring-framework",
+        "single_or_multi_chunk": "single"
+      }
+    ]
+  }
+}

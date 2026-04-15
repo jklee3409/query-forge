@@ -30,3 +30,8 @@
 
 ## Notes
 - Update this file when structure or responsibilities change
+
+---
+
+## [2026-04-15] Additions
+- `report/`: RAG 품질 테스트 비교 리포트 저장 경로 (`rag_quality_ac_comparison_short_user_2026-04-15.md`, raw metric snapshot JSON).

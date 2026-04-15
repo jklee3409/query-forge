@@ -3,6 +3,12 @@
 ## Overview
 High-level progress tracking for the project.
 
+## [2026-04-15] Session Summary (Short User Dataset 40 + A/C RAG Re-run + Report)
+- What was done: Built and registered a new retrieval-aware short-user eval dataset (`human_eval_short_user_40`, 40 items), executed two Admin-path RAG tests with the same settings as baseline runs (`A`: `cfb7587d-649f-457b-9410-0948abb49772`, `C`: `2a899769-613b-4463-95e1-fb850fdb73a3`), and documented combined baseline/new analysis in `docs/report/rag_quality_ac_comparison_short_user_2026-04-15.md`.
+- Key decisions: Kept snapshot parity with baseline (`A` snapshot `4af71ae8...`, `C` snapshot `c9adc3f9...`) and fixed all runtime knobs (`full_gating`, selective rewrite, threshold `0.05`, `retrieval_top_k=10`, `rerank_top_n=5`) so dataset style was the only intended variable.
+- Issues encountered: `human_eval_default` auto-sync behavior refreshed aggregate sample count after inserting new eval samples, so report explicitly separates historical run-time sample size from current dataset total.
+- Next steps: Add controlled ungated/rule-only/full-gating comparison on the same short-user dataset and evaluate embedding/rerank alternatives for low MRR on compressed user queries.
+
 ## [2026-04-15] Session Summary (RAG Eval Reset + Rewrite Adoption + Admin UX)
 - What was done: Rebuilt eval dataset via `build-eval-dataset` (method-1 path), improved rewrite adoption logic in pipeline runtime, updated Admin RAG compare chart to vertical layout, and replaced run-compare selector with a clearer custom checkbox UI.
 - Key decisions: Kept Admin execution path intact (`/api/admin/console/rag/tests/run`) and reran two exploratory tests with the same conditions as previous target runs after deleting prior RAG test history/results.
