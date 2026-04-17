@@ -16,6 +16,17 @@ from typing import Any
 
 import requests
 
+try:
+    from common.langfuse_observability import (
+        LlmTraceRecord,
+        get_langfuse_llm_observer,
+    )
+except ModuleNotFoundError:  # pragma: no cover - direct module execution fallback
+    from pipeline.common.langfuse_observability import (
+        LlmTraceRecord,
+        get_langfuse_llm_observer,
+    )
+
 
 JSON_BLOCK_PATTERN = re.compile(r"\{.*\}", re.DOTALL)
 RETRY_IN_SECONDS_PATTERN = re.compile(r"try again in\s*([0-9]+(?:\.[0-9]+)?)s", re.IGNORECASE)
@@ -342,6 +353,7 @@ class GeminiNativeClient(LLMClient):
 class LlmClient:
     def __init__(self, config: LlmStageConfig) -> None:
         self.config = config
+        self._langfuse_observer = get_langfuse_llm_observer()
 
     def capability(self) -> ModelCapability:
         return _build_provider_client(self.config).capability
@@ -369,11 +381,20 @@ class LlmClient:
 
         targets = [self.config, *self._resolve_fallback_targets()]
         last_exception: Exception | None = None
+        prompt_fingerprint = _prompt_fingerprint(system_prompt, user_prompt)
+        response_schema_hash = _schema_fingerprint(response_schema)
 
         for index, target in enumerate(targets):
             fallback_used = index > 0
+            started = time.monotonic()
+            estimated_tokens = _estimate_request_tokens(
+                system_prompt=system_prompt,
+                user_prompt=user_prompt,
+                max_tokens=target.max_tokens,
+                chars_per_token=target.chars_per_token,
+            )
             try:
-                parsed, attempts_used, capability, structured_output_used, provider_type = self._chat_json_with_target(
+                parsed, attempts_used, capability, structured_output_used, provider_type, usage_details = self._chat_json_with_target(
                     config=target,
                     system_prompt=system_prompt,
                     user_prompt=user_prompt,
@@ -393,6 +414,28 @@ class LlmClient:
                     "request_purpose": request_purpose,
                     "trace_id": trace_id,
                 }
+                self._langfuse_observer.log_success(
+                    record=LlmTraceRecord(
+                        request_purpose=request_purpose,
+                        trace_id=trace_id,
+                        provider=target.provider,
+                        provider_type=provider_type,
+                        model=target.model,
+                        fallback_used=fallback_used,
+                        structured_output_used=structured_output_used,
+                        retry_count=max(0, attempts_used - 1),
+                        attempts_used=max(1, attempts_used),
+                        prompt_fingerprint=prompt_fingerprint,
+                        estimated_tokens=estimated_tokens,
+                        response_schema_hash=response_schema_hash,
+                        response_schema_present=bool(response_schema),
+                        system_prompt=system_prompt,
+                        user_prompt=user_prompt,
+                    ),
+                    response_payload=parsed,
+                    usage_details=usage_details,
+                    latency_ms=max(0, int((time.monotonic() - started) * 1000)),
+                )
                 if fallback_used:
                     LOGGER.warning(
                         "llm_fallback_success purpose=%s trace_id=%s provider=%s provider_type=%s model=%s structured_output=%s thinking_budget=%s retries=%s",
@@ -418,7 +461,53 @@ class LlmClient:
                         _runtime_provider_type(target),
                         target.model,
                     )
+                    self._langfuse_observer.log_failure(
+                        record=LlmTraceRecord(
+                            request_purpose=request_purpose,
+                            trace_id=trace_id,
+                            provider=target.provider,
+                            provider_type=_runtime_provider_type(target),
+                            model=target.model,
+                            fallback_used=fallback_used,
+                            structured_output_used=False,
+                            retry_count=0,
+                            attempts_used=1,
+                            prompt_fingerprint=prompt_fingerprint,
+                            estimated_tokens=estimated_tokens,
+                            response_schema_hash=response_schema_hash,
+                            response_schema_present=bool(response_schema),
+                            system_prompt=system_prompt,
+                            user_prompt=user_prompt,
+                        ),
+                        latency_ms=max(0, int((time.monotonic() - started) * 1000)),
+                        http_status=status,
+                        error_type=type(exc).__name__,
+                        error_message=str(exc),
+                    )
                     raise
+                self._langfuse_observer.log_failure(
+                    record=LlmTraceRecord(
+                        request_purpose=request_purpose,
+                        trace_id=trace_id,
+                        provider=target.provider,
+                        provider_type=_runtime_provider_type(target),
+                        model=target.model,
+                        fallback_used=fallback_used,
+                        structured_output_used=False,
+                        retry_count=max(0, target.max_retries),
+                        attempts_used=max(1, target.max_retries + 1),
+                        prompt_fingerprint=prompt_fingerprint,
+                        estimated_tokens=estimated_tokens,
+                        response_schema_hash=response_schema_hash,
+                        response_schema_present=bool(response_schema),
+                        system_prompt=system_prompt,
+                        user_prompt=user_prompt,
+                    ),
+                    latency_ms=max(0, int((time.monotonic() - started) * 1000)),
+                    http_status=status,
+                    error_type=type(exc).__name__,
+                    error_message=str(exc),
+                )
                 last_exception = exc
             except _RetryableLlmError as exc:
                 last_exception = exc
@@ -432,6 +521,29 @@ class LlmClient:
                     fallback_used,
                     str(exc),
                 )
+                self._langfuse_observer.log_failure(
+                    record=LlmTraceRecord(
+                        request_purpose=request_purpose,
+                        trace_id=trace_id,
+                        provider=target.provider,
+                        provider_type=_runtime_provider_type(target),
+                        model=target.model,
+                        fallback_used=fallback_used,
+                        structured_output_used=False,
+                        retry_count=max(0, target.max_retries),
+                        attempts_used=max(1, target.max_retries + 1),
+                        prompt_fingerprint=prompt_fingerprint,
+                        estimated_tokens=estimated_tokens,
+                        response_schema_hash=response_schema_hash,
+                        response_schema_present=bool(response_schema),
+                        system_prompt=system_prompt,
+                        user_prompt=user_prompt,
+                    ),
+                    latency_ms=max(0, int((time.monotonic() - started) * 1000)),
+                    http_status=None,
+                    error_type=type(exc).__name__,
+                    error_message=str(exc),
+                )
             except Exception as exc:  # noqa: BLE001
                 last_exception = exc
                 LOGGER.exception(
@@ -441,6 +553,29 @@ class LlmClient:
                     target.provider,
                     _runtime_provider_type(target),
                     target.model,
+                )
+                self._langfuse_observer.log_failure(
+                    record=LlmTraceRecord(
+                        request_purpose=request_purpose,
+                        trace_id=trace_id,
+                        provider=target.provider,
+                        provider_type=_runtime_provider_type(target),
+                        model=target.model,
+                        fallback_used=fallback_used,
+                        structured_output_used=False,
+                        retry_count=max(0, target.max_retries),
+                        attempts_used=max(1, target.max_retries + 1),
+                        prompt_fingerprint=prompt_fingerprint,
+                        estimated_tokens=estimated_tokens,
+                        response_schema_hash=response_schema_hash,
+                        response_schema_present=bool(response_schema),
+                        system_prompt=system_prompt,
+                        user_prompt=user_prompt,
+                    ),
+                    latency_ms=max(0, int((time.monotonic() - started) * 1000)),
+                    http_status=None,
+                    error_type=type(exc).__name__,
+                    error_message=str(exc),
                 )
 
         if last_exception:
@@ -456,7 +591,7 @@ class LlmClient:
         response_schema: dict[str, Any] | None,
         request_purpose: str,
         trace_id: str | None,
-    ) -> tuple[dict[str, Any], int, ModelCapability, bool, str]:
+    ) -> tuple[dict[str, Any], int, ModelCapability, bool, str, dict[str, int]]:
         provider_client = _build_provider_client(config)
         capability = provider_client.capability
         provider_type = provider_client.provider_type
@@ -635,7 +770,8 @@ class LlmClient:
                     prompt_fingerprint=prompt_fingerprint,
                 )
                 continue
-            return parsed, attempt + 1, capability, structured_output_used, provider_type
+            usage_details = _extract_usage_details(response=response, provider_type=provider_type)
+            return parsed, attempt + 1, capability, structured_output_used, provider_type, usage_details
 
         if retryable_failure:
             raise _RetryableLlmError("LLM request failed after retry budget.") from retryable_failure
@@ -1336,3 +1472,38 @@ def _prompt_fingerprint(system_prompt: str, user_prompt: str) -> str:
     merged = f"{system_prompt}\n{user_prompt}"
     digest = hashlib.sha256(merged.encode("utf-8")).hexdigest()[:12]
     return f"sha256:{digest}:len={len(merged)}"
+
+
+def _schema_fingerprint(response_schema: dict[str, Any] | None) -> str | None:
+    if not response_schema:
+        return None
+    try:
+        normalized = json.dumps(response_schema, ensure_ascii=False, sort_keys=True)
+    except TypeError:
+        normalized = str(response_schema)
+    return hashlib.sha256(normalized.encode("utf-8")).hexdigest()[:16]
+
+
+def _extract_usage_details(*, response: requests.Response, provider_type: str) -> dict[str, int]:
+    body = _safe_json_body(response)
+    if not body:
+        return {}
+    details: dict[str, int] = {}
+    if provider_type == "gemini-native":
+        usage = body.get("usageMetadata") if isinstance(body.get("usageMetadata"), dict) else {}
+        mapping = {
+            "prompt_tokens": usage.get("promptTokenCount"),
+            "completion_tokens": usage.get("candidatesTokenCount"),
+            "total_tokens": usage.get("totalTokenCount"),
+        }
+    else:
+        usage = body.get("usage") if isinstance(body.get("usage"), dict) else {}
+        mapping = {
+            "prompt_tokens": usage.get("prompt_tokens"),
+            "completion_tokens": usage.get("completion_tokens"),
+            "total_tokens": usage.get("total_tokens"),
+        }
+    for key, value in mapping.items():
+        if isinstance(value, (int, float)):
+            details[key] = int(value)
+    return details
