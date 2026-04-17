@@ -34,6 +34,11 @@ public class AdminConsoleService {
     private static final String COMPARISON_GATING_EFFECT = "gating_effect";
     private static final String COMPARISON_REWRITE_EFFECT = "rewrite_effect";
     private static final String SYNTHETIC_FREE_BASELINE_METHOD = "BASELINE";
+    private static final String STAGE_CUTOFF_RULE_ONLY = "rule_only";
+    private static final String STAGE_CUTOFF_RULE_PLUS_LLM = "rule_plus_llm";
+    private static final String STAGE_CUTOFF_UTILITY = "utility";
+    private static final String STAGE_CUTOFF_DIVERSITY = "diversity";
+    private static final String STAGE_CUTOFF_FULL_GATING = "full_gating";
 
     private final AdminConsoleRepository repository;
     private final LlmJobService llmJobService;
@@ -330,6 +335,7 @@ public class AdminConsoleService {
         String officialComparisonType = normalizeOfficialComparisonType(request.officialComparisonType(), runDiscipline);
         Map<String, UUID> comparisonBatchIds = normalizeComparisonBatchIds(request.comparisonGatingBatchIds());
         UUID sourceGatingBatchId = request.sourceGatingBatchId();
+        boolean stageCutoffEnabled = Boolean.TRUE.equals(request.stageCutoffEnabled());
 
         if (syntheticFreeBaseline) {
             if (RUN_DISCIPLINE_OFFICIAL.equals(runDiscipline)) {
@@ -365,6 +371,22 @@ public class AdminConsoleService {
         int retrievalTopK = request.retrievalTopK() != null && request.retrievalTopK() > 0 ? request.retrievalTopK() : 20;
         int rerankTopN = request.rerankTopN() != null && request.rerankTopN() > 0 ? request.rerankTopN() : 5;
         double threshold = request.threshold() != null ? request.threshold() : 0.05d;
+        String stageCutoffLevel = normalizeStageCutoffLevel(request.stageCutoffLevel(), gatingPreset);
+
+        if (stageCutoffEnabled) {
+            if (syntheticFreeBaseline) {
+                throw new IllegalArgumentException("stage-cutoff is not supported in synthetic-free baseline");
+            }
+            if (!gatingApplied) {
+                throw new IllegalArgumentException("stage-cutoff requires gating_applied=true");
+            }
+            if (RUN_DISCIPLINE_OFFICIAL.equals(runDiscipline)) {
+                throw new IllegalArgumentException("stage-cutoff currently supports exploratory runs only");
+            }
+            if (sourceGatingBatchId == null) {
+                throw new IllegalArgumentException("stage-cutoff requires source_gating_batch_id");
+            }
+        }
 
         if (RUN_DISCIPLINE_OFFICIAL.equals(runDiscipline) && COMPARISON_GATING_EFFECT.equals(officialComparisonType)) {
             if (sourceGatingBatchId != null) {
@@ -440,6 +462,8 @@ public class AdminConsoleService {
             rewriteEnabled = false;
             selectiveRewrite = false;
             useSessionContext = false;
+            stageCutoffEnabled = false;
+            stageCutoffLevel = null;
         }
 
         String experimentName = "admin_eval_" + UUID.randomUUID().toString().replace("-", "").substring(0, 12);
@@ -480,6 +504,10 @@ public class AdminConsoleService {
         config.put("retrieval_top_k", retrievalTopK);
         config.put("rerank_top_n", rerankTopN);
         config.put("run_discipline", runDiscipline);
+        config.put("stage_cutoff_enabled", stageCutoffEnabled);
+        if (stageCutoffEnabled) {
+            config.put("stage_cutoff_level", stageCutoffLevel);
+        }
         if (RUN_DISCIPLINE_OFFICIAL.equals(runDiscipline)) {
             config.put("official_comparison_type", officialComparisonType);
             config.put("official_variable_axis", officialComparisonType);
@@ -540,7 +568,9 @@ public class AdminConsoleService {
             sourceGatingRunId.ifPresent(uuid -> config.put("source_gating_run_id", uuid.toString()));
         } else {
             config.put("retrieval_modes", resolveRetrievalModes(rewriteEnabled, selectiveRewrite, useSessionContext));
-            Optional<UUID> sourceGatingRunId = resolveSourceGatingRunId(
+            Optional<UUID> sourceGatingRunId = stageCutoffEnabled
+                    ? resolveStageCutoffSourceGatingRunId(methodCodes, sourceGatingBatchId)
+                    : resolveSourceGatingRunId(
                     methodCodes,
                     gatingPreset,
                     sourceGatingBatchId,
@@ -549,6 +579,9 @@ public class AdminConsoleService {
             if (sourceGatingBatchId != null) {
                 config.put("source_gating_batch_id", sourceGatingBatchId.toString());
                 config.put("snapshot_id", sourceGatingBatchId.toString());
+                if (stageCutoffEnabled) {
+                    config.put("stage_cutoff_source_gating_batch_id", sourceGatingBatchId.toString());
+                }
             }
             sourceGatingRunId.ifPresent(uuid -> config.put("source_gating_run_id", uuid.toString()));
         }
@@ -564,6 +597,9 @@ public class AdminConsoleService {
         initialGatingConfig.put("gating_preset", gatingPreset);
         initialGatingConfig.put("gating_applied", gatingApplied);
         initialGatingConfig.put("comparison_snapshots", config.get("comparison_snapshots"));
+        initialGatingConfig.put("stage_cutoff_enabled", stageCutoffEnabled);
+        initialGatingConfig.put("stage_cutoff_level", stageCutoffEnabled ? stageCutoffLevel : null);
+        initialGatingConfig.put("stage_cutoff_source_gating_batch_id", config.get("stage_cutoff_source_gating_batch_id"));
         Map<String, Object> initialRetrievalConfig = new LinkedHashMap<>();
         initialRetrievalConfig.put("retrieval_top_k", retrievalTopK);
         initialRetrievalConfig.put("rerank_top_n", rerankTopN);
@@ -636,6 +672,31 @@ public class AdminConsoleService {
         return Optional.of(batch.sourceGatingRunId());
     }
 
+    private Optional<UUID> resolveStageCutoffSourceGatingRunId(List<String> methodCodes, UUID sourceGatingBatchId) {
+        if (sourceGatingBatchId == null) {
+            throw new IllegalArgumentException("stage-cutoff requires source_gating_batch_id");
+        }
+        AdminConsoleDtos.GatingBatchRow batch = repository.findGatingBatch(sourceGatingBatchId)
+                .orElseThrow(() -> new IllegalArgumentException("gating batch not found: " + sourceGatingBatchId));
+        if (!"completed".equalsIgnoreCase(batch.status())) {
+            throw new IllegalArgumentException("gating batch is not completed: " + sourceGatingBatchId);
+        }
+        if (!STAGE_CUTOFF_FULL_GATING.equalsIgnoreCase(batch.gatingPreset())) {
+            throw new IllegalArgumentException(
+                    "stage-cutoff source snapshot must be full_gating: actual=" + batch.gatingPreset()
+            );
+        }
+        if (batch.methodCode() != null && !methodCodes.contains(batch.methodCode().toUpperCase())) {
+            throw new IllegalArgumentException(
+                    "gating batch method mismatch: expected one of=" + methodCodes + ", actual=" + batch.methodCode()
+            );
+        }
+        if (batch.sourceGatingRunId() == null) {
+            throw new IllegalArgumentException("gating batch has no source_gating_run_id: " + sourceGatingBatchId);
+        }
+        return Optional.of(batch.sourceGatingRunId());
+    }
+
     private String normalizeRunDiscipline(Boolean officialRun) {
         return Boolean.TRUE.equals(officialRun) ? RUN_DISCIPLINE_OFFICIAL : RUN_DISCIPLINE_EXPLORATORY;
     }
@@ -652,6 +713,29 @@ public class AdminConsoleService {
         String normalized = value.trim().toLowerCase();
         if (!List.of(COMPARISON_GATING_EFFECT, COMPARISON_REWRITE_EFFECT).contains(normalized)) {
             throw new IllegalArgumentException("unsupported official_comparison_type: " + value);
+        }
+        return normalized;
+    }
+
+    private String normalizeStageCutoffLevel(String value, String gatingPreset) {
+        if (value == null || value.isBlank()) {
+            if ("rule_only".equalsIgnoreCase(gatingPreset)) {
+                return STAGE_CUTOFF_RULE_ONLY;
+            }
+            if ("rule_plus_llm".equalsIgnoreCase(gatingPreset)) {
+                return STAGE_CUTOFF_RULE_PLUS_LLM;
+            }
+            return STAGE_CUTOFF_FULL_GATING;
+        }
+        String normalized = value.trim().toLowerCase();
+        if (!List.of(
+                STAGE_CUTOFF_RULE_ONLY,
+                STAGE_CUTOFF_RULE_PLUS_LLM,
+                STAGE_CUTOFF_UTILITY,
+                STAGE_CUTOFF_DIVERSITY,
+                STAGE_CUTOFF_FULL_GATING
+        ).contains(normalized)) {
+            throw new IllegalArgumentException("unsupported stage_cutoff_level: " + value);
         }
         return normalized;
     }

@@ -185,11 +185,11 @@ def load_memory_items(connection: psycopg.Connection[Any]) -> list[MemoryItem]:
                    m.query_text,
                    m.target_doc_id,
                    m.target_chunk_ids,
-                   g.gating_preset,
+                   COALESCE(NULLIF(m.metadata ->> 'gating_preset', ''), g.gating_preset, 'full_gating') AS gating_preset,
                    m.generation_strategy,
                    m.metadata ->> 'source_gate_run_id' AS source_gate_run_id
             FROM memory_entries m
-            JOIN synthetic_queries_gated g ON g.gated_query_id = m.source_gated_query_id
+            LEFT JOIN synthetic_queries_gated g ON g.gated_query_id = m.source_gated_query_id
             ORDER BY m.created_at DESC
             """
         )

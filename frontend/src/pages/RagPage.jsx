@@ -116,6 +116,8 @@ export function RagPage({ notify }) {
     rerankTopN: '5',
     syntheticFreeBaseline: false,
     gatingApplied: true,
+    stageCutoffEnabled: false,
+    stageCutoffLevel: 'rule_only',
     rewriteEnabled: true,
     selectiveRewrite: true,
     useSessionContext: false,
@@ -209,6 +211,7 @@ export function RagPage({ notify }) {
         && !prev.officialGatingRuleOnlyBatchId
         && !prev.officialGatingFullGatingBatchId
         && !prev.gatingApplied
+        && !prev.stageCutoffEnabled
         && !prev.rewriteEnabled
         && !prev.selectiveRewrite
         && !prev.useSessionContext
@@ -223,6 +226,8 @@ export function RagPage({ notify }) {
         officialGatingRuleOnlyBatchId: '',
         officialGatingFullGatingBatchId: '',
         gatingApplied: false,
+        stageCutoffEnabled: false,
+        stageCutoffLevel: 'rule_only',
         rewriteEnabled: false,
         selectiveRewrite: false,
         useSessionContext: false,
@@ -230,10 +235,23 @@ export function RagPage({ notify }) {
     })
   }, [form.syntheticFreeBaseline])
 
+  useEffect(() => {
+    if (!form.stageCutoffEnabled) return
+    if (!form.gatingApplied || form.syntheticFreeBaseline || form.runDiscipline === 'official') {
+      setForm((prev) => ({ ...prev, stageCutoffEnabled: false }))
+    }
+  }, [form.stageCutoffEnabled, form.gatingApplied, form.syntheticFreeBaseline, form.runDiscipline])
+
   const effectiveGatingPreset = form.gatingApplied ? form.gatingPreset : 'ungated'
+  const stageCutoffEnabledForRun = !form.syntheticFreeBaseline && Boolean(form.stageCutoffEnabled)
+  const sourceSnapshotExpectedPreset = stageCutoffEnabledForRun ? 'full_gating' : effectiveGatingPreset
   const snapshotBatches = useMemo(
     () => gatingBatches.filter((batch) => batch && String(batch.status || '').toLowerCase() === 'completed'),
     [gatingBatches],
+  )
+  const sourceSnapshotOptions = useMemo(
+    () => (stageCutoffEnabledForRun ? snapshotBatches.filter((batch) => batch.gatingPreset === 'full_gating') : snapshotBatches),
+    [snapshotBatches, stageCutoffEnabledForRun],
   )
   const methodCodesForRun = form.syntheticFreeBaseline
     ? []
@@ -299,7 +317,7 @@ export function RagPage({ notify }) {
   function snapshotOptionLabel(batch, expectedPreset = null) {
     const compatible = expectedPreset
       ? isSnapshotCompatible(batch, expectedPreset, methodCodesForRun)
-      : isSnapshotCompatible(batch, effectiveGatingPreset, methodCodesForRun)
+      : isSnapshotCompatible(batch, sourceSnapshotExpectedPreset, methodCodesForRun)
     const runnable = Boolean(batch?.sourceGatingRunId)
     return `${shortId(batch.gatingBatchId)} | ${batch.gatingPreset} | ${batch.methodCode || '-'} | ${fmtTime(batch.finishedAt)}${runnable ? '' : ' | unavailable(no source run)'}${compatible ? '' : ' | incompatible'}`
   }
@@ -320,11 +338,26 @@ export function RagPage({ notify }) {
       return
     }
     const officialRun = !syntheticFreeBaseline && form.runDiscipline === 'official'
+    const stageCutoffEnabled = !syntheticFreeBaseline && Boolean(form.stageCutoffEnabled)
+    const stageCutoffLevel = stageCutoffEnabled ? (form.stageCutoffLevel || 'full_gating') : null
     if (syntheticFreeBaseline && form.runDiscipline === 'official') {
       notify('Synthetic-free baseline은 exploratory 실행에서만 지원됩니다.', 'error')
       return
     }
     const runGatingPreset = syntheticFreeBaseline ? 'ungated' : effectiveGatingPreset
+    const sourceSnapshotPreset = stageCutoffEnabled ? 'full_gating' : runGatingPreset
+    if (stageCutoffEnabled && officialRun) {
+      notify('stage-cutoff은 exploratory 실행에서만 사용할 수 있습니다.', 'error')
+      return
+    }
+    if (stageCutoffEnabled && !form.gatingApplied) {
+      notify('stage-cutoff 사용 시 gating 적용이 필요합니다.', 'error')
+      return
+    }
+    if (stageCutoffEnabled && !form.sourceGatingBatchId) {
+      notify('stage-cutoff 사용 시 full_gating source snapshot을 선택해야 합니다.', 'error')
+      return
+    }
     if (!syntheticFreeBaseline && officialRun && form.officialComparisonType === 'rewrite_effect' && !form.sourceGatingBatchId) {
       notify('공식 rewrite-effect 실행은 source snapshot 선택이 필수입니다.', 'error')
       return
@@ -365,7 +398,7 @@ export function RagPage({ notify }) {
         notify('선택한 스냅샷에는 source_gating_run_id가 없어 실행할 수 없습니다.', 'error')
         return
       }
-      if (!isSnapshotCompatible(snapshot, runGatingPreset, methodCodesForRun)) {
+      if (!isSnapshotCompatible(snapshot, sourceSnapshotPreset, methodCodesForRun)) {
         notify('선택한 스냅샷이 현재 게이팅 preset/method 조건과 호환되지 않습니다.', 'error')
         return
       }
@@ -400,6 +433,8 @@ export function RagPage({ notify }) {
           officialRun,
           officialComparisonType: officialRun ? form.officialComparisonType : null,
           gatingApplied,
+          stageCutoffEnabled: stageCutoffEnabled || null,
+          stageCutoffLevel,
           rewriteEnabled,
           selectiveRewrite,
           useSessionContext,
@@ -667,9 +702,11 @@ export function RagPage({ notify }) {
                     ? 'Not used for synthetic-free baseline'
                     : form.runDiscipline === 'official'
                     ? (form.officialComparisonType === 'gating_effect' ? 'Not used for official gating-effect' : 'Select snapshot (required)')
+                    : form.stageCutoffEnabled
+                    ? 'Select full_gating snapshot (required)'
                     : 'Auto (latest matching)'}
                 </option>
-                {snapshotBatches.map((batch) => {
+                {sourceSnapshotOptions.map((batch) => {
                   return (
                     <option key={batch.gatingBatchId} value={batch.gatingBatchId}>
                       {snapshotOptionLabel(batch)}
@@ -723,6 +760,20 @@ export function RagPage({ notify }) {
           </div>
 
           <div className="form-grid form-grid--3">
+            <label className="filter-field filter-field--small">Stage Cutoff Level
+              <select
+                value={form.stageCutoffLevel}
+                disabled={form.syntheticFreeBaseline || !form.gatingApplied || !form.stageCutoffEnabled || form.runDiscipline === 'official'}
+                onChange={(event) => setForm((prev) => ({ ...prev, stageCutoffLevel: event.target.value }))}
+              >
+                <option value="rule_only">rule_only</option>
+                <option value="rule_plus_llm">rule_plus_llm</option>
+                <option value="utility">utility</option>
+                <option value="diversity">diversity</option>
+                <option value="full_gating">full_gating</option>
+              </select>
+              <span className="field-hint">full_gating 배치 기준 stage cutoff 레벨입니다.</span>
+            </label>
             <label className="filter-field filter-field--small">Rewrite Threshold
               <input
                 type="number"
@@ -747,6 +798,7 @@ export function RagPage({ notify }) {
 
           <div className="checkbox-row">
             <label><input type="checkbox" checked={form.syntheticFreeBaseline} onChange={(event) => setForm((prev) => ({ ...prev, syntheticFreeBaseline: event.target.checked }))} />Synthetic-free baseline</label>
+            <label><input type="checkbox" checked={form.stageCutoffEnabled} disabled={form.syntheticFreeBaseline || !form.gatingApplied || form.runDiscipline === 'official'} onChange={(event) => setForm((prev) => ({ ...prev, stageCutoffEnabled: event.target.checked }))} />Stage Cutoff</label>
             <label><input type="checkbox" checked={form.gatingApplied} disabled={form.syntheticFreeBaseline} onChange={(event) => setForm((prev) => ({ ...prev, gatingApplied: event.target.checked }))} />게이팅 반영</label>
             <label><input type="checkbox" checked={form.rewriteEnabled} disabled={form.syntheticFreeBaseline} onChange={(event) => setForm((prev) => ({ ...prev, rewriteEnabled: event.target.checked }))} />Rewrite 사용</label>
             <label><input type="checkbox" checked={form.selectiveRewrite} disabled={form.syntheticFreeBaseline || !form.rewriteEnabled} onChange={(event) => setForm((prev) => ({ ...prev, selectiveRewrite: event.target.checked, useSessionContext: event.target.checked ? prev.useSessionContext : false }))} />Selective</label>

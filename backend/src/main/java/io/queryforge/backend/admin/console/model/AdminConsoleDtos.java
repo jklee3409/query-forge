@@ -281,6 +281,8 @@ public final class AdminConsoleDtos {
             Boolean syntheticFreeBaseline,
             List<UUID> generationBatchIds,
             UUID sourceGatingBatchId,
+            Boolean stageCutoffEnabled,
+            String stageCutoffLevel,
             Map<String, UUID> comparisonGatingBatchIds,
             Boolean officialRun,
             String officialComparisonType,

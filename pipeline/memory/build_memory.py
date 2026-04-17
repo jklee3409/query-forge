@@ -23,6 +23,12 @@ except ModuleNotFoundError:  # pragma: no cover - direct module execution fallba
 
 LOGGER = logging.getLogger(__name__)
 
+STAGE_CUTOFF_RULE_ONLY = "rule_only"
+STAGE_CUTOFF_RULE_PLUS_LLM = "rule_plus_llm"
+STAGE_CUTOFF_UTILITY = "utility"
+STAGE_CUTOFF_DIVERSITY = "diversity"
+STAGE_CUTOFF_FULL_GATING = "full_gating"
+
 
 @dataclass(slots=True)
 class GatedRow:
@@ -167,6 +173,122 @@ def _parse_comparison_snapshots(raw_value: Any) -> dict[str, dict[str, str]]:
     return snapshots
 
 
+def _normalize_stage_cutoff_level(value: str | None) -> str:
+    normalized = str(value or "").strip().lower()
+    if normalized in {
+        STAGE_CUTOFF_RULE_ONLY,
+        STAGE_CUTOFF_RULE_PLUS_LLM,
+        STAGE_CUTOFF_UTILITY,
+        STAGE_CUTOFF_DIVERSITY,
+        STAGE_CUTOFF_FULL_GATING,
+    }:
+        return normalized
+    return STAGE_CUTOFF_FULL_GATING
+
+
+def _stage_cutoff_sql_clause(cutoff_level: str) -> str:
+    if cutoff_level == STAGE_CUTOFF_RULE_ONLY:
+        return "COALESCE(gr.rule_pass, TRUE)"
+    if cutoff_level == STAGE_CUTOFF_RULE_PLUS_LLM:
+        return (
+            "COALESCE(gr.rule_pass, TRUE)"
+            " AND COALESCE((gr.stage_payload_json ->> 'passed_llm_self_eval')::boolean, TRUE)"
+        )
+    if cutoff_level == STAGE_CUTOFF_UTILITY:
+        return (
+            "COALESCE(gr.rule_pass, TRUE)"
+            " AND COALESCE((gr.stage_payload_json ->> 'passed_llm_self_eval')::boolean, TRUE)"
+            " AND COALESCE((gr.stage_payload_json ->> 'passed_retrieval_utility')::boolean, TRUE)"
+        )
+    if cutoff_level == STAGE_CUTOFF_DIVERSITY:
+        return (
+            "COALESCE(gr.rule_pass, TRUE)"
+            " AND COALESCE((gr.stage_payload_json ->> 'passed_llm_self_eval')::boolean, TRUE)"
+            " AND COALESCE((gr.stage_payload_json ->> 'passed_retrieval_utility')::boolean, TRUE)"
+            " AND COALESCE(gr.diversity_pass, TRUE)"
+        )
+    return "COALESCE(gr.accepted, FALSE)"
+
+
+def _load_stage_cutoff_rows(
+    connection: psycopg.Connection[Any],
+    *,
+    source_batch_id: str,
+    source_run_id: str | None,
+    cutoff_level: str,
+    strategies: list[str] | None = None,
+) -> list[GatedRow]:
+    if not source_batch_id:
+        return []
+    where_strategy = ""
+    parameters: list[Any] = [source_batch_id]
+    normalized = [str(item).upper() for item in (strategies or []) if str(item).strip()]
+    if normalized:
+        where_strategy = " AND r.generation_strategy = ANY(%s)"
+        parameters.append(normalized)
+    where_source_run = ""
+    if source_run_id:
+        where_source_run = " AND full_gated.metadata ->> 'experiment_run_id' = %s"
+        parameters.append(source_run_id)
+    cutoff_clause = _stage_cutoff_sql_clause(cutoff_level)
+    with connection.cursor() as cursor:
+        cursor.execute(
+            f"""
+            SELECT full_gated.gated_query_id,
+                   gr.synthetic_query_id,
+                   r.query_text,
+                   r.query_type,
+                   r.generation_strategy,
+                   r.target_chunk_ids,
+                   r.target_doc_id,
+                   r.chunk_id_source,
+                   r.glossary_terms,
+                   COALESCE(gr.llm_scores, full_gated.llm_scores) AS llm_scores,
+                   gr.utility_score,
+                   gr.novelty_score,
+                   gr.final_score,
+                   r.prompt_version,
+                   r.prompt_hash,
+                   sc.product_name
+            FROM synthetic_query_gating_result gr
+            JOIN synthetic_queries_raw_all r ON r.synthetic_query_id = gr.synthetic_query_id
+            JOIN synthetic_queries_gated full_gated
+              ON full_gated.synthetic_query_id = gr.synthetic_query_id
+             AND full_gated.gating_preset = 'full_gating'
+            JOIN corpus_documents td ON td.document_id = r.target_doc_id
+            JOIN corpus_chunks sc ON sc.chunk_id = r.chunk_id_source
+            WHERE gr.gating_batch_id = %s
+              AND {cutoff_clause}
+              {where_strategy}
+              {where_source_run}
+            ORDER BY gr.created_at ASC
+            """,
+            parameters,
+        )
+        rows = cursor.fetchall()
+    return [
+        GatedRow(
+            gated_query_id=str(row["gated_query_id"]),
+            synthetic_query_id=str(row["synthetic_query_id"]),
+            query_text=str(row["query_text"]),
+            query_type=str(row["query_type"]),
+            generation_strategy=str(row["generation_strategy"]),
+            target_chunk_ids=list(row["target_chunk_ids"] or []),
+            target_doc_id=str(row["target_doc_id"]),
+            chunk_id_source=str(row["chunk_id_source"]),
+            glossary_terms=list(row["glossary_terms"] or []),
+            llm_scores=dict(row["llm_scores"] or {}),
+            utility_score=float(row["utility_score"] or 0.0),
+            novelty_score=float(row["novelty_score"] or 0.0),
+            final_score=float(row["final_score"] or 0.0),
+            prompt_version=row["prompt_version"],
+            prompt_hash=row["prompt_hash"],
+            product_name=row["product_name"],
+        )
+        for row in rows
+    ]
+
+
 def _upsert_query_embedding(
     connection: psycopg.Connection[Any],
     *,
@@ -270,9 +392,18 @@ def run_memory_build(
                 continue
             strategy_filters.append(normalized)
         configured_gating_run_id = str(config.raw.get("source_gating_run_id") or "").strip() or None
+        stage_cutoff_enabled = bool(config.raw.get("stage_cutoff_enabled", False))
+        stage_cutoff_level = _normalize_stage_cutoff_level(str(config.raw.get("stage_cutoff_level") or config.gating_preset))
+        stage_cutoff_source_batch_id = str(
+            config.raw.get("stage_cutoff_source_gating_batch_id")
+            or config.raw.get("source_gating_batch_id")
+            or ""
+        ).strip() or None
         comparison_snapshots = _parse_comparison_snapshots(config.raw.get("comparison_snapshots"))
         snapshot_plan: list[tuple[str, str | None, str | None]] = []
-        if comparison_snapshots:
+        if stage_cutoff_enabled:
+            snapshot_plan.append((config.gating_preset, configured_gating_run_id, stage_cutoff_source_batch_id))
+        elif comparison_snapshots:
             for preset, payload in comparison_snapshots.items():
                 snapshot_plan.append(
                     (
@@ -296,12 +427,21 @@ def run_memory_build(
         for preset, source_run_id, source_batch_id in snapshot_plan:
             if primary_source_run_id is None and source_run_id:
                 primary_source_run_id = source_run_id
-            rows = _load_gated_rows(
-                connection,
-                preset=preset,
-                source_run_id=source_run_id,
-                strategies=strategy_filters,
-            )
+            if stage_cutoff_enabled:
+                rows = _load_stage_cutoff_rows(
+                    connection,
+                    source_batch_id=source_batch_id or "",
+                    source_run_id=source_run_id,
+                    cutoff_level=stage_cutoff_level,
+                    strategies=strategy_filters,
+                )
+            else:
+                rows = _load_gated_rows(
+                    connection,
+                    preset=preset,
+                    source_run_id=source_run_id,
+                    strategies=strategy_filters,
+                )
             built_by_snapshot[preset] = len(rows)
             total_rows += len(rows)
             for row in rows:
@@ -365,6 +505,9 @@ def run_memory_build(
                                     "gating_preset": preset,
                                     "source_gate_run_id": source_run_id,
                                     "source_gating_batch_id": source_batch_id,
+                                    "stage_cutoff_enabled": stage_cutoff_enabled,
+                                    "stage_cutoff_level": stage_cutoff_level if stage_cutoff_enabled else None,
+                                    "stage_cutoff_source_gating_batch_id": source_batch_id if stage_cutoff_enabled else None,
                                     "memory_build_run_id": run_context.experiment_run_id,
                                 }
                             ),
@@ -408,6 +551,9 @@ def run_memory_build(
             "memory_entries_by_snapshot": built_by_snapshot,
             "preview_memory_ids": inserted_memory_ids,
             "embedding_model": "hash-embedding-v1",
+            "stage_cutoff_enabled": stage_cutoff_enabled,
+            "stage_cutoff_level": stage_cutoff_level if stage_cutoff_enabled else None,
+            "stage_cutoff_source_gating_batch_id": stage_cutoff_source_batch_id if stage_cutoff_enabled else None,
         }
         recorder.finish_run(run_context, status="completed", metrics=summary)
         connection.commit()
