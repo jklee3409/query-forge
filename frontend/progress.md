@@ -3,6 +3,12 @@
 ## Overview
 High-level progress tracking for the project.
 
+## [2026-04-17] Session Summary (Synthetic Generator Random Sampling UX)
+- What was done: Updated `SyntheticPage.jsx` run form/state/payload with `randomChunkSampling` and added a `Random Chunk Sampling` checkbox in Admin synthetic generation controls.
+- Key decisions: Kept existing method-scoped run model (A/C/D individually), retained no-limit behavior when `limitChunks` is empty, and preserved max query input upper bound at `2000`.
+- Issues encountered: Existing page has mixed-encoding localized labels, so edits were kept minimal around stable form blocks.
+- Next steps: GUI smoke-test for `A/C/D` runs with `max_total_queries=1000`, no chunk limit, and random sampling enabled.
+
 ## [2026-04-17] Session Summary (RAG Stage-Cutoff Controls)
 - What was done: Updated `RagPage.jsx` to expose stage-cutoff run controls (`Stage Cutoff` toggle + `Stage Cutoff Level`), added payload wiring (`stageCutoffEnabled`, `stageCutoffLevel`), and adjusted source snapshot option handling for full-gating cutoff mode.
 - Key decisions: Snapshot compatibility check now uses `full_gating` when stage-cutoff is enabled, while existing official run and gating-effect flows remain unchanged.

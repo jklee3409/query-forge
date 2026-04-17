@@ -3,6 +3,12 @@
 ## Overview
 High-level progress tracking for the project.
 
+## [2026-04-17] Session Summary (Synthetic Full-Corpus Random Sampling Controls)
+- What was done: Added Admin synthetic generation support for `random_chunk_sampling` (GUI -> backend config -> pipeline), kept no-`limit_chunks` full-corpus behavior, and verified max synthetic query cap supports up to `2000`.
+- Key decisions: Applied random sampling as chunk-order shuffle (seeded by experiment `random_seed`) so `max_total_queries` can stop at a random full-corpus subset without changing core pipeline stages.
+- Issues encountered: Frontend production build refreshed backend static asset hash files.
+- Next steps: Run GUI generation for `A/C/D` separately with `max_total_queries=1000`, `limit_chunks` empty, and `random chunk sampling` enabled; then confirm per-batch counts/history.
+
 ## [2026-04-17] Session Summary (Full-Gating Stage-Cutoff + Domain Data Reset)
 - What was done: Implemented stage-cutoff based RAG run flow (use full-gating snapshot as source and cut synthetic queries by stage level), completed frontend/backend/pipeline wiring, and reset synthetic generation/quality gating/RAG test/LLM-job data in DB.
 - Key decisions: Stage-cutoff path is restricted to exploratory runs and requires explicit `source_gating_batch_id` from a completed `full_gating` batch; corpus collect/preprocess/chunk tables were preserved.

@@ -3,6 +3,12 @@
 ## Overview
 High-level pipeline progress tracking.
 
+## [2026-04-17] Session Summary (Synthetic Chunk Random Sampling Execution Path)
+- What was done: Extended `generation/synthetic_query_generator.py` to support `random_chunk_sampling` in chunk loading and wired config parsing so generation can shuffle full-corpus chunk order before applying optional limit/early stop.
+- Key decisions: Kept deterministic legacy path when disabled; when enabled, shuffle uses experiment `random_seed` for reproducibility and pairs with `max_total_queries` for random subset generation.
+- Issues encountered: None.
+- Next steps: Add focused generation smoke run to verify random-order chunk selection traces in run metrics (`random_chunk_sampling=true`).
+
 ## [2026-04-17] Session Summary (Stage-Cutoff Memory Build Path)
 - What was done: Added stage-cutoff load path in `memory/build_memory.py` to read from `synthetic_query_gating_result` by `stage_cutoff_level` (`rule_only`, `rule_plus_llm`, `utility`, `diversity`, `full_gating`) using full-gating snapshot provenance, and updated memory metadata/summary fields accordingly.
 - Key decisions: Kept default gated-row path unchanged and switched to stage-cutoff row loading only when `stage_cutoff_enabled=true`; fallback level normalization defaults to `full_gating`.

@@ -3,6 +3,12 @@
 ## Overview
 High-level backend progress tracking.
 
+## [2026-04-17] Session Summary (Synthetic Run Random Sampling Request Wiring)
+- What was done: Extended admin synthetic run DTO (`SyntheticBatchRunRequest`) with `randomChunkSampling` and wrote it to experiment config as `random_chunk_sampling` in `AdminConsoleService.runSyntheticGeneration`.
+- Key decisions: Preserved existing validation/ranges (`max_total_queries` up to `2000`) and kept `limit_chunks` optional so full-corpus generation remains available when omitted.
+- Issues encountered: None.
+- Next steps: Add integration coverage for `random_chunk_sampling=true` request payload to config persistence path.
+
 ## [2026-04-17] Session Summary (Stage-Cutoff Validation/Config Wiring)
 - What was done: Extended `RagTestRunRequest` with `stageCutoffEnabled/stageCutoffLevel` and updated `AdminConsoleService.runRagTest` to support stage-cutoff memory-source mode from full-gating batches.
 - Key decisions: Enforced strict guards (`exploratory` only, `gatingApplied=true`, explicit `sourceGatingBatchId`, source snapshot must be completed `full_gating`, method compatibility, non-null `source_gating_run_id`) and persisted `stage_cutoff_*` keys into run config/experiment record.
