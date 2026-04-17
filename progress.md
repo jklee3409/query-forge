@@ -3,6 +3,12 @@
 ## Overview
 High-level progress tracking for the project.
 
+## [2026-04-17] Session Summary (Synthetic-free Baseline RAG Test Path)
+- What was done: Added synthetic-free baseline support for Admin RAG tests end-to-end (request flag, backend validation/config, frontend run controls, and pipeline stage behavior) so baseline runs can execute without using synthetic-query snapshots.
+- Key decisions: Preserved mandatory RAG job stage order (`build-memory -> eval-retrieval -> eval-answer`) and implemented baseline as `build-memory` no-op + `raw_only` retrieval/eval mode to avoid synthetic query dependency while keeping orchestration stable.
+- Issues encountered: Existing workspace already contained unrelated staged/unstaged feature changes, so edits were scoped only to baseline-path fields/validation and pipeline memory-loading guards.
+- Next steps: Run one exploratory synthetic-free baseline and one snapshot-based run on the same dataset, then compare retrieval/answer deltas from the RAG compare panel.
+
 ## [2026-04-15] Session Summary (Short User Dataset 40 + A/C RAG Re-run + Report)
 - What was done: Built and registered a new retrieval-aware short-user eval dataset (`human_eval_short_user_40`, 40 items), executed two Admin-path RAG tests with the same settings as baseline runs (`A`: `cfb7587d-649f-457b-9410-0948abb49772`, `C`: `2a899769-613b-4463-95e1-fb850fdb73a3`), and documented combined baseline/new analysis in `docs/report/rag_quality_ac_comparison_short_user_2026-04-15.md`.
 - Key decisions: Kept snapshot parity with baseline (`A` snapshot `4af71ae8...`, `C` snapshot `c9adc3f9...`) and fixed all runtime knobs (`full_gating`, selective rewrite, threshold `0.05`, `retrieval_top_k=10`, `rerank_top_n=5`) so dataset style was the only intended variable.

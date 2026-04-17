@@ -3,6 +3,12 @@
 ## Overview
 High-level progress tracking for the project.
 
+## [2026-04-17] Session Summary (RAG Synthetic-free Baseline Controls)
+- What was done: Added `Synthetic-free baseline` toggle to `RagPage.jsx`, wired request payload field `syntheticFreeBaseline`, and applied UI guards to disable snapshot/method/gating/rewrite controls in baseline mode.
+- Key decisions: Baseline mode now sends `methodCodes=[]`, `gatingApplied=false`, and `rewriteEnabled=false` to align with backend/pipeline synthetic-free execution semantics.
+- Issues encountered: `RagPage.jsx` already had pending history-delete related edits in the same region, so baseline updates were merged without reverting unrelated changes.
+- Next steps: Validate operator workflow for baseline on/off switching and confirm run history labels clearly expose baseline vs snapshot runs.
+
 ## [2026-04-15] Session Summary (RAG Compare Visualization + Selection UX)
 - What was done: Refactored `RagPage.jsx` comparison chart from horizontal bar rows to vertical metric cards and replaced run-compare checkbox cells with a labeled custom selector (`선택` / `선택됨`).
 - Key decisions: Kept metric source and compare-run behavior unchanged while improving scanability for side-by-side run review.

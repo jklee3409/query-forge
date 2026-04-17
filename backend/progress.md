@@ -3,6 +3,12 @@
 ## Overview
 High-level backend progress tracking.
 
+## [2026-04-17] Session Summary (Synthetic-free Baseline Validation/Config)
+- What was done: Extended `RagTestRunRequest` with `syntheticFreeBaseline` and updated `AdminConsoleService.runRagTest` to support exploratory synthetic-free baseline runs with method list empty (`[]`), forced `ungated + rewrite_off`, and baseline-specific retrieval mode config.
+- Key decisions: Kept official run discipline unchanged (baseline blocked for official mode), rejected conflicting snapshot/batch inputs in baseline mode, and persisted `synthetic_free_baseline` into experiment config and retrieval metadata.
+- Issues encountered: Existing service file already had unrelated pending edits (rule defaults/delete API wiring), so baseline changes were added without reverting external deltas.
+- Next steps: Validate API-level rejection cases for baseline + official/snapshot payloads from Admin UI and external clients.
+
 ## [2026-04-15] Session Summary (RAG Detail Metric Contribution Enrichment)
 - What was done: Updated `LlmJobService.loadRewriteCasesForRun` to persist extended rewrite contribution fields into `rag_test_result_detail.metric_contribution` (`raw_confidence`, `best_candidate_confidence`, `confidence_delta`, `rewrite_reason`).
 - Key decisions: Kept existing detail-row schema intact and enriched JSON payload only, so UI/debug consumers can inspect rewrite decisions without DB schema changes.

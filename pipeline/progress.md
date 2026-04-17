@@ -3,6 +3,12 @@
 ## Overview
 High-level pipeline progress tracking.
 
+## [2026-04-17] Session Summary (Synthetic-free Baseline Pipeline Guard)
+- What was done: Added synthetic-free baseline handling in `build_memory.py` as stage-level no-op and updated `retrieval_eval.py` / `answer_eval.py` to skip memory loading when baseline/raw-only conditions are active.
+- Key decisions: Preserved pipeline stage order for reproducibility while removing synthetic-query table dependency from baseline execution path (`synthetic_free_baseline=true`).
+- Issues encountered: Retrieval/answer evaluators previously loaded memory rows unconditionally, which could still touch synthetic-linked tables even in raw-only mode.
+- Next steps: Run baseline experiment command chain (`build-memory -> eval-retrieval -> eval-answer`) and verify summary payloads report `synthetic_free_baseline=true` with raw-only metrics.
+
 ## [2026-04-15] Session Summary (Rewrite Adoption Logic + Eval Dataset Rebuild)
 - What was done: Updated `eval/runtime.py::run_selective_rewrite` to include retrieval-shift-aware candidate scoring and rebuilt eval dataset with `python pipeline/cli.py build-eval-dataset --experiment exp4`.
 - Key decisions: Rewrite decision now uses `confidence + retrieval_shift_bonus` (top-k shift/Jaccard + top1 change) and blocks no-op rewrites where candidate query is identical to raw query.
