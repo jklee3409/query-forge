@@ -3,6 +3,12 @@
 ## Overview
 High-level pipeline progress tracking.
 
+## [2026-04-18] Session Summary (Langfuse Event Schema + LLM Client Instrumentation)
+- What was done: Added fail-open Langfuse instrumentation module (`common/langfuse_observability.py`) and connected it to the centralized LLM call path in `common/llm_client.py` without changing generation/gating/eval decision logic.
+- Key decisions: Applied quota-safe defaults for free-tier usage (purpose-aware success sampling, full error sampling, payload truncation, per-minute/per-day emit caps, and optional score mode).
+- Issues encountered: None.
+- Next steps: Enable `QUERY_FORGE_LANGFUSE_ENABLED=true` in one controlled environment and validate trace volume against daily cap before broad rollout.
+
 ## [2026-04-18] Session Summary (Utility Top10 Scoring Support)
 - What was done: Updated retrieval utility scoring in `gating/quality_gating.py` to evaluate top-10 reranked candidates and apply a new `target_top10` score bucket; added `target_top10` default in `common/experiment_config.py`.
 - Key decisions: Preserved backward compatibility by falling back to `target_top5` when old configs do not define `target_top10`.

@@ -3,6 +3,12 @@
 ## Overview
 High-level progress tracking for the project.
 
+## [2026-04-18] Session Summary (Langfuse Event Schema + Pipeline LLM Observability Integration)
+- What was done: Designed Query Forge Langfuse event schema (`docs/experiments/langfuse_event_schema.md`) and integrated fail-open tracing into the centralized LLM execution path (`pipeline/common/llm_client.py` via `pipeline/common/langfuse_observability.py`).
+- Key decisions: Kept business logic untouched by instrumenting only transport-layer LLM calls, added purpose-aware sampling and hard event caps for free-tier safety, and made Langfuse emission fully optional by environment flags.
+- Issues encountered: `pytest` is not installed in the current environment, so verification used `python -m unittest pipeline.tests.test_llm_client -v`.
+- Next steps: Enable Langfuse in one controlled environment and validate real event volume against configured per-minute/per-day caps before wider rollout.
+
 ## [2026-04-18] Session Summary (Gating Top10 + Nested DTO + Backend Wiring Verification)
 - What was done: Added Admin gating support for `Target Top10` utility score end-to-end (GUI input, backend DTO/service mapping, experiment config write, and pipeline utility scoring logic).
 - Key decisions: Converted gating run payload to nested request DTO (`config.stageFlags/ruleConfig/gatingWeights/utilityScoreWeights/thresholds`) to reduce flat parameter sprawl while keeping existing run behavior/defaults.

@@ -16,6 +16,8 @@
   - rewrite 채택 후 성능이 개선된 사례
 - `monitoring_trace.md`
   - 온라인 trace 저장 구조 및 운영 점검 절차
+- `langfuse_event_schema.md`
+  - Langfuse tracing schema (required tags/metadata), sampling policy, and quota guardrails
 - `first_baseline_template.md`
   - 첫 baseline 결과 기록 템플릿
 
