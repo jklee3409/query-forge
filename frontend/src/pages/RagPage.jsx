@@ -738,14 +738,18 @@ export function RagPage({ notify }) {
             <label className="filter-field">생성 방식(A/B/C/D)
               <div className="method-row">
                 {methods.map((method) => (
-                  <label key={method.methodCode} className="plain-badge">
+                  <label
+                    key={method.methodCode}
+                    className={`check-pill ${methodCodesForRun.includes(method.methodCode) ? 'is-active' : ''} ${(form.syntheticFreeBaseline || methodSelectionLocked) ? 'is-disabled' : ''}`}
+                  >
                     <input
                       type="checkbox"
                       checked={methodCodesForRun.includes(method.methodCode)}
                       disabled={form.syntheticFreeBaseline || methodSelectionLocked}
                       onChange={(event) => handleToggleMethod(method.methodCode, event.target.checked)}
                     />
-                    {method.methodCode}
+                    <span className="check-pill__box" aria-hidden="true">{methodCodesForRun.includes(method.methodCode) ? '✓' : ''}</span>
+                    <span className="check-pill__text">{method.methodCode}</span>
                   </label>
                 ))}
               </div>
@@ -797,8 +801,16 @@ export function RagPage({ notify }) {
           </div>
 
           <div className="checkbox-row">
-            <label><input type="checkbox" checked={form.syntheticFreeBaseline} onChange={(event) => setForm((prev) => ({ ...prev, syntheticFreeBaseline: event.target.checked }))} />Synthetic-free baseline</label>
-            <label><input type="checkbox" checked={form.stageCutoffEnabled} disabled={form.syntheticFreeBaseline || !form.gatingApplied || form.runDiscipline === 'official'} onChange={(event) => setForm((prev) => ({ ...prev, stageCutoffEnabled: event.target.checked }))} />Stage Cutoff</label>
+            <label className={`check-pill ${form.syntheticFreeBaseline ? 'is-active' : ''}`}>
+              <input type="checkbox" checked={form.syntheticFreeBaseline} onChange={(event) => setForm((prev) => ({ ...prev, syntheticFreeBaseline: event.target.checked }))} />
+              <span className="check-pill__box" aria-hidden="true">{form.syntheticFreeBaseline ? '✓' : ''}</span>
+              <span className="check-pill__text">Synthetic-free baseline</span>
+            </label>
+            <label className={`check-pill ${form.stageCutoffEnabled ? 'is-active' : ''} ${(form.syntheticFreeBaseline || !form.gatingApplied || form.runDiscipline === 'official') ? 'is-disabled' : ''}`}>
+              <input type="checkbox" checked={form.stageCutoffEnabled} disabled={form.syntheticFreeBaseline || !form.gatingApplied || form.runDiscipline === 'official'} onChange={(event) => setForm((prev) => ({ ...prev, stageCutoffEnabled: event.target.checked }))} />
+              <span className="check-pill__box" aria-hidden="true">{form.stageCutoffEnabled ? '✓' : ''}</span>
+              <span className="check-pill__text">Stage Cutoff</span>
+            </label>
             <label><input type="checkbox" checked={form.gatingApplied} disabled={form.syntheticFreeBaseline} onChange={(event) => setForm((prev) => ({ ...prev, gatingApplied: event.target.checked }))} />게이팅 반영</label>
             <label><input type="checkbox" checked={form.rewriteEnabled} disabled={form.syntheticFreeBaseline} onChange={(event) => setForm((prev) => ({ ...prev, rewriteEnabled: event.target.checked }))} />Rewrite 사용</label>
             <label><input type="checkbox" checked={form.selectiveRewrite} disabled={form.syntheticFreeBaseline || !form.rewriteEnabled} onChange={(event) => setForm((prev) => ({ ...prev, selectiveRewrite: event.target.checked, useSessionContext: event.target.checked ? prev.useSessionContext : false }))} />Selective</label>

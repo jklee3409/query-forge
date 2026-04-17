@@ -379,14 +379,88 @@ textarea {
 .checkbox-row {
   display: flex;
   flex-wrap: wrap;
-  gap: 14px;
-  color: var(--text-soft);
-  font-size: 13px;
-  font-weight: 600;
+  gap: 10px;
+  align-items: center;
 }
 
-.checkbox-row input {
-  margin-right: 6px;
+.checkbox-row > label:not(.check-pill) {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 34px;
+  padding: 0 12px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: #ffffff;
+  color: var(--text-soft);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.checkbox-row > label:not(.check-pill) input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: #0b66d7;
+}
+
+.check-pill {
+  position: relative;
+  display: inline-grid;
+  grid-template-columns: 16px auto;
+  align-items: center;
+  gap: 8px;
+  min-height: 34px;
+  padding: 0 12px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: #ffffff;
+  color: #425066;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: all 0.18s ease;
+}
+
+.check-pill input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.check-pill__box {
+  width: 16px;
+  height: 16px;
+  border-radius: 5px;
+  border: 1px solid #97aacc;
+  display: grid;
+  place-items: center;
+  font-size: 11px;
+  line-height: 1;
+  color: transparent;
+  background: #ffffff;
+  transition: all 0.18s ease;
+}
+
+.check-pill__text {
+  user-select: none;
+}
+
+.check-pill.is-active {
+  border-color: #78a7eb;
+  background: #edf5ff;
+  color: #17447f;
+}
+
+.check-pill.is-active .check-pill__box {
+  border-color: #0b66d7;
+  background: #0b66d7;
+  color: #ffffff;
+}
+
+.check-pill.is-disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
 }
 
 .state-note {
@@ -403,6 +477,79 @@ textarea {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+}
+
+.toggle-switch {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-soft);
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.toggle-switch input {
+  position: absolute;
+  opacity: 0;
+  pointer-events: none;
+}
+
+.toggle-switch__track {
+  width: 34px;
+  height: 20px;
+  border-radius: 999px;
+  background: #d6e0ee;
+  border: 1px solid #b6c7de;
+  padding: 2px;
+  transition: all 0.18s ease;
+}
+
+.toggle-switch__thumb {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #ffffff;
+  box-shadow: 0 1px 3px rgba(9, 18, 38, 0.25);
+  transform: translateX(0);
+  transition: transform 0.18s ease;
+}
+
+.toggle-switch__label {
+  min-width: 24px;
+}
+
+.toggle-switch.is-active .toggle-switch__track {
+  background: #0b66d7;
+  border-color: #0b66d7;
+}
+
+.toggle-switch.is-active .toggle-switch__thumb {
+  transform: translateX(14px);
+}
+
+.segmented {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 6px;
+}
+
+.segmented__option {
+  min-height: 36px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: #ffffff;
+  color: #556278;
+  font-size: 12px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.segmented__option.is-active {
+  background: #edf5ff;
+  border-color: #79a9ee;
+  color: #16417c;
 }
 
 .stage-config-grid {
@@ -430,14 +577,6 @@ textarea {
 .stage-card__title {
   font-size: 14px;
   font-weight: 700;
-}
-
-.stage-card__switch {
-  font-size: 12px;
-  color: var(--text-soft);
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
 }
 
 .stage-card__body {
@@ -804,11 +943,11 @@ table.data-table {
 
 .compare-check {
   display: inline-grid;
-  grid-template-columns: 20px auto;
+  grid-template-columns: 18px auto;
   gap: 8px;
   align-items: center;
   cursor: pointer;
-  color: #516076;
+  color: #4d5c72;
   font-size: 12px;
   font-weight: 700;
 }
@@ -820,15 +959,15 @@ table.data-table {
 }
 
 .compare-check__box {
-  width: 18px;
-  height: 18px;
-  border-radius: 6px;
-  border: 1px solid #93a7c7;
+  width: 16px;
+  height: 16px;
+  border-radius: 5px;
+  border: 1px solid #97aacc;
   background: #ffffff;
-  color: #ffffff;
+  color: transparent;
   display: grid;
   place-items: center;
-  font-size: 12px;
+  font-size: 11px;
   line-height: 1;
   transition: all 0.18s ease;
 }

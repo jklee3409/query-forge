@@ -60,9 +60,12 @@ export function StageCard({ title, checked, onToggle, children }) {
     <article className="stage-card">
       <div className="stage-card__header">
         <div className="stage-card__title">{title}</div>
-        <label className="stage-card__switch">
+        <label className={`toggle-switch ${checked ? 'is-active' : ''}`}>
           <input type="checkbox" checked={checked} onChange={(event) => onToggle(event.target.checked)} />
-          사용
+          <span className="toggle-switch__track" aria-hidden="true">
+            <span className="toggle-switch__thumb" />
+          </span>
+          <span className="toggle-switch__label">{checked ? 'On' : 'Off'}</span>
         </label>
       </div>
       <div className="stage-card__body">{children}</div>

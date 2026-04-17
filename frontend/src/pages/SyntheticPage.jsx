@@ -10,6 +10,7 @@ const DEFAULT_LLM_MODEL = 'gemini-2.5-flash-lite'
 export function SyntheticPage({ notify }) {
   const pageSize = 20
   const historyPageSize = 3
+
   const [methods, setMethods] = useState([])
   const [batches, setBatches] = useState([])
   const [sources, setSources] = useState([])
@@ -27,12 +28,10 @@ export function SyntheticPage({ notify }) {
     sourceId: '',
     sourceDocumentId: '',
     versionName: '',
-    sourceDocumentVersion: '',
     limitChunks: '',
     avgQueriesPerChunk: '2.0',
-    maxTotalQueries: '40',
-    randomChunkSampling: false,
-    llmModel: DEFAULT_LLM_MODEL,
+    maxTotalQueries: '1000',
+    chunkSamplingMode: 'random',
     llmRpm: '1000',
   })
 
@@ -145,17 +144,16 @@ export function SyntheticPage({ notify }) {
           sourceId: runForm.sourceId || null,
           sourceDocumentId: runForm.sourceDocumentId || null,
           versionName: runForm.versionName || null,
-          sourceDocumentVersion: runForm.sourceDocumentVersion || null,
           limitChunks: toNumber(runForm.limitChunks),
           avgQueriesPerChunk: toNumber(runForm.avgQueriesPerChunk),
           maxTotalQueries: toNumber(runForm.maxTotalQueries),
-          randomChunkSampling: Boolean(runForm.randomChunkSampling),
-          llmModel: runForm.llmModel || null,
+          randomChunkSampling: runForm.chunkSamplingMode === 'random',
+          llmModel: DEFAULT_LLM_MODEL,
           llmRpm: toNumber(runForm.llmRpm),
         }),
       })
       await Promise.all([loadBatches(), loadStats(), loadQueries(queryPage), loadLlmJobs()])
-      notify('합성 질의 생성 배치가 등록되었습니다.')
+      notify('합성 질의 생성 배치를 등록했습니다.')
     } catch (error) {
       notify(error.message, 'error')
     }
@@ -247,29 +245,39 @@ export function SyntheticPage({ notify }) {
               <option value="">선택</option>{methods.map((method) => <option key={method.methodCode} value={method.methodCode}>{method.methodCode} - {method.methodName}</option>)}
             </select>
           </label>
-          <label className="filter-field">원본 문서 소스
+          <label className="filter-field">소스
             <select value={runForm.sourceId} onChange={(event) => setRunForm((prev) => ({ ...prev, sourceId: event.target.value, sourceDocumentId: '' }))}>
               <option value="">전체 소스</option>{sources.map((source) => <option key={source.sourceId} value={source.sourceId}>{source.sourceId} ({source.productName || '-'})</option>)}
             </select>
           </label>
-          <label className="filter-field">원본 문서(선택)
+          <label className="filter-field">소스 문서(선택)
             <select value={runForm.sourceDocumentId} onChange={(event) => setRunForm((prev) => ({ ...prev, sourceDocumentId: event.target.value }))}>
               <option value="">전체 문서</option>{sourceDocuments.map((doc) => <option key={doc.documentId} value={doc.documentId}>{doc.documentId} | {doc.title}</option>)}
             </select>
           </label>
           <label className="filter-field">배치 버전명<input value={runForm.versionName} placeholder="예: c-main-v1" onChange={(event) => setRunForm((prev) => ({ ...prev, versionName: event.target.value }))} /></label>
-          <label className="filter-field">소스 문서 버전<input value={runForm.sourceDocumentVersion} placeholder="예: 6.1" onChange={(event) => setRunForm((prev) => ({ ...prev, sourceDocumentVersion: event.target.value }))} /></label>
           <label className="filter-field filter-field--small">청크 수 제한<input type="number" min="1" value={runForm.limitChunks} onChange={(event) => setRunForm((prev) => ({ ...prev, limitChunks: event.target.value }))} /></label>
           <label className="filter-field filter-field--small">청크당 평균 질의<input type="number" min="0.2" max="20" step="0.1" value={runForm.avgQueriesPerChunk} onChange={(event) => setRunForm((prev) => ({ ...prev, avgQueriesPerChunk: event.target.value }))} /></label>
-          <label className="filter-field filter-field--small">최대 생성 질의<input type="number" min="1" max="2000" value={runForm.maxTotalQueries} onChange={(event) => setRunForm((prev) => ({ ...prev, maxTotalQueries: event.target.value }))} /></label>
-          <label className="filter-field filter-field--small">Random Chunk Sampling
-            <input
-              type="checkbox"
-              checked={runForm.randomChunkSampling}
-              onChange={(event) => setRunForm((prev) => ({ ...prev, randomChunkSampling: event.target.checked }))}
-            />
+          <label className="filter-field filter-field--small">생성 개수<input type="number" min="1" max="2000" value={runForm.maxTotalQueries} onChange={(event) => setRunForm((prev) => ({ ...prev, maxTotalQueries: event.target.value }))} /></label>
+          <label className="filter-field filter-field--small">청크 선택 방식
+            <div className="segmented">
+              <button
+                type="button"
+                className={`segmented__option ${runForm.chunkSamplingMode === 'random' ? 'is-active' : ''}`}
+                onClick={() => setRunForm((prev) => ({ ...prev, chunkSamplingMode: 'random' }))}
+              >
+                랜덤
+              </button>
+              <button
+                type="button"
+                className={`segmented__option ${runForm.chunkSamplingMode === 'ordered' ? 'is-active' : ''}`}
+                onClick={() => setRunForm((prev) => ({ ...prev, chunkSamplingMode: 'ordered' }))}
+              >
+                문서 순서
+              </button>
+            </div>
           </label>
-          <label className="filter-field">Gemini 모델<input value={runForm.llmModel} onChange={(event) => setRunForm((prev) => ({ ...prev, llmModel: event.target.value }))} /></label>
+          <label className="filter-field">LLM 모델<input value={DEFAULT_LLM_MODEL} disabled readOnly /></label>
           <label className="filter-field filter-field--small">LLM RPM<input type="number" min="1" max="1000" value={runForm.llmRpm} onChange={(event) => setRunForm((prev) => ({ ...prev, llmRpm: event.target.value }))} /></label>
           <div className="filter-field filter-field--small"><button type="submit" className="button button--primary">생성 실행</button></div>
         </form>
