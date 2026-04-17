@@ -19,7 +19,9 @@ import org.testcontainers.utility.DockerImageName;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.http.MediaType.APPLICATION_JSON;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -209,7 +211,21 @@ class AdminConsoleGatingIntegrationTest {
     }
 
     @Test
-    void clearCompletedGatingResultsRemovesOnlyCompletedRowsForTargetMethod() {
+    void runGatingRequiresGenerationBatchSelection() throws Exception {
+        mockMvc.perform(post("/api/admin/console/gating/batches/run")
+                        .contentType(APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "methodCode": "A",
+                                  "gatingPreset": "full_gating"
+                                }
+                                """))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.detail").value("generation_batch_id is required"));
+    }
+
+    @Test
+    void clearCompletedGatingResultsRemovesOnlyCompletedRowsForTargetMethodAndGenerationBatch() {
         UUID methodA = jdbcTemplate.getJdbcTemplate().queryForObject(
                 "SELECT generation_method_id FROM synthetic_query_generation_method WHERE method_code = 'A'",
                 UUID.class
@@ -221,62 +237,109 @@ class AdminConsoleGatingIntegrationTest {
         assertThat(methodA).isNotNull();
         assertThat(methodB).isNotNull();
 
-        UUID completedBatchA = UUID.randomUUID();
-        UUID runningBatchA = UUID.randomUUID();
-        UUID completedBatchB = UUID.randomUUID();
-        insertGatingBatch(completedBatchA, methodA, "completed");
-        insertGatingBatch(runningBatchA, methodA, "running");
-        insertGatingBatch(completedBatchB, methodB, "completed");
+        UUID generationBatchA1 = insertGenerationBatch(methodA, "a-batch-1");
+        UUID generationBatchA2 = insertGenerationBatch(methodA, "a-batch-2");
+        UUID generationBatchB1 = insertGenerationBatch(methodB, "b-batch-1");
 
-        insertRegistryQuery("sq_a_completed", "A");
-        insertRegistryQuery("sq_a_running", "A");
-        insertRegistryQuery("sq_b_completed", "B");
+        UUID completedBatchA1 = UUID.randomUUID();
+        UUID runningBatchA1 = UUID.randomUUID();
+        UUID completedBatchA2 = UUID.randomUUID();
+        UUID completedBatchB1 = UUID.randomUUID();
+        insertGatingBatch(completedBatchA1, methodA, generationBatchA1, "completed");
+        insertGatingBatch(runningBatchA1, methodA, generationBatchA1, "running");
+        insertGatingBatch(completedBatchA2, methodA, generationBatchA2, "completed");
+        insertGatingBatch(completedBatchB1, methodB, generationBatchB1, "completed");
 
-        insertGatedRow("gated_a_completed", "sq_a_completed", completedBatchA);
-        insertGatedRow("gated_a_running", "sq_a_running", runningBatchA);
-        insertGatedRow("gated_b_completed", "sq_b_completed", completedBatchB);
+        insertRegistryQuery("sq_a1_completed", "A");
+        insertRegistryQuery("sq_a1_running", "A");
+        insertRegistryQuery("sq_a2_completed", "A");
+        insertRegistryQuery("sq_b1_completed", "B");
 
-        insertBatchArtifacts(completedBatchA, "sq_a_completed");
-        insertBatchArtifacts(completedBatchB, "sq_b_completed");
+        insertGatedRow("gated_a1_completed", "sq_a1_completed", completedBatchA1);
+        insertGatedRow("gated_a1_running", "sq_a1_running", runningBatchA1);
+        insertGatedRow("gated_a2_completed", "sq_a2_completed", completedBatchA2);
+        insertGatedRow("gated_b1_completed", "sq_b1_completed", completedBatchB1);
 
-        int removed = adminConsoleRepository.clearCompletedGatingResults(methodA, null);
+        insertBatchArtifacts(completedBatchA1, "sq_a1_completed");
+        insertBatchArtifacts(completedBatchA2, "sq_a2_completed");
+        insertBatchArtifacts(completedBatchB1, "sq_b1_completed");
+
+        int removed = adminConsoleRepository.clearCompletedGatingResults(methodA, generationBatchA1);
         assertThat(removed).isEqualTo(1);
 
-        assertThat(countRows("SELECT COUNT(*) FROM quality_gating_batch WHERE gating_batch_id = :id", completedBatchA)).isZero();
-        assertThat(countRows("SELECT COUNT(*) FROM quality_gating_batch WHERE gating_batch_id = :id", runningBatchA)).isEqualTo(1);
-        assertThat(countRows("SELECT COUNT(*) FROM quality_gating_batch WHERE gating_batch_id = :id", completedBatchB)).isEqualTo(1);
+        assertThat(countRows("SELECT COUNT(*) FROM quality_gating_batch WHERE gating_batch_id = :id", completedBatchA1)).isZero();
+        assertThat(countRows("SELECT COUNT(*) FROM quality_gating_batch WHERE gating_batch_id = :id", runningBatchA1)).isEqualTo(1);
+        assertThat(countRows("SELECT COUNT(*) FROM quality_gating_batch WHERE gating_batch_id = :id", completedBatchA2)).isEqualTo(1);
+        assertThat(countRows("SELECT COUNT(*) FROM quality_gating_batch WHERE gating_batch_id = :id", completedBatchB1)).isEqualTo(1);
 
-        assertThat(countRows("SELECT COUNT(*) FROM synthetic_query_gating_result WHERE gating_batch_id = :id", completedBatchA)).isZero();
-        assertThat(countRows("SELECT COUNT(*) FROM synthetic_query_gating_history WHERE gating_batch_id = :id", completedBatchA)).isZero();
-        assertThat(countRows("SELECT COUNT(*) FROM quality_gating_stage_result WHERE gating_batch_id = :id", completedBatchA)).isZero();
+        assertThat(countRows("SELECT COUNT(*) FROM synthetic_query_gating_result WHERE gating_batch_id = :id", completedBatchA1)).isZero();
+        assertThat(countRows("SELECT COUNT(*) FROM synthetic_query_gating_history WHERE gating_batch_id = :id", completedBatchA1)).isZero();
+        assertThat(countRows("SELECT COUNT(*) FROM quality_gating_stage_result WHERE gating_batch_id = :id", completedBatchA1)).isZero();
 
-        UUID completedBatchRef = jdbcTemplate.queryForObject(
-                "SELECT gating_batch_id FROM synthetic_queries_gated WHERE gated_query_id = 'gated_a_completed'",
+        UUID completedBatchA1Ref = jdbcTemplate.queryForObject(
+                "SELECT gating_batch_id FROM synthetic_queries_gated WHERE gated_query_id = 'gated_a1_completed'",
                 new MapSqlParameterSource(),
                 UUID.class
         );
-        UUID runningBatchRef = jdbcTemplate.queryForObject(
-                "SELECT gating_batch_id FROM synthetic_queries_gated WHERE gated_query_id = 'gated_a_running'",
+        UUID runningBatchA1Ref = jdbcTemplate.queryForObject(
+                "SELECT gating_batch_id FROM synthetic_queries_gated WHERE gated_query_id = 'gated_a1_running'",
+                new MapSqlParameterSource(),
+                UUID.class
+        );
+        UUID completedBatchA2Ref = jdbcTemplate.queryForObject(
+                "SELECT gating_batch_id FROM synthetic_queries_gated WHERE gated_query_id = 'gated_a2_completed'",
                 new MapSqlParameterSource(),
                 UUID.class
         );
         UUID methodBBatchRef = jdbcTemplate.queryForObject(
-                "SELECT gating_batch_id FROM synthetic_queries_gated WHERE gated_query_id = 'gated_b_completed'",
+                "SELECT gating_batch_id FROM synthetic_queries_gated WHERE gated_query_id = 'gated_b1_completed'",
                 new MapSqlParameterSource(),
                 UUID.class
         );
-        assertThat(completedBatchRef).isNull();
-        assertThat(runningBatchRef).isEqualTo(runningBatchA);
-        assertThat(methodBBatchRef).isEqualTo(completedBatchB);
+        assertThat(completedBatchA1Ref).isNull();
+        assertThat(runningBatchA1Ref).isEqualTo(runningBatchA1);
+        assertThat(completedBatchA2Ref).isEqualTo(completedBatchA2);
+        assertThat(methodBBatchRef).isEqualTo(completedBatchB1);
+    }
+
+    private UUID insertGenerationBatch(UUID methodId, String versionName) {
+        UUID generationBatchId = UUID.randomUUID();
+        jdbcTemplate.update(
+                """
+                INSERT INTO synthetic_query_generation_batch (
+                    batch_id,
+                    generation_method_id,
+                    version_name,
+                    status,
+                    created_by
+                ) VALUES (
+                    :batchId,
+                    :generationMethodId,
+                    :versionName,
+                    'completed',
+                    'test-admin'
+                )
+                """,
+                new MapSqlParameterSource()
+                        .addValue("batchId", generationBatchId)
+                        .addValue("generationMethodId", methodId)
+                        .addValue("versionName", versionName)
+        );
+        return generationBatchId;
     }
 
     private void insertGatingBatch(UUID gatingBatchId, UUID methodId, String status) {
+        insertGatingBatch(gatingBatchId, methodId, null, status);
+    }
+
+    private void insertGatingBatch(UUID gatingBatchId, UUID methodId, UUID generationBatchId, String status) {
         jdbcTemplate.update(
                 """
                 INSERT INTO quality_gating_batch (
                     gating_batch_id,
                     gating_preset,
                     generation_method_id,
+                    generation_batch_id,
                     stage_config_json,
                     status,
                     created_by
@@ -284,6 +347,7 @@ class AdminConsoleGatingIntegrationTest {
                     :gatingBatchId,
                     'full_gating',
                     :generationMethodId,
+                    :generationBatchId,
                     '{}'::jsonb,
                     :status,
                     'test-admin'
@@ -292,6 +356,7 @@ class AdminConsoleGatingIntegrationTest {
                 new MapSqlParameterSource()
                         .addValue("gatingBatchId", gatingBatchId)
                         .addValue("generationMethodId", methodId)
+                        .addValue("generationBatchId", generationBatchId)
                         .addValue("status", status)
         );
     }

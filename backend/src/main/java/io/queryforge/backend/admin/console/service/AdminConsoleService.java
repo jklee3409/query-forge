@@ -144,14 +144,26 @@ public class AdminConsoleService {
     @Transactional
     public AdminConsoleDtos.GatingBatchRow runGating(AdminConsoleDtos.GatingBatchRunRequest request) {
         String methodCode = normalizeMethodCode(request.methodCode());
+        if (request.generationBatchId() == null) {
+            throw new IllegalArgumentException("generation_batch_id is required");
+        }
         AdminConsoleDtos.SyntheticGenerationMethod method = repository.findGenerationMethodByCode(methodCode)
                 .orElseThrow(() -> new IllegalArgumentException("generation method not found: " + methodCode));
-        AdminConsoleDtos.SyntheticGenerationBatchRow generationBatch = request.generationBatchId() == null
-                ? null
-                : repository.findGenerationBatch(request.generationBatchId())
+        AdminConsoleDtos.SyntheticGenerationBatchRow generationBatch = repository.findGenerationBatch(request.generationBatchId())
                 .orElseThrow(() -> new IllegalArgumentException("generation batch not found: " + request.generationBatchId()));
+        if (generationBatch.methodCode() == null || !methodCode.equalsIgnoreCase(generationBatch.methodCode())) {
+            throw new IllegalArgumentException(
+                    "generation batch method mismatch: expected=" + methodCode + ", actual=" + generationBatch.methodCode()
+            );
+        }
+        if (!"completed".equalsIgnoreCase(generationBatch.status())) {
+            throw new IllegalArgumentException("generation batch is not completed: " + request.generationBatchId());
+        }
+        if (generationBatch.sourceGenerationRunId() == null) {
+            throw new IllegalArgumentException("generation batch has no source_generation_run_id: " + request.generationBatchId());
+        }
 
-        UUID sourceGenerationRunId = generationBatch != null ? generationBatch.sourceGenerationRunId() : null;
+        UUID sourceGenerationRunId = generationBatch.sourceGenerationRunId();
         String gatingPreset = normalizeGatingPreset(request.gatingPreset());
         Map<String, Object> stageConfig = new LinkedHashMap<>();
         stageConfig.put("enable_rule_filter", flagValue(request.enableRuleFilter(), gatingPreset, "rule"));
