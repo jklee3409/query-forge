@@ -4,11 +4,18 @@ import { fmtTime, shortId } from '../lib/format.js'
 import { queryString, requestJson } from '../lib/api.js'
 
 export function PipelinePage({ notify }) {
+  const runPageSize = 3
+  const documentPageSize = 10
+
   const [summary, setSummary] = useState(null)
   const [runs, setRuns] = useState([])
+  const [runPage, setRunPage] = useState(0)
+  const [runHasNextPage, setRunHasNextPage] = useState(false)
   const [sources, setSources] = useState([])
   const [documents, setDocuments] = useState([])
-  const [filters, setFilters] = useState({ source_id: '', version_label: '', document_id: '' })
+  const [documentPage, setDocumentPage] = useState(0)
+  const [documentHasNextPage, setDocumentHasNextPage] = useState(false)
+  const [filters, setFilters] = useState({ source_id: '', version_label: '', document_id: '', search: '' })
   const [modal, setModal] = useState(null)
   const [busyRunType, setBusyRunType] = useState('')
 
@@ -16,9 +23,12 @@ export function PipelinePage({ notify }) {
     setSummary(await requestJson('/api/admin/pipeline/dashboard'))
   }
 
-  const loadRuns = async () => {
-    const payload = await requestJson('/api/admin/pipeline/runs?limit=30')
-    setRuns(Array.isArray(payload) ? payload : [])
+  const loadRuns = async (page = runPage) => {
+    const query = queryString({ limit: runPageSize + 1, offset: page * runPageSize })
+    const payload = await requestJson(`/api/admin/pipeline/runs?${query}`)
+    const normalized = Array.isArray(payload) ? payload : []
+    setRunHasNextPage(normalized.length > runPageSize)
+    setRuns(normalized.slice(0, runPageSize))
   }
 
   const loadSources = async () => {
@@ -26,14 +36,27 @@ export function PipelinePage({ notify }) {
     setSources(Array.isArray(payload) ? payload : [])
   }
 
-  const loadDocuments = async (nextFilters = filters) => {
-    const query = queryString({ ...nextFilters, active_only: true, limit: 30 })
+  const loadDocuments = async (nextFilters = filters, page = documentPage) => {
+    const query = queryString({
+      ...nextFilters,
+      active_only: true,
+      limit: documentPageSize + 1,
+      offset: page * documentPageSize,
+    })
     const payload = await requestJson(`/api/admin/corpus/documents${query ? `?${query}` : ''}`)
-    setDocuments(Array.isArray(payload) ? payload : [])
+    const normalized = Array.isArray(payload) ? payload : []
+    setDocumentHasNextPage(normalized.length > documentPageSize)
+    setDocuments(normalized.slice(0, documentPageSize))
+  }
+
+  const applyDocumentFilters = async (nextFilters = filters) => {
+    const initialPage = 0
+    setDocumentPage(initialPage)
+    await loadDocuments(nextFilters, initialPage)
   }
 
   useEffect(() => {
-    Promise.all([loadSummary(), loadRuns(), loadSources(), loadDocuments()]).catch((error) => notify(error.message, 'error'))
+    Promise.all([loadSummary(), loadRuns(0), loadSources(), loadDocuments(filters, 0)]).catch((error) => notify(error.message, 'error'))
   }, [])
 
   const triggerPipeline = async (runType) => {
@@ -41,7 +64,8 @@ export function PipelinePage({ notify }) {
     try {
       const endpoint = runType === 'full_ingest' ? '/api/admin/pipeline/full-ingest' : `/api/admin/pipeline/${runType}`
       await requestJson(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })
-      await Promise.all([loadSummary(), loadRuns()])
+      setRunPage(0)
+      await Promise.all([loadSummary(), loadRuns(0)])
       notify('파이프라인 실행 요청을 접수했습니다.')
     } catch (error) {
       notify(error.message, 'error')
@@ -117,7 +141,7 @@ export function PipelinePage({ notify }) {
       <section className="table-shell">
         <div className="table-header">
           <div className="table-title">파이프라인 실행 이력</div>
-          <button type="button" className="button" onClick={() => Promise.all([loadSummary(), loadRuns()]).catch((error) => notify(error.message, 'error'))}>새로고침</button>
+          <button type="button" className="button" onClick={() => Promise.all([loadSummary(), loadRuns(runPage)]).catch((error) => notify(error.message, 'error'))}>새로고침</button>
         </div>
         <div className="table-wrap">
           <table className="data-table">
@@ -143,11 +167,34 @@ export function PipelinePage({ notify }) {
             </tbody>
           </table>
         </div>
+        <div className="pagination">
+          <button
+            type="button"
+            className="button"
+            disabled={runPage === 0}
+            onClick={() => {
+              const nextPage = Math.max(0, runPage - 1)
+              setRunPage(nextPage)
+              loadRuns(nextPage).catch((error) => notify(error.message, 'error'))
+            }}
+          >이전</button>
+          <div className="pagination__label">페이지 {runPage + 1}</div>
+          <button
+            type="button"
+            className="button"
+            disabled={!runHasNextPage}
+            onClick={() => {
+              const nextPage = runPage + 1
+              setRunPage(nextPage)
+              loadRuns(nextPage).catch((error) => notify(error.message, 'error'))
+            }}
+          >다음</button>
+        </div>
       </section>
 
       <section className="table-shell">
         <div className="table-header"><div className="table-title">문서/청크 조회</div></div>
-        <form className="filter-bar" onSubmit={(event) => { event.preventDefault(); loadDocuments(filters).catch((error) => notify(error.message, 'error')) }}>
+        <form className="filter-bar" onSubmit={(event) => { event.preventDefault(); applyDocumentFilters(filters).catch((error) => notify(error.message, 'error')) }}>
           <label className="filter-field">문서 소스
             <select value={filters.source_id} onChange={(event) => setFilters((prev) => ({ ...prev, source_id: event.target.value }))}>
               <option value="">전체</option>
@@ -159,6 +206,9 @@ export function PipelinePage({ notify }) {
           </label>
           <label className="filter-field">문서 ID
             <input value={filters.document_id} placeholder="document_id" onChange={(event) => setFilters((prev) => ({ ...prev, document_id: event.target.value }))} />
+          </label>
+          <label className="filter-field">검색
+            <input value={filters.search} placeholder="title/url/chunk keyword" onChange={(event) => setFilters((prev) => ({ ...prev, search: event.target.value }))} />
           </label>
           <div className="filter-field filter-field--small"><button type="submit" className="button button--primary">조회</button></div>
         </form>
@@ -181,6 +231,29 @@ export function PipelinePage({ notify }) {
               ))}
             </tbody>
           </table>
+        </div>
+        <div className="pagination">
+          <button
+            type="button"
+            className="button"
+            disabled={documentPage === 0}
+            onClick={() => {
+              const nextPage = Math.max(0, documentPage - 1)
+              setDocumentPage(nextPage)
+              loadDocuments(filters, nextPage).catch((error) => notify(error.message, 'error'))
+            }}
+          >이전</button>
+          <div className="pagination__label">페이지 {documentPage + 1}</div>
+          <button
+            type="button"
+            className="button"
+            disabled={!documentHasNextPage}
+            onClick={() => {
+              const nextPage = documentPage + 1
+              setDocumentPage(nextPage)
+              loadDocuments(filters, nextPage).catch((error) => notify(error.message, 'error'))
+            }}
+          >다음</button>
         </div>
       </section>
       <Modal data={modal} onClose={() => setModal(null)} />

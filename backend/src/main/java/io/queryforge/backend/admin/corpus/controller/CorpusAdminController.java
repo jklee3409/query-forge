@@ -52,6 +52,7 @@ public class CorpusAdminController {
             @RequestParam(name = "document_id", required = false) String documentId,
             @RequestParam(name = "section_heading_keyword", required = false) String headingKeyword,
             @RequestParam(name = "chunk_keyword", required = false) String chunkKeyword,
+            @RequestParam(name = "search", required = false) String search,
             @RequestParam(name = "run_id", required = false) UUID runId,
             @RequestParam(name = "active_only", defaultValue = "true") boolean activeOnly,
             @RequestParam(name = "limit", required = false) Integer limit,
@@ -64,6 +65,7 @@ public class CorpusAdminController {
                 documentId,
                 headingKeyword,
                 chunkKeyword,
+                search,
                 runId,
                 activeOnly,
                 limit,
@@ -89,11 +91,12 @@ public class CorpusAdminController {
     public List<CorpusAdminDtos.ChunkSummary> getDocumentChunks(
             @PathVariable String documentId,
             @RequestParam(name = "chunk_keyword", required = false) String chunkKeyword,
+            @RequestParam(name = "search", required = false) String search,
             @RequestParam(name = "run_id", required = false) UUID runId,
             @RequestParam(name = "limit", required = false) Integer limit,
             @RequestParam(name = "offset", required = false) Integer offset
     ) {
-        return service.listDocumentChunks(documentId, chunkKeyword, runId, limit, offset);
+        return service.listDocumentChunks(documentId, chunkKeyword, search, runId, limit, offset);
     }
 
     @GetMapping("/chunks")
@@ -103,6 +106,7 @@ public class CorpusAdminController {
             @RequestParam(name = "source_id", required = false) String sourceId,
             @RequestParam(name = "document_id", required = false) String documentId,
             @RequestParam(name = "chunk_keyword", required = false) String chunkKeyword,
+            @RequestParam(name = "search", required = false) String search,
             @RequestParam(name = "code_presence", required = false) Boolean codePresence,
             @RequestParam(name = "min_token_len", required = false) Integer minTokenLen,
             @RequestParam(name = "max_token_len", required = false) Integer maxTokenLen,
@@ -117,6 +121,7 @@ public class CorpusAdminController {
                 sourceId,
                 documentId,
                 chunkKeyword,
+                search,
                 codePresence,
                 minTokenLen,
                 maxTokenLen,

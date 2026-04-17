@@ -53,6 +53,7 @@ public class CorpusAdminService {
             String documentId,
             String headingKeyword,
             String chunkKeyword,
+            String search,
             UUID runId,
             boolean activeOnly,
             Integer limit,
@@ -65,6 +66,7 @@ public class CorpusAdminService {
                 documentId,
                 headingKeyword,
                 chunkKeyword,
+                search,
                 runId,
                 activeOnly,
                 limit,
@@ -87,11 +89,12 @@ public class CorpusAdminService {
     public List<CorpusAdminDtos.ChunkSummary> listDocumentChunks(
             String documentId,
             String chunkKeyword,
+            String search,
             UUID runId,
             Integer limit,
             Integer offset
     ) {
-        return repository.findChunks(null, null, null, documentId, chunkKeyword, null, null, null, runId, false, limit, offset);
+        return repository.findChunks(null, null, null, documentId, chunkKeyword, search, null, null, null, runId, false, limit, offset);
     }
 
     public List<CorpusAdminDtos.ChunkSummary> listChunks(
@@ -100,6 +103,7 @@ public class CorpusAdminService {
             String sourceId,
             String documentId,
             String chunkKeyword,
+            String search,
             Boolean codePresence,
             Integer minTokenLen,
             Integer maxTokenLen,
@@ -114,6 +118,7 @@ public class CorpusAdminService {
                 sourceId,
                 documentId,
                 chunkKeyword,
+                search,
                 codePresence,
                 minTokenLen,
                 maxTokenLen,
@@ -187,6 +192,7 @@ public class CorpusAdminService {
                 null,
                 null,
                 documentId,
+                null,
                 null,
                 null,
                 null,

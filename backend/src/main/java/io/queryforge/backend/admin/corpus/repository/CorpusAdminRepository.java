@@ -174,6 +174,7 @@ public class CorpusAdminRepository {
             String documentId,
             String headingKeyword,
             String chunkKeyword,
+            String search,
             UUID runId,
             boolean activeOnly,
             Integer limit,
@@ -202,7 +203,7 @@ public class CorpusAdminRepository {
                 WHERE 1=1
                 """);
         MapSqlParameterSource params = new MapSqlParameterSource();
-        appendDocumentFilters(sql, params, productName, versionLabel, sourceId, documentId, headingKeyword, chunkKeyword, runId, activeOnly);
+        appendDocumentFilters(sql, params, productName, versionLabel, sourceId, documentId, headingKeyword, chunkKeyword, search, runId, activeOnly);
         sql.append("""
 
                 GROUP BY d.document_id, d.source_id, d.product_name, d.version_label, d.canonical_url, d.title,
@@ -289,6 +290,7 @@ public class CorpusAdminRepository {
             String sourceId,
             String documentId,
             String chunkKeyword,
+            String search,
             Boolean codePresence,
             Integer minTokenLen,
             Integer maxTokenLen,
@@ -330,6 +332,7 @@ public class CorpusAdminRepository {
                 sourceId,
                 documentId,
                 chunkKeyword,
+                search,
                 codePresence,
                 minTokenLen,
                 maxTokenLen,
@@ -647,6 +650,7 @@ public class CorpusAdminRepository {
             String documentId,
             String headingKeyword,
             String chunkKeyword,
+            String search,
             UUID runId,
             boolean activeOnly
     ) {
@@ -695,6 +699,29 @@ public class CorpusAdminRepository {
                     """);
             params.addValue("chunkKeyword", like(chunkKeyword));
         }
+        if (search != null && !search.isBlank()) {
+            sql.append("""
+                     AND (
+                         d.document_id ILIKE :search
+                         OR d.title ILIKE :search
+                         OR d.canonical_url ILIKE :search
+                         OR d.section_path_text ILIKE :search
+                         OR EXISTS (
+                             SELECT 1
+                             FROM corpus_sections s3
+                             WHERE s3.document_id = d.document_id
+                               AND s3.heading_text ILIKE :search
+                         )
+                         OR EXISTS (
+                             SELECT 1
+                             FROM corpus_chunks c3
+                             WHERE c3.document_id = d.document_id
+                               AND c3.chunk_text ILIKE :search
+                         )
+                     )
+                    """);
+            params.addValue("search", like(search));
+        }
     }
 
     private void appendChunkFilters(
@@ -705,6 +732,7 @@ public class CorpusAdminRepository {
             String sourceId,
             String documentId,
             String chunkKeyword,
+            String search,
             Boolean codePresence,
             Integer minTokenLen,
             Integer maxTokenLen,
@@ -737,6 +765,17 @@ public class CorpusAdminRepository {
         if (chunkKeyword != null && !chunkKeyword.isBlank()) {
             sql.append(" AND c.chunk_text ILIKE :chunkKeyword");
             params.addValue("chunkKeyword", like(chunkKeyword));
+        }
+        if (search != null && !search.isBlank()) {
+            sql.append("""
+                     AND (
+                         c.chunk_id ILIKE :search
+                         OR c.document_id ILIKE :search
+                         OR c.section_path_text ILIKE :search
+                         OR c.chunk_text ILIKE :search
+                     )
+                    """);
+            params.addValue("search", like(search));
         }
         if (codePresence != null) {
             sql.append(" AND c.code_presence = :codePresence");
