@@ -222,6 +222,7 @@ public class AdminConsoleRepository {
                 SET status = 'failed',
                     started_at = COALESCE(started_at, NOW()),
                     finished_at = NOW(),
+                    total_generated_count = 0,
                     metrics_json = CAST(:metricsJson AS jsonb)
                 WHERE batch_id = :batchId
                 """;
@@ -235,6 +236,20 @@ public class AdminConsoleRepository {
                         .addValue("batchId", batchId)
                         .addValue("metricsJson", payload.toString())
         );
+    }
+
+    @Transactional
+    public int deleteSyntheticQueriesByGenerationBatch(UUID batchId) {
+        if (batchId == null) {
+            return 0;
+        }
+        MapSqlParameterSource params = new MapSqlParameterSource("batchId", batchId);
+        int totalDeleted = 0;
+        for (String tableName : STRATEGY_RAW_TABLES) {
+            String sql = "DELETE FROM " + tableName + " WHERE generation_batch_id = :batchId";
+            totalDeleted += jdbcTemplate.update(sql, params);
+        }
+        return totalDeleted;
     }
 
     @Transactional

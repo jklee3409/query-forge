@@ -514,29 +514,55 @@ public class LlmJobService {
     ) {
         int nextRetry = (job.retryCount() == null ? 0 : job.retryCount()) + 1;
         int maxRetries = job.maxRetries() == null ? 0 : job.maxRetries();
-        JsonNode resultJson = objectMapper.valueToTree(
-                Map.of(
-                        "error", exception.getMessage() == null ? "job_failed" : exception.getMessage(),
-                        "steps", resultByCommand
-                )
-        );
+        String errorMessage = exception.getMessage() == null ? "job_failed" : exception.getMessage();
         if (nextRetry <= maxRetries) {
             long backoffSeconds = (long) Math.min(60, Math.pow(2, nextRetry) * 2);
             Instant nextRunAt = Instant.now().plusSeconds(backoffSeconds);
             llmJobRepository.prepareItemsForRetry(job.jobId());
-            llmJobRepository.queueJobWithBackoff(job.jobId(), nextRetry, nextRunAt, exception.getMessage());
+            llmJobRepository.queueJobWithBackoff(job.jobId(), nextRetry, nextRunAt, errorMessage);
             scheduleEnqueue(job.jobId(), backoffSeconds);
             return;
         }
-        llmJobRepository.markJobFailed(job.jobId(), exception.getMessage(), resultJson);
+
+        Integer purgedSyntheticQueries = null;
+        String cleanupError = null;
         if (job.generationBatchId() != null) {
-            adminConsoleRepository.failGenerationBatch(job.generationBatchId(), exception.getMessage(), resultJson);
+            try {
+                purgedSyntheticQueries = adminConsoleRepository.deleteSyntheticQueriesByGenerationBatch(job.generationBatchId());
+            } catch (RuntimeException cleanupException) {
+                cleanupError = cleanupException.getMessage();
+                log.error(
+                        "Failed to purge synthetic queries for failed generation batch. batchId={}, jobId={}",
+                        job.generationBatchId(),
+                        job.jobId(),
+                        cleanupException
+                );
+            }
+        }
+
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("error", errorMessage);
+        payload.put("steps", resultByCommand);
+        if (purgedSyntheticQueries != null || cleanupError != null) {
+            Map<String, Object> cleanupPayload = new LinkedHashMap<>();
+            if (purgedSyntheticQueries != null) {
+                cleanupPayload.put("purged_synthetic_queries", purgedSyntheticQueries);
+            }
+            if (cleanupError != null && !cleanupError.isBlank()) {
+                cleanupPayload.put("cleanup_error", cleanupError);
+            }
+            payload.put("cleanup", cleanupPayload);
+        }
+        JsonNode resultJson = objectMapper.valueToTree(payload);
+        llmJobRepository.markJobFailed(job.jobId(), errorMessage, resultJson);
+        if (job.generationBatchId() != null) {
+            adminConsoleRepository.failGenerationBatch(job.generationBatchId(), errorMessage, resultJson);
         }
         if (job.gatingBatchId() != null) {
-            adminConsoleRepository.failGatingBatch(job.gatingBatchId(), exception.getMessage());
+            adminConsoleRepository.failGatingBatch(job.gatingBatchId(), errorMessage);
         }
         if (job.ragTestRunId() != null) {
-            adminConsoleRepository.failRagTestRun(job.ragTestRunId(), exception.getMessage());
+            adminConsoleRepository.failRagTestRun(job.ragTestRunId(), errorMessage);
         }
     }
 
