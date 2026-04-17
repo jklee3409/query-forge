@@ -175,26 +175,43 @@ public class AdminConsoleService {
 
         UUID sourceGenerationRunId = generationBatch.sourceGenerationRunId();
         String gatingPreset = normalizeGatingPreset(request.gatingPreset());
+        AdminConsoleDtos.GatingRunConfig requestConfig = request.config();
+        AdminConsoleDtos.GatingStageFlags stageFlags = requestConfig == null ? null : requestConfig.stageFlags();
+        AdminConsoleDtos.GatingThresholdConfig thresholdConfig = requestConfig == null ? null : requestConfig.thresholds();
         Map<String, Object> stageConfig = new LinkedHashMap<>();
-        stageConfig.put("enable_rule_filter", flagValue(request.enableRuleFilter(), gatingPreset, "rule"));
-        stageConfig.put("enable_llm_self_eval", flagValue(request.enableLlmSelfEval(), gatingPreset, "llm"));
-        stageConfig.put("enable_retrieval_utility", flagValue(request.enableRetrievalUtility(), gatingPreset, "utility"));
-        stageConfig.put("enable_diversity", flagValue(request.enableDiversity(), gatingPreset, "diversity"));
-        Map<String, Object> ruleConfig = resolveRuleConfig(request);
-        Map<String, Double> utilityScoreWeights = resolveUtilityScoreWeights(request);
-        Map<String, Double> gatingWeights = resolveGatingWeights(request);
-        double utilityThreshold = request.utilityThreshold() == null
+        stageConfig.put(
+                "enable_rule_filter",
+                flagValue(stageFlags == null ? null : stageFlags.enableRuleFilter(), gatingPreset, "rule")
+        );
+        stageConfig.put(
+                "enable_llm_self_eval",
+                flagValue(stageFlags == null ? null : stageFlags.enableLlmSelfEval(), gatingPreset, "llm")
+        );
+        stageConfig.put(
+                "enable_retrieval_utility",
+                flagValue(stageFlags == null ? null : stageFlags.enableRetrievalUtility(), gatingPreset, "utility")
+        );
+        stageConfig.put(
+                "enable_diversity",
+                flagValue(stageFlags == null ? null : stageFlags.enableDiversity(), gatingPreset, "diversity")
+        );
+        Map<String, Object> ruleConfig = resolveRuleConfig(requestConfig == null ? null : requestConfig.ruleConfig());
+        Map<String, Double> utilityScoreWeights = resolveUtilityScoreWeights(
+                requestConfig == null ? null : requestConfig.utilityScoreWeights()
+        );
+        Map<String, Double> gatingWeights = resolveGatingWeights(requestConfig == null ? null : requestConfig.gatingWeights());
+        double utilityThreshold = thresholdConfig == null || thresholdConfig.utilityThreshold() == null
                 ? 0.70d
-                : clampRange(request.utilityThreshold(), 0.0d, 1.0d, "utility_threshold");
-        double diversityThresholdSameChunk = request.diversityThresholdSameChunk() == null
+                : clampRange(thresholdConfig.utilityThreshold(), 0.0d, 1.0d, "utility_threshold");
+        double diversityThresholdSameChunk = thresholdConfig == null || thresholdConfig.diversityThresholdSameChunk() == null
                 ? 0.93d
-                : clampRange(request.diversityThresholdSameChunk(), 0.0d, 1.0d, "diversity_threshold_same_chunk");
-        double diversityThresholdSameDoc = request.diversityThresholdSameDoc() == null
+                : clampRange(thresholdConfig.diversityThresholdSameChunk(), 0.0d, 1.0d, "diversity_threshold_same_chunk");
+        double diversityThresholdSameDoc = thresholdConfig == null || thresholdConfig.diversityThresholdSameDoc() == null
                 ? 0.96d
-                : clampRange(request.diversityThresholdSameDoc(), 0.0d, 1.0d, "diversity_threshold_same_doc");
-        double finalScoreThreshold = request.finalScoreThreshold() == null
+                : clampRange(thresholdConfig.diversityThresholdSameDoc(), 0.0d, 1.0d, "diversity_threshold_same_doc");
+        double finalScoreThreshold = thresholdConfig == null || thresholdConfig.finalScoreThreshold() == null
                 ? 0.75d
-                : clampRange(request.finalScoreThreshold(), 0.0d, 1.0d, "final_score_threshold");
+                : clampRange(thresholdConfig.finalScoreThreshold(), 0.0d, 1.0d, "final_score_threshold");
         stageConfig.put("rule_config", ruleConfig);
         stageConfig.put("utility_score_weights", utilityScoreWeights);
         stageConfig.put("gating_weights", gatingWeights);
@@ -884,27 +901,51 @@ public class AdminConsoleService {
         return value;
     }
 
-    private Map<String, Object> resolveRuleConfig(AdminConsoleDtos.GatingBatchRunRequest request) {
+    private Map<String, Object> resolveRuleConfig(AdminConsoleDtos.GatingRuleConfig request) {
         Map<String, Object> ruleConfig = new LinkedHashMap<>();
-        ruleConfig.put("rule_min_len_short", request.ruleMinLengthShort() == null ? 4 : clampRange(request.ruleMinLengthShort(), 1, 400, "rule_min_len_short"));
-        ruleConfig.put("rule_max_len_short", request.ruleMaxLengthShort() == null ? 60 : clampRange(request.ruleMaxLengthShort(), 1, 400, "rule_max_len_short"));
-        ruleConfig.put("rule_min_len_long", request.ruleMinLengthLong() == null ? 8 : clampRange(request.ruleMinLengthLong(), 1, 400, "rule_min_len_long"));
-        ruleConfig.put("rule_max_len_long", request.ruleMaxLengthLong() == null ? 100 : clampRange(request.ruleMaxLengthLong(), 1, 400, "rule_max_len_long"));
-        ruleConfig.put("rule_min_tokens", request.ruleMinTokens() == null ? 2 : clampRange(request.ruleMinTokens(), 1, 120, "rule_min_tokens"));
-        ruleConfig.put("rule_max_tokens", request.ruleMaxTokens() == null ? 30 : clampRange(request.ruleMaxTokens(), 1, 120, "rule_max_tokens"));
-        double minKoreanRatio = request.ruleMinKoreanRatio() == null
+        ruleConfig.put(
+                "rule_min_len_short",
+                request == null || request.minLengthShort() == null ? 4 : clampRange(request.minLengthShort(), 1, 400, "rule_min_len_short")
+        );
+        ruleConfig.put(
+                "rule_max_len_short",
+                request == null || request.maxLengthShort() == null ? 60 : clampRange(request.maxLengthShort(), 1, 400, "rule_max_len_short")
+        );
+        ruleConfig.put(
+                "rule_min_len_long",
+                request == null || request.minLengthLong() == null ? 8 : clampRange(request.minLengthLong(), 1, 400, "rule_min_len_long")
+        );
+        ruleConfig.put(
+                "rule_max_len_long",
+                request == null || request.maxLengthLong() == null ? 100 : clampRange(request.maxLengthLong(), 1, 400, "rule_max_len_long")
+        );
+        ruleConfig.put(
+                "rule_min_tokens",
+                request == null || request.minTokens() == null ? 2 : clampRange(request.minTokens(), 1, 120, "rule_min_tokens")
+        );
+        ruleConfig.put(
+                "rule_max_tokens",
+                request == null || request.maxTokens() == null ? 30 : clampRange(request.maxTokens(), 1, 120, "rule_max_tokens")
+        );
+        double minKoreanRatio = request == null || request.minKoreanRatio() == null
                 ? 0.20d
-                : clampRange(request.ruleMinKoreanRatio(), 0.0d, 1.0d, "rule_min_korean_ratio");
-        double minKoreanRatioCodeMixed = request.ruleMinKoreanRatio() == null ? 0.20d : minKoreanRatio;
+                : clampRange(request.minKoreanRatio(), 0.0d, 1.0d, "rule_min_korean_ratio");
+        double minKoreanRatioCodeMixed = request == null || request.minKoreanRatio() == null ? 0.20d : minKoreanRatio;
         ruleConfig.put("rule_min_korean_ratio", minKoreanRatio);
         ruleConfig.put("rule_min_korean_ratio_code_mixed", minKoreanRatioCodeMixed);
         return ruleConfig;
     }
 
-    private Map<String, Double> resolveGatingWeights(AdminConsoleDtos.GatingBatchRunRequest request) {
-        double llmWeight = request.llmWeight() == null ? 0.35d : clampRange(request.llmWeight(), 0.0d, 1.0d, "llm_weight");
-        double utilityWeight = request.utilityWeight() == null ? 0.50d : clampRange(request.utilityWeight(), 0.0d, 1.0d, "utility_weight");
-        double diversityWeight = request.diversityWeight() == null ? 0.15d : clampRange(request.diversityWeight(), 0.0d, 1.0d, "diversity_weight");
+    private Map<String, Double> resolveGatingWeights(AdminConsoleDtos.GatingWeightsConfig request) {
+        double llmWeight = request == null || request.llmWeight() == null
+                ? 0.35d
+                : clampRange(request.llmWeight(), 0.0d, 1.0d, "llm_weight");
+        double utilityWeight = request == null || request.utilityWeight() == null
+                ? 0.50d
+                : clampRange(request.utilityWeight(), 0.0d, 1.0d, "utility_weight");
+        double diversityWeight = request == null || request.diversityWeight() == null
+                ? 0.15d
+                : clampRange(request.diversityWeight(), 0.0d, 1.0d, "diversity_weight");
         double sum = llmWeight + utilityWeight + diversityWeight;
         if (sum <= 0.0d) {
             llmWeight = 0.35d;
@@ -919,55 +960,61 @@ public class AdminConsoleService {
         return gatingWeights;
     }
 
-    private Map<String, Double> resolveUtilityScoreWeights(AdminConsoleDtos.GatingBatchRunRequest request) {
+    private Map<String, Double> resolveUtilityScoreWeights(AdminConsoleDtos.GatingUtilityScoreConfig request) {
         Map<String, Double> weights = new LinkedHashMap<>();
         weights.put(
                 "target_top1",
-                request.utilityTargetTop1Score() == null
+                request == null || request.targetTop1Score() == null
                         ? 1.00d
-                        : clampRange(request.utilityTargetTop1Score(), 0.0d, 1.0d, "utility_target_top1_score")
+                        : clampRange(request.targetTop1Score(), 0.0d, 1.0d, "utility_target_top1_score")
         );
         weights.put(
                 "target_top3",
-                request.utilityTargetTop3Score() == null
+                request == null || request.targetTop3Score() == null
                         ? 0.85d
-                        : clampRange(request.utilityTargetTop3Score(), 0.0d, 1.0d, "utility_target_top3_score")
+                        : clampRange(request.targetTop3Score(), 0.0d, 1.0d, "utility_target_top3_score")
         );
         weights.put(
                 "target_top5",
-                request.utilityTargetTop5Score() == null
+                request == null || request.targetTop5Score() == null
                         ? 0.70d
-                        : clampRange(request.utilityTargetTop5Score(), 0.0d, 1.0d, "utility_target_top5_score")
+                        : clampRange(request.targetTop5Score(), 0.0d, 1.0d, "utility_target_top5_score")
+        );
+        weights.put(
+                "target_top10",
+                request == null || request.targetTop10Score() == null
+                        ? 0.60d
+                        : clampRange(request.targetTop10Score(), 0.0d, 1.0d, "utility_target_top10_score")
         );
         weights.put(
                 "same_doc_top3",
-                request.utilitySameDocTop3Score() == null
+                request == null || request.sameDocTop3Score() == null
                         ? 0.55d
-                        : clampRange(request.utilitySameDocTop3Score(), 0.0d, 1.0d, "utility_same_doc_top3_score")
+                        : clampRange(request.sameDocTop3Score(), 0.0d, 1.0d, "utility_same_doc_top3_score")
         );
         weights.put(
                 "same_doc_top5",
-                request.utilitySameDocTop5Score() == null
+                request == null || request.sameDocTop5Score() == null
                         ? 0.40d
-                        : clampRange(request.utilitySameDocTop5Score(), 0.0d, 1.0d, "utility_same_doc_top5_score")
+                        : clampRange(request.sameDocTop5Score(), 0.0d, 1.0d, "utility_same_doc_top5_score")
         );
         weights.put(
                 "outside_top5",
-                request.utilityOutsideTop5Score() == null
+                request == null || request.outsideTop5Score() == null
                         ? 0.00d
-                        : clampRange(request.utilityOutsideTop5Score(), 0.0d, 1.0d, "utility_outside_top5_score")
+                        : clampRange(request.outsideTop5Score(), 0.0d, 1.0d, "utility_outside_top5_score")
         );
         weights.put(
                 "multi_partial_bonus",
-                request.utilityMultiPartialBonus() == null
+                request == null || request.multiPartialBonus() == null
                         ? 0.05d
-                        : clampRange(request.utilityMultiPartialBonus(), 0.0d, 1.0d, "utility_multi_partial_bonus")
+                        : clampRange(request.multiPartialBonus(), 0.0d, 1.0d, "utility_multi_partial_bonus")
         );
         weights.put(
                 "multi_full_bonus",
-                request.utilityMultiFullBonus() == null
+                request == null || request.multiFullBonus() == null
                         ? 0.12d
-                        : clampRange(request.utilityMultiFullBonus(), 0.0d, 1.0d, "utility_multi_full_bonus")
+                        : clampRange(request.multiFullBonus(), 0.0d, 1.0d, "utility_multi_full_bonus")
         );
         return weights;
     }
@@ -1018,6 +1065,7 @@ public class AdminConsoleService {
                         "target_top1", 1.00,
                         "target_top3", 0.85,
                         "target_top5", 0.70,
+                        "target_top10", 0.60,
                         "same_doc_top3", 0.55,
                         "same_doc_top5", 0.40,
                         "outside_top5", 0.00,

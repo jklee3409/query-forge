@@ -16,6 +16,9 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.utility.DockerImageName;
 
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -225,6 +228,95 @@ class AdminConsoleGatingIntegrationTest {
     }
 
     @Test
+    void runGatingAppliesNestedWeightsAndWritesExperimentConfig() throws Exception {
+        UUID methodA = jdbcTemplate.getJdbcTemplate().queryForObject(
+                "SELECT generation_method_id FROM synthetic_query_generation_method WHERE method_code = 'A'",
+                UUID.class
+        );
+        assertThat(methodA).isNotNull();
+        UUID sourceRunId = UUID.randomUUID();
+        UUID generationBatchId = insertGenerationBatch(methodA, "a-batch-with-source", sourceRunId);
+
+        String response = mockMvc.perform(post("/api/admin/console/gating/batches/run")
+                        .contentType(APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "methodCode": "A",
+                                  "generationBatchId": "%s",
+                                  "gatingPreset": "full_gating",
+                                  "config": {
+                                    "stageFlags": {
+                                      "enableRuleFilter": true,
+                                      "enableLlmSelfEval": true,
+                                      "enableRetrievalUtility": true,
+                                      "enableDiversity": true
+                                    },
+                                    "ruleConfig": {
+                                      "minLengthShort": 5,
+                                      "maxLengthShort": 61,
+                                      "minLengthLong": 9,
+                                      "maxLengthLong": 101,
+                                      "minTokens": 3,
+                                      "maxTokens": 31,
+                                      "minKoreanRatio": 0.31
+                                    },
+                                    "gatingWeights": {
+                                      "llmWeight": 0.25,
+                                      "utilityWeight": 0.55,
+                                      "diversityWeight": 0.20
+                                    },
+                                    "utilityScoreWeights": {
+                                      "targetTop1Score": 0.99,
+                                      "targetTop3Score": 0.88,
+                                      "targetTop5Score": 0.77,
+                                      "targetTop10Score": 0.58,
+                                      "sameDocTop3Score": 0.54,
+                                      "sameDocTop5Score": 0.42,
+                                      "outsideTop5Score": 0.11,
+                                      "multiPartialBonus": 0.06,
+                                      "multiFullBonus": 0.13
+                                    },
+                                    "thresholds": {
+                                      "utilityThreshold": 0.66,
+                                      "diversityThresholdSameChunk": 0.91,
+                                      "diversityThresholdSameDoc": 0.95,
+                                      "finalScoreThreshold": 0.74
+                                    }
+                                  }
+                                }
+                                """.formatted(generationBatchId)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.stageConfig.utility_score_weights.target_top10").value(0.58))
+                .andExpect(jsonPath("$.stageConfig.utility_threshold").value(0.66))
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+
+        UUID gatingBatchId = UUID.fromString(objectMapper().readTree(response).path("gatingBatchId").asText());
+        String experimentName = jdbcTemplate.queryForObject(
+                """
+                SELECT experiment_name
+                FROM llm_job
+                WHERE gating_batch_id = :gatingBatchId
+                ORDER BY created_at DESC
+                LIMIT 1
+                """,
+                new MapSqlParameterSource("gatingBatchId", gatingBatchId),
+                String.class
+        );
+        assertThat(experimentName).isNotBlank();
+
+        Path configPath = resolveExperimentConfigPath(experimentName);
+        assertThat(Files.exists(configPath)).isTrue();
+        String yaml = Files.readString(configPath, StandardCharsets.UTF_8);
+        assertThat(yaml).contains("target_top10: 0.58");
+        assertThat(yaml).contains("utility_threshold: 0.66");
+        assertThat(yaml).contains("final_score_threshold: 0.74");
+
+        Files.deleteIfExists(configPath);
+    }
+
+    @Test
     void clearCompletedGatingResultsRemovesOnlyCompletedRowsForTargetMethodAndGenerationBatch() {
         UUID methodA = jdbcTemplate.getJdbcTemplate().queryForObject(
                 "SELECT generation_method_id FROM synthetic_query_generation_method WHERE method_code = 'A'",
@@ -303,6 +395,10 @@ class AdminConsoleGatingIntegrationTest {
     }
 
     private UUID insertGenerationBatch(UUID methodId, String versionName) {
+        return insertGenerationBatch(methodId, versionName, null);
+    }
+
+    private UUID insertGenerationBatch(UUID methodId, String versionName, UUID sourceGenerationRunId) {
         UUID generationBatchId = UUID.randomUUID();
         jdbcTemplate.update(
                 """
@@ -310,12 +406,14 @@ class AdminConsoleGatingIntegrationTest {
                     batch_id,
                     generation_method_id,
                     version_name,
+                    source_generation_run_id,
                     status,
                     created_by
                 ) VALUES (
                     :batchId,
                     :generationMethodId,
                     :versionName,
+                    :sourceGenerationRunId,
                     'completed',
                     'test-admin'
                 )
@@ -324,6 +422,7 @@ class AdminConsoleGatingIntegrationTest {
                         .addValue("batchId", generationBatchId)
                         .addValue("generationMethodId", methodId)
                         .addValue("versionName", versionName)
+                        .addValue("sourceGenerationRunId", sourceGenerationRunId)
         );
         return generationBatchId;
     }
@@ -522,5 +621,21 @@ class AdminConsoleGatingIntegrationTest {
                 Long.class
         );
         return value == null ? 0L : value;
+    }
+
+    private Path resolveExperimentConfigPath(String experimentName) {
+        Path inRepoRoot = Path.of("configs", "experiments", experimentName + ".yaml").toAbsolutePath().normalize();
+        if (Files.exists(inRepoRoot)) {
+            return inRepoRoot;
+        }
+        Path inParent = Path.of("..", "configs", "experiments", experimentName + ".yaml").toAbsolutePath().normalize();
+        if (Files.exists(inParent)) {
+            return inParent;
+        }
+        return inRepoRoot;
+    }
+
+    private com.fasterxml.jackson.databind.ObjectMapper objectMapper() {
+        return new com.fasterxml.jackson.databind.ObjectMapper();
     }
 }

@@ -169,33 +169,64 @@ public final class AdminConsoleDtos {
             String gatingPreset,
             UUID generationBatchId,
             String methodCode,
+            GatingRunConfig config,
+            String createdBy
+    ) {
+    }
+
+    public record GatingRunConfig(
+            GatingStageFlags stageFlags,
+            GatingRuleConfig ruleConfig,
+            GatingWeightsConfig gatingWeights,
+            GatingUtilityScoreConfig utilityScoreWeights,
+            GatingThresholdConfig thresholds
+    ) {
+    }
+
+    public record GatingStageFlags(
             Boolean enableRuleFilter,
             Boolean enableLlmSelfEval,
             Boolean enableRetrievalUtility,
-            Boolean enableDiversity,
-            Integer ruleMinLengthShort,
-            Integer ruleMaxLengthShort,
-            Integer ruleMinLengthLong,
-            Integer ruleMaxLengthLong,
-            Integer ruleMinTokens,
-            Integer ruleMaxTokens,
-            Double ruleMinKoreanRatio,
+            Boolean enableDiversity
+    ) {
+    }
+
+    public record GatingRuleConfig(
+            Integer minLengthShort,
+            Integer maxLengthShort,
+            Integer minLengthLong,
+            Integer maxLengthLong,
+            Integer minTokens,
+            Integer maxTokens,
+            Double minKoreanRatio
+    ) {
+    }
+
+    public record GatingWeightsConfig(
             Double llmWeight,
             Double utilityWeight,
-            Double diversityWeight,
-            Double utilityTargetTop1Score,
-            Double utilityTargetTop3Score,
-            Double utilityTargetTop5Score,
-            Double utilitySameDocTop3Score,
-            Double utilitySameDocTop5Score,
-            Double utilityOutsideTop5Score,
-            Double utilityMultiPartialBonus,
-            Double utilityMultiFullBonus,
+            Double diversityWeight
+    ) {
+    }
+
+    public record GatingUtilityScoreConfig(
+            Double targetTop1Score,
+            Double targetTop3Score,
+            Double targetTop5Score,
+            Double targetTop10Score,
+            Double sameDocTop3Score,
+            Double sameDocTop5Score,
+            Double outsideTop5Score,
+            Double multiPartialBonus,
+            Double multiFullBonus
+    ) {
+    }
+
+    public record GatingThresholdConfig(
             Double utilityThreshold,
             Double diversityThresholdSameChunk,
             Double diversityThresholdSameDoc,
-            Double finalScoreThreshold,
-            String createdBy
+            Double finalScoreThreshold
     ) {
     }
 

@@ -29,6 +29,7 @@ DEFAULT_RETRIEVAL_UTILITY_WEIGHTS: dict[str, float] = {
     "target_top1": 1.00,
     "target_top3": 0.85,
     "target_top5": 0.70,
+    "target_top10": 0.60,
     "same_doc_top3": 0.55,
     "same_doc_top5": 0.40,
     "outside_top5": 0.00,
@@ -169,4 +170,3 @@ def load_experiment_config(
         config_path=config_path,
         raw=raw,
     )
-

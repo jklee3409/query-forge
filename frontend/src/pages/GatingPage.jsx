@@ -76,6 +76,7 @@ export function GatingPage({ notify }) {
     utilityTargetTop1Score: '1.00',
     utilityTargetTop3Score: '0.85',
     utilityTargetTop5Score: '0.70',
+    utilityTargetTop10Score: '0.60',
     utilitySameDocTop3Score: '0.55',
     utilitySameDocTop5Score: '0.40',
     utilityOutsideTop5Score: '0.00',
@@ -207,32 +208,45 @@ export function GatingPage({ notify }) {
           methodCode: form.methodCode || null,
           generationBatchId: form.generationBatchId || null,
           gatingPreset: form.gatingPreset,
-          enableRuleFilter: Boolean(form.enableRuleFilter),
-          enableLlmSelfEval: Boolean(form.enableLlmSelfEval),
-          enableRetrievalUtility: Boolean(form.enableRetrievalUtility),
-          enableDiversity: Boolean(form.enableDiversity),
-          ruleMinLengthShort: toNumber(form.ruleMinLengthShort),
-          ruleMaxLengthShort: toNumber(form.ruleMaxLengthShort),
-          ruleMinLengthLong: toNumber(form.ruleMinLengthLong),
-          ruleMaxLengthLong: toNumber(form.ruleMaxLengthLong),
-          ruleMinTokens: toNumber(form.ruleMinTokens),
-          ruleMaxTokens: toNumber(form.ruleMaxTokens),
-          ruleMinKoreanRatio: toNumber(form.ruleMinKoreanRatio),
-          llmWeight: toNumber(form.llmWeight),
-          utilityWeight: toNumber(form.utilityWeight),
-          diversityWeight: toNumber(form.diversityWeight),
-          utilityTargetTop1Score: toNumber(form.utilityTargetTop1Score),
-          utilityTargetTop3Score: toNumber(form.utilityTargetTop3Score),
-          utilityTargetTop5Score: toNumber(form.utilityTargetTop5Score),
-          utilitySameDocTop3Score: toNumber(form.utilitySameDocTop3Score),
-          utilitySameDocTop5Score: toNumber(form.utilitySameDocTop5Score),
-          utilityOutsideTop5Score: toNumber(form.utilityOutsideTop5Score),
-          utilityMultiPartialBonus: toNumber(form.utilityMultiPartialBonus),
-          utilityMultiFullBonus: toNumber(form.utilityMultiFullBonus),
-          utilityThreshold: toNumber(form.utilityThreshold),
-          diversityThresholdSameChunk: toNumber(form.diversityThresholdSameChunk),
-          diversityThresholdSameDoc: toNumber(form.diversityThresholdSameDoc),
-          finalScoreThreshold: toNumber(form.finalScoreThreshold),
+          config: {
+            stageFlags: {
+              enableRuleFilter: Boolean(form.enableRuleFilter),
+              enableLlmSelfEval: Boolean(form.enableLlmSelfEval),
+              enableRetrievalUtility: Boolean(form.enableRetrievalUtility),
+              enableDiversity: Boolean(form.enableDiversity),
+            },
+            ruleConfig: {
+              minLengthShort: toNumber(form.ruleMinLengthShort),
+              maxLengthShort: toNumber(form.ruleMaxLengthShort),
+              minLengthLong: toNumber(form.ruleMinLengthLong),
+              maxLengthLong: toNumber(form.ruleMaxLengthLong),
+              minTokens: toNumber(form.ruleMinTokens),
+              maxTokens: toNumber(form.ruleMaxTokens),
+              minKoreanRatio: toNumber(form.ruleMinKoreanRatio),
+            },
+            gatingWeights: {
+              llmWeight: toNumber(form.llmWeight),
+              utilityWeight: toNumber(form.utilityWeight),
+              diversityWeight: toNumber(form.diversityWeight),
+            },
+            utilityScoreWeights: {
+              targetTop1Score: toNumber(form.utilityTargetTop1Score),
+              targetTop3Score: toNumber(form.utilityTargetTop3Score),
+              targetTop5Score: toNumber(form.utilityTargetTop5Score),
+              targetTop10Score: toNumber(form.utilityTargetTop10Score),
+              sameDocTop3Score: toNumber(form.utilitySameDocTop3Score),
+              sameDocTop5Score: toNumber(form.utilitySameDocTop5Score),
+              outsideTop5Score: toNumber(form.utilityOutsideTop5Score),
+              multiPartialBonus: toNumber(form.utilityMultiPartialBonus),
+              multiFullBonus: toNumber(form.utilityMultiFullBonus),
+            },
+            thresholds: {
+              utilityThreshold: toNumber(form.utilityThreshold),
+              diversityThresholdSameChunk: toNumber(form.diversityThresholdSameChunk),
+              diversityThresholdSameDoc: toNumber(form.diversityThresholdSameDoc),
+              finalScoreThreshold: toNumber(form.finalScoreThreshold),
+            },
+          },
         }),
       })
       await Promise.all([loadGatingBatches(), loadLlmJobs()])
@@ -389,6 +403,7 @@ export function GatingPage({ notify }) {
               <NumberInput label="Target Top1 점수" step="0.01" value={form.utilityTargetTop1Score} onChange={(value) => setForm((prev) => ({ ...prev, utilityTargetTop1Score: value }))} />
               <NumberInput label="Target Top3 점수" step="0.01" value={form.utilityTargetTop3Score} onChange={(value) => setForm((prev) => ({ ...prev, utilityTargetTop3Score: value }))} />
               <NumberInput label="Target Top5 점수" step="0.01" value={form.utilityTargetTop5Score} onChange={(value) => setForm((prev) => ({ ...prev, utilityTargetTop5Score: value }))} />
+              <NumberInput label="Target Top10 점수" step="0.01" value={form.utilityTargetTop10Score} onChange={(value) => setForm((prev) => ({ ...prev, utilityTargetTop10Score: value }))} />
               <NumberInput label="Same Doc Top3 점수" step="0.01" value={form.utilitySameDocTop3Score} onChange={(value) => setForm((prev) => ({ ...prev, utilitySameDocTop3Score: value }))} />
               <NumberInput label="Same Doc Top5 점수" step="0.01" value={form.utilitySameDocTop5Score} onChange={(value) => setForm((prev) => ({ ...prev, utilitySameDocTop5Score: value }))} />
               <NumberInput label="Outside Top5 점수" step="0.01" value={form.utilityOutsideTop5Score} onChange={(value) => setForm((prev) => ({ ...prev, utilityOutsideTop5Score: value }))} />

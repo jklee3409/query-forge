@@ -247,14 +247,14 @@ def _retrieval_utility_score(
     reranker: CohereReranker,
     candidate_pool_k: int,
 ) -> float:
-    initial_top_k = max(5, candidate_pool_k)
+    initial_top_k = max(10, candidate_pool_k)
     pre_ranked = _rank_chunks(query_embedding, chunks, top_k=initial_top_k)
     reranked: list[tuple[ChunkItem, float]] = []
     if pre_ranked:
         rerank_rows = reranker.rerank(
             query=query.query_text,
             documents=[chunk.chunk_text for chunk, _score in pre_ranked],
-            top_n=5,
+            top_n=10,
         )
         if rerank_rows:
             for index, score in rerank_rows:
@@ -262,7 +262,7 @@ def _retrieval_utility_score(
                     chunk = pre_ranked[index][0]
                     # normalize cohere relevance score(0..1) into cosine-like range(-1..1)
                     reranked.append((chunk, (float(score) * 2.0) - 1.0))
-    ranked = reranked if reranked else pre_ranked[:5]
+    ranked = reranked if reranked else pre_ranked[:10]
     rank_map = {item.chunk_id: index + 1 for index, (item, _score) in enumerate(ranked)}
     target_ranks = [rank_map.get(chunk_id) for chunk_id in query.target_chunk_ids if chunk_id in rank_map]
 
@@ -275,6 +275,8 @@ def _retrieval_utility_score(
             return utility_weights["target_top3"]
         if rank <= 5:
             return utility_weights["target_top5"]
+        if rank <= 10:
+            return utility_weights.get("target_top10", utility_weights["target_top5"])
         return utility_weights["outside_top5"]
 
     if query.answerability_type == "single" or len(query.target_chunk_ids) <= 1:
