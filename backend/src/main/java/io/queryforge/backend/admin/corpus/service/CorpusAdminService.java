@@ -187,25 +187,10 @@ public class CorpusAdminService {
     }
 
     public CorpusAdminDtos.ChunkBoundaryPreview previewChunkBoundaries(String documentId) {
-        List<CorpusAdminDtos.ChunkSummary> chunks = repository.findChunks(
-                null,
-                null,
-                null,
-                documentId,
-                null,
-                null,
-                null,
-                null,
-                null,
-                null,
-                false,
-                500,
-                0
-        );
+        List<CorpusAdminDtos.ChunkDetail> chunks = repository.findChunkDetailsByDocumentId(documentId, 500);
         int cursor = 0;
         List<CorpusAdminDtos.ChunkBoundaryDto> boundaries = new ArrayList<>();
-        for (CorpusAdminDtos.ChunkSummary chunk : chunks) {
-            CorpusAdminDtos.ChunkDetail detail = repository.findChunk(chunk.chunkId());
+        for (CorpusAdminDtos.ChunkDetail detail : chunks) {
             String baseChunkText = repository.stripOverlapPrefix(detail.chunkText());
             int start = cursor;
             int end = cursor + baseChunkText.length();

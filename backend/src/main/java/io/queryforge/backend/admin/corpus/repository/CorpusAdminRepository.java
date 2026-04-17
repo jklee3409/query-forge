@@ -379,6 +379,41 @@ public class CorpusAdminRepository {
         return jdbcTemplate.queryForObject(sql, new MapSqlParameterSource("chunkId", chunkId), chunkDetailRowMapper());
     }
 
+    public List<CorpusAdminDtos.ChunkDetail> findChunkDetailsByDocumentId(String documentId, Integer limit) {
+        String sql = """
+                SELECT chunk_id,
+                       document_id,
+                       section_id,
+                       chunk_index_in_document,
+                       chunk_index_in_section,
+                       section_path_text,
+                       chunk_text,
+                       char_len,
+                       token_len,
+                       overlap_from_prev_chars,
+                       previous_chunk_id,
+                       next_chunk_id,
+                       code_presence,
+                       table_presence,
+                       list_presence,
+                       product_name,
+                       version_label,
+                       content_checksum,
+                       import_run_id,
+                       metadata_json::text AS metadata_json,
+                       created_at,
+                       updated_at
+                FROM corpus_chunks
+                WHERE document_id = :documentId
+                ORDER BY chunk_index_in_document
+                LIMIT :limit
+                """;
+        MapSqlParameterSource params = new MapSqlParameterSource()
+                .addValue("documentId", documentId)
+                .addValue("limit", normalizeLimit(limit));
+        return jdbcTemplate.query(sql, params, chunkDetailRowMapper());
+    }
+
     public List<CorpusAdminDtos.ChunkNeighborDto> findChunkNeighbors(String chunkId) {
         String sql = """
                 SELECT r.relation_id,
