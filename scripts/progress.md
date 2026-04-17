@@ -3,6 +3,12 @@
 ## Overview
 High-level progress tracking for the project.
 
+## [2026-04-17] Session Summary (Selective Domain Data Reset Execution)
+- What was done: Executed DB reset for synthetic generation, quality gating, RAG quality-test artifacts, and LLM job state/history using transactional SQL against local Postgres container.
+- Key decisions: Preserved corpus collection/preprocess/chunk domain data (`corpus_documents`, `corpus_chunks`, related corpus tables) and retained `query_embeddings` rows for `owner_type='chunk'` only.
+- Issues encountered: No script file was added; reset was executed directly through `docker exec ... psql` to complete immediate operator request.
+- Next steps: Consider adding a reusable reset script in `scripts/` with explicit include/exclude table sets for repeatable operations.
+
 ---
 
 ## [2026-04-13] Session Summary

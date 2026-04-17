@@ -3,6 +3,12 @@
 ## Overview
 High-level pipeline progress tracking.
 
+## [2026-04-17] Session Summary (Stage-Cutoff Memory Build Path)
+- What was done: Added stage-cutoff load path in `memory/build_memory.py` to read from `synthetic_query_gating_result` by `stage_cutoff_level` (`rule_only`, `rule_plus_llm`, `utility`, `diversity`, `full_gating`) using full-gating snapshot provenance, and updated memory metadata/summary fields accordingly.
+- Key decisions: Kept default gated-row path unchanged and switched to stage-cutoff row loading only when `stage_cutoff_enabled=true`; fallback level normalization defaults to `full_gating`.
+- Issues encountered: Full-gating provenance needs `synthetic_queries_gated` join scoped by source run id to avoid mixed historical rows.
+- Next steps: Run exploratory cutoff smoke tests and verify `memory_entries_by_snapshot` + retrieval-mode metrics reflect selected cutoff stage.
+
 ## [2026-04-17] Session Summary (Synthetic-free Baseline Pipeline Guard)
 - What was done: Added synthetic-free baseline handling in `build_memory.py` as stage-level no-op and updated `retrieval_eval.py` / `answer_eval.py` to skip memory loading when baseline/raw-only conditions are active.
 - Key decisions: Preserved pipeline stage order for reproducibility while removing synthetic-query table dependency from baseline execution path (`synthetic_free_baseline=true`).

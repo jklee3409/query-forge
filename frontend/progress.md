@@ -3,6 +3,12 @@
 ## Overview
 High-level progress tracking for the project.
 
+## [2026-04-17] Session Summary (RAG Stage-Cutoff Controls)
+- What was done: Updated `RagPage.jsx` to expose stage-cutoff run controls (`Stage Cutoff` toggle + `Stage Cutoff Level`), added payload wiring (`stageCutoffEnabled`, `stageCutoffLevel`), and adjusted source snapshot option handling for full-gating cutoff mode.
+- Key decisions: Snapshot compatibility check now uses `full_gating` when stage-cutoff is enabled, while existing official run and gating-effect flows remain unchanged.
+- Issues encountered: Mixed-encoding text regions in the page required scoped edits focused on behavior and request wiring.
+- Next steps: UI smoke-test for exploratory stage-cutoff run creation with/without source snapshot and confirm expected validation messages.
+
 ## [2026-04-17] Session Summary (RAG Synthetic-free Baseline Controls)
 - What was done: Added `Synthetic-free baseline` toggle to `RagPage.jsx`, wired request payload field `syntheticFreeBaseline`, and applied UI guards to disable snapshot/method/gating/rewrite controls in baseline mode.
 - Key decisions: Baseline mode now sends `methodCodes=[]`, `gatingApplied=false`, and `rewriteEnabled=false` to align with backend/pipeline synthetic-free execution semantics.

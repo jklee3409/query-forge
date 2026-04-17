@@ -3,6 +3,12 @@
 ## Overview
 High-level progress tracking for the project.
 
+## [2026-04-17] Session Summary (Full-Gating Stage-Cutoff + Domain Data Reset)
+- What was done: Implemented stage-cutoff based RAG run flow (use full-gating snapshot as source and cut synthetic queries by stage level), completed frontend/backend/pipeline wiring, and reset synthetic generation/quality gating/RAG test/LLM-job data in DB.
+- Key decisions: Stage-cutoff path is restricted to exploratory runs and requires explicit `source_gating_batch_id` from a completed `full_gating` batch; corpus collect/preprocess/chunk tables were preserved.
+- Issues encountered: Existing UI file contains mixed-encoding localized text, so stage-cutoff UI edits were applied with narrow scope.
+- Next steps: Run one exploratory `rule_only` cutoff test using full-gating batch `6d97464a-9989-4180-85f5-c076850873aa` and verify per-stage pass counts against RAG memory size.
+
 ## [2026-04-17] Session Summary (Backend Transaction/Concurrency Risk Mitigation)
 - What was done: Applied backend-only hardening for identified high-risk hotspots by shrinking service-level transaction scope around long-latency operations (`ask`, `reindex`, `runRagTest`) and adding advisory-lock-based serialization for pipeline run creation (`startRun` path).
 - Key decisions: Kept business logic and API response contracts intact; focused only on transaction boundary and concurrency control behavior.
