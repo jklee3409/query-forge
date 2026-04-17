@@ -3,6 +3,18 @@
 ## Overview
 High-level progress tracking for the project.
 
+## [2026-04-17] Session Summary (Synthetic Admin UX Cleanup + Checkbox Refresh)
+- What was done: Reworked `SyntheticPage.jsx` run form for operator clarity: removed unused `소스 문서 버전`, renamed `최대 생성 질의` to `생성 개수`, changed random chunk option from checkbox to segmented `청크 선택 방식`, and fixed LLM model input to non-editable `gemini-2.5-flash-lite`.
+- Key decisions: Kept backend API contract compatible by still sending `randomChunkSampling` (derived from UI mode) and forcing `llmModel` from frontend constant.
+- Issues encountered: Existing admin pages contain mixed-encoding text regions, so functional edits were prioritized and validated through production build.
+- Next steps: Run admin synthetic generation smoke for A/C/D (`생성 개수=1000`, random mode) and verify operator readability feedback on the new controls.
+
+## [2026-04-17] Session Summary (Admin Checkbox Visual Unification)
+- What was done: Updated global admin styles (`styles.css`) and control markup (`Common.jsx`, `RagPage.jsx`) to unify checkbox/toggle appearance with `check-pill` and `toggle-switch` patterns.
+- Key decisions: Left existing behavior/validation logic intact while only changing visual controls and interaction affordance.
+- Issues encountered: None.
+- Next steps: Extend the same control pattern to remaining list-selection checkboxes if additional admin screens adopt binary controls.
+
 ## [2026-04-17] Session Summary (Synthetic Generator Random Sampling UX)
 - What was done: Updated `SyntheticPage.jsx` run form/state/payload with `randomChunkSampling` and added a `Random Chunk Sampling` checkbox in Admin synthetic generation controls.
 - Key decisions: Kept existing method-scoped run model (A/C/D individually), retained no-limit behavior when `limitChunks` is empty, and preserved max query input upper bound at `2000`.

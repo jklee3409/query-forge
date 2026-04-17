@@ -3,6 +3,12 @@
 ## Overview
 High-level progress tracking for the project.
 
+## [2026-04-17] Session Summary (Admin Synthetic UX Clarification + Control Refresh)
+- What was done: Updated Admin synthetic generation UI for clarity by removing unused `소스 문서 버전`, renaming count control to `생성 개수`, switching random-chunk option to explicit mode selector, and locking LLM model input to fixed Gemini model.
+- Key decisions: Preserved generation API semantics (`random_chunk_sampling`) and kept model value deterministic from frontend constant to prevent operator-side accidental drift.
+- Issues encountered: Existing UI files include mixed-encoding literal regions; changes were applied with functional focus and validated via frontend production build.
+- Next steps: Execute A/C/D operator runs from GUI with `생성 개수=1000` and compare batch duration/throughput under random vs ordered chunk mode.
+
 ## [2026-04-17] Session Summary (Synthetic Full-Corpus Random Sampling Controls)
 - What was done: Added Admin synthetic generation support for `random_chunk_sampling` (GUI -> backend config -> pipeline), kept no-`limit_chunks` full-corpus behavior, and verified max synthetic query cap supports up to `2000`.
 - Key decisions: Applied random sampling as chunk-order shuffle (seeded by experiment `random_seed`) so `max_total_queries` can stop at a random full-corpus subset without changing core pipeline stages.
