@@ -278,6 +278,7 @@ public final class AdminConsoleDtos {
     public record RagTestRunRequest(
             UUID datasetId,
             List<String> methodCodes,
+            Boolean syntheticFreeBaseline,
             List<UUID> generationBatchIds,
             UUID sourceGatingBatchId,
             Map<String, UUID> comparisonGatingBatchIds,

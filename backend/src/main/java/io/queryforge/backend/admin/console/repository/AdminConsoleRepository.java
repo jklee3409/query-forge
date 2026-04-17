@@ -1782,6 +1782,19 @@ public class AdminConsoleRepository {
         return rows.stream().findFirst();
     }
 
+    @Transactional
+    public int deleteRagTestRun(UUID runId) {
+        MapSqlParameterSource params = new MapSqlParameterSource("runId", runId);
+        jdbcTemplate.update(
+                "DELETE FROM online_query_rewrite_log WHERE run_id = :runId",
+                params
+        );
+        return jdbcTemplate.update(
+                "DELETE FROM rag_test_run WHERE rag_test_run_id = :runId",
+                params
+        );
+    }
+
     public List<AdminConsoleDtos.RagTestRunRow> findRagTestRuns(Integer limit) {
         String sql = """
                 SELECT r.rag_test_run_id,

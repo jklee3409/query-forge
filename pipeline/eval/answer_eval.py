@@ -228,6 +228,7 @@ def run_answer_eval(
         )
 
         dataset_id = str(config.raw.get("dataset_id") or "").strip() or None
+        synthetic_free_baseline = bool(config.raw.get("synthetic_free_baseline", False))
         memory_strategy_filters = [
             str(item).upper()
             for item in (config.raw.get("memory_generation_strategies") or [])
@@ -237,6 +238,12 @@ def run_answer_eval(
         rewrite_enabled = bool(config.raw.get("rewrite_enabled", True))
         selective_rewrite = bool(config.raw.get("selective_rewrite", True))
         gating_applied = bool(config.raw.get("gating_applied", True))
+        if synthetic_free_baseline:
+            memory_strategy_filters = []
+            source_gating_run_id = None
+            rewrite_enabled = False
+            selective_rewrite = False
+            gating_applied = False
         eval_concurrency = _resolve_eval_concurrency(config.raw)
         samples = load_eval_samples(connection, dataset_id=dataset_id)
         LOGGER.info(
@@ -245,7 +252,7 @@ def run_answer_eval(
             eval_concurrency,
         )
         chunks = load_chunk_items(connection)
-        memories = load_memory_items(connection)
+        memories = load_memory_items(connection) if rewrite_enabled else []
 
         sample_rows: list[dict[str, Any]] = []
         with connection.cursor() as cursor:
@@ -369,6 +376,7 @@ def run_answer_eval(
             "dataset_id": dataset_id,
             "source_gating_run_id": source_gating_run_id,
             "memory_generation_strategies": memory_strategy_filters,
+            "synthetic_free_baseline": synthetic_free_baseline,
             "rewrite_enabled": rewrite_enabled,
             "selective_rewrite": selective_rewrite,
             "summary": summary,

@@ -335,6 +335,7 @@ def run_retrieval_eval(
         )
 
         dataset_id = str(config.raw.get("dataset_id") or "").strip() or None
+        synthetic_free_baseline = bool(config.raw.get("synthetic_free_baseline", False))
         memory_strategy_filters = [
             str(item).upper()
             for item in (config.raw.get("memory_generation_strategies") or [])
@@ -350,12 +351,18 @@ def run_retrieval_eval(
                 run_id = str(payload.get("source_gating_run_id") or "").strip()
                 if run_id:
                     comparison_source_runs[preset.strip().lower()] = run_id
+        if synthetic_free_baseline:
+            memory_strategy_filters = []
+            source_gating_run_id = None
+            comparison_source_runs = {}
         configured_modes = [
             str(item).strip()
             for item in (config.raw.get("retrieval_modes") or [])
             if str(item).strip()
         ]
         active_modes = [mode for mode in configured_modes if mode in MODES] or list(MODES)
+        if synthetic_free_baseline:
+            active_modes = ["raw_only"]
         eval_concurrency = _resolve_eval_concurrency(config.raw)
 
         samples = load_eval_samples(connection, dataset_id=dataset_id)
@@ -366,7 +373,8 @@ def run_retrieval_eval(
             eval_concurrency,
         )
         chunks = load_chunk_items(connection)
-        memories = load_memory_items(connection)
+        needs_memory = any(mode != "raw_only" for mode in active_modes)
+        memories = load_memory_items(connection) if needs_memory else []
         raw_metrics_by_sample: dict[str, dict[str, float]] = {}
         mode_scores: dict[str, list[dict[str, Any]]] = defaultdict(list)
         latency_by_mode: dict[str, list[float]] = defaultdict(list)
@@ -604,6 +612,7 @@ def run_retrieval_eval(
             "source_gating_run_id": source_gating_run_id,
             "comparison_source_runs": comparison_source_runs,
             "memory_generation_strategies": memory_strategy_filters,
+            "synthetic_free_baseline": synthetic_free_baseline,
             "active_modes": active_modes,
             "summary": summary_rows,
             "category_summary": category_rows,

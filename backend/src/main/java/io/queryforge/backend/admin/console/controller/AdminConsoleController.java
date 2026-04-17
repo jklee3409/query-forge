@@ -3,6 +3,7 @@ package io.queryforge.backend.admin.console.controller;
 import io.queryforge.backend.admin.console.model.AdminConsoleDtos;
 import io.queryforge.backend.admin.console.service.AdminConsoleService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -137,6 +138,11 @@ public class AdminConsoleController {
             @RequestParam(name = "detail_limit", required = false) Integer detailLimit
     ) {
         return service.getRagTestRunDetail(runId, detailLimit);
+    }
+
+    @DeleteMapping("/rag/tests/{runId}")
+    public void deleteRagTest(@PathVariable UUID runId) {
+        service.deleteRagTestRun(runId);
     }
 
     @GetMapping("/rag/compare")

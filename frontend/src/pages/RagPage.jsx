@@ -100,6 +100,7 @@ export function RagPage({ notify }) {
   const [modal, setModal] = useState(null)
   const [selectedMethods, setSelectedMethods] = useState([])
   const [compareRunIds, setCompareRunIds] = useState([])
+  const [deletingRunId, setDeletingRunId] = useState('')
 
   const [form, setForm] = useState({
     datasetId: '',
@@ -113,6 +114,7 @@ export function RagPage({ notify }) {
     threshold: '0.05',
     retrievalTopK: '20',
     rerankTopN: '5',
+    syntheticFreeBaseline: false,
     gatingApplied: true,
     rewriteEnabled: true,
     selectiveRewrite: true,
@@ -180,7 +182,7 @@ export function RagPage({ notify }) {
     [gatingBatches, form.sourceGatingBatchId],
   )
   const snapshotMethodCode = selectedSnapshot?.methodCode ? String(selectedSnapshot.methodCode).toUpperCase() : null
-  const methodSelectionLocked = Boolean(form.sourceGatingBatchId && snapshotMethodCode)
+  const methodSelectionLocked = !form.syntheticFreeBaseline && Boolean(form.sourceGatingBatchId && snapshotMethodCode)
 
   useEffect(() => {
     if (!methodSelectionLocked || !snapshotMethodCode) return
@@ -197,12 +199,45 @@ export function RagPage({ notify }) {
     }
   }, [form.rewriteEnabled, form.selectiveRewrite, form.useSessionContext])
 
+  useEffect(() => {
+    if (!form.syntheticFreeBaseline) return
+    setForm((prev) => {
+      if (
+        prev.runDiscipline === 'exploratory'
+        && !prev.sourceGatingBatchId
+        && !prev.officialGatingUngatedBatchId
+        && !prev.officialGatingRuleOnlyBatchId
+        && !prev.officialGatingFullGatingBatchId
+        && !prev.gatingApplied
+        && !prev.rewriteEnabled
+        && !prev.selectiveRewrite
+        && !prev.useSessionContext
+      ) {
+        return prev
+      }
+      return {
+        ...prev,
+        runDiscipline: 'exploratory',
+        sourceGatingBatchId: '',
+        officialGatingUngatedBatchId: '',
+        officialGatingRuleOnlyBatchId: '',
+        officialGatingFullGatingBatchId: '',
+        gatingApplied: false,
+        rewriteEnabled: false,
+        selectiveRewrite: false,
+        useSessionContext: false,
+      }
+    })
+  }, [form.syntheticFreeBaseline])
+
   const effectiveGatingPreset = form.gatingApplied ? form.gatingPreset : 'ungated'
   const snapshotBatches = useMemo(
     () => gatingBatches.filter((batch) => batch && String(batch.status || '').toLowerCase() === 'completed'),
     [gatingBatches],
   )
-  const methodCodesForRun = methodSelectionLocked && snapshotMethodCode ? [snapshotMethodCode] : selectedMethods
+  const methodCodesForRun = form.syntheticFreeBaseline
+    ? []
+    : (methodSelectionLocked && snapshotMethodCode ? [snapshotMethodCode] : selectedMethods)
 
   useEffect(() => {
     if (!form.sourceGatingBatchId) return
@@ -279,17 +314,22 @@ export function RagPage({ notify }) {
 
   const runRag = async (event) => {
     event.preventDefault()
-    if (methodCodesForRun.length === 0) {
+    const syntheticFreeBaseline = Boolean(form.syntheticFreeBaseline)
+    if (!syntheticFreeBaseline && methodCodesForRun.length === 0) {
       notify('최소 1개 생성 방식을 선택해야 합니다.', 'error')
       return
     }
-    const officialRun = form.runDiscipline === 'official'
-    const runGatingPreset = effectiveGatingPreset
-    if (officialRun && form.officialComparisonType === 'rewrite_effect' && !form.sourceGatingBatchId) {
+    const officialRun = !syntheticFreeBaseline && form.runDiscipline === 'official'
+    if (syntheticFreeBaseline && form.runDiscipline === 'official') {
+      notify('Synthetic-free baseline은 exploratory 실행에서만 지원됩니다.', 'error')
+      return
+    }
+    const runGatingPreset = syntheticFreeBaseline ? 'ungated' : effectiveGatingPreset
+    if (!syntheticFreeBaseline && officialRun && form.officialComparisonType === 'rewrite_effect' && !form.sourceGatingBatchId) {
       notify('공식 rewrite-effect 실행은 source snapshot 선택이 필수입니다.', 'error')
       return
     }
-    if (officialRun && form.officialComparisonType === 'gating_effect') {
+    if (!syntheticFreeBaseline && officialRun && form.officialComparisonType === 'gating_effect') {
       if (!form.officialGatingUngatedBatchId || !form.officialGatingRuleOnlyBatchId || !form.officialGatingFullGatingBatchId) {
         notify('공식 gating-effect 실행은 ungated/rule_only/full_gating 스냅샷 3개가 모두 필요합니다.', 'error')
         return
@@ -315,7 +355,7 @@ export function RagPage({ notify }) {
         }
       }
     }
-    if (form.sourceGatingBatchId) {
+    if (!syntheticFreeBaseline && form.sourceGatingBatchId) {
       const snapshot = selectedSnapshot
       if (!snapshot) {
         notify('선택한 스냅샷을 찾을 수 없습니다. 목록을 새로고침하세요.', 'error')
@@ -331,29 +371,38 @@ export function RagPage({ notify }) {
       }
     }
     try {
+      const gatingApplied = syntheticFreeBaseline ? false : Boolean(form.gatingApplied)
+      const rewriteEnabled = syntheticFreeBaseline ? false : Boolean(form.rewriteEnabled)
+      const selectiveRewrite = syntheticFreeBaseline ? false : Boolean(form.selectiveRewrite)
+      const useSessionContext = syntheticFreeBaseline ? false : Boolean(form.useSessionContext)
       const created = await requestJson('/api/admin/console/rag/tests/run', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           datasetId: form.datasetId,
-          methodCodes: methodCodesForRun,
+          methodCodes: syntheticFreeBaseline ? [] : methodCodesForRun,
+          syntheticFreeBaseline,
           gatingPreset: runGatingPreset,
-          sourceGatingBatchId: officialRun && form.officialComparisonType === 'gating_effect'
+          sourceGatingBatchId: syntheticFreeBaseline
             ? null
-            : form.sourceGatingBatchId || null,
-          comparisonGatingBatchIds: officialRun && form.officialComparisonType === 'gating_effect'
-            ? {
-                ungated: form.officialGatingUngatedBatchId || null,
-                rule_only: form.officialGatingRuleOnlyBatchId || null,
-                full_gating: form.officialGatingFullGatingBatchId || null,
-              }
-            : null,
+            : officialRun && form.officialComparisonType === 'gating_effect'
+              ? null
+              : form.sourceGatingBatchId || null,
+          comparisonGatingBatchIds: syntheticFreeBaseline
+            ? null
+            : officialRun && form.officialComparisonType === 'gating_effect'
+              ? {
+                  ungated: form.officialGatingUngatedBatchId || null,
+                  rule_only: form.officialGatingRuleOnlyBatchId || null,
+                  full_gating: form.officialGatingFullGatingBatchId || null,
+                }
+              : null,
           officialRun,
           officialComparisonType: officialRun ? form.officialComparisonType : null,
-          gatingApplied: Boolean(form.gatingApplied),
-          rewriteEnabled: Boolean(form.rewriteEnabled),
-          selectiveRewrite: Boolean(form.selectiveRewrite),
-          useSessionContext: Boolean(form.useSessionContext),
+          gatingApplied,
+          rewriteEnabled,
+          selectiveRewrite,
+          useSessionContext,
           threshold: toNumber(form.threshold),
           retrievalTopK: toNumber(form.retrievalTopK),
           rerankTopN: toNumber(form.rerankTopN),
@@ -457,6 +506,21 @@ export function RagPage({ notify }) {
     }
   }
 
+  const deleteRun = async (runId) => {
+    if (!window.confirm('선택한 RAG 테스트 이력과 결과를 삭제할까요?')) return
+    setDeletingRunId(runId)
+    try {
+      await requestJson(`/api/admin/console/rag/tests/${runId}`, { method: 'DELETE' })
+      setCompareRunIds((prev) => prev.filter((id) => id !== runId))
+      await Promise.all([loadTests(), loadRewriteLogs(), loadLlmJobs()])
+      notify('RAG 테스트 이력 및 결과를 삭제했습니다.')
+    } catch (error) {
+      notify(error.message, 'error')
+    } finally {
+      setDeletingRunId('')
+    }
+  }
+
   const openRewriteDetail = async (rewriteLogId) => {
     try {
       const payload = await requestJson(`/api/admin/console/rewrite/logs/${rewriteLogId}`)
@@ -528,7 +592,11 @@ export function RagPage({ notify }) {
               <span className="field-hint">테스트 입력 샘플 집합입니다.</span>
             </label>
             <label className="filter-field">Run Discipline
-              <select value={form.runDiscipline} onChange={(event) => setForm((prev) => ({ ...prev, runDiscipline: event.target.value }))}>
+              <select
+                value={form.runDiscipline}
+                disabled={form.syntheticFreeBaseline}
+                onChange={(event) => setForm((prev) => ({ ...prev, runDiscipline: event.target.value }))}
+              >
                 <option value="exploratory">exploratory</option>
                 <option value="official">official</option>
               </select>
@@ -537,7 +605,7 @@ export function RagPage({ notify }) {
             <label className="filter-field">Official Comparison Type
               <select
                 value={form.officialComparisonType}
-                disabled={form.runDiscipline !== 'official'}
+                disabled={form.syntheticFreeBaseline || form.runDiscipline !== 'official'}
                 onChange={(event) => setForm((prev) => ({ ...prev, officialComparisonType: event.target.value }))}
               >
                 <option value="rewrite_effect">rewrite_effect</option>
@@ -545,7 +613,7 @@ export function RagPage({ notify }) {
               </select>
               <span className="field-hint">official 전용: 한 번에 하나의 비교축만 허용합니다.</span>
             </label>
-            {form.runDiscipline === 'official' && form.officialComparisonType === 'gating_effect' && (
+            {!form.syntheticFreeBaseline && form.runDiscipline === 'official' && form.officialComparisonType === 'gating_effect' && (
               <>
                 <label className="filter-field">Official Snapshot (ungated)
                   <select value={form.officialGatingUngatedBatchId} onChange={(event) => setForm((prev) => ({ ...prev, officialGatingUngatedBatchId: event.target.value }))}>
@@ -591,11 +659,13 @@ export function RagPage({ notify }) {
             <label className="filter-field">Gating Snapshot
               <select
                 value={form.sourceGatingBatchId}
-                disabled={form.runDiscipline === 'official' && form.officialComparisonType === 'gating_effect'}
+                disabled={form.syntheticFreeBaseline || (form.runDiscipline === 'official' && form.officialComparisonType === 'gating_effect')}
                 onChange={(event) => setForm((prev) => ({ ...prev, sourceGatingBatchId: event.target.value }))}
               >
                 <option value="">
-                  {form.runDiscipline === 'official'
+                  {form.syntheticFreeBaseline
+                    ? 'Not used for synthetic-free baseline'
+                    : form.runDiscipline === 'official'
                     ? (form.officialComparisonType === 'gating_effect' ? 'Not used for official gating-effect' : 'Select snapshot (required)')
                     : 'Auto (latest matching)'}
                 </option>
@@ -616,7 +686,7 @@ export function RagPage({ notify }) {
             <label className="filter-field">게이팅 프리셋
               <select
                 value={form.gatingPreset}
-                disabled={!form.gatingApplied}
+                disabled={form.syntheticFreeBaseline || !form.gatingApplied}
                 onChange={(event) => setForm((prev) => ({ ...prev, gatingPreset: event.target.value }))}
               >
                 <option value="ungated">ungated</option>
@@ -635,7 +705,7 @@ export function RagPage({ notify }) {
                     <input
                       type="checkbox"
                       checked={methodCodesForRun.includes(method.methodCode)}
-                      disabled={methodSelectionLocked}
+                      disabled={form.syntheticFreeBaseline || methodSelectionLocked}
                       onChange={(event) => handleToggleMethod(method.methodCode, event.target.checked)}
                     />
                     {method.methodCode}
@@ -643,7 +713,9 @@ export function RagPage({ notify }) {
                 ))}
               </div>
               <span className="field-hint">
-                {methodSelectionLocked
+                {form.syntheticFreeBaseline
+                  ? 'Synthetic-free baseline에서는 생성 방식 선택이 비활성화됩니다.'
+                  : methodSelectionLocked
                   ? `스냅샷 method(${snapshotMethodCode}) 기준으로 자동 고정되어 중복 선택을 제거했습니다.`
                   : '스냅샷 미선택 또는 legacy 스냅샷에서는 수동 선택이 필요합니다.'}
               </span>
@@ -674,10 +746,11 @@ export function RagPage({ notify }) {
           </div>
 
           <div className="checkbox-row">
-            <label><input type="checkbox" checked={form.gatingApplied} onChange={(event) => setForm((prev) => ({ ...prev, gatingApplied: event.target.checked }))} />게이팅 반영</label>
-            <label><input type="checkbox" checked={form.rewriteEnabled} onChange={(event) => setForm((prev) => ({ ...prev, rewriteEnabled: event.target.checked }))} />Rewrite 사용</label>
-            <label><input type="checkbox" checked={form.selectiveRewrite} disabled={!form.rewriteEnabled} onChange={(event) => setForm((prev) => ({ ...prev, selectiveRewrite: event.target.checked, useSessionContext: event.target.checked ? prev.useSessionContext : false }))} />Selective</label>
-            <label><input type="checkbox" checked={form.useSessionContext} disabled={!form.rewriteEnabled || !form.selectiveRewrite} onChange={(event) => setForm((prev) => ({ ...prev, useSessionContext: event.target.checked }))} />Session Context</label>
+            <label><input type="checkbox" checked={form.syntheticFreeBaseline} onChange={(event) => setForm((prev) => ({ ...prev, syntheticFreeBaseline: event.target.checked }))} />Synthetic-free baseline</label>
+            <label><input type="checkbox" checked={form.gatingApplied} disabled={form.syntheticFreeBaseline} onChange={(event) => setForm((prev) => ({ ...prev, gatingApplied: event.target.checked }))} />게이팅 반영</label>
+            <label><input type="checkbox" checked={form.rewriteEnabled} disabled={form.syntheticFreeBaseline} onChange={(event) => setForm((prev) => ({ ...prev, rewriteEnabled: event.target.checked }))} />Rewrite 사용</label>
+            <label><input type="checkbox" checked={form.selectiveRewrite} disabled={form.syntheticFreeBaseline || !form.rewriteEnabled} onChange={(event) => setForm((prev) => ({ ...prev, selectiveRewrite: event.target.checked, useSessionContext: event.target.checked ? prev.useSessionContext : false }))} />Selective</label>
+            <label><input type="checkbox" checked={form.useSessionContext} disabled={form.syntheticFreeBaseline || !form.rewriteEnabled || !form.selectiveRewrite} onChange={(event) => setForm((prev) => ({ ...prev, useSessionContext: event.target.checked }))} />Session Context</label>
           </div>
 
           <div className="state-note">
@@ -685,7 +758,7 @@ export function RagPage({ notify }) {
             Selective=매번 Rewrite하지 않고 품질 개선 가능성 있을 때만 적용, Session Context=대화 문맥을 Rewrite 후보 생성에 투입.
           </div>
 
-          {selectedSnapshot && (
+          {selectedSnapshot && !form.syntheticFreeBaseline && (
             <div className="state-note">
               <strong>선택 스냅샷:</strong> {shortId(selectedSnapshot.gatingBatchId)} / preset {selectedSnapshot.gatingPreset} / method {selectedSnapshot.methodCode || '-'} / source run {selectedSnapshot.sourceGatingRunId ? 'available' : 'missing'}
             </div>
@@ -789,11 +862,14 @@ export function RagPage({ notify }) {
                 <th>Rewrite 모드</th>
                 <th>핵심 지표</th>
                 <th>상세</th>
+                <th>삭제</th>
               </tr>
             </thead>
             <tbody>
               {pagedTests.map((run) => {
                 const metrics = runMetricsMap.get(run.ragTestRunId) || {}
+                const methodCodes = Array.isArray(run.generationMethodCodes) ? run.generationMethodCodes : []
+                const generationMethodLabel = methodCodes.length > 0 ? methodCodes.join(', ') : 'synthetic-free baseline'
                 const rewriteMode = run.rewriteEnabled
                   ? run.selectiveRewrite
                     ? (run.useSessionContext ? 'selective + session' : 'selective')
@@ -819,11 +895,21 @@ export function RagPage({ notify }) {
                     <td><IdBadge value={run.ragTestRunId} /></td>
                     <td><StatusBadge value={run.status} /></td>
                     <td>{run.datasetName || '-'}</td>
-                    <td>{Array.isArray(run.generationMethodCodes) ? run.generationMethodCodes.join(', ') : '-'}</td>
+                    <td>{generationMethodLabel}</td>
                     <td>{run.gatingApplied ? `${run.gatingPreset || 'enabled'}` : 'ungated'}</td>
                     <td>{rewriteMode}</td>
                     <td className="line-clamp">{`R@5 ${formatMetric(metrics.recall_at_5)} | nDCG ${formatMetric(metrics.ndcg_at_10)}`}</td>
                     <td><button type="button" className="button button--ghost" onClick={() => openRunDetail(run.ragTestRunId)}>상세 조회</button></td>
+                    <td>
+                      <button
+                        type="button"
+                        className="button button--ghost"
+                        disabled={deletingRunId === run.ragTestRunId}
+                        onClick={() => deleteRun(run.ragTestRunId)}
+                      >
+                        {deletingRunId === run.ragTestRunId ? '삭제 중...' : '삭제'}
+                      </button>
+                    </td>
                   </tr>
                 )
               })}

@@ -32,6 +32,7 @@ public class AdminConsoleService {
     private static final String RUN_DISCIPLINE_EXPLORATORY = "exploratory";
     private static final String COMPARISON_GATING_EFFECT = "gating_effect";
     private static final String COMPARISON_REWRITE_EFFECT = "rewrite_effect";
+    private static final String SYNTHETIC_FREE_BASELINE_METHOD = "BASELINE";
 
     private final AdminConsoleRepository repository;
     private final LlmJobService llmJobService;
@@ -259,6 +260,14 @@ public class AdminConsoleService {
         return new AdminConsoleDtos.RagTestRunDetail(run, summary, details);
     }
 
+    @Transactional
+    public void deleteRagTestRun(UUID runId) {
+        int removed = repository.deleteRagTestRun(runId);
+        if (removed <= 0) {
+            throw new IllegalArgumentException("rag test run not found: " + runId);
+        }
+    }
+
     public AdminConsoleDtos.RagCompareResponse compareRagRuns(UUID datasetId) {
         return new AdminConsoleDtos.RagCompareResponse(datasetId, repository.findRagTestRunsByDataset(datasetId));
     }
@@ -310,14 +319,31 @@ public class AdminConsoleService {
         if (request.datasetId() == null) {
             throw new IllegalArgumentException("dataset_id is required");
         }
-        List<String> methodCodes = normalizeMethodCodes(request.methodCodes());
-        if (methodCodes.isEmpty()) {
+        boolean syntheticFreeBaseline = Boolean.TRUE.equals(request.syntheticFreeBaseline());
+        List<String> methodCodes = syntheticFreeBaseline ? List.of() : normalizeMethodCodes(request.methodCodes());
+        if (!syntheticFreeBaseline && methodCodes.isEmpty()) {
             throw new IllegalArgumentException("at least one generation method is required");
         }
         List<UUID> batchIds = request.generationBatchIds() == null ? List.of() : request.generationBatchIds();
         String runDiscipline = normalizeRunDiscipline(request.officialRun());
         String officialComparisonType = normalizeOfficialComparisonType(request.officialComparisonType(), runDiscipline);
         Map<String, UUID> comparisonBatchIds = normalizeComparisonBatchIds(request.comparisonGatingBatchIds());
+        UUID sourceGatingBatchId = request.sourceGatingBatchId();
+
+        if (syntheticFreeBaseline) {
+            if (RUN_DISCIPLINE_OFFICIAL.equals(runDiscipline)) {
+                throw new IllegalArgumentException("synthetic-free baseline supports exploratory run only");
+            }
+            if (!batchIds.isEmpty()) {
+                throw new IllegalArgumentException("synthetic-free baseline must not provide generation_batch_ids");
+            }
+            if (sourceGatingBatchId != null) {
+                throw new IllegalArgumentException("synthetic-free baseline must not provide source_gating_batch_id");
+            }
+            if (!comparisonBatchIds.isEmpty()) {
+                throw new IllegalArgumentException("synthetic-free baseline must not provide comparison_gating_batch_ids");
+            }
+        }
 
         if (RUN_DISCIPLINE_OFFICIAL.equals(runDiscipline)) {
             if (methodCodes.size() != 1) {
@@ -338,7 +364,6 @@ public class AdminConsoleService {
         int retrievalTopK = request.retrievalTopK() != null && request.retrievalTopK() > 0 ? request.retrievalTopK() : 20;
         int rerankTopN = request.rerankTopN() != null && request.rerankTopN() > 0 ? request.rerankTopN() : 5;
         double threshold = request.threshold() != null ? request.threshold() : 0.05d;
-        UUID sourceGatingBatchId = request.sourceGatingBatchId();
 
         if (RUN_DISCIPLINE_OFFICIAL.equals(runDiscipline) && COMPARISON_GATING_EFFECT.equals(officialComparisonType)) {
             if (sourceGatingBatchId != null) {
@@ -408,6 +433,14 @@ public class AdminConsoleService {
             useSessionContext = false;
         }
 
+        if (syntheticFreeBaseline) {
+            gatingApplied = false;
+            gatingPreset = "ungated";
+            rewriteEnabled = false;
+            selectiveRewrite = false;
+            useSessionContext = false;
+        }
+
         String experimentName = "admin_eval_" + UUID.randomUUID().toString().replace("-", "").substring(0, 12);
         JsonNode methodCodesNode = objectMapper.valueToTree(methodCodes);
         JsonNode batchIdsNode = objectMapper.valueToTree(batchIds);
@@ -429,10 +462,15 @@ public class AdminConsoleService {
                 defaultCreatedBy(request.createdBy())
         );
 
-        Map<String, Object> config = baseExperimentConfig(experimentName, methodCodes.getFirst());
+        Map<String, Object> config = baseExperimentConfig(
+                experimentName,
+                syntheticFreeBaseline ? SYNTHETIC_FREE_BASELINE_METHOD : methodCodes.getFirst()
+        );
         config.put("dataset_id", request.datasetId().toString());
         config.put("memory_generation_strategies", methodCodes);
         config.put("source_generation_strategies", methodCodes);
+        config.put("synthetic_free_baseline", syntheticFreeBaseline);
+        config.put("gating_applied", gatingApplied);
         config.put("gating_preset", gatingPreset);
         config.put("rewrite_enabled", rewriteEnabled);
         config.put("selective_rewrite", selectiveRewrite);
@@ -448,7 +486,9 @@ public class AdminConsoleService {
         }
 
         boolean requireExplicitSnapshot = RUN_DISCIPLINE_OFFICIAL.equals(runDiscipline);
-        if (RUN_DISCIPLINE_OFFICIAL.equals(runDiscipline) && COMPARISON_GATING_EFFECT.equals(officialComparisonType)) {
+        if (syntheticFreeBaseline) {
+            config.put("retrieval_modes", List.of("raw_only"));
+        } else if (RUN_DISCIPLINE_OFFICIAL.equals(runDiscipline) && COMPARISON_GATING_EFFECT.equals(officialComparisonType)) {
             Map<String, Object> comparisonSnapshots = new LinkedHashMap<>();
             UUID ungatedRunId = resolveSourceGatingRunId(methodCodes, "ungated", comparisonBatchIds.get("ungated"), true)
                     .orElseThrow(() -> new IllegalStateException("ungated snapshot source run not found"));
@@ -527,6 +567,7 @@ public class AdminConsoleService {
         initialRetrievalConfig.put("retrieval_top_k", retrievalTopK);
         initialRetrievalConfig.put("rerank_top_n", rerankTopN);
         initialRetrievalConfig.put("retrieval_modes", config.get("retrieval_modes"));
+        initialRetrievalConfig.put("synthetic_free_baseline", syntheticFreeBaseline);
         Map<String, Object> initialRewriteConfig = new LinkedHashMap<>();
         initialRewriteConfig.put("rewrite_enabled", rewriteEnabled);
         initialRewriteConfig.put("selective_rewrite", selectiveRewrite);
@@ -762,9 +803,9 @@ public class AdminConsoleService {
         ruleConfig.put("rule_min_len_long", request.ruleMinLengthLong() == null ? 8 : clampRange(request.ruleMinLengthLong(), 1, 400, "rule_min_len_long"));
         ruleConfig.put("rule_max_len_long", request.ruleMaxLengthLong() == null ? 100 : clampRange(request.ruleMaxLengthLong(), 1, 400, "rule_max_len_long"));
         ruleConfig.put("rule_min_tokens", request.ruleMinTokens() == null ? 2 : clampRange(request.ruleMinTokens(), 1, 120, "rule_min_tokens"));
-        ruleConfig.put("rule_max_tokens", request.ruleMaxTokens() == null ? 20 : clampRange(request.ruleMaxTokens(), 1, 120, "rule_max_tokens"));
+        ruleConfig.put("rule_max_tokens", request.ruleMaxTokens() == null ? 30 : clampRange(request.ruleMaxTokens(), 1, 120, "rule_max_tokens"));
         double minKoreanRatio = request.ruleMinKoreanRatio() == null
-                ? 0.40d
+                ? 0.20d
                 : clampRange(request.ruleMinKoreanRatio(), 0.0d, 1.0d, "rule_min_korean_ratio");
         double minKoreanRatioCodeMixed = request.ruleMinKoreanRatio() == null ? 0.20d : minKoreanRatio;
         ruleConfig.put("rule_min_korean_ratio", minKoreanRatio);
@@ -880,8 +921,8 @@ public class AdminConsoleService {
         config.put("rule_min_len_long", 8);
         config.put("rule_max_len_long", 100);
         config.put("rule_min_tokens", 2);
-        config.put("rule_max_tokens", 20);
-        config.put("rule_min_korean_ratio", 0.40);
+        config.put("rule_max_tokens", 30);
+        config.put("rule_min_korean_ratio", 0.20);
         config.put("rule_min_korean_ratio_code_mixed", 0.20);
         config.put(
                 "retrieval_utility_weights",

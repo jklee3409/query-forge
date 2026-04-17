@@ -238,6 +238,26 @@ def run_memory_build(
             run_label="build-memory",
         )
 
+        synthetic_free_baseline = bool(config.raw.get("synthetic_free_baseline", False))
+        if synthetic_free_baseline:
+            summary = {
+                "experiment_key": config.experiment_key,
+                "experiment_run_id": run_context.experiment_run_id,
+                "gating_preset": "ungated",
+                "source_gating_run_id": None,
+                "source_generation_strategies": [],
+                "memory_entries_built": 0,
+                "memory_entries_by_snapshot": {},
+                "preview_memory_ids": [],
+                "embedding_model": "hash-embedding-v1",
+                "synthetic_free_baseline": True,
+                "skipped": True,
+                "skip_reason": "synthetic_free_baseline",
+            }
+            recorder.finish_run(run_context, status="completed", metrics=summary)
+            connection.commit()
+            return summary
+
         configured_strategies = (
             config.raw.get("source_generation_strategies")
             or config.raw.get("memory_generation_strategies")
