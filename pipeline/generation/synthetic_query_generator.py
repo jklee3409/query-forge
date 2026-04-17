@@ -175,6 +175,8 @@ def _load_chunks(
     limit: int | None,
     source_document_id: str | None = None,
     source_id: str | None = None,
+    random_chunk_sampling: bool = False,
+    random_seed: int | None = None,
 ) -> list[ChunkRow]:
     statement = """
         SELECT c.chunk_id,
@@ -201,11 +203,20 @@ def _load_chunks(
         where_clause = " WHERE " + " AND ".join(where_clauses) + " "
     statement = statement + where_clause + " ORDER BY c.document_id, c.chunk_index_in_document "
     with connection.cursor() as cursor:
-        if limit:
-            cursor.execute(statement + " LIMIT %s", (*parameters, limit))
-        else:
+        if random_chunk_sampling:
             cursor.execute(statement, parameters)
-        rows = cursor.fetchall()
+            rows = cursor.fetchall()
+            if rows:
+                sampler = random.Random(random_seed)
+                sampler.shuffle(rows)
+                if limit:
+                    rows = rows[:limit]
+        else:
+            if limit:
+                cursor.execute(statement + " LIMIT %s", (*parameters, limit))
+            else:
+                cursor.execute(statement, parameters)
+            rows = cursor.fetchall()
     return [
         ChunkRow(
             chunk_id=str(row["chunk_id"]),
@@ -888,6 +899,7 @@ def run_generation(
                 "max_total_queries": config.raw.get("max_total_queries"),
                 "source_id": config.raw.get("source_id"),
                 "source_document_id": config.raw.get("source_document_id"),
+                "random_chunk_sampling": bool(config.raw.get("random_chunk_sampling", False)),
             },
             run_label="generate-queries",
         )
@@ -899,11 +911,14 @@ def run_generation(
 
         source_document_id = str(config.raw.get("source_document_id") or "").strip() or None
         source_id = str(config.raw.get("source_id") or "").strip() or None
+        random_chunk_sampling = bool(config.raw.get("random_chunk_sampling", False))
         chunks = _load_chunks(
             connection,
             limit=config.limit_chunks,
             source_document_id=source_document_id,
             source_id=source_id,
+            random_chunk_sampling=random_chunk_sampling,
+            random_seed=config.random_seed if random_chunk_sampling else None,
         )
         if not chunks:
             LOGGER.warning(
@@ -1203,6 +1218,7 @@ def run_generation(
             "source_id": source_id,
             "source_document_id": source_document_id,
             "max_total_queries": max_total_queries,
+            "random_chunk_sampling": random_chunk_sampling,
             "llm": {
                 "summary": {
                     "provider": summary_client.config.provider,

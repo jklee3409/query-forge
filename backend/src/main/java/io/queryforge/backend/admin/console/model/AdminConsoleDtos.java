@@ -101,6 +101,7 @@ public final class AdminConsoleDtos {
             Integer limitChunks,
             Double avgQueriesPerChunk,
             Integer maxTotalQueries,
+            Boolean randomChunkSampling,
             String llmModel,
             Integer llmRpm,
             String createdBy

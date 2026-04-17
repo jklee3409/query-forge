@@ -102,7 +102,10 @@ public class AdminConsoleService {
             config.put("avg_queries_per_chunk", clampRange(request.avgQueriesPerChunk(), 0.2d, 20.0d, "avg_queries_per_chunk"));
         }
         if (request.maxTotalQueries() != null) {
-            config.put("max_total_queries", clampRange(request.maxTotalQueries(), 1, 500, "max_total_queries"));
+            config.put("max_total_queries", clampRange(request.maxTotalQueries(), 1, 2000, "max_total_queries"));
+        }
+        if (request.randomChunkSampling() != null) {
+            config.put("random_chunk_sampling", request.randomChunkSampling());
         }
         if (request.llmModel() != null && !request.llmModel().isBlank()) {
             String model = request.llmModel().trim();
