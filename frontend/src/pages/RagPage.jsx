@@ -89,12 +89,14 @@ function formatMetric(value) {
 }
 
 export function RagPage({ notify }) {
+  const historyPageSize = 3
   const [methods, setMethods] = useState([])
   const [datasets, setDatasets] = useState([])
   const [tests, setTests] = useState([])
   const [gatingBatches, setGatingBatches] = useState([])
   const [rewriteLogs, setRewriteLogs] = useState([])
   const [llmJobs, setLlmJobs] = useState([])
+  const [historyPage, setHistoryPage] = useState(0)
   const [modal, setModal] = useState(null)
   const [selectedMethods, setSelectedMethods] = useState([])
   const [compareRunIds, setCompareRunIds] = useState([])
@@ -165,6 +167,13 @@ export function RagPage({ notify }) {
       // ignore polling errors
     }
   })
+
+  useEffect(() => {
+    const totalPages = Math.max(1, Math.ceil(tests.length / historyPageSize))
+    if (historyPage > totalPages - 1) {
+      setHistoryPage(totalPages - 1)
+    }
+  }, [tests, historyPage])
 
   const selectedSnapshot = useMemo(
     () => gatingBatches.find((batch) => batch.gatingBatchId === form.sourceGatingBatchId) || null,
@@ -487,6 +496,9 @@ export function RagPage({ notify }) {
       right: rightMetrics[meta.key],
     })).filter((row) => row.left != null || row.right != null)
   }, [compareRuns, runMetricsMap])
+  const historyTotalPages = Math.max(1, Math.ceil(tests.length / historyPageSize))
+  const currentHistoryPage = Math.min(historyPage, historyTotalPages - 1)
+  const pagedTests = tests.slice(currentHistoryPage * historyPageSize, (currentHistoryPage + 1) * historyPageSize)
 
   const latestSummaryCards = useMemo(() => {
     const completedRuns = tests.filter((run) => String(run.status || '').toLowerCase() === 'completed')
@@ -780,7 +792,7 @@ export function RagPage({ notify }) {
               </tr>
             </thead>
             <tbody>
-              {tests.map((run) => {
+              {pagedTests.map((run) => {
                 const metrics = runMetricsMap.get(run.ragTestRunId) || {}
                 const rewriteMode = run.rewriteEnabled
                   ? run.selectiveRewrite
@@ -817,6 +829,21 @@ export function RagPage({ notify }) {
               })}
             </tbody>
           </table>
+        </div>
+        <div className="pagination">
+          <button
+            type="button"
+            className="button"
+            disabled={currentHistoryPage === 0}
+            onClick={() => setHistoryPage((prev) => Math.max(0, prev - 1))}
+          >이전</button>
+          <div className="pagination__label">페이지 {currentHistoryPage + 1}</div>
+          <button
+            type="button"
+            className="button"
+            disabled={currentHistoryPage + 1 >= historyTotalPages}
+            onClick={() => setHistoryPage((prev) => Math.min(historyTotalPages - 1, prev + 1))}
+          >다음</button>
         </div>
       </section>
 

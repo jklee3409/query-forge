@@ -9,6 +9,7 @@ const DEFAULT_LLM_MODEL = 'gemini-2.5-flash-lite'
 
 export function SyntheticPage({ notify }) {
   const pageSize = 20
+  const historyPageSize = 3
   const [methods, setMethods] = useState([])
   const [batches, setBatches] = useState([])
   const [sources, setSources] = useState([])
@@ -16,6 +17,7 @@ export function SyntheticPage({ notify }) {
   const [queries, setQueries] = useState([])
   const [stats, setStats] = useState({ byMethod: [], byQueryType: [] })
   const [llmJobs, setLlmJobs] = useState([])
+  const [historyPage, setHistoryPage] = useState(0)
   const [queryPage, setQueryPage] = useState(0)
   const [hasNextPage, setHasNextPage] = useState(false)
   const [modal, setModal] = useState(null)
@@ -124,6 +126,13 @@ export function SyntheticPage({ notify }) {
     }
   })
 
+  useEffect(() => {
+    const totalPages = Math.max(1, Math.ceil(batches.length / historyPageSize))
+    if (historyPage > totalPages - 1) {
+      setHistoryPage(totalPages - 1)
+    }
+  }, [batches, historyPage])
+
   const executeRun = async (event) => {
     event.preventDefault()
     try {
@@ -205,6 +214,9 @@ export function SyntheticPage({ notify }) {
   const byMethod = stats.byMethod || []
   const byType = stats.byQueryType || []
   const total = byMethod.reduce((sum, item) => sum + Number(item.count || 0), 0)
+  const historyTotalPages = Math.max(1, Math.ceil(batches.length / historyPageSize))
+  const currentHistoryPage = Math.min(historyPage, historyTotalPages - 1)
+  const pagedBatches = batches.slice(currentHistoryPage * historyPageSize, (currentHistoryPage + 1) * historyPageSize)
 
   return (
     <>
@@ -266,7 +278,7 @@ export function SyntheticPage({ notify }) {
           <table className="data-table">
             <thead><tr><th>배치 ID</th><th>생성 방식</th><th>버전명</th><th>상태</th><th>시작</th><th>종료</th><th>생성 수</th></tr></thead>
             <tbody>
-              {batches.map((batch) => (
+              {pagedBatches.map((batch) => (
                 <tr key={batch.batchId}>
                   <td><IdBadge value={batch.batchId} /></td><td>{batch.methodCode}</td><td>{batch.versionName}</td><td><StatusBadge value={batch.status} /></td>
                   <td>{fmtTime(batch.startedAt)}</td><td>{fmtTime(batch.finishedAt)}</td><td>{batch.totalGeneratedCount ?? 0}</td>
@@ -274,6 +286,21 @@ export function SyntheticPage({ notify }) {
               ))}
             </tbody>
           </table>
+        </div>
+        <div className="pagination">
+          <button
+            type="button"
+            className="button"
+            disabled={currentHistoryPage === 0}
+            onClick={() => setHistoryPage((prev) => Math.max(0, prev - 1))}
+          >이전</button>
+          <div className="pagination__label">페이지 {currentHistoryPage + 1}</div>
+          <button
+            type="button"
+            className="button"
+            disabled={currentHistoryPage + 1 >= historyTotalPages}
+            onClick={() => setHistoryPage((prev) => Math.min(historyTotalPages - 1, prev + 1))}
+          >다음</button>
         </div>
       </section>
 

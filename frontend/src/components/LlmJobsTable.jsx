@@ -1,6 +1,21 @@
+import { useEffect, useMemo, useState } from 'react'
 import { IdBadge, StatusBadge } from './Common.jsx'
 
 export function LlmJobsTable({ jobs, onAction, onDetail }) {
+  const pageSize = 3
+  const [page, setPage] = useState(0)
+  const normalizedJobs = Array.isArray(jobs) ? jobs : []
+  const totalPages = Math.max(1, Math.ceil(normalizedJobs.length / pageSize))
+  const currentPage = Math.min(page, totalPages - 1)
+  const pagedJobs = useMemo(
+    () => normalizedJobs.slice(currentPage * pageSize, (currentPage + 1) * pageSize),
+    [normalizedJobs, currentPage],
+  )
+
+  useEffect(() => {
+    if (page !== currentPage) setPage(currentPage)
+  }, [page, currentPage])
+
   return (
     <section className="table-shell">
       <div className="table-header">
@@ -20,7 +35,7 @@ export function LlmJobsTable({ jobs, onAction, onDetail }) {
             </tr>
           </thead>
           <tbody>
-            {jobs.map((job) => {
+            {pagedJobs.map((job) => {
               const status = String(job.jobStatus || '').toLowerCase()
               return (
                 <tr key={job.jobId}>
@@ -44,6 +59,21 @@ export function LlmJobsTable({ jobs, onAction, onDetail }) {
             })}
           </tbody>
         </table>
+      </div>
+      <div className="pagination">
+        <button
+          type="button"
+          className="button"
+          disabled={currentPage === 0}
+          onClick={() => setPage((prev) => Math.max(0, prev - 1))}
+        >이전</button>
+        <div className="pagination__label">페이지 {currentPage + 1}</div>
+        <button
+          type="button"
+          className="button"
+          disabled={currentPage + 1 >= totalPages}
+          onClick={() => setPage((prev) => Math.min(totalPages - 1, prev + 1))}
+        >다음</button>
       </div>
     </section>
   )
