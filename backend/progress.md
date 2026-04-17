@@ -3,6 +3,12 @@
 ## Overview
 High-level backend progress tracking.
 
+## [2026-04-18] Session Summary (Gating Top10 Score + Request DTO Nesting)
+- What was done: Extended admin gating request flow to support `target_top10` utility score and refactored `GatingBatchRunRequest` to nested DTO structure (`GatingRunConfig`) instead of large flat payload fields.
+- Key decisions: Kept service defaults/validation semantics intact and mapped nested config into both `stage_config_json` and generated experiment YAML so pipeline execution receives the same operator inputs.
+- Issues encountered: None.
+- Next steps: Maintain API docs/examples with nested gating request body and add compatibility adapter only if external flat-payload clients are confirmed.
+
 ## [2026-04-18] Session Summary (Failed Generation Cleanup Guard)
 - What was done: Added failed-generation cleanup path in `LlmJobService.handleJobFailure` to purge synthetic raw rows by `generation_batch_id` when `GENERATE_SYNTHETIC_QUERY` job reaches final failed state (retry exhausted).
 - Key decisions: Cleanup targets strategy-split raw tables (`synthetic_queries_raw_a/b/c/d`) via new repository method `deleteSyntheticQueriesByGenerationBatch`, relying on registry FK cascade to remove dependent synthetic-linked rows.

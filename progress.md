@@ -3,6 +3,12 @@
 ## Overview
 High-level progress tracking for the project.
 
+## [2026-04-18] Session Summary (Gating Top10 + Nested DTO + Backend Wiring Verification)
+- What was done: Added Admin gating support for `Target Top10` utility score end-to-end (GUI input, backend DTO/service mapping, experiment config write, and pipeline utility scoring logic).
+- Key decisions: Converted gating run payload to nested request DTO (`config.stageFlags/ruleConfig/gatingWeights/utilityScoreWeights/thresholds`) to reduce flat parameter sprawl while keeping existing run behavior/defaults.
+- Issues encountered: Frontend production build regenerated static asset hash files under backend static resources.
+- Next steps: Run one real admin gating batch with custom `target_top10` and compare stage_config vs generated experiment YAML vs gating result distribution.
+
 ## [2026-04-18] Session Summary (Failed Synthetic Request Data Purge)
 - What was done: Investigated failed generation job `2e62b19d-582a-4c8a-b1f0-edd08ec61ca5`, identified linked generation batch `b3896885-b823-4d53-81f2-1eed7d64a7ec`, and manually purged batch-linked synthetic raw rows from strategy tables.
 - Key decisions: Implemented backend guard so final failed synthetic generation jobs automatically delete batch-linked synthetic queries, preventing partial artifacts from remaining after retry exhaustion.

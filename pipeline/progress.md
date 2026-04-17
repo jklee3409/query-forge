@@ -3,6 +3,12 @@
 ## Overview
 High-level pipeline progress tracking.
 
+## [2026-04-18] Session Summary (Utility Top10 Scoring Support)
+- What was done: Updated retrieval utility scoring in `gating/quality_gating.py` to evaluate top-10 reranked candidates and apply a new `target_top10` score bucket; added `target_top10` default in `common/experiment_config.py`.
+- Key decisions: Preserved backward compatibility by falling back to `target_top5` when old configs do not define `target_top10`.
+- Issues encountered: None.
+- Next steps: Validate score-distribution impact on real gating batches where target chunks frequently appear in ranks 6-10.
+
 ## [2026-04-17] Session Summary (Synthetic Chunk Random Sampling Execution Path)
 - What was done: Extended `generation/synthetic_query_generator.py` to support `random_chunk_sampling` in chunk loading and wired config parsing so generation can shuffle full-corpus chunk order before applying optional limit/early stop.
 - Key decisions: Kept deterministic legacy path when disabled; when enabled, shuffle uses experiment `random_seed` for reproducibility and pairs with `max_total_queries` for random subset generation.

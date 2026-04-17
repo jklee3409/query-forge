@@ -3,6 +3,12 @@
 ## Overview
 High-level progress tracking for the project.
 
+## [2026-04-18] Session Summary (Gating Top10 Control + Nested Payload)
+- What was done: Updated `GatingPage.jsx` to expose `Target Top10 점수` input and switched gating run request body to nested `config` payload (`stageFlags/ruleConfig/gatingWeights/utilityScoreWeights/thresholds`).
+- Key decisions: Kept existing control layout/default values and added only the Top10 score control required for utility stage tuning.
+- Issues encountered: None.
+- Next steps: Run admin GUI gating smoke with custom Top10 value and verify batch detail `stage_config_json` reflects the submitted payload.
+
 ## [2026-04-17] Session Summary (Synthetic Admin UX Cleanup + Checkbox Refresh)
 - What was done: Reworked `SyntheticPage.jsx` run form for operator clarity: removed unused `소스 문서 버전`, renamed `최대 생성 질의` to `생성 개수`, changed random chunk option from checkbox to segmented `청크 선택 방식`, and fixed LLM model input to non-editable `gemini-2.5-flash-lite`.
 - Key decisions: Kept backend API contract compatible by still sending `randomChunkSampling` (derived from UI mode) and forcing `llmModel` from frontend constant.
