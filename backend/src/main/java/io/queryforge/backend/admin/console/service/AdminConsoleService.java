@@ -7,6 +7,7 @@ import io.queryforge.backend.admin.console.repository.AdminConsoleRepository;
 import io.queryforge.backend.admin.pipeline.config.AdminPipelineProperties;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 import org.yaml.snakeyaml.Yaml;
 
@@ -313,7 +314,7 @@ public class AdminConsoleService {
         llmJobService.retryJob(jobId);
     }
 
-    @Transactional
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public AdminConsoleDtos.RagTestRunRow runRagTest(AdminConsoleDtos.RagTestRunRequest request) {
         ensureDefaultEvalDataset();
         if (request.datasetId() == null) {

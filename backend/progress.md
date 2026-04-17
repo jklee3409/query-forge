@@ -3,6 +3,12 @@
 ## Overview
 High-level backend progress tracking.
 
+## [2026-04-17] Session Summary (Backend Concurrency/Transaction Scope Hardening)
+- What was done: Reduced long transaction windows in high-latency paths by changing `RagService.ask/reindex` to run without a surrounding service transaction, switched `AdminConsoleService.runRagTest` to non-transactional wrapper mode for file-write flow, and added DB-level advisory lock orchestration for pipeline run start in `PipelineAdminService` + `PipelineAdminRepository`.
+- Key decisions: Preserved existing business flow/API DTO behavior while tightening only transaction boundaries and start-run concurrency control (`pg_advisory_xact_lock` + re-check active run inside locked transaction).
+- Issues encountered: Existing source files include mixed-encoding localized strings, so lock/transaction changes were applied in narrow scoped edits to avoid unrelated churn.
+- Next steps: Monitor production metrics for reduced lock-wait/transaction-time in `ask`, `reindex`, and pipeline start bursts.
+
 ## [2026-04-17] Session Summary (Synthetic-free Baseline Validation/Config)
 - What was done: Extended `RagTestRunRequest` with `syntheticFreeBaseline` and updated `AdminConsoleService.runRagTest` to support exploratory synthetic-free baseline runs with method list empty (`[]`), forced `ungated + rewrite_off`, and baseline-specific retrieval mode config.
 - Key decisions: Kept official run discipline unchanged (baseline blocked for official mode), rejected conflicting snapshot/batch inputs in baseline mode, and persisted `synthetic_free_baseline` into experiment config and retrieval metadata.

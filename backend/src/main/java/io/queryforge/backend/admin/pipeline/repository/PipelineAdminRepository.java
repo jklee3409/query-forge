@@ -25,6 +25,8 @@ import java.util.UUID;
 @Transactional(readOnly = true)
 public class PipelineAdminRepository {
 
+    private static final long PIPELINE_START_LOCK_KEY = 937_511_042L;
+
     private final ObjectMapper objectMapper;
     private final CorpusRunJpaRepository runRepository;
 
@@ -34,6 +36,13 @@ public class PipelineAdminRepository {
     public Optional<UUID> findActiveRunId() {
         return runRepository.findFirstByRunStatusInOrderByCreatedAtDesc(List.of("queued", "running"))
                 .map(CorpusRunEntity::getRunId);
+    }
+
+    @Transactional
+    public void acquirePipelineStartLock() {
+        entityManager.createNativeQuery("SELECT pg_advisory_xact_lock(:lockKey)")
+                .setParameter("lockKey", PIPELINE_START_LOCK_KEY)
+                .getSingleResult();
     }
 
     @Transactional

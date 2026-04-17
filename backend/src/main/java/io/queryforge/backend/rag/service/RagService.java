@@ -8,6 +8,7 @@ import io.queryforge.backend.rag.model.RagDtos;
 import io.queryforge.backend.rag.repository.RagRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.io.IOException;
@@ -36,7 +37,7 @@ public class RagService {
     private final CohereRerankService cohereRerankService;
     private final ObjectMapper objectMapper;
 
-    @Transactional
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public RagDtos.AskResponse ask(RagDtos.AskRequest request) {
         String rawQuery = normalizedText(request.query());
         if (rawQuery.isBlank()) {
@@ -400,7 +401,7 @@ public class RagService {
         }
     }
 
-    @Transactional
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public RagDtos.ReindexResponse reindex(RagDtos.ReindexRequest request) {
         boolean reindexChunks = request == null || request.reindexChunks() == null || request.reindexChunks();
         boolean reindexMemory = request == null || request.reindexMemory() == null || request.reindexMemory();

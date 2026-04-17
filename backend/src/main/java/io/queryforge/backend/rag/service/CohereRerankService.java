@@ -14,6 +14,7 @@ import java.time.Duration;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.concurrent.atomic.AtomicLong;
 
 @Component
 @RequiredArgsConstructor
@@ -30,7 +31,7 @@ public class CohereRerankService {
     private final double timeoutSeconds = parseDouble(valueOrDefault("QUERY_FORGE_COHERE_TIMEOUT_SECONDS", "30"), 30.0d);
     private final int maxRetries = Math.max(1, Math.min(parseInt(valueOrDefault("QUERY_FORGE_COHERE_RERANK_MAX_RETRIES", "4"), 4), 10));
     private final double minIntervalSeconds = 60.0d / Math.max(1.0d, parseDouble(valueOrDefault("QUERY_FORGE_COHERE_RERANK_RPM", "60"), 60.0d));
-    private long lastCallNano = 0L;
+    private final AtomicLong nextAllowedNano = new AtomicLong(0L);
 
     public String modelName() {
         return available() ? "cohere-rerank-v2" : "local-rerank-fallback";
@@ -111,17 +112,24 @@ public class CohereRerankService {
         return lexicalFallback(query, docs, limitedTopN);
     }
 
-    private synchronized void throttle() throws InterruptedException {
-        long now = System.nanoTime();
+    private void throttle() throws InterruptedException {
         long minIntervalNanos = (long) (minIntervalSeconds * 1_000_000_000L);
-        long elapsed = now - lastCallNano;
-        long wait = minIntervalNanos - elapsed;
-        if (wait > 0) {
-            long millis = wait / 1_000_000L;
-            int nanos = (int) (wait % 1_000_000L);
-            Thread.sleep(millis, nanos);
+        while (true) {
+            long now = System.nanoTime();
+            long scheduled = nextAllowedNano.get();
+            long reserved = Math.max(now, scheduled);
+            long nextSlot = reserved + minIntervalNanos;
+            if (!nextAllowedNano.compareAndSet(scheduled, nextSlot)) {
+                continue;
+            }
+            long wait = reserved - now;
+            if (wait > 0) {
+                long millis = wait / 1_000_000L;
+                int nanos = (int) (wait % 1_000_000L);
+                Thread.sleep(millis, nanos);
+            }
+            return;
         }
-        lastCallNano = System.nanoTime();
     }
 
     private List<RagRepository.RetrievalDoc> lexicalFallback(

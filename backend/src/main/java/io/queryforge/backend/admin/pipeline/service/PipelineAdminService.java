@@ -11,7 +11,10 @@ import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import org.springframework.boot.autoconfigure.jdbc.DataSourceProperties;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -42,6 +45,7 @@ public class PipelineAdminService {
     private final DocumentArtifactStoreService artifactStoreService;
     private final PipelineCommandRunner commandRunner;
     private final ExecutorService adminPipelineExecutor;
+    private final PlatformTransactionManager transactionManager;
     private final ObjectMapper objectMapper;
     private final Map<UUID, ManagedRunContext> managedRuns = new ConcurrentHashMap<>();
 
@@ -57,37 +61,37 @@ public class PipelineAdminService {
         return repository.fetchDashboardStats();
     }
 
-    @Transactional
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public PipelineAdminDtos.PipelineRunActionResponse startCollect(PipelineAdminDtos.PipelineRunRequest request) {
         return startRun("collect", request);
     }
 
-    @Transactional
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public PipelineAdminDtos.PipelineRunActionResponse startNormalize(PipelineAdminDtos.PipelineRunRequest request) {
         return startRun("normalize", request);
     }
 
-    @Transactional
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public PipelineAdminDtos.PipelineRunActionResponse startChunk(PipelineAdminDtos.PipelineRunRequest request) {
         return startRun("chunk", request);
     }
 
-    @Transactional
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public PipelineAdminDtos.PipelineRunActionResponse startGlossary(PipelineAdminDtos.PipelineRunRequest request) {
         return startRun("glossary", request);
     }
 
-    @Transactional
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public PipelineAdminDtos.PipelineRunActionResponse startImport(PipelineAdminDtos.PipelineRunRequest request) {
         return startRun("import", request);
     }
 
-    @Transactional
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public PipelineAdminDtos.PipelineRunActionResponse startFullIngest(PipelineAdminDtos.PipelineRunRequest request) {
         return startRun("full_ingest", request);
     }
 
-    @Transactional
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public PipelineAdminDtos.PipelineRunActionResponse retryRun(UUID runId) {
         CorpusAdminDtos.RunDetail detail = corpusAdminService.getRunDetail(runId);
         Map<String, Object> sourceScope = objectMapper.convertValue(
@@ -178,40 +182,52 @@ public class PipelineAdminService {
         ArtifactContext artifacts = prepareArtifacts(runId);
         List<String> initialDocumentIds = resolveInitialDocumentIds(runType, scope);
         materializeInitialInputs(runType, initialDocumentIds, artifacts);
+        boolean shortCircuit = shouldShortCircuit(runType, initialDocumentIds);
+        List<StepPlan> steps = shortCircuit ? List.of() : buildPlans(runId, runType, scope, artifacts);
+        TransactionTemplate transactionTemplate = new TransactionTemplate(transactionManager);
+        transactionTemplate.executeWithoutResult(status -> {
+            repository.acquirePipelineStartLock();
+            Optional<UUID> lockedActiveRunId = repository.findActiveRunId();
+            if (lockedActiveRunId.isPresent()) {
+                throw new IllegalStateException("?ㅻⅨ ?뚯씠?꾨씪???ㅽ뻾???꾩쭅 吏꾪뻾 以묒엯?덈떎. runId=" + lockedActiveRunId.get());
+            }
 
-        repository.createRun(
-                runId,
-                runType,
-                normalizedTriggerType(request.triggerType()),
-                scope.toSourceScope(),
-                scope.toConfigSnapshot(artifacts),
-                normalizedCreatedBy(request.createdBy())
-        );
-        if (shouldShortCircuit(runType, initialDocumentIds)) {
-            Map<String, Object> summary = new LinkedHashMap<>();
-            summary.put("step_count", 0);
-            summary.put("artifacts", artifacts.toSummary());
-            summary.put("source_scope", scope.toSourceScope());
-            summary.put("document_count", 0);
-            summary.put("message", shortCircuitMessage(runType));
-            repository.finishRun(runId, "success", summary, null);
+            repository.createRun(
+                    runId,
+                    runType,
+                    normalizedTriggerType(request.triggerType()),
+                    scope.toSourceScope(),
+                    scope.toConfigSnapshot(artifacts),
+                    normalizedCreatedBy(request.createdBy())
+            );
+            if (shortCircuit) {
+                Map<String, Object> summary = new LinkedHashMap<>();
+                summary.put("step_count", 0);
+                summary.put("artifacts", artifacts.toSummary());
+                summary.put("source_scope", scope.toSourceScope());
+                summary.put("document_count", 0);
+                summary.put("message", shortCircuitMessage(runType));
+                repository.finishRun(runId, "success", summary, null);
+                return;
+            }
+
+            for (StepPlan step : steps) {
+                repository.createStep(
+                        step.stepId(),
+                        runId,
+                        step.stepName(),
+                        step.stepOrder(),
+                        step.inputArtifactPath(),
+                        step.outputArtifactPath()
+                );
+            }
+        });
+        if (shortCircuit) {
             return new PipelineAdminDtos.PipelineRunActionResponse(
                     runId,
                     runType,
                     "success",
                     shortCircuitMessage(runType)
-            );
-        }
-
-        List<StepPlan> steps = buildPlans(runId, runType, scope, artifacts);
-        for (StepPlan step : steps) {
-            repository.createStep(
-                    step.stepId(),
-                    runId,
-                    step.stepName(),
-                    step.stepOrder(),
-                    step.inputArtifactPath(),
-                    step.outputArtifactPath()
             );
         }
 

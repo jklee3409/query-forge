@@ -3,6 +3,12 @@
 ## Overview
 High-level progress tracking for the project.
 
+## [2026-04-17] Session Summary (Backend Transaction/Concurrency Risk Mitigation)
+- What was done: Applied backend-only hardening for identified high-risk hotspots by shrinking service-level transaction scope around long-latency operations (`ask`, `reindex`, `runRagTest`) and adding advisory-lock-based serialization for pipeline run creation (`startRun` path).
+- Key decisions: Kept business logic and API response contracts intact; focused only on transaction boundary and concurrency control behavior.
+- Issues encountered: Existing codebase contains mixed-encoding localized literals; changes were intentionally minimal and localized to avoid collateral edits.
+- Next steps: Observe lock-wait/throughput behavior under concurrent admin run requests and RAG ask load.
+
 ## [2026-04-17] Session Summary (Synthetic-free Baseline RAG Test Path)
 - What was done: Added synthetic-free baseline support for Admin RAG tests end-to-end (request flag, backend validation/config, frontend run controls, and pipeline stage behavior) so baseline runs can execute without using synthetic-query snapshots.
 - Key decisions: Preserved mandatory RAG job stage order (`build-memory -> eval-retrieval -> eval-answer`) and implemented baseline as `build-memory` no-op + `raw_only` retrieval/eval mode to avoid synthetic query dependency while keeping orchestration stable.
