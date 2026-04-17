@@ -3,6 +3,12 @@
 ## Overview
 High-level backend progress tracking.
 
+## [2026-04-18] Session Summary (Failed Generation Cleanup Guard)
+- What was done: Added failed-generation cleanup path in `LlmJobService.handleJobFailure` to purge synthetic raw rows by `generation_batch_id` when `GENERATE_SYNTHETIC_QUERY` job reaches final failed state (retry exhausted).
+- Key decisions: Cleanup targets strategy-split raw tables (`synthetic_queries_raw_a/b/c/d`) via new repository method `deleteSyntheticQueriesByGenerationBatch`, relying on registry FK cascade to remove dependent synthetic-linked rows.
+- Issues encountered: None.
+- Next steps: Add integration coverage for failure-exhausted generation job ensuring raw rows are removed and batch remains `failed` with cleanup metadata.
+
 ## [2026-04-17] Session Summary (Synthetic Run Random Sampling Request Wiring)
 - What was done: Extended admin synthetic run DTO (`SyntheticBatchRunRequest`) with `randomChunkSampling` and wrote it to experiment config as `random_chunk_sampling` in `AdminConsoleService.runSyntheticGeneration`.
 - Key decisions: Preserved existing validation/ranges (`max_total_queries` up to `2000`) and kept `limit_chunks` optional so full-corpus generation remains available when omitted.

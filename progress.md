@@ -3,6 +3,12 @@
 ## Overview
 High-level progress tracking for the project.
 
+## [2026-04-18] Session Summary (Failed Synthetic Request Data Purge)
+- What was done: Investigated failed generation job `2e62b19d-582a-4c8a-b1f0-edd08ec61ca5`, identified linked generation batch `b3896885-b823-4d53-81f2-1eed7d64a7ec`, and manually purged batch-linked synthetic raw rows from strategy tables.
+- Key decisions: Implemented backend guard so final failed synthetic generation jobs automatically delete batch-linked synthetic queries, preventing partial artifacts from remaining after retry exhaustion.
+- Issues encountered: None.
+- Next steps: Add regression test for failed generation cleanup and validate Admin synthetic list/count consistency after failure.
+
 ## [2026-04-17] Session Summary (Admin Synthetic UX Clarification + Control Refresh)
 - What was done: Updated Admin synthetic generation UI for clarity by removing unused `소스 문서 버전`, renaming count control to `생성 개수`, switching random-chunk option to explicit mode selector, and locking LLM model input to fixed Gemini model.
 - Key decisions: Preserved generation API semantics (`random_chunk_sampling`) and kept model value deterministic from frontend constant to prevent operator-side accidental drift.
