@@ -678,6 +678,67 @@ textarea {
   color: #677489;
 }
 
+.token-badge-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
+}
+
+.token-badge {
+  display: inline-grid;
+  grid-template-columns: auto minmax(0, auto);
+  align-items: center;
+  gap: 6px;
+  min-height: 26px;
+  padding: 3px 8px 3px 5px;
+  border-radius: 999px;
+  border: 1px solid transparent;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.1;
+  max-width: 100%;
+}
+
+.token-badge[data-kind="query"] {
+  background: #ecf4ff;
+  border-color: #c6daf7;
+  color: #22528a;
+}
+
+.token-badge[data-kind="stage"] {
+  background: #edf9f1;
+  border-color: #c8e8d2;
+  color: #206143;
+}
+
+.token-badge[data-kind="reason"] {
+  background: #feefee;
+  border-color: #f3cdca;
+  color: #9a322a;
+}
+
+.token-badge__icon {
+  min-width: 18px;
+  height: 18px;
+  padding: 0 5px;
+  border-radius: 999px;
+  border: 1px solid currentColor;
+  display: grid;
+  place-items: center;
+  font-size: 9px;
+  font-weight: 800;
+  background: #ffffff;
+}
+
+.token-badge__text {
+  min-width: 0;
+  max-width: 180px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .copy-button {
   padding: 2px 7px;
   border: 1px solid var(--border);

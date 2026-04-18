@@ -3,7 +3,6 @@ import { DetailCard, IdBadge, Modal, StatusBadge } from '../components/Common.js
 import { LlmJobsTable } from '../components/LlmJobsTable.jsx'
 import { queryString, requestJson, toNumber } from '../lib/api.js'
 import { fmtTime, shortId } from '../lib/format.js'
-import { usePolling } from '../lib/hooks.js'
 
 const DEFAULT_LLM_MODEL = 'gemini-2.5-flash-lite'
 
@@ -118,20 +117,25 @@ export function SyntheticPage({ notify }) {
     loadSourceDocuments(runForm.sourceId).catch((error) => notify(error.message, 'error'))
   }, [runForm.sourceId])
 
-  usePolling(true, 5000, async () => {
-    try {
-      await loadLlmJobs()
-    } catch {
-      // ignore polling errors
-    }
-  })
-
   useEffect(() => {
     const totalPages = Math.max(1, Math.ceil(batches.length / historyPageSize))
     if (historyPage > totalPages - 1) {
       setHistoryPage(totalPages - 1)
     }
   }, [batches, historyPage])
+
+  const isBatchSelectableInQueryFilter = (batch) => {
+    const status = String(batch?.status || '').toLowerCase()
+    return status !== 'failed' && status !== 'cancelled'
+  }
+
+  useEffect(() => {
+    if (!filterForm.batch_id) return
+    const selectedStillValid = batches.some((batch) => batch.batchId === filterForm.batch_id && isBatchSelectableInQueryFilter(batch))
+    if (!selectedStillValid) {
+      setFilterForm((prev) => ({ ...prev, batch_id: '' }))
+    }
+  }, [batches, filterForm.batch_id])
 
   const executeRun = async (event) => {
     event.preventDefault()
@@ -217,6 +221,7 @@ export function SyntheticPage({ notify }) {
   const historyTotalPages = Math.max(1, Math.ceil(batches.length / historyPageSize))
   const currentHistoryPage = Math.min(historyPage, historyTotalPages - 1)
   const pagedBatches = batches.slice(currentHistoryPage * historyPageSize, (currentHistoryPage + 1) * historyPageSize)
+  const queryFilterBatchOptions = batches.filter(isBatchSelectableInQueryFilter)
 
   return (
     <>
@@ -333,7 +338,7 @@ export function SyntheticPage({ notify }) {
           </label>
           <label className="filter-field">생성 배치
             <select value={filterForm.batch_id} onChange={(event) => setFilterForm((prev) => ({ ...prev, batch_id: event.target.value }))}>
-              <option value="">전체</option>{batches.map((batch) => <option key={batch.batchId} value={batch.batchId}>{batch.versionName} ({batch.methodCode})</option>)}
+              <option value="">전체</option>{queryFilterBatchOptions.map((batch) => <option key={batch.batchId} value={batch.batchId}>{batch.versionName} ({batch.methodCode})</option>)}
             </select>
           </label>
           <label className="filter-field">질의 유형<input value={filterForm.query_type} placeholder="예: definition" onChange={(event) => setFilterForm((prev) => ({ ...prev, query_type: event.target.value }))} /></label>

@@ -3,7 +3,6 @@ import { DetailCard, IdBadge, Modal, StatusBadge } from '../components/Common.js
 import { LlmJobsTable } from '../components/LlmJobsTable.jsx'
 import { requestJson, toNumber } from '../lib/api.js'
 import { fmtTime, shortId } from '../lib/format.js'
-import { usePolling } from '../lib/hooks.js'
 
 const QUALITY_METRIC_DEFS = [
   { key: 'recall_at_5', label: 'Recall@5', max: 1 },
@@ -199,14 +198,6 @@ export function RagPage({ notify }) {
   useEffect(() => {
     Promise.all([loadMethods(), loadDatasets(), loadTests(), loadGatingBatches(), loadRewriteLogs(), loadLlmJobs()]).catch((error) => notify(error.message, 'error'))
   }, [])
-
-  usePolling(true, 5000, async () => {
-    try {
-      await Promise.all([loadLlmJobs(), loadGatingBatches()])
-    } catch {
-      // ignore polling errors
-    }
-  })
 
   useEffect(() => {
     const totalPages = Math.max(1, Math.ceil(tests.length / historyPageSize))

@@ -3,7 +3,6 @@ import { DetailCard, IdBadge, Modal, NumberInput, StageCard, StatusBadge } from 
 import { LlmJobsTable } from '../components/LlmJobsTable.jsx'
 import { queryString, requestJson, toNumber } from '../lib/api.js'
 import { shortId } from '../lib/format.js'
-import { usePolling } from '../lib/hooks.js'
 
 export function GatingPage({ notify }) {
   const resultPageSize = 20
@@ -194,14 +193,6 @@ export function GatingPage({ notify }) {
     }
   }, [gatingBatches, gatingBatchPage])
 
-  usePolling(true, 5000, async () => {
-    try {
-      await loadLlmJobs()
-    } catch {
-      // ignore polling errors
-    }
-  })
-
   const runGating = async (event) => {
     event.preventDefault()
     if (!form.generationBatchId) {
@@ -373,6 +364,92 @@ export function GatingPage({ notify }) {
     return <StatusBadge value="queued" label="미사용" />
   }
 
+  const normalizeToken = (value) => String(value || '').trim().toLowerCase().replace(/\s+/g, '_')
+
+  const tokenIconMap = {
+    query: {
+      short_user: 'SU',
+      follow_up: 'FU',
+      long_context: 'LC',
+      long_user: 'LU',
+      clarification: 'CL',
+      multi_hop: 'MH',
+    },
+    stage: {
+      rule: 'R',
+      llm: 'L',
+      utility: 'U',
+      diversity: 'D',
+      final: 'F',
+    },
+    reason: {
+      too_short: 'S',
+      too_long: 'L',
+      low_korean_ratio: 'KR',
+      low_score: 'SC',
+      duplicate: 'DP',
+      same_chunk: 'CH',
+      same_doc: 'DOC',
+      out_of_scope: 'OS',
+    },
+  }
+
+  const parseTokenList = (value) => {
+    if (value == null) return []
+    if (Array.isArray(value)) {
+      return value.map((item) => String(item || '').trim()).filter(Boolean)
+    }
+    if (typeof value === 'object') {
+      return Object.entries(value)
+        .filter(([, itemValue]) => Boolean(itemValue))
+        .map(([itemKey]) => String(itemKey || '').trim())
+        .filter(Boolean)
+    }
+    const text = String(value || '').trim()
+    if (!text) return []
+    if (text.startsWith('[') || text.startsWith('{')) {
+      try {
+        const parsed = JSON.parse(text)
+        return parseTokenList(parsed)
+      } catch {
+        // ignore parse errors and fallback to delimiter split
+      }
+    }
+    const tokens = text
+      .split(/[|,;/]+/)
+      .map((token) => token.trim())
+      .filter(Boolean)
+    return tokens.length ? tokens : [text]
+  }
+
+  const toTokenIcon = (kind, token) => {
+    const normalized = normalizeToken(token)
+    const mapped = tokenIconMap[kind]?.[normalized]
+    if (mapped) return mapped
+    const parts = normalized.split(/[^a-z0-9]+/).filter(Boolean)
+    if (!parts.length) return '?'
+    if (parts.length === 1) return parts[0].slice(0, 3).toUpperCase()
+    return parts.slice(0, 2).map((part) => part.slice(0, 1)).join('').toUpperCase()
+  }
+
+  const renderTokenBadges = (value, kind) => {
+    const tokens = parseTokenList(value)
+    if (!tokens.length) return <span className="plain-badge">-</span>
+    return (
+      <div className="token-badge-list">
+        {tokens.map((token, index) => {
+          const normalized = normalizeToken(token)
+          return (
+            <span key={`${kind}-${normalized || index}-${index}`} className="token-badge" data-kind={kind} title={token}>
+              <span className="token-badge__icon" aria-hidden="true">{toTokenIcon(kind, token)}</span>
+              <span className="token-badge__text">{normalized || token}</span>
+            </span>
+          )
+        })}
+      </div>
+    )
+  }
+
   return (
     <>
       <section className="panel">
@@ -526,12 +603,12 @@ export function GatingPage({ notify }) {
             <tbody>
               {results.map((row) => (
                 <tr key={row.syntheticQueryId}>
-                  <td><IdBadge value={row.syntheticQueryId} plain /></td><td>{row.queryText}</td><td>{row.queryType || '-'}</td>
+                  <td><IdBadge value={row.syntheticQueryId} plain /></td><td>{row.queryText}</td><td>{renderTokenBadges(row.queryType, 'query')}</td>
                   <td>{renderStageStatus(row.passedRule)}</td>
                   <td>{renderStageStatus(row.passedLlm)}</td>
                   <td>{renderStageStatus(row.passedUtility)}</td>
                   <td>{renderStageStatus(row.passedDiversity)}</td>
-                  <td>{row.finalScore == null ? '-' : Number(row.finalScore).toFixed(4)}</td><td>{row.rejectedStage || '-'}</td><td>{row.rejectedReason || '-'}</td>
+                  <td>{row.finalScore == null ? '-' : Number(row.finalScore).toFixed(4)}</td><td>{renderTokenBadges(row.rejectedStage, 'stage')}</td><td>{renderTokenBadges(row.rejectedReason, 'reason')}</td>
                   <td>{row.finalDecision ? <StatusBadge value="success" label="승인" /> : <StatusBadge value="failed" label="거절" />}</td>
                 </tr>
               ))}
