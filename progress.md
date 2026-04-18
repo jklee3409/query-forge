@@ -3,6 +3,24 @@
 ## Overview
 High-level progress tracking for the project.
 
+## [2026-04-19] Session Summary (Gating/Synthetic Batch Filter Tightening + Result Token Badge UX)
+- What was done: Updated Admin `GatingPage` per-query result table to render `query_type`, `rejected_stage`, `rejected_reason` as icon-like token badges instead of plain text, and tightened batch dropdown filters so failed/cancelled generation/gating batches are excluded from operator selection paths. Also updated Admin `SyntheticPage` query filter batch dropdown to hide failed/cancelled generation batches.
+- Key decisions: Kept API/DTO contracts unchanged and applied UI-only rendering/filter logic; token badge parser accepts array/object/JSON-string/delimited text input to avoid backend coupling.
+- Issues encountered: Existing frontend files contain mixed-encoding localized literals, so changes were applied in stable JSX/CSS blocks only.
+- Next steps: Align token icon dictionary (`SU/FU/...`) with product terminology and add optional display-name mapping for non-engineering operators.
+
+## [2026-04-19] Session Summary (Admin LLM Job Polling Removal)
+- What was done: Removed periodic polling hooks that repeatedly called `/api/admin/console/llm-jobs?limit=120` from admin pages where this was causing unnecessary traffic/noise.
+- Key decisions: Preserved explicit refresh triggers (manual refresh buttons and post-action reloads) instead of background polling, matching the “refresh-time reflection” requirement.
+- Issues encountered: None.
+- Next steps: Monitor operator flow and add per-section lightweight refresh CTA if any status visibility gaps appear.
+
+## [2026-04-19] Session Summary (Quality Gating Runtime Stop + Data Purge Operations)
+- What was done: Stopped active `gate-queries` runtime processes and removed related quality-gating data only for targeted in-flight/history IDs, including linked `llm_job`, `llm_job_item`, `synthetic_query_gating_result`, `synthetic_query_gating_history`, `synthetic_queries_gated`, and `quality_gating_batch` rows.
+- Key decisions: Executed deletions with explicit target ID scopes and transactional ordering to avoid collateral cleanup outside requested batches/jobs.
+- Issues encountered: Running-status snapshot changed during cleanup window, so target set was re-validated before each destructive step.
+- Next steps: Add an operator-safe SQL/maintenance script for targeted gating batch+job cleanup to reduce manual repeat work.
+
 ## [2026-04-18] Session Summary (RAG Quality+Performance Integrated Tracking)
 - What was done: Added RAG run performance aggregation in backend finalization (`total/stage/rewrite-overhead latency`) and exposed quality+performance integrated comparison in Admin `RagPage`.
 - Key decisions: Kept existing retrieval/answer business logic unchanged and stored performance as additive payload (`metrics_json.performance`) for backward compatibility.
