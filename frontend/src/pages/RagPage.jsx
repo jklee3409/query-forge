@@ -5,7 +5,7 @@ import { requestJson, toNumber } from '../lib/api.js'
 import { fmtTime, shortId } from '../lib/format.js'
 import { usePolling } from '../lib/hooks.js'
 
-const METRIC_DEFS = [
+const QUALITY_METRIC_DEFS = [
   { key: 'recall_at_5', label: 'Recall@5', max: 1 },
   { key: 'hit_at_5', label: 'Hit@5', max: 1 },
   { key: 'mrr_at_10', label: 'MRR@10', max: 1 },
@@ -16,6 +16,17 @@ const METRIC_DEFS = [
   { key: 'answer_relevance', label: 'Answer Relevance', max: 1 },
   { key: 'faithfulness', label: 'Faithfulness', max: 1 },
   { key: 'context_recall', label: 'Context Recall', max: 1 },
+]
+
+const PERFORMANCE_METRIC_DEFS = [
+  { key: 'total_duration_ms', label: 'Total Duration', precision: 0, unit: 'ms' },
+  { key: 'build_memory_ms', label: 'Build-Memory Stage', precision: 0, unit: 'ms' },
+  { key: 'eval_retrieval_ms', label: 'Eval-Retrieval Stage', precision: 0, unit: 'ms' },
+  { key: 'eval_answer_ms', label: 'Eval-Answer Stage', precision: 0, unit: 'ms' },
+  { key: 'orchestration_overhead_ms', label: 'Orchestration Overhead', precision: 0, unit: 'ms' },
+  { key: 'latency_avg_ms', label: 'Representative Avg Latency', precision: 2, unit: 'ms' },
+  { key: 'latency_p95_ms', label: 'Representative P95 Latency', precision: 2, unit: 'ms' },
+  { key: 'rewrite_overhead_avg_latency_ms', label: 'Rewrite Overhead (Avg)', precision: 2, unit: 'ms' },
 ]
 
 function parseMetricsNode(value) {
@@ -49,6 +60,8 @@ function extractRunMetrics(metricsJson) {
   const payload = parseMetricsNode(metricsJson)
   const retrievalPayload = parseMetricsNode(payload.retrieval || payload.metrics_json?.retrieval || payload)
   const answerPayload = parseMetricsNode(payload.answer || payload.metrics_json?.answer)
+  const performancePayload = parseMetricsNode(payload.performance || payload.metrics_json?.performance)
+  const stageDurationPayload = parseMetricsNode(performancePayload.stage_duration_ms)
   const answerSummary = parseMetricsNode(answerPayload.summary || answerPayload)
   const summaryRaw = Array.isArray(retrievalPayload.summary) ? retrievalPayload.summary : []
   const byMode = summaryRaw.reduce((acc, row) => {
@@ -80,12 +93,35 @@ function extractRunMetrics(metricsJson) {
     answer_relevance: firstMetricNumber([payload.answer_relevance, answerSummary.answer_relevance]),
     faithfulness: firstMetricNumber([payload.faithfulness, answerSummary.faithfulness]),
     context_recall: firstMetricNumber([payload.context_recall, answerSummary.context_recall]),
+    total_duration_ms: firstMetricNumber([performancePayload.total_duration_ms]),
+    build_memory_ms: firstMetricNumber([stageDurationPayload.build_memory_ms]),
+    eval_retrieval_ms: firstMetricNumber([stageDurationPayload.eval_retrieval_ms]),
+    eval_answer_ms: firstMetricNumber([stageDurationPayload.eval_answer_ms]),
+    orchestration_overhead_ms: firstMetricNumber([performancePayload.orchestration_overhead_ms]),
+    latency_avg_ms: firstMetricNumber([performancePayload.representative_mode_latency_avg_ms, payload.latency_avg_ms]),
+    latency_p95_ms: firstMetricNumber([performancePayload.representative_mode_latency_p95_ms]),
+    rewrite_overhead_avg_latency_ms: firstMetricNumber([performancePayload.rewrite_overhead_avg_latency_ms]),
   }
 }
 
 function formatMetric(value) {
   if (value == null) return '-'
   return Number(value).toFixed(4)
+}
+
+function formatMetricWithDef(value, def) {
+  if (value == null) return '-'
+  const precision = Number.isFinite(def?.precision) ? def.precision : 4
+  const text = Number(value).toFixed(precision)
+  return def?.unit ? `${text} ${def.unit}` : text
+}
+
+function formatDelta(value, def) {
+  if (value == null) return '-'
+  const precision = Number.isFinite(def?.precision) ? def.precision : 4
+  const sign = value > 0 ? '+' : ''
+  const text = `${sign}${Number(value).toFixed(precision)}`
+  return def?.unit ? `${text} ${def.unit}` : text
 }
 
 export function RagPage({ notify }) {
@@ -518,6 +554,7 @@ export function RagPage({ notify }) {
       const payload = await requestJson(`/api/admin/console/rag/tests/${runId}?detail_limit=100`)
       const summary = payload.summary || {}
       const metricsJson = parseMetricsNode(summary.metrics_json)
+      const performance = parseMetricsNode(metricsJson.performance)
       const retrievalByMode = parseMetricsNode(metricsJson.retrieval_by_mode)
       const retrievalByModeRows = Object.values(retrievalByMode).filter((row) => row && typeof row === 'object')
       const details = Array.isArray(payload.details) ? payload.details : []
@@ -531,6 +568,7 @@ export function RagPage({ notify }) {
               <article className="summary-card"><div className="summary-card__label">MRR@10</div><div className="summary-card__value">{summary.mrr_at_10 == null ? '-' : Number(summary.mrr_at_10).toFixed(4)}</div></article>
               <article className="summary-card"><div className="summary-card__label">nDCG@10</div><div className="summary-card__value">{summary.ndcg_at_10 == null ? '-' : Number(summary.ndcg_at_10).toFixed(4)}</div></article>
             </div>
+            <DetailCard label="performance" value={JSON.stringify(performance, null, 2)} />
             <DetailCard label="retrieval_by_mode" value={JSON.stringify(retrievalByModeRows, null, 2)} />
             <DetailCard label="detail_rows" value={JSON.stringify(details, null, 2)} />
           </div>
@@ -589,11 +627,28 @@ export function RagPage({ notify }) {
     const [leftRun, rightRun] = compareRuns
     const leftMetrics = runMetricsMap.get(leftRun.ragTestRunId) || {}
     const rightMetrics = runMetricsMap.get(rightRun.ragTestRunId) || {}
-    return METRIC_DEFS.map((meta) => ({
+    return QUALITY_METRIC_DEFS.map((meta) => ({
       ...meta,
       left: leftMetrics[meta.key],
       right: rightMetrics[meta.key],
     })).filter((row) => row.left != null || row.right != null)
+  }, [compareRuns, runMetricsMap])
+  const compareMetricRows = useMemo(() => {
+    if (compareRuns.length !== 2) return []
+    const [leftRun, rightRun] = compareRuns
+    const leftMetrics = runMetricsMap.get(leftRun.ragTestRunId) || {}
+    const rightMetrics = runMetricsMap.get(rightRun.ragTestRunId) || {}
+    const qualityRows = QUALITY_METRIC_DEFS.map((def) => {
+      const left = leftMetrics[def.key]
+      const right = rightMetrics[def.key]
+      return { category: 'quality', ...def, left, right, delta: (left != null && right != null) ? (right - left) : null }
+    })
+    const performanceRows = PERFORMANCE_METRIC_DEFS.map((def) => {
+      const left = leftMetrics[def.key]
+      const right = rightMetrics[def.key]
+      return { category: 'performance', ...def, left, right, delta: (left != null && right != null) ? (right - left) : null }
+    })
+    return [...qualityRows, ...performanceRows].filter((row) => row.left != null || row.right != null)
   }, [compareRuns, runMetricsMap])
   const historyTotalPages = Math.max(1, Math.ceil(tests.length / historyPageSize))
   const currentHistoryPage = Math.min(historyPage, historyTotalPages - 1)
@@ -608,6 +663,8 @@ export function RagPage({ notify }) {
       { label: '선택된 비교 대상', value: String(compareRunIds.length), meta: compareRunIds.length === 2 ? '비교 준비 완료' : '2개 선택 시 비교 차트 표시' },
       { label: '최근 Recall@5', value: formatMetric(lastMetrics.recall_at_5), meta: lastRun ? `run ${shortId(lastRun.ragTestRunId)}` : '완료된 실행 없음' },
       { label: '최근 nDCG@10', value: formatMetric(lastMetrics.ndcg_at_10), meta: lastRun ? fmtTime(lastRun.finishedAt || lastRun.startedAt) : '-' },
+      { label: 'Latest Total Duration', value: formatMetricWithDef(lastMetrics.total_duration_ms, { precision: 0, unit: 'ms' }), meta: 'RAG end-to-end' },
+      { label: 'Latest Avg Latency', value: formatMetricWithDef(lastMetrics.latency_avg_ms, { precision: 2, unit: 'ms' }), meta: 'representative mode' },
     ]
   }, [tests, compareRunIds])
 
@@ -888,6 +945,43 @@ export function RagPage({ notify }) {
       </section>
 
       <section className="table-shell">
+        <div className="table-header">
+          <div className="table-title">품질 + 성능 통합 비교 테이블</div>
+        </div>
+        <div className="table-wrap">
+          {compareRuns.length !== 2 && (
+            <div className="empty-state">
+              실행 이력에서 2개를 선택하면 품질/성능 지표를 함께 비교할 수 있습니다.
+            </div>
+          )}
+          {compareRuns.length === 2 && (
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>구분</th>
+                  <th>지표</th>
+                  <th>{shortId(compareRuns[0].ragTestRunId)}</th>
+                  <th>{shortId(compareRuns[1].ragTestRunId)}</th>
+                  <th>Delta (B-A)</th>
+                </tr>
+              </thead>
+              <tbody>
+                {compareMetricRows.map((row) => (
+                  <tr key={`${row.category}:${row.key}`}>
+                    <td>{row.category}</td>
+                    <td>{row.label}</td>
+                    <td>{formatMetricWithDef(row.left, row)}</td>
+                    <td>{formatMetricWithDef(row.right, row)}</td>
+                    <td>{formatDelta(row.delta, row)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      </section>
+
+      <section className="table-shell">
         <div className="table-header"><div className="table-title">평가 데이터셋</div></div>
         <div className="table-wrap">
           <table className="data-table">
@@ -962,7 +1056,9 @@ export function RagPage({ notify }) {
                     <td>{generationMethodLabel}</td>
                     <td>{run.gatingApplied ? `${run.gatingPreset || 'enabled'}` : 'ungated'}</td>
                     <td>{rewriteMode}</td>
-                    <td className="line-clamp">{`R@5 ${formatMetric(metrics.recall_at_5)} | nDCG ${formatMetric(metrics.ndcg_at_10)}`}</td>
+                    <td className="line-clamp">
+                      {`R@5 ${formatMetric(metrics.recall_at_5)} | nDCG ${formatMetric(metrics.ndcg_at_10)} | total ${formatMetricWithDef(metrics.total_duration_ms, { precision: 0, unit: 'ms' })}`}
+                    </td>
                     <td><button type="button" className="button button--ghost" onClick={() => openRunDetail(run.ragTestRunId)}>상세 조회</button></td>
                     <td>
                       <button

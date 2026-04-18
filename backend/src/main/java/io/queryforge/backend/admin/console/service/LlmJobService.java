@@ -22,6 +22,7 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -298,6 +299,8 @@ public class LlmJobService {
         }
 
         List<AdminConsoleDtos.LlmJobItemRow> items = llmJobRepository.findJobItems(job.jobId());
+        long jobStartedAtNano = System.nanoTime();
+        Map<String, Long> commandDurationMs = new LinkedHashMap<>();
         int totalItems = Math.max(1, items.size());
         int processed = 0;
         Map<String, JsonNode> resultByCommand = new LinkedHashMap<>();
@@ -305,6 +308,10 @@ public class LlmJobService {
             String command = item.payloadJson().path("command").asText(item.itemType());
             if ("completed".equalsIgnoreCase(item.itemStatus())) {
                 resultByCommand.putIfAbsent(command, item.resultJson());
+                if (item.startedAt() != null && item.finishedAt() != null) {
+                    long durationMs = Math.max(0L, Duration.between(item.startedAt(), item.finishedAt()).toMillis());
+                    commandDurationMs.putIfAbsent(command, durationMs);
+                }
                 processed += 1;
             }
         }
@@ -339,9 +346,11 @@ public class LlmJobService {
                     return;
                 }
                 llmJobRepository.markItemRunning(item.jobItemId());
+                long commandStartedAtNano = System.nanoTime();
                 RagDtos.ExperimentCommandResponse response = experimentPipelineService.run(
                         new RagDtos.ExperimentCommandRequest(command, experiment)
                 );
+                commandDurationMs.put(command, elapsedMillis(commandStartedAtNano));
                 resultByCommand.put(command, response.summary());
                 AdminConsoleDtos.LlmJobRow afterRun = llmJobRepository.findJob(job.jobId())
                         .orElseThrow(() -> new IllegalStateException("llm job missing after command run: " + job.jobId()));
@@ -374,14 +383,19 @@ public class LlmJobService {
                 );
             }
 
-            finalizeRelatedRows(job, resultByCommand);
+            finalizeRelatedRows(job, resultByCommand, commandDurationMs, elapsedMillis(jobStartedAtNano));
             llmJobRepository.markJobCompleted(job.jobId(), objectMapper.valueToTree(resultByCommand));
         } catch (RuntimeException exception) {
             handleJobFailure(job, resultByCommand, exception);
         }
     }
 
-    private void finalizeRelatedRows(AdminConsoleDtos.LlmJobRow job, Map<String, JsonNode> resultByCommand) {
+    private void finalizeRelatedRows(
+            AdminConsoleDtos.LlmJobRow job,
+            Map<String, JsonNode> resultByCommand,
+            Map<String, Long> commandDurationMs,
+            long totalJobDurationMs
+    ) {
         if ("GENERATE_SYNTHETIC_QUERY".equals(job.jobType()) && job.generationBatchId() != null) {
             JsonNode summary = resultByCommand.getOrDefault("generate-queries", objectMapper.createObjectNode());
             UUID sourceRunId = asUuid(summary.path("experiment_run_id").asText(null));
@@ -432,6 +446,12 @@ public class LlmJobService {
             Double adoption = nullableDouble(summaryRow.path("adoption_rate"));
             Double rejectionRate = nullableDouble(summaryRow.path("rewrite_rejection_rate"));
             Double avgConfidenceDelta = nullableDouble(summaryRow.path("avg_confidence_delta"));
+            Map<String, Object> performance = buildRagPerformanceMetrics(
+                    summaryByMode,
+                    latencyByMode,
+                    commandDurationMs,
+                    totalJobDurationMs
+            );
 
             Map<String, Object> metrics = new LinkedHashMap<>();
             metrics.put("retrieval", retrievalSummary);
@@ -440,6 +460,7 @@ public class LlmJobService {
             metrics.put("retrieval_by_mode", objectMapper.valueToTree(summaryByMode));
             metrics.put("latency_by_mode", objectMapper.valueToTree(latencyByMode));
             metrics.put("representative_mode", summaryRow.path("mode").asText(""));
+            metrics.put("performance", objectMapper.valueToTree(performance));
             JsonNode metricsJson = objectMapper.valueToTree(metrics);
             UUID sourceExperimentRunId = asUuid(retrievalSummary.path("experiment_run_id").asText(null));
             adminConsoleRepository.upsertRagSummary(
@@ -664,6 +685,107 @@ public class LlmJobService {
             return parent;
         }
         throw new IllegalStateException("failed to resolve repository root for llm jobs");
+    }
+
+    private Map<String, Object> buildRagPerformanceMetrics(
+            Map<String, JsonNode> summaryByMode,
+            Map<String, JsonNode> latencyByMode,
+            Map<String, Long> commandDurationMs,
+            long totalJobDurationMs
+    ) {
+        long buildMemoryMs = stageDurationMs(commandDurationMs, "build-memory");
+        long evalRetrievalMs = stageDurationMs(commandDurationMs, "eval-retrieval");
+        long evalAnswerMs = stageDurationMs(commandDurationMs, "eval-answer");
+        long stageTotalMs = buildMemoryMs + evalRetrievalMs + evalAnswerMs;
+        long effectiveTotalJobDurationMs = Math.max(totalJobDurationMs, stageTotalMs);
+        long orchestrationOverheadMs = Math.max(0L, effectiveTotalJobDurationMs - stageTotalMs);
+
+        JsonNode representativeSummary = selectRepresentativeModeRow(summaryByMode);
+        JsonNode representativeLatency = selectLatencyRow(representativeSummary, latencyByMode);
+        Double representativeLatencyAvg = nullableDouble(representativeLatency.path("avg_latency_ms"));
+        Double representativeLatencyP95 = nullableDouble(representativeLatency.path("p95_latency_ms"));
+
+        String rewriteMode = selectRewriteMode(summaryByMode);
+        Double rewriteAdoptionRate = null;
+        if (rewriteMode != null) {
+            JsonNode rewriteRow = summaryByMode.get(rewriteMode);
+            rewriteAdoptionRate = nullableDouble(rewriteRow == null ? null : rewriteRow.path("adoption_rate"));
+        }
+        Double rewriteOverheadAvgLatencyMs = computeRewriteOverheadLatencyMs(latencyByMode, rewriteMode);
+
+        Map<String, Object> latencyByModeMs = new LinkedHashMap<>();
+        for (Map.Entry<String, JsonNode> entry : latencyByMode.entrySet()) {
+            JsonNode row = entry.getValue();
+            if (row == null || row.isMissingNode()) {
+                continue;
+            }
+            Map<String, Object> latency = new LinkedHashMap<>();
+            latency.put("avg_latency_ms", nullableDouble(row.path("avg_latency_ms")));
+            latency.put("p95_latency_ms", nullableDouble(row.path("p95_latency_ms")));
+            latencyByModeMs.put(entry.getKey(), latency);
+        }
+
+        Map<String, Object> stageDurationMs = new LinkedHashMap<>();
+        stageDurationMs.put("build_memory_ms", buildMemoryMs);
+        stageDurationMs.put("eval_retrieval_ms", evalRetrievalMs);
+        stageDurationMs.put("eval_answer_ms", evalAnswerMs);
+        stageDurationMs.put("stage_total_ms", stageTotalMs);
+
+        Map<String, Object> performance = new LinkedHashMap<>();
+        performance.put("total_duration_ms", effectiveTotalJobDurationMs);
+        performance.put("orchestration_overhead_ms", orchestrationOverheadMs);
+        performance.put("stage_duration_ms", stageDurationMs);
+        performance.put("representative_mode", representativeSummary.path("mode").asText(""));
+        performance.put("representative_mode_latency_avg_ms", representativeLatencyAvg);
+        performance.put("representative_mode_latency_p95_ms", representativeLatencyP95);
+        performance.put("rewrite_mode", rewriteMode);
+        performance.put("rewrite_adoption_rate", rewriteAdoptionRate);
+        performance.put("rewrite_overhead_avg_latency_ms", rewriteOverheadAvgLatencyMs);
+        performance.put("latency_by_mode_ms", latencyByModeMs);
+        return performance;
+    }
+
+    private Double computeRewriteOverheadLatencyMs(Map<String, JsonNode> latencyByMode, String rewriteMode) {
+        if (rewriteMode == null || rewriteMode.isBlank()) {
+            return null;
+        }
+        JsonNode rawRow = latencyByMode.get("raw_only");
+        JsonNode rewriteRow = latencyByMode.get(rewriteMode);
+        Double rawAvg = nullableDouble(rawRow == null ? null : rawRow.path("avg_latency_ms"));
+        Double rewriteAvg = nullableDouble(rewriteRow == null ? null : rewriteRow.path("avg_latency_ms"));
+        if (rawAvg == null || rewriteAvg == null) {
+            return null;
+        }
+        return rewriteAvg - rawAvg;
+    }
+
+    private String selectRewriteMode(Map<String, JsonNode> summaryByMode) {
+        for (String mode : List.of("selective_rewrite_with_session", "selective_rewrite", "rewrite_always")) {
+            JsonNode row = summaryByMode.get(mode);
+            if (row != null && !row.isMissingNode()) {
+                return mode;
+            }
+        }
+        return null;
+    }
+
+    private long stageDurationMs(Map<String, Long> commandDurationMs, String command) {
+        if (commandDurationMs == null || command == null || command.isBlank()) {
+            return 0L;
+        }
+        Long value = commandDurationMs.get(command);
+        if (value == null) {
+            return 0L;
+        }
+        return Math.max(0L, value);
+    }
+
+    private long elapsedMillis(long startedAtNano) {
+        long elapsedNs = System.nanoTime() - startedAtNano;
+        if (elapsedNs <= 0L) {
+            return 0L;
+        }
+        return TimeUnit.NANOSECONDS.toMillis(elapsedNs);
     }
 
     private JsonNode nullableJson(JsonNode node) {
