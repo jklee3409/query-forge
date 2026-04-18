@@ -25,6 +25,7 @@ Track Codex agent policies, local operation notes, and agent-facing progress his
 - Read `AGENTS.md` before starting work.
 - Update `.codex/progress.md` when rules or skills change.
 - Keep root `progress.md` aligned with major changes.
+- Keep AGENTS research constraints updated when evaluation scope expands (for example, quality + performance together).
 
 ---
 

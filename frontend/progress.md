@@ -3,6 +3,12 @@
 ## Overview
 High-level progress tracking for the project.
 
+## [2026-04-18] Session Summary (RAG Quality+Performance Unified Compare UI)
+- What was done: Extended `RagPage.jsx` metric extraction to read `metrics_json.performance` and added an integrated quality+performance comparison table (left/right/delta) for two selected runs.
+- Key decisions: Kept existing quality bar chart for visual quick-scan and added tabular comparison for latency/overhead values that do not fit normalized 0-1 bars.
+- Issues encountered: Existing localized text blocks include mixed encoding, so edits were focused on stable metric parsing/render paths.
+- Next steps: Operator smoke-test with two completed runs to verify table rows for `total_duration_ms`, stage durations, and rewrite-overhead latency.
+
 ## [2026-04-18] Session Summary (Gating Top10 Control + Nested Payload)
 - What was done: Updated `GatingPage.jsx` to expose `Target Top10 점수` input and switched gating run request body to nested `config` payload (`stageFlags/ruleConfig/gatingWeights/utilityScoreWeights/thresholds`).
 - Key decisions: Kept existing control layout/default values and added only the Top10 score control required for utility stage tuning.

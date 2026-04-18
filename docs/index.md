@@ -15,6 +15,7 @@ Key experiment docs:
 - `experiments/dataset_design.md`
 - `experiments/monitoring_trace.md`
 - `experiments/langfuse_event_schema.md`
+- `experiments/langfuse_dashboard_template.md`
 - `experiments/first_baseline_template.md`
 - `experiments/latest_report.md`
 - `experiments/latest_answer_report.md`

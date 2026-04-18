@@ -18,6 +18,8 @@
   - 온라인 trace 저장 구조 및 운영 점검 절차
 - `langfuse_event_schema.md`
   - Langfuse tracing schema (required tags/metadata), sampling policy, and quota guardrails
+- `langfuse_dashboard_template.md`
+  - Langfuse dashboard template for quality + performance monitoring in RAG evaluation runs
 - `first_baseline_template.md`
   - 첫 baseline 결과 기록 템플릿
 

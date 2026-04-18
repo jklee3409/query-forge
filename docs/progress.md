@@ -3,6 +3,12 @@
 ## Overview
 High-level progress tracking for the `docs` directory.
 
+## [2026-04-18] Session Summary (Langfuse Dashboard Template + RAG Performance Guidance)
+- What was done: Added `docs/experiments/langfuse_dashboard_template.md` and linked it from experiment/docs indexes for practical quality+performance monitoring setup.
+- Key decisions: Focused the template on Query Forge field conventions (`purpose/stage/status` tags and metadata usage) plus rewrite-overhead watch.
+- Issues encountered: None.
+- Next steps: Validate dashboard panels against one real RAG test run after Langfuse tracing is enabled in staging.
+
 ## [2026-04-18] Session Summary (Langfuse Event Schema Documentation)
 - What was done: Added [`docs/experiments/langfuse_event_schema.md`](/E:/dev_factory/univ/query-forge/docs/experiments/langfuse_event_schema.md) and linked it from `docs/experiments/README.md`.
 - Key decisions: Standardized required tags/metadata, payload truncation policy, sampling defaults, and free-tier event caps.

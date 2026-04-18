@@ -3,6 +3,12 @@
 ## Overview
 High-level progress tracking for the project.
 
+## [2026-04-18] Session Summary (RAG Quality+Performance Integrated Tracking)
+- What was done: Added RAG run performance aggregation in backend finalization (`total/stage/rewrite-overhead latency`) and exposed quality+performance integrated comparison in Admin `RagPage`.
+- Key decisions: Kept existing retrieval/answer business logic unchanged and stored performance as additive payload (`metrics_json.performance`) for backward compatibility.
+- Issues encountered: Existing frontend source includes mixed-encoding text regions; UI changes were applied in narrow stable blocks.
+- Next steps: Run one completed RAG test pair and confirm `metrics_json.performance` values and compare-table deltas align with stage execution logs.
+
 ## [2026-04-18] Session Summary (Langfuse Env Validation + Tracing Visibility Fix)
 - What was done: Verified Langfuse key set completeness in `.env`, reorganized `.env`/`.env.example` with section comments, enabled `QUERY_FORGE_LANGFUSE_ENABLED` in local `.env`, and validated observer initialization + smoke trace emission.
 - Key decisions: Added `QUERY_FORGE_PYTHON` env guidance for backend-triggered pipeline subprocess consistency so the runtime uses `.venv` where `langfuse` is installed.

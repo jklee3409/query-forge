@@ -385,6 +385,33 @@ All results MUST be reproducible and comparable.
 
 ---
 
+## 3.7 RAG End-to-End Performance Evaluation (CRITICAL)
+
+RAG evaluation in this project MUST include performance measurements together with quality metrics.
+
+Agents MUST measure and record at least:
+
+- end-to-end run latency (`total_duration_ms`)
+- stage-level latency:
+  - `build-memory`
+  - `eval-retrieval`
+  - `eval-answer`
+- retrieval latency by mode (at least avg and p95)
+- rewrite latency overhead versus `raw_only` baseline
+
+Agents MUST ensure:
+
+- performance metrics are stored with run results (`metrics_json`) for later comparison
+- quality and performance are compared on the same dataset/snapshot condition
+- only one primary variable is changed per experiment when drawing conclusions
+
+Agents MUST NOT:
+
+- report quality improvements without corresponding latency/cost context
+- compare runs with different datasets/snapshots as if performance were equivalent
+
+---
+
 ## 4. Execution and Documentation Rules
 
 ### 4.1 Root Progress Tracking

@@ -3,6 +3,12 @@
 ## Overview
 High-level progress tracking for the project.
 
+## [2026-04-18] Session Summary (AGENTS RAG Performance Evaluation Constraint Added)
+- What was done: Updated `.codex/AGENTS.md` with new Section `3.7 RAG End-to-End Performance Evaluation` to require quality+performance joint reporting in RAG experiments.
+- Key decisions: Defined mandatory performance fields (total run latency, stage latency, mode latency avg/p95, rewrite overhead) as reproducibility constraints.
+- Issues encountered: None.
+- Next steps: Keep this section synchronized with future experiment-run schema changes.
+
 ## [2026-04-13] Session Summary (Skill Added)
 - What was done: Added `.codex/skills/git-commit` and authored a reusable workflow for git-diff analysis, logical commit splitting, AngularJS commit typing, and unnecessary file exclusion.
 - Key decisions: Embedded Korean + English technical commit message examples directly in `SKILL.md` to enforce output style consistently.
