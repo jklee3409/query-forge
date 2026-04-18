@@ -819,7 +819,8 @@ public class AdminConsoleRepository {
                 FROM synthetic_queries_gated g
                 JOIN synthetic_queries_raw_all r
                   ON r.synthetic_query_id = g.synthetic_query_id
-                WHERE g.metadata ->> 'experiment_run_id' = :sourceGatingRunId
+                WHERE g.gating_batch_id = :gatingBatchId
+                   OR g.metadata ->> 'experiment_run_id' = :sourceGatingRunId
                 """;
         jdbcTemplate.update(insertResultSql, params);
 
@@ -838,7 +839,8 @@ public class AdminConsoleRepository {
                         END
                     ),
                     rejected_reason = COALESCE(g.rejected_reason, NULLIF(g.rejection_reasons ->> 0, ''))
-                WHERE g.metadata ->> 'experiment_run_id' = :sourceGatingRunId
+                WHERE g.gating_batch_id = :gatingBatchId
+                   OR g.metadata ->> 'experiment_run_id' = :sourceGatingRunId
                 """;
         jdbcTemplate.update(updateRawGatedSql, params);
 

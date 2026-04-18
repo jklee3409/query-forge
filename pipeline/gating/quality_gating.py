@@ -204,6 +204,176 @@ def _load_raw_queries(
     ]
 
 
+def _stage_passes_from_persisted_row(
+    *,
+    rule_pass: bool | None,
+    llm_pass: bool | None,
+    utility_pass: bool | None,
+    diversity_pass: bool | None,
+    config: ExperimentConfig,
+) -> tuple[bool | None, bool | None, bool | None, bool | None]:
+    if config.enable_rule_filter:
+        rule_stage_pass: bool | None = bool(rule_pass)
+    else:
+        rule_stage_pass = True
+
+    if config.enable_llm_self_eval and rule_stage_pass:
+        llm_stage_pass: bool | None = bool(llm_pass)
+    elif not config.enable_llm_self_eval:
+        llm_stage_pass = True
+    else:
+        llm_stage_pass = None
+
+    can_run_utility = bool(rule_stage_pass) and llm_stage_pass is not False
+    if can_run_utility:
+        if config.enable_retrieval_utility:
+            utility_stage_pass: bool | None = bool(utility_pass)
+        else:
+            utility_stage_pass = True
+    elif not config.enable_retrieval_utility:
+        utility_stage_pass = True
+    else:
+        utility_stage_pass = None
+
+    can_run_diversity = can_run_utility and utility_stage_pass is not False
+    if can_run_diversity:
+        if config.enable_diversity:
+            diversity_stage_pass: bool | None = bool(diversity_pass)
+        else:
+            diversity_stage_pass = True
+    elif not config.enable_diversity:
+        diversity_stage_pass = True
+    else:
+        diversity_stage_pass = None
+
+    return rule_stage_pass, llm_stage_pass, utility_stage_pass, diversity_stage_pass
+
+
+def _load_existing_gating_state(
+    connection: psycopg.Connection[Any],
+    *,
+    gating_batch_id: str | None,
+    config: ExperimentConfig,
+) -> dict[str, Any]:
+    state = {
+        "processed_query_ids": set(),
+        "last_processed_query_id": None,
+        "accepted_seed_rows": [],
+        "decision_counter": Counter(),
+        "rejection_counter": Counter(),
+        "stage_counter": Counter(
+            {
+                "generated": 0,
+                "rule_filter": 0,
+                "llm_self_eval": 0,
+                "retrieval_utility": 0,
+                "diversity_dedup": 0,
+                "final_approved": 0,
+            }
+        ),
+        "preview_rows": [],
+    }
+    if not gating_batch_id:
+        return state
+
+    with connection.cursor() as cursor:
+        cursor.execute(
+            """
+            SELECT gr.synthetic_query_id,
+                   gr.query_text,
+                   gr.accepted,
+                   gr.rule_pass,
+                   (gr.stage_payload_json ->> 'passed_llm_self_eval')::boolean AS passed_llm_self_eval,
+                   (gr.stage_payload_json ->> 'passed_retrieval_utility')::boolean AS passed_retrieval_utility,
+                   gr.diversity_pass,
+                   gr.utility_score,
+                   gr.final_score,
+                   gr.rejected_reason,
+                   gr.stage_payload_json -> 'rejection_reasons' AS rejection_reasons
+            FROM synthetic_query_gating_result gr
+            WHERE gr.gating_batch_id = %s
+            ORDER BY gr.created_at ASC, gr.synthetic_query_id ASC
+            """,
+            (gating_batch_id,),
+        )
+        rows = cursor.fetchall()
+
+    for row in rows:
+        synthetic_query_id = str(row["synthetic_query_id"])
+        accepted = bool(row["accepted"])
+        rule_stage_pass, llm_stage_pass, utility_stage_pass, diversity_stage_pass = _stage_passes_from_persisted_row(
+            rule_pass=row["rule_pass"],
+            llm_pass=row["passed_llm_self_eval"],
+            utility_pass=row["passed_retrieval_utility"],
+            diversity_pass=row["diversity_pass"],
+            config=config,
+        )
+
+        reasons_value = row["rejection_reasons"]
+        rejection_reasons = [str(reason) for reason in (reasons_value or []) if str(reason).strip()]
+        if not rejection_reasons and row["rejected_reason"]:
+            rejection_reasons = [str(row["rejected_reason"])]
+
+        state["processed_query_ids"].add(synthetic_query_id)
+        state["last_processed_query_id"] = synthetic_query_id
+
+        if accepted:
+            state["decision_counter"]["accepted"] += 1
+            state["stage_counter"]["final_approved"] += 1
+        else:
+            state["decision_counter"]["rejected"] += 1
+            for reason in rejection_reasons:
+                state["rejection_counter"][reason] += 1
+
+        state["stage_counter"]["generated"] += 1
+        if rule_stage_pass:
+            state["stage_counter"]["rule_filter"] += 1
+        if rule_stage_pass and llm_stage_pass:
+            state["stage_counter"]["llm_self_eval"] += 1
+        if rule_stage_pass and llm_stage_pass and utility_stage_pass:
+            state["stage_counter"]["retrieval_utility"] += 1
+        if rule_stage_pass and llm_stage_pass and utility_stage_pass and diversity_stage_pass:
+            state["stage_counter"]["diversity_dedup"] += 1
+
+        if len(state["preview_rows"]) < 20:
+            state["preview_rows"].append(
+                {
+                    "synthetic_query_id": synthetic_query_id,
+                    "query_text": str(row["query_text"] or ""),
+                    "final_decision": accepted,
+                    "utility_score": round(float(row["utility_score"]), 4) if row["utility_score"] is not None else None,
+                    "final_score": round(float(row["final_score"]), 4) if row["final_score"] is not None else None,
+                    "rejection_reasons": rejection_reasons,
+                }
+            )
+
+    with connection.cursor() as cursor:
+        cursor.execute(
+            """
+            SELECT r.chunk_id_source,
+                   r.target_doc_id,
+                   gr.query_text
+            FROM synthetic_query_gating_result gr
+            JOIN synthetic_queries_raw_all r
+              ON r.synthetic_query_id = gr.synthetic_query_id
+            WHERE gr.gating_batch_id = %s
+              AND gr.accepted = TRUE
+            ORDER BY gr.created_at ASC, gr.synthetic_query_id ASC
+            """,
+            (gating_batch_id,),
+        )
+        accepted_rows = cursor.fetchall()
+    state["accepted_seed_rows"] = [
+        (
+            str(row["chunk_id_source"] or ""),
+            str(row["target_doc_id"] or ""),
+            str(row["query_text"] or ""),
+        )
+        for row in accepted_rows
+    ]
+    return state
+
+
 def _load_chunk_items(connection: psycopg.Connection[Any]) -> tuple[list[ChunkItem], dict[str, ChunkItem]]:
     with connection.cursor() as cursor:
         cursor.execute(
@@ -508,15 +678,41 @@ def run_quality_gating(
             strategies=strategies,
             generation_run_id=generation_run_id,
         )
+        existing_state = _load_existing_gating_state(
+            connection,
+            gating_batch_id=gating_batch_id,
+            config=config,
+        )
+        processed_query_ids: set[str] = set(existing_state["processed_query_ids"])
+        processed_existing_count = len(processed_query_ids)
+
+        pending_queries = raw_queries
+        last_processed_query_id = existing_state["last_processed_query_id"]
+        if last_processed_query_id:
+            index_by_query_id = {query.synthetic_query_id: index for index, query in enumerate(raw_queries)}
+            last_index = index_by_query_id.get(last_processed_query_id)
+            if last_index is not None:
+                pending_queries = raw_queries[last_index + 1 :]
+            else:
+                pending_queries = raw_queries
+        pending_queries = [query for query in pending_queries if query.synthetic_query_id not in processed_query_ids]
+
         chunks, chunk_index = _load_chunk_items(connection)
 
         accepted_by_chunk: dict[str, list[list[float]]] = defaultdict(list)
         accepted_by_doc: dict[str, list[list[float]]] = defaultdict(list)
         accepted_global: list[list[float]] = []
+        for chunk_id_source, target_doc_id, query_text in existing_state["accepted_seed_rows"]:
+            if not chunk_id_source or not target_doc_id or not query_text:
+                continue
+            seed_embedding = embed_text(query_text)
+            accepted_by_chunk[chunk_id_source].append(seed_embedding)
+            accepted_by_doc[target_doc_id].append(seed_embedding)
+            accepted_global.append(seed_embedding)
 
-        decision_counter: Counter[str] = Counter()
-        rejection_counter: Counter[str] = Counter()
-        preview_rows: list[dict[str, Any]] = []
+        decision_counter: Counter[str] = Counter(existing_state["decision_counter"])
+        rejection_counter: Counter[str] = Counter(existing_state["rejection_counter"])
+        preview_rows: list[dict[str, Any]] = list(existing_state["preview_rows"])
         stage_counter: Counter[str] = Counter(
             {
                 "generated": len(raw_queries),
@@ -527,10 +723,23 @@ def run_quality_gating(
                 "final_approved": 0,
             }
         )
+        stage_counter.update(existing_state["stage_counter"])
+        stage_counter["generated"] = len(raw_queries)
+
+        if processed_existing_count > 0:
+            LOGGER.info(
+                "Resuming quality gating for batch=%s. processed=%d, pending=%d, total=%d",
+                gating_batch_id,
+                processed_existing_count,
+                len(pending_queries),
+                len(raw_queries),
+            )
 
         llm_batch_size = int(config.raw.get("llm_batch_size") or 20)
         llm_batch_size = max(1, min(llm_batch_size, 20))
-        for row_index, query in enumerate(raw_queries):
+        for row_index, query in enumerate(pending_queries):
+            if query.synthetic_query_id in processed_query_ids:
+                continue
             source_chunk = chunk_index.get(query.chunk_id_source)
             if source_chunk is None:
                 continue
@@ -683,6 +892,7 @@ def run_quality_gating(
                 decision_counter["rejected"] += 1
                 for reason in rejection_reasons:
                     rejection_counter[reason] += 1
+            processed_query_ids.add(query.synthetic_query_id)
 
             gated_query_id = _stable_id(
                 [
@@ -941,15 +1151,18 @@ def run_quality_gating(
             if (row_index + 1) % llm_batch_size == 0:
                 connection.commit()
 
+        processed_total = decision_counter["accepted"] + decision_counter["rejected"]
         summary = {
             "experiment_key": config.experiment_key,
             "experiment_run_id": run_context.experiment_run_id,
             "source_generation_run_id": generation_run_id,
             "gating_preset": config.gating_preset,
             "strategies": strategies,
-            "processed_queries": len(raw_queries),
+            "processed_queries": processed_total,
             "accepted_queries": decision_counter["accepted"],
             "rejected_queries": decision_counter["rejected"],
+            "resumed_processed_queries": processed_existing_count,
+            "newly_processed_queries": max(0, processed_total - processed_existing_count),
             "rejection_reasons": dict(rejection_counter),
             "stage_funnel": dict(stage_counter),
             "self_eval_prompt": {

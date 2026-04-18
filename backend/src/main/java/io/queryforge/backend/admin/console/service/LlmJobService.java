@@ -134,10 +134,10 @@ public class LlmJobService {
                 gatingBatchId,
                 null,
                 1,
-                2,
+                5,
                 createdBy
         );
-        llmJobRepository.createJobItem(jobId, 1, "gate-queries", commandArgs, 2);
+        llmJobRepository.createJobItem(jobId, 1, "gate-queries", commandArgs, 5);
         enqueue(jobId);
         return jobId;
     }
