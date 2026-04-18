@@ -3,6 +3,12 @@
 ## Overview
 High-level progress tracking for the project.
 
+## [2026-04-18] Session Summary (Langfuse Env Validation + Tracing Visibility Fix)
+- What was done: Verified Langfuse key set completeness in `.env`, reorganized `.env`/`.env.example` with section comments, enabled `QUERY_FORGE_LANGFUSE_ENABLED` in local `.env`, and validated observer initialization + smoke trace emission.
+- Key decisions: Added `QUERY_FORGE_PYTHON` env guidance for backend-triggered pipeline subprocess consistency so the runtime uses `.venv` where `langfuse` is installed.
+- Issues encountered: Initial tracing was blocked by disabled flag and missing `langfuse` package in current Python runtime.
+- Next steps: Run one real LLM stage (`generate-queries` or `gate-queries`) and verify trace volume/fields in Langfuse UI under free-tier caps.
+
 ## [2026-04-18] Session Summary (Langfuse Event Schema + Pipeline LLM Observability Integration)
 - What was done: Designed Query Forge Langfuse event schema (`docs/experiments/langfuse_event_schema.md`) and integrated fail-open tracing into the centralized LLM execution path (`pipeline/common/llm_client.py` via `pipeline/common/langfuse_observability.py`).
 - Key decisions: Kept business logic untouched by instrumenting only transport-layer LLM calls, added purpose-aware sampling and hard event caps for free-tier safety, and made Langfuse emission fully optional by environment flags.
