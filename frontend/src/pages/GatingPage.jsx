@@ -56,6 +56,13 @@ export function GatingPage({ notify }) {
     return batches.filter((batch) => normalizeMethodCode(batch.methodCode) === normalizedMethodCode)
   }
 
+  const findActiveGenerationBatchOptions = (methodCode) => (
+    findGenerationBatchOptions(methodCode).filter((batch) => {
+      const status = String(batch.status || '').toLowerCase()
+      return status !== 'failed' && status !== 'cancelled'
+    })
+  )
+
   const [form, setForm] = useState({
     methodCode: '',
     generationBatchId: '',
@@ -345,8 +352,8 @@ export function GatingPage({ notify }) {
   const funnelReferenceBatchId = resolveGatingBatchId(funnelFilter.gatingBatchId, funnelGatingBatchOptions)
   const formBatchOptions = findGenerationBatchOptions(form.methodCode)
     .filter((batch) => String(batch.status || '').toLowerCase() === 'completed')
-  const funnelBatchOptions = funnelFilter.methodCode ? findGenerationBatchOptions(funnelFilter.methodCode) : []
-  const resultBatchOptions = resultFilter.methodCode ? findGenerationBatchOptions(resultFilter.methodCode) : []
+  const funnelBatchOptions = funnelFilter.methodCode ? findActiveGenerationBatchOptions(funnelFilter.methodCode) : []
+  const resultBatchOptions = resultFilter.methodCode ? findActiveGenerationBatchOptions(resultFilter.methodCode) : []
   const gatingBatchTotalPages = Math.max(1, Math.ceil(gatingBatches.length / historyPageSize))
   const currentGatingBatchPage = Math.min(gatingBatchPage, gatingBatchTotalPages - 1)
   const pagedGatingBatches = gatingBatches.slice(currentGatingBatchPage * historyPageSize, (currentGatingBatchPage + 1) * historyPageSize)
