@@ -30,10 +30,11 @@ export function GatingPage({ notify }) {
     return (completed || rows[0]).gatingBatchId
   }
 
-  const findCompletedGatingBatches = (methodCode, generationBatchId) => {
+  const findQueryableGatingBatches = (methodCode, generationBatchId) => {
     const normalizedMethodCode = normalizeMethodCode(methodCode)
     return gatingBatches.filter((batch) => {
-      if (String(batch.status || '').toLowerCase() !== 'completed') return false
+      const status = String(batch.status || '').toLowerCase()
+      if (status !== 'completed' && status !== 'running') return false
       if (generationBatchId && batch.generationBatchId !== generationBatchId) return false
       if (!normalizedMethodCode) return true
       return normalizeMethodCode(batch.methodCode) === normalizedMethodCode
@@ -167,12 +168,12 @@ export function GatingPage({ notify }) {
     setResultPage(initialPage)
     const tasks = []
     if (funnelReady) {
-      const funnelOptions = findCompletedGatingBatches(funnelFilter.methodCode, funnelFilter.generationBatchId)
+      const funnelOptions = findQueryableGatingBatches(funnelFilter.methodCode, funnelFilter.generationBatchId)
       const funnelBatchId = resolveGatingBatchId(funnelFilter.gatingBatchId, funnelOptions)
       tasks.push(loadFunnel(funnelBatchId, funnelFilter.methodCode))
     }
     if (resultReady) {
-      const resultOptions = findCompletedGatingBatches(resultFilter.methodCode, resultFilter.generationBatchId)
+      const resultOptions = findQueryableGatingBatches(resultFilter.methodCode, resultFilter.generationBatchId)
       const resultBatchId = resolveGatingBatchId(resultFilter.gatingBatchId, resultOptions)
       tasks.push(loadResults(resultBatchId, initialPage, resultFilter.methodCode))
     }
@@ -315,7 +316,7 @@ export function GatingPage({ notify }) {
     try {
       const initialPage = 0
       setResultPage(initialPage)
-      const options = findCompletedGatingBatches(resultFilter.methodCode, resultFilter.generationBatchId)
+      const options = findQueryableGatingBatches(resultFilter.methodCode, resultFilter.generationBatchId)
       const batchId = resolveGatingBatchId(resultFilter.gatingBatchId, options)
       await loadResults(batchId, initialPage, resultFilter.methodCode)
     } catch (error) {
@@ -330,7 +331,7 @@ export function GatingPage({ notify }) {
       return
     }
     try {
-      const options = findCompletedGatingBatches(funnelFilter.methodCode, funnelFilter.generationBatchId)
+      const options = findQueryableGatingBatches(funnelFilter.methodCode, funnelFilter.generationBatchId)
       const batchId = resolveGatingBatchId(funnelFilter.gatingBatchId, options)
       await loadFunnel(batchId, funnelFilter.methodCode)
     } catch (error) {
@@ -338,8 +339,8 @@ export function GatingPage({ notify }) {
     }
   }
 
-  const resultGatingBatchOptions = findCompletedGatingBatches(resultFilter.methodCode, resultFilter.generationBatchId)
-  const funnelGatingBatchOptions = findCompletedGatingBatches(funnelFilter.methodCode, funnelFilter.generationBatchId)
+  const resultGatingBatchOptions = findQueryableGatingBatches(resultFilter.methodCode, resultFilter.generationBatchId)
+  const funnelGatingBatchOptions = findQueryableGatingBatches(funnelFilter.methodCode, funnelFilter.generationBatchId)
   const resultReferenceBatchId = resolveGatingBatchId(resultFilter.gatingBatchId, resultGatingBatchOptions)
   const funnelReferenceBatchId = resolveGatingBatchId(funnelFilter.gatingBatchId, funnelGatingBatchOptions)
   const formBatchOptions = findGenerationBatchOptions(form.methodCode)
@@ -477,7 +478,7 @@ export function GatingPage({ notify }) {
           </label>
           <label className="filter-field">게이팅 배치
             <select value={funnelFilter.gatingBatchId} onChange={(event) => setFunnelFilter((prev) => ({ ...prev, gatingBatchId: event.target.value }))}>
-              <option value="">최신 배치</option>{funnelGatingBatchOptions.map((batch) => <option key={batch.gatingBatchId} value={batch.gatingBatchId}>{shortId(batch.gatingBatchId)} ({batch.gatingPreset})</option>)}
+              <option value="">최신 배치</option>{funnelGatingBatchOptions.map((batch) => <option key={batch.gatingBatchId} value={batch.gatingBatchId}>{shortId(batch.gatingBatchId)} ({batch.gatingPreset}, {batch.status || '-'})</option>)}
             </select>
           </label>
           <div className="filter-field filter-field--small"><button type="submit" className="button button--primary" disabled={!isFilterReady(funnelFilter) || !funnelReferenceBatchId}>조회</button></div>
@@ -507,7 +508,7 @@ export function GatingPage({ notify }) {
           </label>
           <label className="filter-field">게이팅 배치
             <select value={resultFilter.gatingBatchId} onChange={(event) => setResultFilter((prev) => ({ ...prev, gatingBatchId: event.target.value }))}>
-              <option value="">최신 배치</option>{resultGatingBatchOptions.map((batch) => <option key={batch.gatingBatchId} value={batch.gatingBatchId}>{shortId(batch.gatingBatchId)} ({batch.gatingPreset})</option>)}
+              <option value="">최신 배치</option>{resultGatingBatchOptions.map((batch) => <option key={batch.gatingBatchId} value={batch.gatingBatchId}>{shortId(batch.gatingBatchId)} ({batch.gatingPreset}, {batch.status || '-'})</option>)}
             </select>
           </label>
           <div className="filter-field filter-field--small"><button type="submit" className="button button--primary" disabled={!isFilterReady(resultFilter) || !resultReferenceBatchId}>조회</button></div>

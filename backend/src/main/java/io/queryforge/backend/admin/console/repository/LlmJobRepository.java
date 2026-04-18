@@ -123,29 +123,86 @@ public class LlmJobRepository {
 
     public Optional<AdminConsoleDtos.LlmJobRow> findJob(UUID jobId) {
         String sql = """
-                SELECT job_id,
-                       job_type,
-                       job_status,
-                       priority,
-                       generation_batch_id,
-                       gating_batch_id,
-                       rag_test_run_id,
-                       experiment_name,
-                       command_name,
-                       command_args::text AS command_args,
-                       total_items,
-                       processed_items,
-                       progress_pct,
-                       retry_count,
-                       max_retries,
-                       next_run_at,
-                       started_at,
-                       finished_at,
-                       error_message,
-                       result_json::text AS result_json,
-                       created_at
-                FROM llm_job
-                WHERE job_id = :jobId
+                WITH target_job AS (
+                    SELECT job_id,
+                           job_type,
+                           job_status,
+                           priority,
+                           generation_batch_id,
+                           gating_batch_id,
+                           rag_test_run_id,
+                           experiment_name,
+                           command_name,
+                           command_args,
+                           total_items,
+                           processed_items,
+                           progress_pct,
+                           retry_count,
+                           max_retries,
+                           next_run_at,
+                           started_at,
+                           finished_at,
+                           error_message,
+                           result_json,
+                           created_at
+                    FROM llm_job
+                    WHERE job_id = :jobId
+                ),
+                gating_live AS (
+                    SELECT COUNT(*) AS processed_count
+                    FROM synthetic_query_gating_result gr
+                    WHERE gr.gating_batch_id = (SELECT tj.gating_batch_id FROM target_job tj)
+                )
+                SELECT tj.job_id,
+                       tj.job_type,
+                       tj.job_status,
+                       tj.priority,
+                       tj.generation_batch_id,
+                       tj.gating_batch_id,
+                       tj.rag_test_run_id,
+                       tj.experiment_name,
+                       tj.command_name,
+                       tj.command_args::text AS command_args,
+                       CASE
+                           WHEN tj.job_type = 'RUN_LLM_SELF_EVAL'
+                                AND lower(COALESCE(tj.job_status, '')) IN ('queued', 'running', 'pause_requested', 'paused', 'cancel_requested')
+                               THEN COALESCE(gl.processed_count, 0)
+                           ELSE tj.processed_items
+                       END AS processed_items,
+                       CASE
+                           WHEN tj.job_type = 'RUN_LLM_SELF_EVAL'
+                                AND lower(COALESCE(tj.job_status, '')) IN ('queued', 'running', 'pause_requested', 'paused', 'cancel_requested')
+                               THEN COALESCE(NULLIF(gb.total_generated_count, 0), NULLIF(tj.total_items, 0), 1)
+                           ELSE tj.total_items
+                       END AS total_items,
+                       CASE
+                           WHEN tj.job_type = 'RUN_LLM_SELF_EVAL'
+                                AND lower(COALESCE(tj.job_status, '')) IN ('queued', 'running', 'pause_requested', 'paused', 'cancel_requested')
+                               THEN LEAST(
+                                       100.0,
+                                       ROUND(
+                                               (
+                                                   COALESCE(gl.processed_count, 0)::numeric * 100.0
+                                               ) / COALESCE(NULLIF(gb.total_generated_count, 0), NULLIF(tj.total_items, 0), 1),
+                                               1
+                                       )::double precision
+                               )
+                           ELSE tj.progress_pct
+                       END AS progress_pct,
+                       tj.retry_count,
+                       tj.max_retries,
+                       tj.next_run_at,
+                       tj.started_at,
+                       tj.finished_at,
+                       tj.error_message,
+                       tj.result_json::text AS result_json,
+                       tj.created_at
+                FROM target_job tj
+                LEFT JOIN gating_live gl ON true
+                LEFT JOIN quality_gating_batch qb
+                  ON qb.gating_batch_id = tj.gating_batch_id
+                LEFT JOIN synthetic_query_generation_batch gb
+                  ON gb.batch_id = qb.generation_batch_id
                 """;
         List<AdminConsoleDtos.LlmJobRow> rows = jdbcTemplate.query(
                 sql,
@@ -157,30 +214,95 @@ public class LlmJobRepository {
 
     public List<AdminConsoleDtos.LlmJobRow> findJobs(Integer limit) {
         String sql = """
-                SELECT job_id,
-                       job_type,
-                       job_status,
-                       priority,
-                       generation_batch_id,
-                       gating_batch_id,
-                       rag_test_run_id,
-                       experiment_name,
-                       command_name,
-                       command_args::text AS command_args,
-                       total_items,
-                       processed_items,
-                       progress_pct,
-                       retry_count,
-                       max_retries,
-                       next_run_at,
-                       started_at,
-                       finished_at,
-                       error_message,
-                       result_json::text AS result_json,
-                       created_at
-                FROM llm_job
-                ORDER BY created_at DESC
-                LIMIT :limit
+                WITH limited_job AS (
+                    SELECT job_id,
+                           job_type,
+                           job_status,
+                           priority,
+                           generation_batch_id,
+                           gating_batch_id,
+                           rag_test_run_id,
+                           experiment_name,
+                           command_name,
+                           command_args,
+                           total_items,
+                           processed_items,
+                           progress_pct,
+                           retry_count,
+                           max_retries,
+                           next_run_at,
+                           started_at,
+                           finished_at,
+                           error_message,
+                           result_json,
+                           created_at
+                    FROM llm_job
+                    ORDER BY created_at DESC
+                    LIMIT :limit
+                ),
+                gating_live AS (
+                    SELECT gr.gating_batch_id,
+                           COUNT(*) AS processed_count
+                    FROM synthetic_query_gating_result gr
+                    WHERE gr.gating_batch_id IN (
+                        SELECT lj.gating_batch_id
+                        FROM limited_job lj
+                        WHERE lj.gating_batch_id IS NOT NULL
+                    )
+                    GROUP BY gr.gating_batch_id
+                )
+                SELECT lj.job_id,
+                       lj.job_type,
+                       lj.job_status,
+                       lj.priority,
+                       lj.generation_batch_id,
+                       lj.gating_batch_id,
+                       lj.rag_test_run_id,
+                       lj.experiment_name,
+                       lj.command_name,
+                       lj.command_args::text AS command_args,
+                       CASE
+                           WHEN lj.job_type = 'RUN_LLM_SELF_EVAL'
+                                AND lower(COALESCE(lj.job_status, '')) IN ('queued', 'running', 'pause_requested', 'paused', 'cancel_requested')
+                               THEN COALESCE(gl.processed_count, 0)
+                           ELSE lj.processed_items
+                       END AS processed_items,
+                       CASE
+                           WHEN lj.job_type = 'RUN_LLM_SELF_EVAL'
+                                AND lower(COALESCE(lj.job_status, '')) IN ('queued', 'running', 'pause_requested', 'paused', 'cancel_requested')
+                               THEN COALESCE(NULLIF(gb.total_generated_count, 0), NULLIF(lj.total_items, 0), 1)
+                           ELSE lj.total_items
+                       END AS total_items,
+                       CASE
+                           WHEN lj.job_type = 'RUN_LLM_SELF_EVAL'
+                                AND lower(COALESCE(lj.job_status, '')) IN ('queued', 'running', 'pause_requested', 'paused', 'cancel_requested')
+                               THEN LEAST(
+                                       100.0,
+                                       ROUND(
+                                               (
+                                                   COALESCE(gl.processed_count, 0)::numeric * 100.0
+                                               ) / COALESCE(NULLIF(gb.total_generated_count, 0), NULLIF(lj.total_items, 0), 1),
+                                               1
+                                       )::double precision
+                               )
+                           ELSE lj.progress_pct
+                       END AS progress_pct,
+                       lj.retry_count,
+                       lj.max_retries,
+                       lj.next_run_at,
+                       lj.started_at,
+                       lj.finished_at,
+                       lj.error_message,
+                       lj.result_json::text AS result_json,
+                       lj.created_at
+                FROM limited_job lj
+                LEFT JOIN gating_live gl
+                  ON gl.gating_batch_id = lj.gating_batch_id
+                LEFT JOIN quality_gating_batch qb
+                  ON qb.gating_batch_id = lj.gating_batch_id
+                LEFT JOIN synthetic_query_generation_batch gb
+                  ON gb.batch_id = qb.generation_batch_id
+                ORDER BY lj.created_at DESC
                 """;
         return jdbcTemplate.query(
                 sql,

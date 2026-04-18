@@ -219,6 +219,7 @@ public class AdminConsoleService {
         stageConfig.put("diversity_threshold_same_chunk", diversityThresholdSameChunk);
         stageConfig.put("diversity_threshold_same_doc", diversityThresholdSameDoc);
         stageConfig.put("final_score_threshold", finalScoreThreshold);
+        stageConfig.put("llm_batch_size", 1);
 
         repository.clearCompletedGatingResults(method.generationMethodId(), request.generationBatchId());
 
@@ -252,6 +253,7 @@ public class AdminConsoleService {
         config.put("diversity_threshold_same_chunk", diversityThresholdSameChunk);
         config.put("diversity_threshold_same_doc", diversityThresholdSameDoc);
         config.put("final_score_threshold", finalScoreThreshold);
+        config.put("llm_batch_size", 1);
         config.put("gating_batch_id", gatingBatchId.toString());
         if (sourceGenerationRunId != null) {
             config.put("source_generation_run_id", sourceGenerationRunId.toString());

@@ -944,6 +944,9 @@ public class AdminConsoleRepository {
                 SET status = 'failed',
                     started_at = COALESCE(started_at, NOW()),
                     finished_at = NOW(),
+                    processed_count = 0,
+                    accepted_count = 0,
+                    rejected_count = 0,
                     rejection_summary = CAST(:rejectionSummary AS jsonb)
                 WHERE gating_batch_id = :gatingBatchId
                 """;
@@ -954,6 +957,14 @@ public class AdminConsoleRepository {
                         .addValue("gatingBatchId", gatingBatchId)
                         .addValue("rejectionSummary", rejection.toString())
         );
+        MapSqlParameterSource cleanupParams = new MapSqlParameterSource("gatingBatchId", gatingBatchId);
+        jdbcTemplate.update(
+                "UPDATE synthetic_queries_gated SET gating_batch_id = NULL WHERE gating_batch_id = :gatingBatchId",
+                cleanupParams
+        );
+        jdbcTemplate.update("DELETE FROM synthetic_query_gating_history WHERE gating_batch_id = :gatingBatchId", cleanupParams);
+        jdbcTemplate.update("DELETE FROM quality_gating_stage_result WHERE gating_batch_id = :gatingBatchId", cleanupParams);
+        jdbcTemplate.update("DELETE FROM synthetic_query_gating_result WHERE gating_batch_id = :gatingBatchId", cleanupParams);
     }
 
     @Transactional
@@ -1017,26 +1028,67 @@ public class AdminConsoleRepository {
 
     public List<AdminConsoleDtos.GatingBatchRow> findGatingBatches(Integer limit) {
         String sql = """
-                SELECT qb.gating_batch_id,
-                       qb.gating_preset,
-                       qb.generation_batch_id,
+                WITH limited_batch AS (
+                    SELECT qb.gating_batch_id,
+                           qb.gating_preset,
+                           qb.generation_batch_id,
+                           qb.generation_method_id,
+                           qb.source_generation_run_id,
+                           qb.source_gating_run_id,
+                           qb.status,
+                           qb.started_at,
+                           qb.finished_at,
+                           qb.processed_count,
+                           qb.accepted_count,
+                           qb.rejected_count,
+                           qb.rejection_summary,
+                           qb.stage_config_json,
+                           qb.created_at
+                    FROM quality_gating_batch qb
+                    ORDER BY qb.created_at DESC
+                    LIMIT :limit
+                ),
+                live_count AS (
+                    SELECT gr.gating_batch_id,
+                           COUNT(*) AS processed_count,
+                           COUNT(*) FILTER (WHERE gr.accepted) AS accepted_count
+                    FROM synthetic_query_gating_result gr
+                    WHERE gr.gating_batch_id IN (SELECT lb.gating_batch_id FROM limited_batch lb)
+                    GROUP BY gr.gating_batch_id
+                )
+                SELECT lb.gating_batch_id,
+                       lb.gating_preset,
+                       lb.generation_batch_id,
                        m.method_code,
                        m.method_name,
-                       qb.source_generation_run_id,
-                       qb.source_gating_run_id,
-                       qb.status,
-                       qb.started_at,
-                       qb.finished_at,
-                       qb.processed_count,
-                       qb.accepted_count,
-                       qb.rejected_count,
-                       qb.rejection_summary::text AS rejection_summary,
-                       qb.stage_config_json::text AS stage_config
-                FROM quality_gating_batch qb
+                       lb.source_generation_run_id,
+                       lb.source_gating_run_id,
+                       lb.status,
+                       lb.started_at,
+                       lb.finished_at,
+                       CASE
+                           WHEN lower(COALESCE(lb.status, '')) IN ('planned', 'queued', 'running')
+                               THEN COALESCE(lc.processed_count, 0)
+                           ELSE lb.processed_count
+                       END AS processed_count,
+                       CASE
+                           WHEN lower(COALESCE(lb.status, '')) IN ('planned', 'queued', 'running')
+                               THEN COALESCE(lc.accepted_count, 0)
+                           ELSE lb.accepted_count
+                       END AS accepted_count,
+                       CASE
+                           WHEN lower(COALESCE(lb.status, '')) IN ('planned', 'queued', 'running')
+                               THEN GREATEST(COALESCE(lc.processed_count, 0) - COALESCE(lc.accepted_count, 0), 0)
+                           ELSE lb.rejected_count
+                       END AS rejected_count,
+                       lb.rejection_summary::text AS rejection_summary,
+                       lb.stage_config_json::text AS stage_config
+                FROM limited_batch lb
                 LEFT JOIN synthetic_query_generation_method m
-                  ON m.generation_method_id = qb.generation_method_id
-                ORDER BY qb.created_at DESC
-                LIMIT :limit
+                  ON m.generation_method_id = lb.generation_method_id
+                LEFT JOIN live_count lc
+                  ON lc.gating_batch_id = lb.gating_batch_id
+                ORDER BY lb.created_at DESC
                 """;
         return jdbcTemplate.query(
                 sql,
