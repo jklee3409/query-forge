@@ -3,6 +3,12 @@
 ## Overview
 High-level backend progress tracking.
 
+## [2026-04-19] Session Summary (Gating Result Pass-Stage Full Filter Coverage)
+- What was done: Extended gating result query filtering to support all quality-gating pass stages via `pass_stage` (`rejected`, `passed_rule`, `passed_llm`, `passed_utility`, `passed_diversity`, `passed_all`) across controller/service/repository layers.
+- Key decisions: Preserved existing endpoint shape (`GET /api/admin/console/gating/batches/{gatingBatchId}/results`) and added strict service-layer value normalization with stage-specific SQL predicates in repository to avoid business-logic refactor.
+- Issues encountered: None.
+- Next steps: Keep API docs/examples aligned with the expanded `pass_stage` set and monitor operator usage for potential alias needs.
+
 ## [2026-04-18] Session Summary (RAG Performance Metrics Aggregation for Test Runs)
 - What was done: Extended `LlmJobService` RAG finalization path to capture per-stage command duration (`build-memory`, `eval-retrieval`, `eval-answer`) and total run duration, then persisted these as `metrics_json.performance`.
 - Key decisions: Added only additive observability fields (`total_duration_ms`, `orchestration_overhead_ms`, `stage_duration_ms`, representative latency, rewrite overhead) without changing retrieval/answer score computation or gating/rewrite decisions.

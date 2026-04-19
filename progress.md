@@ -3,6 +3,24 @@
 ## Overview
 High-level progress tracking for the project.
 
+## [2026-04-19] Session Summary (Short-User Eval 80 Full Regeneration + Baseline Origin Verification)
+- What was done: Replaced dataset `b2d47254-8655-4c9c-81ac-7615677ec5bd` with 80 fully regenerated short-user evaluation items (corpus chunk-first generation, not synthetic candidate reselection), re-audited mapping, and added `scripts/verify_eval_dataset_origin.py` for dataset-origin diagnostics.
+- Key decisions: Adopted corpus-grounded new query generation to align with rewrite-effect research intent (realistic short user prompts) while preserving retrieval-aware schema and existing dataset ID wiring.
+- Issues encountered: Initial regenerated prompts showed term-artifact noise; generator filters/templates were iteratively tightened until structural issues were zero and synthetic text overlap was zero.
+- Next steps: Run controlled A/C rewrite-effect experiment on regenerated 80 set and perform focused manual QA for outlier technical term prompts.
+
+## [2026-04-19] Session Summary (Short-User Eval Dataset 40->80 Expansion with Chunk-Mapping Audit)
+- What was done: Audited dataset `b2d47254-8655-4c9c-81ac-7615677ec5bd` (base 40 items) for grounded mapping quality against live `corpus_chunks` and then expanded to 80 items by adding 40 new short-user queries sourced from current `synthetic_queries_raw_all` + mapped corpus chunk IDs.
+- Key decisions: Kept retrieval-aware schema identical (`expected_doc_ids`, `expected_chunk_ids`, `expected_answer_key_points`) and updated the same dataset ID metadata/version to 80 while preserving original 40-item JSONL as baseline input.
+- Issues encountered: Lexical overlap heuristics produced a small warning set for some domain-token-heavy prompts, but structural mapping checks (chunk existence/doc consistency) remained clean (`issue_count=0`).
+- Next steps: Run one A/C comparative RAG smoke on the updated 80-item set and verify rewrite-gain deltas remain stable versus 40-item baseline.
+
+## [2026-04-19] Session Summary (Quality Gating Result Stage Filter Expansion + Progress Tracking Compliance)
+- What was done: Re-read `.codex/AGENTS.md` and expanded Admin quality-gating per-query result filter from partial stage options to full stage coverage (`rejected`, `passed_rule`, `passed_llm`, `passed_utility`, `passed_diversity`, `passed_all`, plus unfiltered `전체`), wiring frontend selector -> backend API -> repository SQL.
+- Key decisions: Kept the existing GET endpoint and business flow intact; added a single normalized query parameter (`pass_stage`) and stage-specific SQL predicates without introducing new DTO contracts.
+- Issues encountered: Existing admin UI source contains mixed-encoding localized regions, so edits were constrained to stable filter/query blocks to avoid unrelated churn.
+- Next steps: Run operator smoke check on `/admin/quality-gating` with each stage option to validate expected counts against funnel stage transitions.
+
 ## [2026-04-19] Session Summary (Gating/Synthetic Batch Filter Tightening + Result Token Badge UX)
 - What was done: Updated Admin `GatingPage` per-query result table to render `query_type`, `rejected_stage`, `rejected_reason` as icon-like token badges instead of plain text, and tightened batch dropdown filters so failed/cancelled generation/gating batches are excluded from operator selection paths. Also updated Admin `SyntheticPage` query filter batch dropdown to hide failed/cancelled generation batches.
 - Key decisions: Kept API/DTO contracts unchanged and applied UI-only rendering/filter logic; token badge parser accepts array/object/JSON-string/delimited text input to avoid backend coupling.

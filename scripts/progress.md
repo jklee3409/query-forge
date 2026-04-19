@@ -3,11 +3,23 @@
 ## Overview
 High-level progress tracking for the project.
 
+## [2026-04-19] Session Summary (Short-User Dataset Full Regeneration + Eval Origin Verifier)
+- What was done: Reworked `scripts/expand_short_user_dataset.py` from synthetic-candidate expansion to full corpus-grounded regeneration (80 items total, single/multi balance, mapping audit, DB upsert) and added `scripts/verify_eval_dataset_origin.py` for dataset-origin diagnostics.
+- Key decisions: Regeneration now blocks direct synthetic query text reuse (`synthetic_query_exact_overlap=0`) and uses chunk-first grounding (`expected_doc_ids` / `expected_chunk_ids`) to keep retrieval-aware guarantees.
+- Issues encountered: Several intermediate generations produced low-naturalness terms; term filters/templates were iteratively tightened until audit remained structurally clean and overlap warnings stayed controlled.
+- Next steps: Add optional manual-review allowlist/denylist hook to enforce stricter natural-language quality for edge terms before DB commit.
+
 ## [2026-04-17] Session Summary (Selective Domain Data Reset Execution)
 - What was done: Executed DB reset for synthetic generation, quality gating, RAG quality-test artifacts, and LLM job state/history using transactional SQL against local Postgres container.
 - Key decisions: Preserved corpus collection/preprocess/chunk domain data (`corpus_documents`, `corpus_chunks`, related corpus tables) and retained `query_embeddings` rows for `owner_type='chunk'` only.
 - Issues encountered: No script file was added; reset was executed directly through `docker exec ... psql` to complete immediate operator request.
 - Next steps: Consider adding a reusable reset script in `scripts/` with explicit include/exclude table sets for repeatable operations.
+
+## [2026-04-19] Session Summary (Short-User Dataset Audit/Expansion Script Added)
+- What was done: Added `scripts/expand_short_user_dataset.py` to automate (1) chunk-mapping audit for base short-user eval set and (2) expansion from 40 to 80 items with DB upsert + dataset metadata refresh + audit report output.
+- Key decisions: Script enforces structural grounding checks (chunk existence and chunk->doc consistency) and selects additional prompts only from current corpus-grounded `synthetic_queries_raw_all` candidates.
+- Issues encountered: Initial generation produced over-short prompts and hard-failed on lexical-overlap checks; script was refined to strengthen query-quality filtering and treat low-overlap as warning, not structural failure.
+- Next steps: Reuse the script for future 80->N expansion with adjusted `--target-total` and keep warning-sample manual review in loop.
 
 ---
 

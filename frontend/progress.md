@@ -3,6 +3,12 @@
 ## Overview
 High-level progress tracking for the project.
 
+## [2026-04-19] Session Summary (Quality Gating Result Filter: All Stage Pass Options)
+- What was done: Expanded `GatingPage.jsx` per-query result filter UI to expose full stage options for quality gating (`전체`, `탈락`, `Rule 통과`, `LLM 통과`, `Utility 통과`, `Diversity 통과`, `전체 통과`) and wired selected value to backend `pass_stage` query parameter.
+- Key decisions: Reused existing result-filter lifecycle (`loadResults`, paging, apply filter) and injected only one additional field (`resultFilter.passStage`) to keep UI state change minimal.
+- Issues encountered: Existing page includes mixed-encoding legacy text blocks, so modifications were limited to stable filter form and request parameter lines.
+- Next steps: Validate UX copy consistency and decide whether to add tooltip/help text clarifying stage-sequential semantics (`passed_utility` implies rule+llm pass).
+
 ## [2026-04-18] Session Summary (RAG Quality+Performance Unified Compare UI)
 - What was done: Extended `RagPage.jsx` metric extraction to read `metrics_json.performance` and added an integrated quality+performance comparison table (left/right/delta) for two selected runs.
 - Key decisions: Kept existing quality bar chart for visual quick-scan and added tabular comparison for latency/overhead values that do not fit normalized 0-1 bars.
