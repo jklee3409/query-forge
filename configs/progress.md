@@ -3,6 +3,12 @@
 ## Overview
 High-level progress tracking for the project.
 
+## [2026-04-19] Session Summary (Rewrite Prompt v2 Added)
+- What was done: Added `configs/prompts/rewrite/selective_rewrite_v2.md` for retrieval-optimized rewrite generation and kept `selective_rewrite_v1.md` as compatibility fallback.
+- Key decisions: v2 emphasizes lexical anchor preservation for hash-embedding retrieval characteristics while preserving candidate schema/labels.
+- Issues encountered: None.
+- Next steps: Validate prompt quality with category-specific rewrite case samples and adjust guardrails if drift/noise appears.
+
 ---
 
 ## [2026-04-13] Session Summary

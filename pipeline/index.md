@@ -34,5 +34,6 @@ Python pipeline for data processing, synthetic query generation, quality gating,
 - Answer eval outputs explicit end-to-end metrics required by AGENTS 3.6 (`correctness`, `grounding`, `hallucination_rate`) alongside legacy overlap metrics.
 - Memory build and eval-dataset sampling now require valid corpus joins (`corpus_documents`/`corpus_chunks`) to block stale ID propagation.
 - Eval runtime chunk loading excludes orphan chunks by joining `corpus_documents`, and import skips chunk rows with missing corpus document references.
+- Selective rewrite prompt loading prefers `configs/prompts/rewrite/selective_rewrite_v2.md` with automatic fallback to `selective_rewrite_v1.md`.
 - Selective rewrite adoption now considers retrieval shift (`top-k` composition change + `top1` change) in addition to confidence, reducing zero-adoption lock when rerank scores are flat.
 - Langfuse LLM observability is integrated at `common/langfuse_observability.py` and wired only through `common/llm_client.py` with fail-open behavior.

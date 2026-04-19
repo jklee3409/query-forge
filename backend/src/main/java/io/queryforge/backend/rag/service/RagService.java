@@ -35,6 +35,7 @@ public class RagService {
     private final RagRepository repository;
     private final HashEmbeddingService embeddingService;
     private final CohereRerankService cohereRerankService;
+    private final RewriteCandidateService rewriteCandidateService;
     private final ObjectMapper objectMapper;
 
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
@@ -88,7 +89,7 @@ public class RagService {
         long rawRetrievalLatency = elapsedMs(stageStart);
 
         stageStart = System.nanoTime();
-        List<GeneratedCandidate> generatedCandidates = buildCandidates(
+        List<RewriteCandidateService.CandidateTemplate> generatedCandidates = rewriteCandidateService.buildCandidates(
                 rawQuery,
                 nullSafeJson(request.sessionContext()),
                 memoryCandidates,
@@ -96,7 +97,7 @@ public class RagService {
         );
         List<GeneratedCandidate> scoredCandidates = new ArrayList<>();
         for (int index = 0; index < generatedCandidates.size(); index++) {
-            GeneratedCandidate generated = generatedCandidates.get(index);
+            RewriteCandidateService.CandidateTemplate generated = generatedCandidates.get(index);
             String embeddingLiteral = embeddingService.toHalfvecLiteral(embeddingService.embed(generated.query()));
             List<RagRepository.RetrievalDoc> candidateRetrievedLocal = repository.findTopChunksByEmbedding(embeddingLiteral, retrievalTopK);
             List<RagRepository.RetrievalDoc> candidateRetrieved = cohereRerankService.rerank(
@@ -278,14 +279,14 @@ public class RagService {
 
         String queryEmbedding = embeddingService.toHalfvecLiteral(embeddingService.embed(rawQuery));
         List<RagRepository.MemoryCandidate> memories = repository.findMemoryTopN(queryEmbedding, memoryTopN, gatingPreset);
-        List<GeneratedCandidate> candidates = buildCandidates(
+        List<RewriteCandidateService.CandidateTemplate> candidates = rewriteCandidateService.buildCandidates(
                 rawQuery,
                 nullSafeJson(request.sessionContext()),
                 memories,
                 candidateCount
         );
         List<RagDtos.RewriteCandidateDto> previewDtos = new ArrayList<>();
-        for (GeneratedCandidate candidate : candidates) {
+        for (RewriteCandidateService.CandidateTemplate candidate : candidates) {
             String candidateEmbedding = embeddingService.toHalfvecLiteral(embeddingService.embed(candidate.query()));
             List<RagRepository.RetrievalDoc> retrievedLocal = repository.findTopChunksByEmbedding(candidateEmbedding, 20);
             List<RagRepository.RetrievalDoc> retrieved = cohereRerankService.rerank(candidate.query(), retrievedLocal, 5);
@@ -455,47 +456,6 @@ public class RagService {
                         doc.score()
                 ))
                 .toList();
-    }
-
-    private List<GeneratedCandidate> buildCandidates(
-            String rawQuery,
-            JsonNode sessionContext,
-            List<RagRepository.MemoryCandidate> memories,
-            int candidateCount
-    ) {
-        String memoryAnchor = memories.isEmpty() ? rawQuery : memories.getFirst().queryText();
-        String prevQuestion = sessionContext.path("previous_user_question").asText("");
-        String prevSummary = sessionContext.path("previous_assistant_summary").asText("");
-        String contextualPrefix = "";
-        if (!prevQuestion.isBlank() || !prevSummary.isBlank()) {
-            contextualPrefix = (prevQuestion + " " + prevSummary).trim();
-        }
-
-        List<GeneratedCandidate> base = List.of(
-                new GeneratedCandidate(
-                        "explicit_standalone",
-                        (contextualPrefix.isBlank() ? rawQuery : contextualPrefix + " 이후 맥락에서 " + rawQuery)
-                                + "를 독립 검색 질의로 명확하게 다시 작성",
-                        List.of(),
-                        0.0,
-                        null
-                ),
-                new GeneratedCandidate(
-                        "product_version_anchored",
-                        rawQuery + " 관련 제품/설정 키워드 보강 " + memoryAnchor,
-                        List.of(),
-                        0.0,
-                        null
-                ),
-                new GeneratedCandidate(
-                        "error_or_task_focused",
-                        rawQuery + " 실패 원인이나 해결 절차 중심으로 재작성",
-                        List.of(),
-                        0.0,
-                        null
-                )
-        );
-        return base.subList(0, Math.min(base.size(), Math.max(1, candidateCount)));
     }
 
     private Decision decide(

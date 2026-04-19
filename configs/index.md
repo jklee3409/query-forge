@@ -14,7 +14,7 @@
 - `prompts/query_generation/gen_[a-d]_v1.md`: 전략별 합성 질의 프롬프트
 - `prompts/summary_extraction/*.md`: 요약/한국어 요약 프롬프트
 - `prompts/self_eval/quality_gate_v1.md`: 게이팅 자기평가 프롬프트
-- `prompts/rewrite/selective_rewrite_v1.md`: 선택적 리라이트 프롬프트
+- `prompts/rewrite/selective_rewrite_v1.md`, `prompts/rewrite/selective_rewrite_v2.md`: 선택적 리라이트 프롬프트 버전
 - `prompts/translation/translate_chunk_en_to_ko_v1.md`: 번역 프롬프트
 
 ---

@@ -3,6 +3,12 @@
 ## Overview
 High-level pipeline progress tracking.
 
+## [2026-04-19] Session Summary (Selective Rewrite Prompt v2 Preference)
+- What was done: Updated `eval/runtime.py::_rewrite_prompt_text` to resolve `selective_rewrite_v2.md` first and fall back to `selective_rewrite_v1.md` across `PROMPT_ROOT`/default path candidates.
+- Key decisions: Preserved retrieval eval runtime behavior and candidate schema; only prompt asset resolution order was changed.
+- Issues encountered: None.
+- Next steps: Run retrieval eval with controlled prompt root override to compare v1/v2 rewrite impact on adoption and retrieval metrics.
+
 ## [2026-04-18] Session Summary (Langfuse Event Schema + LLM Client Instrumentation)
 - What was done: Added fail-open Langfuse instrumentation module (`common/langfuse_observability.py`) and connected it to the centralized LLM call path in `common/llm_client.py` without changing generation/gating/eval decision logic.
 - Key decisions: Applied quota-safe defaults for free-tier usage (purpose-aware success sampling, full error sampling, payload truncation, per-minute/per-day emit caps, and optional score mode).

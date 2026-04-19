@@ -331,15 +331,18 @@ def _rewrite_prompt_text() -> str:
         return _REWRITE_PROMPT_TEXT
     root = Path(os.getenv("PROMPT_ROOT") or "configs/prompts")
     candidates = [
+        root / "rewrite" / "selective_rewrite_v2.md",
         root / "rewrite" / "selective_rewrite_v1.md",
+        Path("configs/prompts/rewrite/selective_rewrite_v2.md"),
         Path("configs/prompts/rewrite/selective_rewrite_v1.md"),
+        Path("../configs/prompts/rewrite/selective_rewrite_v2.md"),
         Path("../configs/prompts/rewrite/selective_rewrite_v1.md"),
     ]
     for path in candidates:
         if path.exists():
             _REWRITE_PROMPT_TEXT = path.read_text(encoding="utf-8")
             return _REWRITE_PROMPT_TEXT
-    raise FileNotFoundError("rewrite prompt file not found: selective_rewrite_v1.md")
+    raise FileNotFoundError("rewrite prompt file not found: selective_rewrite_v2.md or selective_rewrite_v1.md")
 
 
 def _rewrite_client() -> LlmClient:

@@ -3,6 +3,12 @@
 ## Overview
 High-level backend progress tracking.
 
+## [2026-04-19] Session Summary (Prompt-based Rewrite Candidate Generation in Ask Path)
+- What was done: Added `RewriteCandidateService` and routed `RagService.ask`/`previewRewrite` candidate construction through prompt-driven LLM generation instead of hardcoded-only templates.
+- Key decisions: Prompt loading resolves `selective_rewrite_v2` first (`v1` fallback), supports env-driven Gemini/OpenAI providers, and falls back to deterministic heuristic candidates on any LLM/prompt failure.
+- Issues encountered: None.
+- Next steps: Add integration coverage for prompt/LLM fallback matrix and monitor rewrite adoption deltas after v2 rollout.
+
 ## [2026-04-19] Session Summary (RAG Timezone Baseline + Run Label Time Shortening)
 - What was done: Updated backend time baseline settings in `application.yml` to use `Asia/Seoul` for DB session initialization (`SET TIME ZONE 'Asia/Seoul'`) and app-level serialization/JDBC timezone configuration, and shortened newly created RAG run labels in `AdminConsoleService` to `yyyy-MM-dd HH:mm` KST format.
 - Key decisions: Kept TIMESTAMPTZ schema and instant-based persistence model unchanged to avoid timestamp semantic breakage; applied timezone baseline at connection/session and presentation-label levels.
