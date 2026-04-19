@@ -3,6 +3,18 @@
 ## Overview
 High-level backend progress tracking.
 
+## [2026-04-19] Session Summary (RAG Timezone Baseline + Run Label Time Shortening)
+- What was done: Updated backend time baseline settings in `application.yml` to use `Asia/Seoul` for DB session initialization (`SET TIME ZONE 'Asia/Seoul'`) and app-level serialization/JDBC timezone configuration, and shortened newly created RAG run labels in `AdminConsoleService` to `yyyy-MM-dd HH:mm` KST format.
+- Key decisions: Kept TIMESTAMPTZ schema and instant-based persistence model unchanged to avoid timestamp semantic breakage; applied timezone baseline at connection/session and presentation-label levels.
+- Issues encountered: Existing historical rows remain valid instants; no destructive timestamp shift migration was introduced.
+- Next steps: After backend restart, verify newly created run labels and timestamp display alignment in `/admin/rag-tests`.
+
+## [2026-04-19] Session Summary (RAG Delete Full-Cascade Scope)
+- What was done: Expanded `AdminConsoleRepository.deleteRagTestRun(...)` to delete run-linked `llm_job` rows before `rag_test_run` removal and then remove linked experiment artifacts by collected `experiment_run_id` set (`eval_judgments`, `retrieval_results`, `rerank_results`, `online_queries`, `experiment_runs`).
+- Key decisions: Added run-existence pre-check to keep missing-run semantics stable, and collected experiment IDs from both direct FK (`source_experiment_run_id`) and persisted JSON payloads (`metrics_json`/`metrics`/`result_json`) to prevent orphaned eval history.
+- Issues encountered: Retrieval/rerank eval rows may reference run lineage only through metadata JSON, so cleanup uses explicit `metadata ->> 'experiment_run_id'` matching.
+- Next steps: Evaluate whether memory-build lineage cleanup (`memory_entries.metadata.memory_build_run_id`) should be included in the same delete boundary.
+
 ## [2026-04-19] Session Summary (Gating Pass-Stage Exact-Semantics Update)
 - What was done: Updated quality-gating result `pass_stage` filtering semantics in backend so each stage option returns rows that passed up to that stage only and then failed at the immediate next stage (`passed_rule/llm/utility/diversity`), while `passed_all` remains final accepted rows.
 - Key decisions: Introduced `failed_rule` as the primary reject filter token and kept backward compatibility by mapping legacy `rejected` to the same behavior in service-layer normalization.

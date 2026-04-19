@@ -34,6 +34,10 @@
 ---
 
 ## Recent Update
+- `/admin/rag-tests` compare workspace now applies consistent duration conversion in cards and summary values (`ms -> s -> m+s`), removes raw ms subtext from workspace cards, and uses KST-based compact time display (`YYYY-MM-DD HH:mm`) via shared `fmtTime`.
+- `/admin/rag-tests` detailed comparison table was additionally tuned for dense backoffice analysis: stronger typography hierarchy, tighter row spacing, centered `Delta / Change` + `Result` judgment alignment, and consistent `ms -> s -> m+s` display formatting for performance metrics.
+- RAG 실험 비교 워크스페이스의 상단 run 카드, winner summary, metric 카드 UI를 판단 중심으로 재정렬하고, 성능 지표를 `ms`/`s` 자동 변환 + 해석형 delta(`x faster/slower`, `% change`)로 표시하도록 개선했다.
+- RAG 상세 비교 테이블을 섹션 인지형(`Retrieval/Answer/Performance`)으로 재구성하고, 해석형 Delta/Result 칩, KPI 강조 행, 가독성 높은 숫자 포맷(천 단위 + ms/s 병기)을 적용해 실험 간 판단 속도를 개선했다.
 - Gating result view supports `methodCode` filter and `limit/offset` pagination UI.
 - Gating run Rule stage supports configurable Korean-ratio input (`ruleMinKoreanRatio`).
 - RAG run form supports snapshot-based evaluation through `sourceGatingBatchId`, listing all completed snapshots and validating source run/preset/method compatibility at run-time.

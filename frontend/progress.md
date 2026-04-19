@@ -3,6 +3,30 @@
 ## Overview
 High-level progress tracking for the project.
 
+## [2026-04-19] Session Summary (RAG Compare Workspace Duration Conversion Fix + Time UX)
+- What was done: Corrected compare-workspace duration display in `RagPage.jsx` so performance metrics consistently render with converted values (`<1000ms: ms`, `<60000ms: s`, `>=60000ms: m+s`) and removed raw pre-conversion ms subtext from workspace metric cards.
+- Key decisions: Kept API/data/delta calculation unchanged; switched workspace duration formatters to reuse table-grade conversion helpers and applied the same policy to top summary cards (`Latest Total Duration`, `Latest Avg Latency`) and run-history metric summary text.
+- Issues encountered: Existing unrelated `GatingPage.jsx` warnings remain outside this scope.
+- Next steps: Validate visual readability for long-running datasets and tune wording density in compare cards if additional performance metrics are added.
+
+## [2026-04-19] Session Summary (RAG Detailed Table: Typography + Delta/Result Alignment)
+- What was done: Further refined only the detailed compare table in `RagPage.jsx`/`styles.css` for backoffice scanning: larger readable text hierarchy, reduced row/cell vertical padding, section header spacing cleanup, centered `Delta / Change` and `Result` judgment columns, and stronger KPI row readability.
+- Key decisions: Preserved existing metric extraction and delta computation; improved presentation layer only. Duration-like values now use the same table display policy (`ms` under 1000, `s` over 1000, `m+s` over 60000) for A/B values and delta detail text.
+- Issues encountered: Existing unrelated JSX warning lines in `GatingPage.jsx` remain out of scope.
+- Next steps: Validate dense-table readability on real operator screens and tune section/header spacing if additional metrics are added.
+
+## [2026-04-19] Session Summary (Compare Workspace Metric Card Readability Upgrade)
+- What was done: Updated `RagPage.jsx` compare workspace card UI to improve one-glance A/B judgment: run info card readability, winner summary latency interpretation, and section metric cards with decision-first hierarchy.
+- Key decisions: Added workspace-only formatter helpers for duration/unit conversion and interpreted delta semantics (`x faster/slower`, `% higher/lower`, `No change`) without changing metric source/calculation.
+- Issues encountered: Existing project contains unrelated warnings in `GatingPage.jsx`; this task touched only compare workspace rendering and styles.
+- Next steps: Validate card density at operator screen sizes and calibrate ratio threshold (`x` vs `%`) if team prefers stricter semantics.
+
+## [2026-04-19] Session Summary (RAG Detailed Compare Table: Section-Aware Decision UX)
+- What was done: Refactored `RagPage.jsx` detailed comparison table rendering to section-aware grouped bodies (`Retrieval/Answer/Performance`), comparison-focused columns (`구분/지표/Run A/Run B/Delta-Change/Result`), interpreted delta text (`▲/▼ + magnitude + meaning`), result chips, KPI badge emphasis, and readable run header labels.
+- Key decisions: Kept existing `extractRunMetrics`, metric definitions, and delta formula (`B - A`, `deltaRate`) unchanged; added presentation helpers (`table number format`, `delta/result formatter`, `group summary`) and compare-table-only CSS enhancements in `styles.css`.
+- Issues encountered: Existing app has unrelated JSX warnings in `GatingPage.jsx` from literal `->` option text; this task did not modify that page.
+- Next steps: UI-smoke with real run pairs on `/admin/rag-tests` and fine-tune delta/result copy (KR/EN) based on operator preference.
+
 ## [2026-04-19] Session Summary (Gating Result Filter Label Realignment)
 - What was done: Updated `GatingPage.jsx` result filter option labels to explicitly reflect stage-transition semantics: `Rule 통과 -> LLM 탈락`, `LLM 통과 -> Utility 탈락`, `Utility 통과 -> Diversity 탈락`, `Diversity 통과 -> Final 탈락`, while keeping `Rule 탈락` and `전체 통과`.
 - Key decisions: Changed labels only; `pass_stage` values and filter wiring remain unchanged to avoid API coupling/regression.

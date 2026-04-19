@@ -3,6 +3,36 @@
 ## Overview
 High-level progress tracking for the project.
 
+## [2026-04-19] Session Summary (RAG Compare Time Formatting + KST Alignment)
+- What was done: Fixed `/admin/rag-tests` compare-workspace time presentation so duration metrics use real converted values (`ms -> s -> m+s`) consistently across metric cards, latest-summary cards, and run-history metric snippets, while removing raw-ms secondary text from workspace cards.
+- Key decisions: Reused existing duration helpers and unified workspace formatting through the same conversion policy already used in detailed table presentation; kept metric extraction and delta math unchanged.
+- Issues encountered: Existing unrelated JSX warnings in `GatingPage.jsx` remain out of scope.
+- Next steps: Validate with long-duration run pairs that operator interpretation is faster for `Total Duration`, `Eval-Retrieval Stage`, and `Eval-Answer Stage`.
+
+## [2026-04-19] Session Summary (RAG Run Full-Delete Cascade Expansion)
+- What was done: Expanded Admin RAG run delete path to enforce full deletion scope, including run-linked `llm_job`/`llm_job_item` history and linked `experiment_runs` artifacts (`eval_judgments`, `retrieval_results`, `rerank_results`, `online_queries`) in one transactional flow.
+- Key decisions: Preserved existing API contract and missing-run behavior while deriving linked `experiment_run_id` from `source_experiment_run_id` plus persisted JSON payloads (`rag_test_run.metrics_json`, `rag_test_result_summary.metrics_json`, `rag_eval_experiment_record.metrics`, `llm_job.result_json`) for deterministic cleanup.
+- Issues encountered: Some eval artifacts are linked via metadata (`metadata->>'experiment_run_id'`) rather than FK columns, so explicit metadata-based delete predicates were required.
+- Next steps: Decide whether `memory_entries` rows keyed by `metadata.memory_build_run_id` should also be part of the full-delete boundary and whether FK-level cascade policies should be tightened in future migrations.
+
+## [2026-04-19] Session Summary (RAG Detailed Compare Table Density + Time Unit Normalization)
+- What was done: Refined only the `/admin/rag-tests` detailed comparison table for denser readability by adjusting table typography/row spacing, rebalancing column widths, and centering the `Delta / Change` + `Result` judgment flow.
+- Key decisions: Kept existing API/data contracts and metric math unchanged; applied presentation-only updates in `frontend/src/pages/RagPage.jsx` (`buildDeltaInterpretation` and table display helpers) and `frontend/src/styles.css` (table-specific classes).
+- Issues encountered: Existing unrelated `GatingPage.jsx` JSX warning lines remain outside this scope.
+- Next steps: Run operator UI-smoke with long performance values to confirm preferred `%` vs `x` wording threshold in table delta headlines.
+
+## [2026-04-19] Session Summary (RAG Compare Workspace Card UX Refinement)
+- What was done: Refined `/admin/rag-tests` compare workspace cards (run info cards, winner summary cards, and grouped metric cards) for faster A/B decision reading, adding interpreted change text and duration-friendly value presentation.
+- Key decisions: Kept existing API/data contracts and metric extraction/delta math unchanged; implemented presentation helpers in `frontend/src/pages/RagPage.jsx` and card-focused styles in `frontend/src/styles.css`.
+- Issues encountered: Existing `GatingPage.jsx` JSX warning lines (`->` in option labels) are pre-existing and outside this task scope.
+- Next steps: Verify operator readability on real runs and tune wording thresholds for `% vs x` performance change messages.
+
+## [2026-04-19] Session Summary (RAG Detailed Compare Table UX Refactor)
+- What was done: Refactored only the `/admin/rag-tests` quality/performance detailed comparison table into a section-aware comparison table with interpreted delta/change, result chips, KPI row emphasis, and run-label readability improvements.
+- Key decisions: Preserved existing API contracts and metric extraction/delta calculation logic; applied presentation-layer-only changes in `frontend/src/pages/RagPage.jsx` and `frontend/src/styles.css`.
+- Issues encountered: Existing workspace had unrelated modified docs/config files and pre-existing JSX warning lines in `GatingPage.jsx`; scope was kept to the detailed comparison table components/styles only.
+- Next steps: Validate operator scan speed/readability with real run pairs and tune delta/result wording if team preference favors Korean copy or stricter KPI wording.
+
 ## [2026-04-19] Session Summary (AGENTS Start-Checklist Enforcement)
 - What was done: Added mandatory session-start checklist rule to `.codex/AGENTS.md` and aligned `.codex/progress.md` so Codex begins implementation turns by confirming AGENTS/progress/index checks and planned progress update.
 - Key decisions: Enforced checklist exposure in the first working update before repository-modifying actions.

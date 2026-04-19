@@ -37,3 +37,5 @@ Spring Boot backend for Admin Console APIs, RAG APIs, pipeline command orchestra
 - LLM job execution supports retry resume from completed items and command timeout control (`query-forge.admin.pipeline.experiment-command-timeout-seconds`).
 - RAG detail row ingestion now preserves rewrite decision diagnostics in `metric_contribution` (`raw_confidence`, `best_candidate_confidence`, `confidence_delta`, `rewrite_reason`).
 - RAG test finalization now persists performance metrics (`total_duration_ms`, stage durations, representative latency, rewrite overhead) under `metrics_json.performance` without changing retrieval/answer business logic.
+- Admin RAG run deletion enforces full-cascade cleanup scope: run-linked rewrite logs, `llm_job` history, and linked `experiment_runs` artifacts (`eval_judgments`, `retrieval_results`, `rerank_results`, `online_queries`) are removed transactionally to prevent residual test history.
+- Backend DB sessions now initialize with `Asia/Seoul` timezone baseline (`SET TIME ZONE 'Asia/Seoul'`), and newly created RAG run labels use compact KST time (`yyyy-MM-dd HH:mm`).
