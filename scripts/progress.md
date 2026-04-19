@@ -3,6 +3,12 @@
 ## Overview
 High-level progress tracking for the project.
 
+## [2026-04-19] Session Summary (Synthetic Candidate Random 80 Rebuilder Added)
+- What was done: Added `scripts/rebuild_short_user_dataset_from_synthetic.py` to rebuild dataset `b2d47254-8655-4c9c-81ac-7615677ec5bd` by randomly sampling 80 rows from `synthetic_queries_raw_all`, compressing them into short/lazy Korean user queries, and updating DB + JSONL + report outputs.
+- Key decisions: Preserved existing eval schema and DB contracts; only presentation/query-text layer was changed while keeping source chunk grounding intact.
+- Issues encountered: First pass produced particle-only compressed prompts (`에서 ...`) from noisy token extraction; stopword/template rules were refined for better prompt readability.
+- Next steps: Add optional quality-threshold hooks (e.g., minimum anchor-token count) for stricter automatic rejection before commit.
+
 ## [2026-04-19] Session Summary (Short-User Dataset Full Regeneration + Eval Origin Verifier)
 - What was done: Reworked `scripts/expand_short_user_dataset.py` from synthetic-candidate expansion to full corpus-grounded regeneration (80 items total, single/multi balance, mapping audit, DB upsert) and added `scripts/verify_eval_dataset_origin.py` for dataset-origin diagnostics.
 - Key decisions: Regeneration now blocks direct synthetic query text reuse (`synthetic_query_exact_overlap=0`) and uses chunk-first grounding (`expected_doc_ids` / `expected_chunk_ids`) to keep retrieval-aware guarantees.

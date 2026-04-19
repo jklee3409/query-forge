@@ -3,6 +3,18 @@
 ## Overview
 High-level progress tracking for the project.
 
+## [2026-04-19] Session Summary (Synthetic-Random Short-User Dataset 80 Rebuild)
+- What was done: Added `scripts/rebuild_short_user_dataset_from_synthetic.py` and rebuilt dataset `b2d47254-8655-4c9c-81ac-7615677ec5bd` from live `synthetic_queries_raw_all` by random sampling 80 candidates, compressing queries into short Korean user style, and refreshing both DB dataset items and `data/eval/human_eval_short_user_test_80.jsonl`.
+- Key decisions: Kept retrieval-aware schema unchanged (`expected_doc_ids`, `expected_chunk_ids`, `expected_answer_key_points`) and stored source provenance in sample metadata (`source_synthetic_query_id`, `source_generation_strategy`, `target_method`).
+- Issues encountered: Initial compression heuristics produced low-quality particle-only prompts; stopword filters and compression templates were tightened and rerun.
+- Next steps: Run one controlled A/C quality test on the rebuilt set and optionally add a manual reject-list for low-information compressed prompts.
+
+## [2026-04-19] Session Summary (Rewrite v2 + Backend Prompt Unification)
+- What was done: Added retrieval-optimized rewrite prompt asset `selective_rewrite_v2` and switched pipeline rewrite prompt resolution to prefer v2 with v1 fallback.
+- Key decisions: Unified backend `/api/chat/ask` rewrite candidate generation with prompt-based LLM path (Gemini/OpenAI env-driven) plus safe heuristic fallback, so admin online ask path no longer relies only on hardcoded templates.
+- Issues encountered: Existing workspace had unrelated docs report modifications; this change was scoped to rewrite prompt loading/generation paths only.
+- Next steps: Run one A/B compare on the same snapshot with v1/v2 prompt roots and tune threshold/candidate wording by category (`short_user`, `follow_up`, `code_mixed`).
+
 ## [2026-04-19] Session Summary (RAG Compare Time Formatting + KST Alignment)
 - What was done: Fixed `/admin/rag-tests` compare-workspace time presentation so duration metrics use real converted values (`ms -> s -> m+s`) consistently across metric cards, latest-summary cards, and run-history metric snippets, while removing raw-ms secondary text from workspace cards.
 - Key decisions: Reused existing duration helpers and unified workspace formatting through the same conversion policy already used in detailed table presentation; kept metric extraction and delta math unchanged.

@@ -3,6 +3,12 @@
 ## Overview
 High-level progress tracking for the project.
 
+## [2026-04-19] Session Summary (Short User 80 Rebuilt from Synthetic Random Candidates)
+- What was done: Replaced `data/eval/human_eval_short_user_test_80.jsonl` by rebuilding dataset `b2d47254-8655-4c9c-81ac-7615677ec5bd` from 80 randomly selected synthetic queries and wrote run summary to `data/reports/short_user_dataset_80_synthetic_compressed_2026-04-19.json`.
+- Key decisions: Maintained retrieval-aware grounding fields and preserved sample-level chunk/doc linkage while changing only short-user query text style to compressed Korean prompts.
+- Issues encountered: Initial compression pass contained low-information prompts; regenerated after stopword/template tightening.
+- Next steps: Evaluate metric impact of compressed synthetic-derived query style in the next A/C comparison run.
+
 ---
 
 ## [2026-04-13] Session Summary
