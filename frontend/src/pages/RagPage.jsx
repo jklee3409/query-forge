@@ -531,6 +531,87 @@ function formatGenerationMethodLabel(methodCodes) {
   return methodCodes.join(', ')
 }
 
+function listGenerationMethodCodes(methodCodes) {
+  if (!Array.isArray(methodCodes) || methodCodes.length === 0) return []
+  return methodCodes
+    .map((code) => String(code || '').trim().toUpperCase())
+    .filter(Boolean)
+}
+
+function toHistoryTag(kind, icon, text, title = null) {
+  return {
+    kind,
+    icon: String(icon || '').trim() || '·',
+    text: String(text || '-'),
+    title: String(title || text || '-'),
+  }
+}
+
+function buildGenerationMethodTags(methodCodes) {
+  const codes = listGenerationMethodCodes(methodCodes)
+  if (!codes.length) return [toHistoryTag('method', 'SF', 'synthetic-free')]
+  return codes.map((code) => toHistoryTag('method', 'M', `Method ${code}`))
+}
+
+function buildGatingTags(run) {
+  if (!run?.gatingApplied) return [toHistoryTag('gating-off', 'NG', 'ungated')]
+  const normalizedPreset = String(run?.gatingPreset || 'full_gating').trim().toLowerCase()
+  const labelMap = {
+    ungated: 'ungated',
+    rule_only: 'rule only',
+    rule_plus_llm: 'rule + llm',
+    full_gating: 'full gating',
+  }
+  const iconMap = {
+    ungated: 'NG',
+    rule_only: 'R',
+    rule_plus_llm: 'RL',
+    full_gating: 'FG',
+  }
+  return [toHistoryTag('gating-on', iconMap[normalizedPreset] || 'GT', labelMap[normalizedPreset] || normalizedPreset)]
+}
+
+function buildStageCutoffTags(run) {
+  const metricsPayload = parseMetricsNode(run?.metricsJson)
+  const memoryPayload = parseMetricsNode(metricsPayload.memory || metricsPayload.metrics_json?.memory)
+  const stageCutoffEnabled = run?.stageCutoffEnabled != null
+    ? Boolean(run.stageCutoffEnabled)
+    : Boolean(memoryPayload.stage_cutoff_enabled)
+  if (!stageCutoffEnabled) return [toHistoryTag('cutoff-off', 'ST', 'off')]
+  const normalizedLevel = String(run?.stageCutoffLevel || memoryPayload.stage_cutoff_level || 'full_gating')
+    .trim()
+    .toLowerCase()
+  return [
+    toHistoryTag('cutoff-on', 'ST', 'on'),
+    toHistoryTag('cutoff-level', 'LV', normalizedLevel.replaceAll('_', ' ')),
+  ]
+}
+
+function resolveRewriteMode(run) {
+  if (!run?.rewriteEnabled) return { kind: 'rewrite-off', icon: 'RW', label: 'off' }
+  if (!run?.selectiveRewrite) return { kind: 'rewrite-always', icon: 'RA', label: 'always' }
+  if (run?.useSessionContext) return { kind: 'rewrite-session', icon: 'RS', label: 'selective + session' }
+  return { kind: 'rewrite-selective', icon: 'SL', label: 'selective' }
+}
+
+function buildRewriteTags(run) {
+  const mode = resolveRewriteMode(run)
+  return [toHistoryTag(mode.kind, mode.icon, mode.label)]
+}
+
+function buildCoreMetricTags(metrics) {
+  const totalDuration = formatDurationDisplay(metrics?.total_duration_ms, {
+    precisionMs: 0,
+    precisionSeconds: 2,
+    includeRawMs: false,
+  }).primary
+  return [
+    toHistoryTag('metric', 'R5', `Recall@5 ${formatMetric(metrics?.recall_at_5)}`),
+    toHistoryTag('metric', 'ND', `nDCG@10 ${formatMetric(metrics?.ndcg_at_10)}`),
+    toHistoryTag('metric', 'TM', `Total ${totalDuration}`),
+  ]
+}
+
 function resolveMetricOutcome(metricDef, left, right) {
   if (left == null || right == null) return 'na'
   const delta = right - left
@@ -698,7 +779,10 @@ export function RagPage({ notify }) {
   }, [form.stageCutoffEnabled, form.gatingApplied, form.syntheticFreeBaseline, form.runDiscipline])
 
   const effectiveGatingPreset = form.gatingApplied ? form.gatingPreset : 'ungated'
-  const stageCutoffEnabledForRun = !form.syntheticFreeBaseline && Boolean(form.stageCutoffEnabled)
+  const stageCutoffEnabledForRun = !form.syntheticFreeBaseline && form.gatingApplied && Boolean(form.stageCutoffEnabled)
+  const runGatingPreset = form.syntheticFreeBaseline
+    ? 'ungated'
+    : (stageCutoffEnabledForRun ? 'full_gating' : effectiveGatingPreset)
   const sourceSnapshotExpectedPreset = stageCutoffEnabledForRun ? 'full_gating' : effectiveGatingPreset
   const snapshotBatches = useMemo(
     () => gatingBatches.filter((batch) => batch && String(batch.status || '').toLowerCase() === 'completed'),
@@ -799,7 +883,7 @@ export function RagPage({ notify }) {
       notify('Synthetic-free baseline은 exploratory 실행에서만 지원됩니다.', 'error')
       return
     }
-    const runGatingPreset = syntheticFreeBaseline ? 'ungated' : effectiveGatingPreset
+    const runGatingPreset = syntheticFreeBaseline ? 'ungated' : (stageCutoffEnabled ? 'full_gating' : effectiveGatingPreset)
     const sourceSnapshotPreset = stageCutoffEnabled ? 'full_gating' : runGatingPreset
     if (stageCutoffEnabled && officialRun) {
       notify('stage-cutoff은 exploratory 실행에서만 사용할 수 있습니다.', 'error')
@@ -1312,8 +1396,8 @@ export function RagPage({ notify }) {
             </label>
             <label className="filter-field">게이팅 프리셋
               <select
-                value={form.gatingPreset}
-                disabled={form.syntheticFreeBaseline || !form.gatingApplied}
+                value={runGatingPreset}
+                disabled={form.syntheticFreeBaseline || !form.gatingApplied || stageCutoffEnabledForRun}
                 onChange={(event) => setForm((prev) => ({ ...prev, gatingPreset: event.target.value }))}
               >
                 <option value="ungated">ungated</option>
@@ -1676,15 +1760,14 @@ export function RagPage({ notify }) {
           <button type="button" className="button" onClick={() => Promise.all([loadTests(), loadRewriteLogs(), loadLlmJobs(), loadGatingBatches()]).catch((error) => notify(error.message, 'error'))}>새로고침</button>
         </div>
         <div className="table-wrap">
-          <table className="data-table">
+          <table className="data-table rag-history-table">
             <thead>
               <tr>
                 <th>비교</th>
-                <th>실행 ID</th>
-                <th>상태</th>
-                <th>데이터셋</th>
+                <th>실행</th>
                 <th>생성 방식</th>
                 <th>게이팅</th>
+                <th>스테이지 컷오프</th>
                 <th>Rewrite 모드</th>
                 <th>핵심 지표</th>
                 <th>상세</th>
@@ -1694,12 +1777,11 @@ export function RagPage({ notify }) {
             <tbody>
               {pagedTests.map((run) => {
                 const metrics = runMetricsMap.get(run.ragTestRunId) || {}
-                const generationMethodLabel = formatGenerationMethodLabel(run.generationMethodCodes)
-                const rewriteMode = run.rewriteEnabled
-                  ? run.selectiveRewrite
-                    ? (run.useSessionContext ? 'selective + session' : 'selective')
-                    : 'always'
-                  : 'off'
+                const generationTags = buildGenerationMethodTags(run.generationMethodCodes)
+                const gatingTags = buildGatingTags(run)
+                const stageCutoffTags = buildStageCutoffTags(run)
+                const rewriteTags = buildRewriteTags(run)
+                const coreMetricTags = buildCoreMetricTags(metrics)
                 return (
                   <tr key={run.ragTestRunId}>
                     <td>
@@ -1717,14 +1799,65 @@ export function RagPage({ notify }) {
                         </span>
                       </label>
                     </td>
-                    <td><IdBadge value={run.ragTestRunId} /></td>
-                    <td><StatusBadge value={run.status} /></td>
-                    <td>{run.datasetName || '-'}</td>
-                    <td>{generationMethodLabel}</td>
-                    <td>{run.gatingApplied ? `${run.gatingPreset || 'enabled'}` : 'ungated'}</td>
-                    <td>{rewriteMode}</td>
-                    <td className="line-clamp">
-                      {`R@5 ${formatMetric(metrics.recall_at_5)} | nDCG ${formatMetric(metrics.ndcg_at_10)} | total ${formatDurationDisplay(metrics.total_duration_ms, { precisionMs: 0, precisionSeconds: 2, includeRawMs: false }).primary}`}
+                    <td className="run-history-exec">
+                      <div className="run-history-exec__title" title={run.runLabel || run.ragTestRunId}>
+                        {resolveCompareRunPrimaryLabel(run, 'RAG Test')}
+                      </div>
+                      <div className="run-history-exec__meta">{resolveCompareRunSecondaryLabel(run)}</div>
+                      <div className="run-history-exec__badges">
+                        <StatusBadge value={run.status} />
+                        <IdBadge value={run.ragTestRunId} />
+                      </div>
+                    </td>
+                    <td>
+                      <div className="run-history-token-list">
+                        {generationTags.map((tag, index) => (
+                          <span key={`gen-${run.ragTestRunId}-${index}`} className="token-badge run-history-token" data-kind={`history-${tag.kind}`} title={tag.title}>
+                            <span className="token-badge__icon" aria-hidden="true">{tag.icon}</span>
+                            <span className="token-badge__text">{tag.text}</span>
+                          </span>
+                        ))}
+                      </div>
+                    </td>
+                    <td>
+                      <div className="run-history-token-list">
+                        {gatingTags.map((tag, index) => (
+                          <span key={`gating-${run.ragTestRunId}-${index}`} className="token-badge run-history-token" data-kind={`history-${tag.kind}`} title={tag.title}>
+                            <span className="token-badge__icon" aria-hidden="true">{tag.icon}</span>
+                            <span className="token-badge__text">{tag.text}</span>
+                          </span>
+                        ))}
+                      </div>
+                    </td>
+                    <td>
+                      <div className="run-history-token-list">
+                        {stageCutoffTags.map((tag, index) => (
+                          <span key={`cutoff-${run.ragTestRunId}-${index}`} className="token-badge run-history-token" data-kind={`history-${tag.kind}`} title={tag.title}>
+                            <span className="token-badge__icon" aria-hidden="true">{tag.icon}</span>
+                            <span className="token-badge__text">{tag.text}</span>
+                          </span>
+                        ))}
+                      </div>
+                    </td>
+                    <td>
+                      <div className="run-history-token-list">
+                        {rewriteTags.map((tag, index) => (
+                          <span key={`rewrite-${run.ragTestRunId}-${index}`} className="token-badge run-history-token" data-kind={`history-${tag.kind}`} title={tag.title}>
+                            <span className="token-badge__icon" aria-hidden="true">{tag.icon}</span>
+                            <span className="token-badge__text">{tag.text}</span>
+                          </span>
+                        ))}
+                      </div>
+                    </td>
+                    <td>
+                      <div className="run-history-token-list">
+                        {coreMetricTags.map((tag, index) => (
+                          <span key={`metric-${run.ragTestRunId}-${index}`} className="token-badge run-history-token" data-kind={`history-${tag.kind}`} title={tag.title}>
+                            <span className="token-badge__icon" aria-hidden="true">{tag.icon}</span>
+                            <span className="token-badge__text">{tag.text}</span>
+                          </span>
+                        ))}
+                      </div>
                     </td>
                     <td><button type="button" className="button button--ghost" onClick={() => openRunDetail(run.ragTestRunId)}>상세 조회</button></td>
                     <td>

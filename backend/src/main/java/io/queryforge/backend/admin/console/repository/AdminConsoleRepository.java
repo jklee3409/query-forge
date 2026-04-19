@@ -1915,6 +1915,8 @@ public class AdminConsoleRepository {
                        r.generation_batch_ids::text AS generation_batch_ids,
                        r.gating_applied,
                        r.gating_preset,
+                       COALESCE((rc.config_json ->> 'stage_cutoff_enabled')::boolean, FALSE) AS stage_cutoff_enabled,
+                       NULLIF(rc.config_json ->> 'stage_cutoff_level', '') AS stage_cutoff_level,
                        r.rewrite_enabled,
                        r.selective_rewrite,
                        r.use_session_context,
@@ -1926,6 +1928,8 @@ public class AdminConsoleRepository {
                 FROM rag_test_run r
                 LEFT JOIN eval_dataset d
                   ON d.dataset_id = r.dataset_id
+                LEFT JOIN rag_test_run_config rc
+                  ON rc.rag_test_run_id = r.rag_test_run_id
                 WHERE r.rag_test_run_id = :runId
                 """;
         List<AdminConsoleDtos.RagTestRunRow> rows = jdbcTemplate.query(
@@ -2099,6 +2103,8 @@ public class AdminConsoleRepository {
                        r.generation_batch_ids::text AS generation_batch_ids,
                        r.gating_applied,
                        r.gating_preset,
+                       COALESCE((rc.config_json ->> 'stage_cutoff_enabled')::boolean, FALSE) AS stage_cutoff_enabled,
+                       NULLIF(rc.config_json ->> 'stage_cutoff_level', '') AS stage_cutoff_level,
                        r.rewrite_enabled,
                        r.selective_rewrite,
                        r.use_session_context,
@@ -2110,6 +2116,8 @@ public class AdminConsoleRepository {
                 FROM rag_test_run r
                 LEFT JOIN eval_dataset d
                   ON d.dataset_id = r.dataset_id
+                LEFT JOIN rag_test_run_config rc
+                  ON rc.rag_test_run_id = r.rag_test_run_id
                 ORDER BY r.created_at DESC
                 LIMIT :limit
                 """;
@@ -2213,6 +2221,8 @@ public class AdminConsoleRepository {
                        r.generation_batch_ids::text AS generation_batch_ids,
                        r.gating_applied,
                        r.gating_preset,
+                       COALESCE((rc.config_json ->> 'stage_cutoff_enabled')::boolean, FALSE) AS stage_cutoff_enabled,
+                       NULLIF(rc.config_json ->> 'stage_cutoff_level', '') AS stage_cutoff_level,
                        r.rewrite_enabled,
                        r.selective_rewrite,
                        r.use_session_context,
@@ -2224,6 +2234,8 @@ public class AdminConsoleRepository {
                 FROM rag_test_run r
                 LEFT JOIN eval_dataset d
                   ON d.dataset_id = r.dataset_id
+                LEFT JOIN rag_test_run_config rc
+                  ON rc.rag_test_run_id = r.rag_test_run_id
                 WHERE r.dataset_id = :datasetId
                 ORDER BY r.created_at DESC
                 """;
@@ -2462,6 +2474,8 @@ public class AdminConsoleRepository {
                 readJson(rs, "generation_batch_ids"),
                 rs.getObject("gating_applied", Boolean.class),
                 rs.getString("gating_preset"),
+                rs.getObject("stage_cutoff_enabled", Boolean.class),
+                rs.getString("stage_cutoff_level"),
                 rs.getObject("rewrite_enabled", Boolean.class),
                 rs.getObject("selective_rewrite", Boolean.class),
                 rs.getObject("use_session_context", Boolean.class),

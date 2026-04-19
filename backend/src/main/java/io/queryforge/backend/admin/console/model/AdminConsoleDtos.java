@@ -341,6 +341,8 @@ public final class AdminConsoleDtos {
             JsonNode generationBatchIds,
             Boolean gatingApplied,
             String gatingPreset,
+            Boolean stageCutoffEnabled,
+            String stageCutoffLevel,
             Boolean rewriteEnabled,
             Boolean selectiveRewrite,
             Boolean useSessionContext,

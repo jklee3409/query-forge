@@ -739,6 +739,103 @@ textarea {
   white-space: nowrap;
 }
 
+.rag-history-table {
+  min-width: 1320px;
+}
+
+.run-history-exec {
+  min-width: 250px;
+}
+
+.run-history-exec__title {
+  font-size: 13px;
+  font-weight: 700;
+  color: #1f2c3f;
+  line-height: 1.35;
+}
+
+.run-history-exec__meta {
+  margin-top: 4px;
+  font-size: 12px;
+  color: #6d7d93;
+  line-height: 1.3;
+}
+
+.run-history-exec__badges {
+  margin-top: 8px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.run-history-token-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
+}
+
+.run-history-token {
+  max-width: 100%;
+}
+
+.token-badge[data-kind="history-method"] {
+  background: #ebf3ff;
+  border-color: #cfe0f8;
+  color: #1e4f89;
+}
+
+.token-badge[data-kind="history-gating-on"] {
+  background: #ecf9f1;
+  border-color: #cde8d8;
+  color: #1f6647;
+}
+
+.token-badge[data-kind="history-gating-off"] {
+  background: #eff3f8;
+  border-color: #d8e0ea;
+  color: #4b5a6d;
+}
+
+.token-badge[data-kind="history-cutoff-on"] {
+  background: #f0edff;
+  border-color: #dad1fb;
+  color: #5440a5;
+}
+
+.token-badge[data-kind="history-cutoff-level"] {
+  background: #f4f0ff;
+  border-color: #e3d9fb;
+  color: #6047ad;
+}
+
+.token-badge[data-kind="history-cutoff-off"] {
+  background: #eef2f8;
+  border-color: #d8e0ea;
+  color: #4e5c72;
+}
+
+.token-badge[data-kind="history-rewrite-off"] {
+  background: #f1f3f7;
+  border-color: #dce2ea;
+  color: #4b5a6f;
+}
+
+.token-badge[data-kind="history-rewrite-selective"],
+.token-badge[data-kind="history-rewrite-session"],
+.token-badge[data-kind="history-rewrite-always"] {
+  background: #fff3e8;
+  border-color: #f2d8ba;
+  color: #8f4f11;
+}
+
+.token-badge[data-kind="history-metric"] {
+  background: #eef4ff;
+  border-color: #d6e2f8;
+  color: #264f8f;
+}
+
 .copy-button {
   padding: 2px 7px;
   border: 1px solid var(--border);
