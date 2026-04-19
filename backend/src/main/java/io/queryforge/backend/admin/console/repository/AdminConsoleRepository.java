@@ -13,10 +13,13 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Timestamp;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
 @Repository
@@ -1936,14 +1939,153 @@ public class AdminConsoleRepository {
     @Transactional
     public int deleteRagTestRun(UUID runId) {
         MapSqlParameterSource params = new MapSqlParameterSource("runId", runId);
+        Long existing = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM rag_test_run WHERE rag_test_run_id = :runId",
+                params,
+                Long.class
+        );
+        if (existing == null || existing <= 0L) {
+            return 0;
+        }
+
+        List<UUID> experimentRunIds = findLinkedExperimentRunIds(runId);
+
         jdbcTemplate.update(
                 "DELETE FROM online_query_rewrite_log WHERE run_id = :runId",
                 params
         );
-        return jdbcTemplate.update(
+        jdbcTemplate.update(
+                "DELETE FROM llm_job WHERE rag_test_run_id = :runId",
+                params
+        );
+        int removed = jdbcTemplate.update(
                 "DELETE FROM rag_test_run WHERE rag_test_run_id = :runId",
                 params
         );
+        if (removed > 0) {
+            deleteExperimentArtifacts(experimentRunIds);
+        }
+        return removed;
+    }
+
+    private List<UUID> findLinkedExperimentRunIds(UUID runId) {
+        MapSqlParameterSource params = new MapSqlParameterSource("runId", runId);
+        LinkedHashSet<UUID> experimentRunIds = new LinkedHashSet<>();
+        List<UUID> directIds = jdbcTemplate.query(
+                """
+                SELECT source_experiment_run_id
+                FROM rag_test_run
+                WHERE rag_test_run_id = :runId
+                """,
+                params,
+                (rs, rowNum) -> readUuid(rs, "source_experiment_run_id")
+        );
+        for (UUID directId : directIds) {
+            if (directId != null) {
+                experimentRunIds.add(directId);
+            }
+        }
+
+        List<String> payloads = new ArrayList<>(jdbcTemplate.query(
+                """
+                SELECT metrics_json::text AS payload
+                FROM rag_test_run
+                WHERE rag_test_run_id = :runId
+                UNION ALL
+                SELECT metrics_json::text AS payload
+                FROM rag_test_result_summary
+                WHERE rag_test_run_id = :runId
+                UNION ALL
+                SELECT metrics::text AS payload
+                FROM rag_eval_experiment_record
+                WHERE rag_test_run_id = :runId
+                UNION ALL
+                SELECT result_json::text AS payload
+                FROM llm_job
+                WHERE rag_test_run_id = :runId
+                """,
+                params,
+                (rs, rowNum) -> rs.getString("payload")
+        ));
+        for (String payload : payloads) {
+            collectExperimentRunIds(readJson(payload), experimentRunIds);
+        }
+        return new ArrayList<>(experimentRunIds);
+    }
+
+    private void deleteExperimentArtifacts(List<UUID> experimentRunIds) {
+        if (experimentRunIds == null || experimentRunIds.isEmpty()) {
+            return;
+        }
+        List<String> experimentRunIdTexts = experimentRunIds.stream()
+                .map(UUID::toString)
+                .toList();
+        MapSqlParameterSource params = new MapSqlParameterSource()
+                .addValue("experimentRunIds", experimentRunIds)
+                .addValue("experimentRunIdTexts", experimentRunIdTexts);
+        jdbcTemplate.update(
+                """
+                DELETE FROM retrieval_results
+                WHERE metadata ->> 'experiment_run_id' IN (:experimentRunIdTexts)
+                """,
+                params
+        );
+        jdbcTemplate.update(
+                """
+                DELETE FROM rerank_results
+                WHERE metadata ->> 'experiment_run_id' IN (:experimentRunIdTexts)
+                """,
+                params
+        );
+        jdbcTemplate.update(
+                """
+                DELETE FROM eval_judgments
+                WHERE experiment_run_id IN (:experimentRunIds)
+                """,
+                params
+        );
+        jdbcTemplate.update(
+                """
+                DELETE FROM online_queries
+                WHERE experiment_run_id IN (:experimentRunIds)
+                """,
+                params
+        );
+        jdbcTemplate.update(
+                """
+                DELETE FROM experiment_runs
+                WHERE experiment_run_id IN (:experimentRunIds)
+                """,
+                params
+        );
+    }
+
+    private void collectExperimentRunIds(JsonNode node, Set<UUID> output) {
+        if (node == null || node.isNull() || node.isMissingNode()) {
+            return;
+        }
+        if (node.isObject()) {
+            UUID experimentRunId = parseUuid(node.path("experiment_run_id").asText(""));
+            if (experimentRunId != null) {
+                output.add(experimentRunId);
+            }
+            node.fields().forEachRemaining(entry -> collectExperimentRunIds(entry.getValue(), output));
+            return;
+        }
+        if (node.isArray()) {
+            node.forEach(child -> collectExperimentRunIds(child, output));
+        }
+    }
+
+    private UUID parseUuid(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return null;
+        }
+        try {
+            return UUID.fromString(raw.trim());
+        } catch (IllegalArgumentException exception) {
+            return null;
+        }
     }
 
     public List<AdminConsoleDtos.RagTestRunRow> findRagTestRuns(Integer limit) {
