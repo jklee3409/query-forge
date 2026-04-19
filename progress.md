@@ -3,6 +3,18 @@
 ## Overview
 High-level progress tracking for the project.
 
+## [2026-04-19] Session Summary (AGENTS Start-Checklist Enforcement)
+- What was done: Added mandatory session-start checklist rule to `.codex/AGENTS.md` and aligned `.codex/progress.md` so Codex begins implementation turns by confirming AGENTS/progress/index checks and planned progress update.
+- Key decisions: Enforced checklist exposure in the first working update before repository-modifying actions.
+- Issues encountered: None.
+- Next steps: Keep checklist format consistent across future implementation turns and adjust only when AGENTS process rules change.
+
+## [2026-04-19] Session Summary (Quality Gating Stage Filter Semantics + Label Realignment)
+- What was done: Updated `/admin/quality-gating` per-query stage filter semantics so each selected stage returns queries that passed up to that stage only (`passed_rule/llm/utility/diversity` now means "next stage failed", `passed_all` means final accepted). Replaced UI "탈락" filter with `Rule 탈락` (`failed_rule`) and renamed stage option labels to explicit transition wording (`Rule 통과 -> LLM 탈락`, etc.).
+- Key decisions: Preserved API endpoint/DTO shapes and added backward-compatible alias handling so legacy `pass_stage=rejected` is normalized to the same `failed_rule` behavior.
+- Issues encountered: None.
+- Next steps: Run operator smoke validation on `/admin/quality-gating` for each stage option and align API docs/examples with `failed_rule` as the primary reject filter token.
+
 ## [2026-04-19] Session Summary (RAG Compare UI/UX Decision-Support Redesign)
 - What was done: Re-read `.codex/AGENTS.md` and improved `/admin/rag-tests` comparison experience by restructuring metrics into explicit groups (`Retrieval Quality`, `Answer Quality`, `Performance`), adding top-level comparison summary (overall winner + retrieval/latency deltas), upgrading metric cards (A/B values, delta, direction badges, core-KPI emphasis), and improving linked comparison table readability (short run labels, numeric alignment, delta/result emphasis, grouped row labels).
 - Key decisions: Kept existing API contracts and metric extraction/calculation logic unchanged; refactored only frontend information architecture/rendering (`frontend/src/pages/RagPage.jsx`, `frontend/src/styles.css`) with reusable metric-group metadata.

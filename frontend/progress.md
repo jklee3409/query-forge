@@ -3,6 +3,12 @@
 ## Overview
 High-level progress tracking for the project.
 
+## [2026-04-19] Session Summary (Gating Result Filter Label Realignment)
+- What was done: Updated `GatingPage.jsx` result filter option labels to explicitly reflect stage-transition semantics: `Rule 통과 -> LLM 탈락`, `LLM 통과 -> Utility 탈락`, `Utility 통과 -> Diversity 탈락`, `Diversity 통과 -> Final 탈락`, while keeping `Rule 탈락` and `전체 통과`.
+- Key decisions: Changed labels only; `pass_stage` values and filter wiring remain unchanged to avoid API coupling/regression.
+- Issues encountered: None.
+- Next steps: Confirm operator readability and optionally rename `전체 통과` to `Final 통과` for stricter wording consistency.
+
 ## [2026-04-19] Session Summary (Quality Gating Result Filter: All Stage Pass Options)
 - What was done: Expanded `GatingPage.jsx` per-query result filter UI to expose full stage options for quality gating (`전체`, `탈락`, `Rule 통과`, `LLM 통과`, `Utility 통과`, `Diversity 통과`, `전체 통과`) and wired selected value to backend `pass_stage` query parameter.
 - Key decisions: Reused existing result-filter lifecycle (`loadResults`, paging, apply filter) and injected only one additional field (`resultFilter.passStage`) to keep UI state change minimal.

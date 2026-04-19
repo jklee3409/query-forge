@@ -463,6 +463,18 @@ Agents must:
 
 Agents must not replace working code with entirely new implementations unless the existing structure clearly cannot satisfy the requirement.
 
+### 4.5 Session Start Checklist (MANDATORY)
+
+At the beginning of each implementation turn, agents must include a short checklist in the first user-facing working update.
+
+Minimum checklist items:
+- AGENTS rules re-checked (`.codex/AGENTS.md`)
+- root `progress.md` read
+- target directory `progress.md` / `index.md` read
+- planned `progress.md` update after code changes
+
+The checklist must appear before any file edit or command that modifies repository state.
+
 ## 5. Repository Map (Agent Quick Index)
 
 This section is a table-of-contents map so agents can understand the project structure quickly.

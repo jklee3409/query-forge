@@ -3,6 +3,12 @@
 ## Overview
 High-level backend progress tracking.
 
+## [2026-04-19] Session Summary (Gating Pass-Stage Exact-Semantics Update)
+- What was done: Updated quality-gating result `pass_stage` filtering semantics in backend so each stage option returns rows that passed up to that stage only and then failed at the immediate next stage (`passed_rule/llm/utility/diversity`), while `passed_all` remains final accepted rows.
+- Key decisions: Introduced `failed_rule` as the primary reject filter token and kept backward compatibility by mapping legacy `rejected` to the same behavior in service-layer normalization.
+- Issues encountered: None.
+- Next steps: Keep API docs/examples aligned with `failed_rule` as canonical and preserve `rejected` only as compatibility alias.
+
 ## [2026-04-19] Session Summary (Gating Result Pass-Stage Full Filter Coverage)
 - What was done: Extended gating result query filtering to support all quality-gating pass stages via `pass_stage` (`rejected`, `passed_rule`, `passed_llm`, `passed_utility`, `passed_diversity`, `passed_all`) across controller/service/repository layers.
 - Key decisions: Preserved existing endpoint shape (`GET /api/admin/console/gating/batches/{gatingBatchId}/results`) and added strict service-layer value normalization with stage-specific SQL predicates in repository to avoid business-logic refactor.

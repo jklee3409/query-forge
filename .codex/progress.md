@@ -3,6 +3,12 @@
 ## Overview
 High-level progress tracking for the project.
 
+## [2026-04-19] Session Summary (Session Start Checklist Rule Added)
+- What was done: Added Section `4.5 Session Start Checklist (MANDATORY)` to `.codex/AGENTS.md` so implementation turns begin with a fixed checklist in the first working update.
+- Key decisions: Checklist requires AGENTS re-check, root/directory progress review, and explicit plan to update `progress.md` after edits.
+- Issues encountered: None.
+- Next steps: Keep checklist wording synchronized with future process-rule changes.
+
 ## [2026-04-18] Session Summary (AGENTS RAG Performance Evaluation Constraint Added)
 - What was done: Updated `.codex/AGENTS.md` with new Section `3.7 RAG End-to-End Performance Evaluation` to require quality+performance joint reporting in RAG experiments.
 - Key decisions: Defined mandatory performance fields (total run latency, stage latency, mode latency avg/p95, rewrite overhead) as reproducibility constraints.
