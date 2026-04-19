@@ -16,6 +16,8 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -46,6 +48,9 @@ public class AdminConsoleService {
     private static final String GATING_PASS_STAGE_PASSED_UTILITY = "passed_utility";
     private static final String GATING_PASS_STAGE_PASSED_DIVERSITY = "passed_diversity";
     private static final String GATING_PASS_STAGE_PASSED_ALL = "passed_all";
+    private static final ZoneId KOREA_ZONE_ID = ZoneId.of("Asia/Seoul");
+    private static final DateTimeFormatter RUN_LABEL_TIME_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")
+            .withZone(KOREA_ZONE_ID);
 
     private final AdminConsoleRepository repository;
     private final LlmJobService llmJobService;
@@ -507,7 +512,7 @@ public class AdminConsoleService {
         JsonNode methodCodesNode = objectMapper.valueToTree(methodCodes);
         JsonNode batchIdsNode = objectMapper.valueToTree(batchIds);
         UUID runId = repository.createRagTestRun(
-                "RAG 테스트 " + Instant.now(),
+                "RAG 테스트 " + RUN_LABEL_TIME_FORMATTER.format(Instant.now()),
                 request.datasetId(),
                 methodCodesNode,
                 batchIdsNode,

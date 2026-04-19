@@ -11,6 +11,16 @@ const STATUS_CLASS = {
   cancel_requested: 'queued',
 }
 
+const KST_TIME_FORMATTER = new Intl.DateTimeFormat('ko-KR', {
+  timeZone: 'Asia/Seoul',
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+  hour: '2-digit',
+  minute: '2-digit',
+  hour12: false,
+})
+
 export function statusTone(value) {
   const normalized = String(value ?? '').toLowerCase()
   return STATUS_CLASS[normalized] ?? 'cancelled'
@@ -20,8 +30,12 @@ export function fmtTime(value) {
   if (!value) return '-'
   const date = new Date(value)
   if (Number.isNaN(date.getTime())) return String(value)
-  const pad = (num) => String(num).padStart(2, '0')
-  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`
+  const parts = KST_TIME_FORMATTER.formatToParts(date)
+  const mapped = parts.reduce((acc, part) => {
+    acc[part.type] = part.value
+    return acc
+  }, {})
+  return `${mapped.year}-${mapped.month}-${mapped.day} ${mapped.hour}:${mapped.minute}`
 }
 
 export function shortId(value) {
