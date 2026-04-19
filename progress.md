@@ -3,6 +3,12 @@
 ## Overview
 High-level progress tracking for the project.
 
+## [2026-04-19] Session Summary (RAG Compare UI/UX Decision-Support Redesign)
+- What was done: Re-read `.codex/AGENTS.md` and improved `/admin/rag-tests` comparison experience by restructuring metrics into explicit groups (`Retrieval Quality`, `Answer Quality`, `Performance`), adding top-level comparison summary (overall winner + retrieval/latency deltas), upgrading metric cards (A/B values, delta, direction badges, core-KPI emphasis), and improving linked comparison table readability (short run labels, numeric alignment, delta/result emphasis, grouped row labels).
+- Key decisions: Kept existing API contracts and metric extraction/calculation logic unchanged; refactored only frontend information architecture/rendering (`frontend/src/pages/RagPage.jsx`, `frontend/src/styles.css`) with reusable metric-group metadata.
+- Issues encountered: Existing UI text regions include mixed-encoding strings, so changes were scoped to stable comparison blocks and style classes to avoid unrelated churn.
+- Next steps: Validate operator readability with real run pairs and tune summary weighting/core KPI priorities based on team decision criteria.
+
 ## [2026-04-19] Session Summary (Short-User Eval 80 Full Regeneration + Baseline Origin Verification)
 - What was done: Replaced dataset `b2d47254-8655-4c9c-81ac-7615677ec5bd` with 80 fully regenerated short-user evaluation items (corpus chunk-first generation, not synthetic candidate reselection), re-audited mapping, and added `scripts/verify_eval_dataset_origin.py` for dataset-origin diagnostics.
 - Key decisions: Adopted corpus-grounded new query generation to align with rewrite-effect research intent (realistic short user prompts) while preserving retrieval-aware schema and existing dataset ID wiring.
