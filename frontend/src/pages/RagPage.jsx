@@ -4,29 +4,48 @@ import { LlmJobsTable } from '../components/LlmJobsTable.jsx'
 import { requestJson, toNumber } from '../lib/api.js'
 import { fmtTime, shortId } from '../lib/format.js'
 
-const QUALITY_METRIC_DEFS = [
-  { key: 'recall_at_5', label: 'Recall@5', max: 1 },
-  { key: 'hit_at_5', label: 'Hit@5', max: 1 },
-  { key: 'mrr_at_10', label: 'MRR@10', max: 1 },
-  { key: 'ndcg_at_10', label: 'nDCG@10', max: 1 },
-  { key: 'correctness', label: 'Correctness', max: 1 },
-  { key: 'grounding', label: 'Grounding', max: 1 },
-  { key: 'hallucination_rate', label: 'Hallucination', max: 1 },
-  { key: 'answer_relevance', label: 'Answer Relevance', max: 1 },
-  { key: 'faithfulness', label: 'Faithfulness', max: 1 },
-  { key: 'context_recall', label: 'Context Recall', max: 1 },
+const RETRIEVAL_METRIC_DEFS = [
+  { key: 'recall_at_5', label: 'Recall@5', max: 1, precision: 3, trend: 'higher', priority: 'core' },
+  { key: 'hit_at_5', label: 'Hit@5', max: 1, precision: 3, trend: 'higher', priority: 'core' },
+  { key: 'mrr_at_10', label: 'MRR@10', max: 1, precision: 3, trend: 'higher', priority: 'core' },
+  { key: 'ndcg_at_10', label: 'nDCG@10', max: 1, precision: 3, trend: 'higher', priority: 'core' },
+]
+
+const ANSWER_METRIC_DEFS = [
+  { key: 'correctness', label: 'Correctness', max: 1, precision: 3, trend: 'higher' },
+  { key: 'grounding', label: 'Grounding', max: 1, precision: 3, trend: 'higher' },
+  { key: 'hallucination_rate', label: 'Hallucination Rate', max: 1, precision: 3, trend: 'lower' },
+  { key: 'answer_relevance', label: 'Answer Relevance', max: 1, precision: 3, trend: 'higher' },
+  { key: 'faithfulness', label: 'Faithfulness', max: 1, precision: 3, trend: 'higher' },
+  { key: 'context_recall', label: 'Context Recall', max: 1, precision: 3, trend: 'higher' },
 ]
 
 const PERFORMANCE_METRIC_DEFS = [
-  { key: 'total_duration_ms', label: 'Total Duration', precision: 0, unit: 'ms' },
-  { key: 'build_memory_ms', label: 'Build-Memory Stage', precision: 0, unit: 'ms' },
-  { key: 'eval_retrieval_ms', label: 'Eval-Retrieval Stage', precision: 0, unit: 'ms' },
-  { key: 'eval_answer_ms', label: 'Eval-Answer Stage', precision: 0, unit: 'ms' },
-  { key: 'orchestration_overhead_ms', label: 'Orchestration Overhead', precision: 0, unit: 'ms' },
-  { key: 'latency_avg_ms', label: 'Representative Avg Latency', precision: 2, unit: 'ms' },
-  { key: 'latency_p95_ms', label: 'Representative P95 Latency', precision: 2, unit: 'ms' },
-  { key: 'rewrite_overhead_avg_latency_ms', label: 'Rewrite Overhead (Avg)', precision: 2, unit: 'ms' },
+  { key: 'total_duration_ms', label: 'Total Duration', precision: 0, unit: 'ms', trend: 'lower' },
+  { key: 'build_memory_ms', label: 'Build-Memory Stage', precision: 0, unit: 'ms', trend: 'lower' },
+  { key: 'eval_retrieval_ms', label: 'Eval-Retrieval Stage', precision: 0, unit: 'ms', trend: 'lower' },
+  { key: 'eval_answer_ms', label: 'Eval-Answer Stage', precision: 0, unit: 'ms', trend: 'lower' },
+  { key: 'orchestration_overhead_ms', label: 'Orchestration Overhead', precision: 0, unit: 'ms', trend: 'lower' },
+  { key: 'latency_avg_ms', label: 'Representative Avg Latency', precision: 2, unit: 'ms', trend: 'lower', priority: 'core' },
+  { key: 'latency_p95_ms', label: 'Representative P95 Latency', precision: 2, unit: 'ms', trend: 'lower', priority: 'core' },
+  { key: 'rewrite_overhead_avg_latency_ms', label: 'Rewrite Overhead (Avg)', precision: 2, unit: 'ms', trend: 'lower' },
 ]
+
+const METRIC_GROUP_DEFS = [
+  { key: 'retrieval', label: 'Retrieval Quality', description: '검색 품질 핵심 지표', metrics: RETRIEVAL_METRIC_DEFS },
+  { key: 'answer', label: 'Answer Quality', description: '답변 신뢰도 및 정합성 지표', metrics: ANSWER_METRIC_DEFS },
+  { key: 'performance', label: 'Performance', description: '응답 지연 및 단계별 실행 시간', metrics: PERFORMANCE_METRIC_DEFS },
+]
+
+const COMPARE_FOCUS_RETRIEVAL_KEYS = ['recall_at_5', 'hit_at_5', 'mrr_at_10', 'ndcg_at_10']
+const COMPARE_FOCUS_LATENCY_KEYS = ['latency_avg_ms', 'latency_p95_ms']
+
+const METRIC_OUTCOME_LABEL = {
+  right: 'B Better',
+  left: 'A Better',
+  tie: 'No Change',
+  na: 'No Data',
+}
 
 function parseMetricsNode(value) {
   if (!value) return {}
@@ -105,22 +124,52 @@ function extractRunMetrics(metricsJson) {
 
 function formatMetric(value) {
   if (value == null) return '-'
-  return Number(value).toFixed(4)
+  return Number(value).toFixed(3)
 }
 
 function formatMetricWithDef(value, def) {
   if (value == null) return '-'
-  const precision = Number.isFinite(def?.precision) ? def.precision : 4
+  const precision = Number.isFinite(def?.precision) ? def.precision : 3
   const text = Number(value).toFixed(precision)
   return def?.unit ? `${text} ${def.unit}` : text
 }
 
 function formatDelta(value, def) {
   if (value == null) return '-'
-  const precision = Number.isFinite(def?.precision) ? def.precision : 4
+  const precision = Number.isFinite(def?.precision) ? def.precision : 3
   const sign = value > 0 ? '+' : ''
   const text = `${sign}${Number(value).toFixed(precision)}`
   return def?.unit ? `${text} ${def.unit}` : text
+}
+
+function formatDeltaRate(value) {
+  if (value == null) return '-'
+  const sign = value > 0 ? '+' : ''
+  return `${sign}${Number(value).toFixed(1)}%`
+}
+
+function formatGenerationMethodLabel(methodCodes) {
+  if (!Array.isArray(methodCodes) || methodCodes.length === 0) return 'synthetic-free baseline'
+  return methodCodes.join(', ')
+}
+
+function resolveMetricOutcome(metricDef, left, right) {
+  if (left == null || right == null) return 'na'
+  const delta = right - left
+  if (delta === 0) return 'tie'
+  const rightIsBetter = metricDef.trend === 'lower' ? delta < 0 : delta > 0
+  return rightIsBetter ? 'right' : 'left'
+}
+
+function metricScaleMax(metricDef, left, right) {
+  if (metricDef.max != null) return metricDef.max
+  return Math.max(1, left || 0, right || 0)
+}
+
+function averageMetric(values) {
+  const normalized = values.filter((value) => value != null && Number.isFinite(value))
+  if (normalized.length === 0) return null
+  return normalized.reduce((sum, value) => sum + value, 0) / normalized.length
 }
 
 export function RagPage({ notify }) {
@@ -135,6 +184,7 @@ export function RagPage({ notify }) {
   const [modal, setModal] = useState(null)
   const [selectedMethods, setSelectedMethods] = useState([])
   const [compareRunIds, setCompareRunIds] = useState([])
+  const [activeCompareMetricKey, setActiveCompareMetricKey] = useState('')
   const [deletingRunId, setDeletingRunId] = useState('')
 
   const [form, setForm] = useState({
@@ -613,34 +663,104 @@ export function RagPage({ notify }) {
   }, [tests])
 
   const compareRuns = useMemo(() => compareRunIds.map((id) => tests.find((run) => run.ragTestRunId === id)).filter(Boolean), [compareRunIds, tests])
-  const compareRows = useMemo(() => {
+  const compareRunMeta = useMemo(
+    () => compareRuns.map((run, index) => ({
+      key: index === 0 ? 'a' : 'b',
+      slot: index === 0 ? 'A' : 'B',
+      title: index === 0 ? 'Run A' : 'Run B',
+      shortId: shortId(run.ragTestRunId),
+      fullId: run.ragTestRunId,
+      datasetName: run.datasetName || '-',
+      methodLabel: formatGenerationMethodLabel(run.generationMethodCodes),
+      finishedAt: fmtTime(run.finishedAt || run.startedAt),
+    })),
+    [compareRuns],
+  )
+  const compareMetricGroups = useMemo(() => {
     if (compareRuns.length !== 2) return []
     const [leftRun, rightRun] = compareRuns
     const leftMetrics = runMetricsMap.get(leftRun.ragTestRunId) || {}
     const rightMetrics = runMetricsMap.get(rightRun.ragTestRunId) || {}
-    return QUALITY_METRIC_DEFS.map((meta) => ({
-      ...meta,
-      left: leftMetrics[meta.key],
-      right: rightMetrics[meta.key],
-    })).filter((row) => row.left != null || row.right != null)
+    return METRIC_GROUP_DEFS.map((group) => {
+      const rows = group.metrics.map((metricDef) => {
+        const left = leftMetrics[metricDef.key]
+        const right = rightMetrics[metricDef.key]
+        const delta = left != null && right != null ? right - left : null
+        const deltaRate = (left != null && right != null && left !== 0) ? ((right - left) / Math.abs(left)) * 100 : null
+        return {
+          ...metricDef,
+          groupKey: group.key,
+          groupLabel: group.label,
+          left,
+          right,
+          delta,
+          deltaRate,
+          outcome: resolveMetricOutcome(metricDef, left, right),
+          scaleMax: metricScaleMax(metricDef, left, right),
+        }
+      }).filter((row) => row.left != null || row.right != null)
+      return {
+        key: group.key,
+        label: group.label,
+        description: group.description,
+        rows,
+      }
+    }).filter((group) => group.rows.length > 0)
   }, [compareRuns, runMetricsMap])
-  const compareMetricRows = useMemo(() => {
-    if (compareRuns.length !== 2) return []
-    const [leftRun, rightRun] = compareRuns
-    const leftMetrics = runMetricsMap.get(leftRun.ragTestRunId) || {}
-    const rightMetrics = runMetricsMap.get(rightRun.ragTestRunId) || {}
-    const qualityRows = QUALITY_METRIC_DEFS.map((def) => {
-      const left = leftMetrics[def.key]
-      const right = rightMetrics[def.key]
-      return { category: 'quality', ...def, left, right, delta: (left != null && right != null) ? (right - left) : null }
-    })
-    const performanceRows = PERFORMANCE_METRIC_DEFS.map((def) => {
-      const left = leftMetrics[def.key]
-      const right = rightMetrics[def.key]
-      return { category: 'performance', ...def, left, right, delta: (left != null && right != null) ? (right - left) : null }
-    })
-    return [...qualityRows, ...performanceRows].filter((row) => row.left != null || row.right != null)
-  }, [compareRuns, runMetricsMap])
+  const compareMetricRows = useMemo(() => compareMetricGroups.flatMap((group) => group.rows), [compareMetricGroups])
+  const compareSummary = useMemo(() => {
+    if (compareMetricRows.length === 0 || compareRunMeta.length !== 2) return null
+    const comparableRows = compareMetricRows.filter((row) => row.outcome !== 'na')
+    if (comparableRows.length === 0) return null
+    let scoreA = 0
+    let scoreB = 0
+    for (const row of comparableRows) {
+      const weight = row.priority === 'core' ? 2 : 1
+      if (row.outcome === 'left') scoreA += weight
+      if (row.outcome === 'right') scoreB += weight
+    }
+    const overallWinner = scoreA === scoreB ? 'tie' : scoreB > scoreA ? 'right' : 'left'
+    const retrievalRows = comparableRows.filter((row) => COMPARE_FOCUS_RETRIEVAL_KEYS.includes(row.key))
+    const retrievalAvgA = averageMetric(retrievalRows.map((row) => row.left))
+    const retrievalAvgB = averageMetric(retrievalRows.map((row) => row.right))
+    const retrievalDelta = retrievalAvgA != null && retrievalAvgB != null ? retrievalAvgB - retrievalAvgA : null
+    const retrievalDeltaRate = (retrievalAvgA != null && retrievalAvgA !== 0 && retrievalDelta != null)
+      ? (retrievalDelta / Math.abs(retrievalAvgA)) * 100
+      : null
+    const focusLatencyRows = compareMetricRows.filter((row) => COMPARE_FOCUS_LATENCY_KEYS.includes(row.key))
+    const avgLatencyRow = focusLatencyRows.find((row) => row.key === 'latency_avg_ms') || null
+    const p95LatencyRow = focusLatencyRows.find((row) => row.key === 'latency_p95_ms') || null
+    const headline = overallWinner === 'tie'
+      ? `No clear winner. Weighted score A ${scoreA} : B ${scoreB}.`
+      : overallWinner === 'right'
+      ? `Run B is ahead in weighted KPI score (${scoreB} vs ${scoreA}).`
+      : `Run A is ahead in weighted KPI score (${scoreA} vs ${scoreB}).`
+    return {
+      headline,
+      cards: [
+        {
+          label: 'Overall Winner',
+          value: overallWinner === 'tie' ? 'Tie' : overallWinner === 'right' ? 'Run B' : 'Run A',
+          meta: `Weighted score A ${scoreA} / B ${scoreB}`,
+        },
+        {
+          label: 'Retrieval Core Delta',
+          value: retrievalDelta == null ? '-' : formatDelta(retrievalDelta, { precision: 3 }),
+          meta: retrievalDelta == null ? 'No comparable data' : `B vs A (${formatDeltaRate(retrievalDeltaRate)})`,
+        },
+        {
+          label: 'Representative Avg Latency',
+          value: avgLatencyRow ? formatDelta(avgLatencyRow.delta, avgLatencyRow) : '-',
+          meta: avgLatencyRow ? METRIC_OUTCOME_LABEL[avgLatencyRow.outcome] : 'No comparable data',
+        },
+        {
+          label: 'Representative P95 Latency',
+          value: p95LatencyRow ? formatDelta(p95LatencyRow.delta, p95LatencyRow) : '-',
+          meta: p95LatencyRow ? METRIC_OUTCOME_LABEL[p95LatencyRow.outcome] : 'No comparable data',
+        },
+      ],
+    }
+  }, [compareMetricRows, compareRunMeta])
   const historyTotalPages = Math.max(1, Math.ceil(tests.length / historyPageSize))
   const currentHistoryPage = Math.min(historyPage, historyTotalPages - 1)
   const pagedTests = tests.slice(currentHistoryPage * historyPageSize, (currentHistoryPage + 1) * historyPageSize)
@@ -895,49 +1015,112 @@ export function RagPage({ notify }) {
 
       <section className="table-shell compare-shell">
         <div className="table-header">
-          <div className="table-title">실험 비교 차트 (2개 선택)</div>
+          <div className="table-title">실험 비교 워크스페이스</div>
         </div>
         <div className="compare-body">
+          <div className="compare-header-subtitle">카드와 테이블에서 동일 metric을 연결해 읽을 수 있습니다.</div>
           {compareRuns.length !== 2 && (
             <div className="empty-state">
               비교할 테스트 2개를 아래 실행 이력 테이블에서 선택하세요.
             </div>
           )}
           {compareRuns.length === 2 && (
-            <>
-              <div className="compare-legend">
-                <span className="compare-pill compare-pill--a">{shortId(compareRuns[0].ragTestRunId)}</span>
-                <span className="compare-pill compare-pill--b">{shortId(compareRuns[1].ragTestRunId)}</span>
+            <div className="compare-workspace">
+              <div className="compare-run-grid">
+                {compareRunMeta.map((run) => (
+                  <article key={run.key} className={`compare-run-card compare-run-card--${run.key}`}>
+                    <div className="compare-run-card__title-row">
+                      <span className={`compare-run-dot compare-run-dot--${run.key}`} aria-hidden="true" />
+                      <span className="compare-run-card__tag">{run.title}</span>
+                    </div>
+                    <div className="compare-run-card__id" title={run.fullId}>{run.shortId}</div>
+                    <div className="compare-run-card__meta">{run.datasetName}</div>
+                    <div className="compare-run-card__meta">{run.methodLabel}</div>
+                    <div className="compare-run-card__meta">{run.finishedAt}</div>
+                  </article>
+                ))}
               </div>
-              <div className="compare-grid compare-grid--vertical">
-                {compareRows.map((row) => {
-                  const leftPct = row.left == null ? 0 : Math.max(0, Math.min(100, (row.left / row.max) * 100))
-                  const rightPct = row.right == null ? 0 : Math.max(0, Math.min(100, (row.right / row.max) * 100))
-                  return (
-                    <article key={row.key} className="compare-metric">
-                      <div className="compare-metric__label">{row.label}</div>
-                      <div className="compare-metric__plot">
-                        <div className="compare-metric__col">
-                          <div className="compare-metric__bar compare-metric__bar--a" style={{ height: `${leftPct}%` }} />
-                          <div className="compare-metric__value">{formatMetric(row.left)}</div>
-                        </div>
-                        <div className="compare-metric__col">
-                          <div className="compare-metric__bar compare-metric__bar--b" style={{ height: `${rightPct}%` }} />
-                          <div className="compare-metric__value">{formatMetric(row.right)}</div>
-                        </div>
-                      </div>
-                    </article>
-                  )
-                })}
-              </div>
-            </>
+
+              {compareSummary && (
+                <section className="compare-overview">
+                  <div className="compare-overview__headline">{compareSummary.headline}</div>
+                  <div className="compare-overview__cards">
+                    {compareSummary.cards.map((card) => (
+                      <article key={card.label} className="compare-overview-card">
+                        <div className="compare-overview-card__label">{card.label}</div>
+                        <div className="compare-overview-card__value">{card.value}</div>
+                        <div className="compare-overview-card__meta">{card.meta}</div>
+                      </article>
+                    ))}
+                  </div>
+                </section>
+              )}
+
+              {compareMetricGroups.map((group) => (
+                <section key={group.key} className="compare-group-section">
+                  <header className="compare-group-section__header">
+                    <h3>{group.label}</h3>
+                    <p>{group.description}</p>
+                  </header>
+                  <div className="compare-card-grid">
+                    {group.rows.map((row) => {
+                      const leftPct = row.left == null ? 0 : row.left === 0 ? 0 : Math.max(8, Math.min(100, (row.left / row.scaleMax) * 100))
+                      const rightPct = row.right == null ? 0 : row.right === 0 ? 0 : Math.max(8, Math.min(100, (row.right / row.scaleMax) * 100))
+                      const linkedClass = activeCompareMetricKey === row.key ? 'is-linked' : ''
+                      const coreClass = row.priority === 'core' ? 'is-core' : ''
+                      return (
+                        <article
+                          key={row.key}
+                          className={`compare-metric-card ${coreClass} ${linkedClass}`}
+                          onMouseEnter={() => setActiveCompareMetricKey(row.key)}
+                          onMouseLeave={() => setActiveCompareMetricKey('')}
+                          onFocus={() => setActiveCompareMetricKey(row.key)}
+                          onBlur={() => setActiveCompareMetricKey('')}
+                          tabIndex={0}
+                        >
+                          <div className="compare-metric-card__title-row">
+                            <div className="compare-metric-card__title">{row.label}</div>
+                            <div className="compare-metric-card__badges">
+                              {row.priority === 'core' && <span className="metric-chip metric-chip--core">Core KPI</span>}
+                              <span className={`metric-chip metric-chip--${row.outcome}`}>{METRIC_OUTCOME_LABEL[row.outcome]}</span>
+                            </div>
+                          </div>
+                          <div className="compare-metric-card__hint">{row.trend === 'lower' ? 'Lower is better' : 'Higher is better'}</div>
+                          <div className="compare-metric-card__bars">
+                            <div className="compare-metric-card__bar-row">
+                              <span className="compare-metric-card__run">A</span>
+                              <div className="compare-metric-card__track">
+                                <span className="compare-metric-card__bar compare-metric-card__bar--a" style={{ width: `${leftPct}%` }} />
+                              </div>
+                              <span className="compare-metric-card__value">{formatMetricWithDef(row.left, row)}</span>
+                            </div>
+                            <div className="compare-metric-card__bar-row">
+                              <span className="compare-metric-card__run">B</span>
+                              <div className="compare-metric-card__track">
+                                <span className="compare-metric-card__bar compare-metric-card__bar--b" style={{ width: `${rightPct}%` }} />
+                              </div>
+                              <span className="compare-metric-card__value">{formatMetricWithDef(row.right, row)}</span>
+                            </div>
+                          </div>
+                          <div className="compare-metric-card__delta-line">
+                            <span>Delta (B-A)</span>
+                            <strong>{formatDelta(row.delta, row)}</strong>
+                            <span className="compare-metric-card__delta-rate">{formatDeltaRate(row.deltaRate)}</span>
+                          </div>
+                        </article>
+                      )
+                    })}
+                  </div>
+                </section>
+              ))}
+            </div>
           )}
         </div>
       </section>
 
       <section className="table-shell">
         <div className="table-header">
-          <div className="table-title">품질 + 성능 통합 비교 테이블</div>
+          <div className="table-title">품질/성능 상세 비교 테이블</div>
         </div>
         <div className="table-wrap">
           {compareRuns.length !== 2 && (
@@ -946,24 +1129,47 @@ export function RagPage({ notify }) {
             </div>
           )}
           {compareRuns.length === 2 && (
-            <table className="data-table">
+            <table className="data-table compare-data-table">
               <thead>
                 <tr>
                   <th>구분</th>
                   <th>지표</th>
-                  <th>{shortId(compareRuns[0].ragTestRunId)}</th>
-                  <th>{shortId(compareRuns[1].ragTestRunId)}</th>
+                  <th className="compare-data-table__run-col">
+                    <span>{compareRunMeta[0].title}</span>
+                    <small title={compareRunMeta[0].fullId}>{compareRunMeta[0].shortId}</small>
+                  </th>
+                  <th className="compare-data-table__run-col">
+                    <span>{compareRunMeta[1].title}</span>
+                    <small title={compareRunMeta[1].fullId}>{compareRunMeta[1].shortId}</small>
+                  </th>
                   <th>Delta (B-A)</th>
                 </tr>
               </thead>
               <tbody>
                 {compareMetricRows.map((row) => (
-                  <tr key={`${row.category}:${row.key}`}>
-                    <td>{row.category}</td>
-                    <td>{row.label}</td>
-                    <td>{formatMetricWithDef(row.left, row)}</td>
-                    <td>{formatMetricWithDef(row.right, row)}</td>
-                    <td>{formatDelta(row.delta, row)}</td>
+                  <tr
+                    key={`${row.groupKey}:${row.key}`}
+                    className={`compare-data-table__row ${row.priority === 'core' ? 'is-core' : ''} ${activeCompareMetricKey === row.key ? 'is-linked' : ''}`}
+                    onMouseEnter={() => setActiveCompareMetricKey(row.key)}
+                    onMouseLeave={() => setActiveCompareMetricKey('')}
+                    onFocus={() => setActiveCompareMetricKey(row.key)}
+                    onBlur={() => setActiveCompareMetricKey('')}
+                    tabIndex={0}
+                  >
+                    <td>
+                      <span className={`compare-group-pill compare-group-pill--${row.groupKey}`}>{row.groupLabel}</span>
+                    </td>
+                    <td className="compare-data-table__metric">
+                      <div className="compare-data-table__metric-main">{row.label}</div>
+                      <div className="compare-data-table__metric-sub">{row.trend === 'lower' ? 'Lower is better' : 'Higher is better'}</div>
+                    </td>
+                    <td className="compare-data-table__num">{formatMetricWithDef(row.left, row)}</td>
+                    <td className="compare-data-table__num">{formatMetricWithDef(row.right, row)}</td>
+                    <td className={`compare-data-table__delta compare-data-table__delta--${row.outcome}`}>
+                      <span>{formatDelta(row.delta, row)}</span>
+                      <small>{formatDeltaRate(row.deltaRate)}</small>
+                      <small className="compare-data-table__delta-label">{METRIC_OUTCOME_LABEL[row.outcome]}</small>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -1017,8 +1223,7 @@ export function RagPage({ notify }) {
             <tbody>
               {pagedTests.map((run) => {
                 const metrics = runMetricsMap.get(run.ragTestRunId) || {}
-                const methodCodes = Array.isArray(run.generationMethodCodes) ? run.generationMethodCodes : []
-                const generationMethodLabel = methodCodes.length > 0 ? methodCodes.join(', ') : 'synthetic-free baseline'
+                const generationMethodLabel = formatGenerationMethodLabel(run.generationMethodCodes)
                 const rewriteMode = run.rewriteEnabled
                   ? run.selectiveRewrite
                     ? (run.useSessionContext ? 'selective + session' : 'selective')
