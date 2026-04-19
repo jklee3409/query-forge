@@ -1,0 +1,25 @@
+# Best Rewrite Cases
+
+- sample=dev-human-009 mode=selective_rewrite raw_mrr=0.0000 mode_mrr=0.1667 reason=delta_above_threshold
+- sample=dev-human-011 mode=selective_rewrite raw_mrr=0.0000 mode_mrr=0.1667 reason=delta_above_threshold
+- sample=dev-human-016 mode=selective_rewrite raw_mrr=0.0000 mode_mrr=0.1667 reason=delta_above_threshold
+- sample=dev-human-019 mode=selective_rewrite raw_mrr=0.0000 mode_mrr=1.0000 reason=delta_above_threshold
+- sample=dev-human-021 mode=selective_rewrite raw_mrr=0.0000 mode_mrr=0.1667 reason=delta_above_threshold
+- sample=dev-human-022 mode=selective_rewrite raw_mrr=0.0000 mode_mrr=0.1667 reason=delta_above_threshold
+- sample=dev-human-025 mode=selective_rewrite raw_mrr=0.0000 mode_mrr=0.1429 reason=delta_above_threshold
+- sample=dev-human-026 mode=selective_rewrite raw_mrr=0.0000 mode_mrr=1.0000 reason=delta_above_threshold
+- sample=dev-human-027 mode=selective_rewrite raw_mrr=0.0000 mode_mrr=1.0000 reason=delta_above_threshold
+- sample=dev-human-031 mode=selective_rewrite raw_mrr=0.0000 mode_mrr=1.0000 reason=delta_above_threshold
+- sample=dev-human-032 mode=selective_rewrite raw_mrr=0.0000 mode_mrr=1.0000 reason=delta_above_threshold
+- sample=dev-human-036 mode=selective_rewrite raw_mrr=0.0000 mode_mrr=0.2000 reason=delta_above_threshold
+- sample=dev-human-040 mode=selective_rewrite raw_mrr=0.0000 mode_mrr=0.2500 reason=delta_above_threshold
+- sample=dev-human-041 mode=selective_rewrite raw_mrr=0.0000 mode_mrr=0.5000 reason=delta_above_threshold
+- sample=dev-human-050 mode=selective_rewrite raw_mrr=0.0000 mode_mrr=0.5000 reason=delta_above_threshold
+- sample=dev-human-057 mode=selective_rewrite raw_mrr=0.0000 mode_mrr=0.2000 reason=delta_above_threshold
+- sample=test-human-036 mode=selective_rewrite raw_mrr=0.0000 mode_mrr=0.1000 reason=delta_above_threshold
+- sample=test-short-user-010 mode=selective_rewrite raw_mrr=0.0000 mode_mrr=0.1429 reason=delta_above_threshold
+- sample=test-short-user-016 mode=selective_rewrite raw_mrr=0.0000 mode_mrr=0.1111 reason=delta_above_threshold
+- sample=test-short-user-025 mode=selective_rewrite raw_mrr=0.0000 mode_mrr=0.3333 reason=delta_above_threshold
+- sample=test-short-user-028 mode=selective_rewrite raw_mrr=0.0000 mode_mrr=0.1250 reason=delta_above_threshold
+- sample=test-short-user-032 mode=selective_rewrite raw_mrr=0.0000 mode_mrr=0.1111 reason=delta_above_threshold
+- sample=test-short-user-040 mode=selective_rewrite raw_mrr=0.0000 mode_mrr=0.1000 reason=delta_above_threshold
