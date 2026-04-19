@@ -12,23 +12,23 @@ const RETRIEVAL_METRIC_DEFS = [
 ]
 
 const ANSWER_METRIC_DEFS = [
-  { key: 'correctness', label: 'Correctness', max: 1, precision: 3, trend: 'higher' },
-  { key: 'grounding', label: 'Grounding', max: 1, precision: 3, trend: 'higher' },
-  { key: 'hallucination_rate', label: 'Hallucination Rate', max: 1, precision: 3, trend: 'lower' },
-  { key: 'answer_relevance', label: 'Answer Relevance', max: 1, precision: 3, trend: 'higher' },
-  { key: 'faithfulness', label: 'Faithfulness', max: 1, precision: 3, trend: 'higher' },
-  { key: 'context_recall', label: 'Context Recall', max: 1, precision: 3, trend: 'higher' },
+  { key: 'correctness', label: 'Correctness (정확성)', max: 1, precision: 3, trend: 'higher' },
+  { key: 'grounding', label: 'Grounding (근거 충실도)', max: 1, precision: 3, trend: 'higher' },
+  { key: 'hallucination_rate', label: 'Hallucination Rate (환각 비율)', max: 1, precision: 3, trend: 'lower' },
+  { key: 'answer_relevance', label: 'Answer Relevance (응답 관련성)', max: 1, precision: 3, trend: 'higher' },
+  { key: 'faithfulness', label: 'Faithfulness (사실 충실도)', max: 1, precision: 3, trend: 'higher' },
+  { key: 'context_recall', label: 'Context Recall (문맥 재현율)', max: 1, precision: 3, trend: 'higher' },
 ]
 
 const PERFORMANCE_METRIC_DEFS = [
-  { key: 'total_duration_ms', label: 'Total Duration', precision: 0, unit: 'ms', trend: 'lower' },
-  { key: 'build_memory_ms', label: 'Build-Memory Stage', precision: 0, unit: 'ms', trend: 'lower' },
-  { key: 'eval_retrieval_ms', label: 'Eval-Retrieval Stage', precision: 0, unit: 'ms', trend: 'lower' },
-  { key: 'eval_answer_ms', label: 'Eval-Answer Stage', precision: 0, unit: 'ms', trend: 'lower' },
-  { key: 'orchestration_overhead_ms', label: 'Orchestration Overhead', precision: 0, unit: 'ms', trend: 'lower' },
-  { key: 'latency_avg_ms', label: 'Representative Avg Latency', precision: 2, unit: 'ms', trend: 'lower', priority: 'core' },
-  { key: 'latency_p95_ms', label: 'Representative P95 Latency', precision: 2, unit: 'ms', trend: 'lower', priority: 'core' },
-  { key: 'rewrite_overhead_avg_latency_ms', label: 'Rewrite Overhead (Avg)', precision: 2, unit: 'ms', trend: 'lower' },
+  { key: 'total_duration_ms', label: 'Total Duration (총 소요 시간)', precision: 0, unit: 'ms', trend: 'lower' },
+  { key: 'build_memory_ms', label: 'Build-Memory Stage (메모리 구축 단계)', precision: 0, unit: 'ms', trend: 'lower' },
+  { key: 'eval_retrieval_ms', label: 'Eval-Retrieval Stage (검색 평가 단계)', precision: 0, unit: 'ms', trend: 'lower' },
+  { key: 'eval_answer_ms', label: 'Eval-Answer Stage (답변 평가 단계)', precision: 0, unit: 'ms', trend: 'lower' },
+  { key: 'orchestration_overhead_ms', label: 'Orchestration Overhead (오케스트레이션 오버헤드)', precision: 0, unit: 'ms', trend: 'lower' },
+  { key: 'latency_avg_ms', label: 'Representative Avg Latency (대표 평균 지연시간)', precision: 2, unit: 'ms', trend: 'lower', priority: 'core' },
+  { key: 'latency_p95_ms', label: 'Representative P95 Latency (대표 P95 지연시간)', precision: 2, unit: 'ms', trend: 'lower', priority: 'core' },
+  { key: 'rewrite_overhead_avg_latency_ms', label: 'Rewrite Overhead (Avg) (리라이트 오버헤드 평균)', precision: 2, unit: 'ms', trend: 'lower' },
 ]
 
 const METRIC_GROUP_DEFS = [
@@ -37,8 +37,27 @@ const METRIC_GROUP_DEFS = [
   { key: 'performance', label: 'Performance', description: '응답 지연 및 단계별 실행 시간', metrics: PERFORMANCE_METRIC_DEFS },
 ]
 
+const METRIC_META_MAP = METRIC_GROUP_DEFS.reduce((acc, group) => {
+  for (const metric of group.metrics) {
+    acc[metric.key] = {
+      ...metric,
+      groupKey: group.key,
+      groupLabel: group.label,
+    }
+  }
+  return acc
+}, {})
+
 const COMPARE_FOCUS_RETRIEVAL_KEYS = ['recall_at_5', 'hit_at_5', 'mrr_at_10', 'ndcg_at_10']
 const COMPARE_FOCUS_LATENCY_KEYS = ['latency_avg_ms', 'latency_p95_ms']
+const KPI_METRIC_KEYS = new Set([
+  'recall_at_5',
+  'hit_at_5',
+  'mrr_at_10',
+  'ndcg_at_10',
+  'latency_avg_ms',
+  'latency_p95_ms',
+])
 
 const METRIC_OUTCOME_LABEL = {
   right: 'B Better',
@@ -46,6 +65,13 @@ const METRIC_OUTCOME_LABEL = {
   tie: 'No Change',
   na: 'No Data',
 }
+
+const METRIC_TREND_LABEL = {
+  higher: 'Higher is better',
+  lower: 'Lower is better',
+}
+
+const TABLE_NUMBER_FORMATTERS = new Map()
 
 function parseMetricsNode(value) {
   if (!value) return {}
@@ -146,6 +172,358 @@ function formatDeltaRate(value) {
   if (value == null) return '-'
   const sign = value > 0 ? '+' : ''
   return `${sign}${Number(value).toFixed(1)}%`
+}
+
+function resolveTableNumberFormatter(precision) {
+  const normalizedPrecision = Number.isFinite(precision) ? precision : 0
+  if (!TABLE_NUMBER_FORMATTERS.has(normalizedPrecision)) {
+    TABLE_NUMBER_FORMATTERS.set(
+      normalizedPrecision,
+      new Intl.NumberFormat('en-US', {
+        minimumFractionDigits: normalizedPrecision,
+        maximumFractionDigits: normalizedPrecision,
+      }),
+    )
+  }
+  return TABLE_NUMBER_FORMATTERS.get(normalizedPrecision)
+}
+
+function formatTableNumber(value, precision = 0) {
+  if (value == null || !Number.isFinite(Number(value))) return '-'
+  return resolveTableNumberFormatter(precision).format(Number(value))
+}
+
+function formatSignedTableNumber(value, precision = 0) {
+  if (value == null || !Number.isFinite(Number(value))) return '-'
+  const normalized = Number(value)
+  const sign = normalized > 0 ? '+' : normalized < 0 ? '-' : ''
+  return `${sign}${formatTableNumber(Math.abs(normalized), precision)}`
+}
+
+function formatTableDurationDisplay(value, options = {}) {
+  const normalized = Number(value)
+  if (!Number.isFinite(normalized)) return { main: '-', sub: '' }
+  const signed = options.signed === true
+  const precisionMs = Number.isFinite(options.precisionMs) ? options.precisionMs : 0
+  const precisionSeconds = Number.isFinite(options.precisionSeconds) ? options.precisionSeconds : 2
+  const includeRawMs = options.includeRawMs === true
+  const abs = Math.abs(normalized)
+  const signPrefix = signed ? (normalized > 0 ? '+' : normalized < 0 ? '-' : '') : (normalized < 0 ? '-' : '')
+  const msValueText = signed
+    ? formatSignedTableNumber(normalized, precisionMs)
+    : formatTableNumber(normalized, precisionMs)
+  const msText = `${msValueText} ms`
+  if (abs < 1000) {
+    return { main: msText, sub: '' }
+  }
+  if (abs < 60000) {
+    const secondsText = signed
+      ? formatSignedTableNumber(normalized / 1000, precisionSeconds)
+      : formatTableNumber(normalized / 1000, precisionSeconds)
+    return {
+      main: `${secondsText} s`,
+      sub: includeRawMs ? msText : '',
+    }
+  }
+  const totalSecondsAbs = abs / 1000
+  const minutes = Math.floor(totalSecondsAbs / 60)
+  const seconds = totalSecondsAbs - (minutes * 60)
+  return {
+    main: `${signPrefix}${formatTableNumber(minutes, 0)}m ${formatTableNumber(seconds, precisionSeconds)}s`,
+    sub: includeRawMs ? msText : '',
+  }
+}
+
+function formatTableMetricValue(value, def) {
+  if (value == null) return { main: '-', sub: '' }
+  const precision = Number.isFinite(def?.precision) ? def.precision : 3
+  if (def?.unit === 'ms') {
+    return formatTableDurationDisplay(value, {
+      signed: false,
+      precisionMs: precision,
+      precisionSeconds: 2,
+      includeRawMs: true,
+    })
+  }
+  return {
+    main: formatTableNumber(value, precision),
+    sub: '',
+  }
+}
+
+function formatTableDeltaRaw(value, def) {
+  if (value == null) return '-'
+  const precision = Number.isFinite(def?.precision) ? def.precision : 3
+  if (def?.unit === 'ms') {
+    return formatTableDurationDisplay(value, {
+      signed: true,
+      precisionMs: precision,
+      precisionSeconds: 2,
+      includeRawMs: false,
+    }).main
+  }
+  const signed = formatSignedTableNumber(value, precision)
+  return def?.unit ? `${signed} ${def.unit}` : signed
+}
+
+function formatTableDeltaRate(value) {
+  if (value == null) return '-'
+  return `${formatSignedTableNumber(value, 1)}%`
+}
+
+function formatTableDeltaMagnitude(row) {
+  if (row?.deltaRate != null) return `${formatTableNumber(Math.abs(row.deltaRate), 1)}%`
+  if (row?.delta == null) return '-'
+  if (row?.unit === 'ms') {
+    return formatTableDurationDisplay(Math.abs(row.delta), {
+      signed: false,
+      precisionMs: Number.isFinite(row?.precision) ? row.precision : 0,
+      precisionSeconds: 2,
+      includeRawMs: false,
+    }).main
+  }
+  const precision = Number.isFinite(row?.precision) ? row.precision : 3
+  const absText = formatTableNumber(Math.abs(row.delta), precision)
+  return row?.unit ? `${absText} ${row.unit}` : absText
+}
+
+function formatTableDeltaDisplay(row) {
+  if (!row || row.delta == null) return { main: '-', sub: '' }
+  const precision = Number.isFinite(row?.precision) ? row.precision : 3
+  if (row.unit === 'ms') {
+    return formatTableDurationDisplay(row.delta, {
+      signed: true,
+      precisionMs: precision,
+      precisionSeconds: 2,
+      includeRawMs: true,
+    })
+  }
+  return {
+    main: formatTableDeltaRaw(row.delta, row),
+    sub: '',
+  }
+}
+
+function formatDurationDisplay(value, options = {}) {
+  const precisionMs = Number.isFinite(options.precisionMs) ? options.precisionMs : 0
+  const precisionSeconds = Number.isFinite(options.precisionSeconds) ? options.precisionSeconds : 2
+  const includeRawMs = options.includeRawMs === true
+  const display = formatTableDurationDisplay(value, {
+    signed: false,
+    precisionMs,
+    precisionSeconds,
+    includeRawMs,
+  })
+  return {
+    primary: display.main,
+    secondary: display.sub,
+  }
+}
+
+function formatSignedDurationDisplay(value, options = {}) {
+  const precisionMs = Number.isFinite(options.precisionMs) ? options.precisionMs : 0
+  const precisionSeconds = Number.isFinite(options.precisionSeconds) ? options.precisionSeconds : 2
+  const includeRawMs = options.includeRawMs === true
+  const display = formatTableDurationDisplay(value, {
+    signed: true,
+    precisionMs,
+    precisionSeconds,
+    includeRawMs,
+  })
+  return {
+    primary: display.main,
+    secondary: display.sub,
+  }
+}
+
+function formatWorkspaceMetricValue(value, row) {
+  if (value == null) return { primary: '-', secondary: '' }
+  const precision = Number.isFinite(row?.precision) ? row.precision : 3
+  if (row?.unit === 'ms') {
+    return formatDurationDisplay(value, { precisionMs: precision, precisionSeconds: 2, includeRawMs: false })
+  }
+  const text = formatTableNumber(value, precision)
+  return row?.unit ? { primary: `${text} ${row.unit}`, secondary: '' } : { primary: text, secondary: '' }
+}
+
+function formatWorkspaceDeltaValue(row) {
+  if (!row || row.delta == null) return { primary: '-', secondary: '' }
+  const precision = Number.isFinite(row.precision) ? row.precision : 3
+  if (row.unit === 'ms') {
+    return formatSignedDurationDisplay(row.delta, { precisionMs: precision, precisionSeconds: 2, includeRawMs: false })
+  }
+  const signed = formatSignedTableNumber(row.delta, precision)
+  return row.unit ? { primary: `${signed} ${row.unit}`, secondary: '' } : { primary: signed, secondary: '' }
+}
+
+function formatWorkspaceDeltaRate(value) {
+  if (value == null || !Number.isFinite(Number(value))) return '-'
+  return `${formatSignedTableNumber(value, 1)}%`
+}
+
+function buildWorkspaceChangeInsight(row) {
+  if (!row || row.outcome === 'na') {
+    return {
+      summary: 'No comparable data',
+      detail: 'A/B values unavailable',
+      tone: 'na',
+    }
+  }
+  const deltaDisplay = formatWorkspaceDeltaValue(row)
+  if (row.outcome === 'tie' || row.delta === 0) {
+    return {
+      summary: 'No change',
+      detail: `Delta ${deltaDisplay.primary}`,
+      tone: 'tie',
+    }
+  }
+  const improved = row.outcome === 'right'
+  if (row.unit === 'ms' || row.groupKey === 'performance') {
+    const speedWord = improved ? 'faster' : 'slower'
+    const ratio = (row.left != null && row.right != null && row.left > 0 && row.right > 0)
+      ? (improved ? row.left / row.right : row.right / row.left)
+      : null
+    let summary = speedWord
+    if (ratio != null && ratio >= 1.2) {
+      summary = `${formatTableNumber(ratio, 2)}x ${speedWord}`
+    } else if (row.deltaRate != null) {
+      summary = `${formatTableNumber(Math.abs(row.deltaRate), 1)}% ${speedWord}`
+    }
+    const detailParts = [`Delta ${deltaDisplay.primary}`]
+    if (row.deltaRate != null && !summary.includes('%')) {
+      detailParts.push(`${formatTableNumber(Math.abs(row.deltaRate), 1)}% ${speedWord}`)
+    }
+    return {
+      summary,
+      detail: detailParts.join(' '),
+      tone: improved ? 'right' : 'left',
+    }
+  }
+  const changeWord = row.trend === 'higher'
+    ? (improved ? 'higher' : 'lower')
+    : (improved ? 'lower' : 'higher')
+  const summary = row.deltaRate != null ? `${formatTableNumber(Math.abs(row.deltaRate), 1)}% ${changeWord}` : changeWord
+  const detailParts = [`Delta ${deltaDisplay.primary}`]
+  return {
+    summary,
+    detail: detailParts.join(' '),
+    tone: improved ? 'right' : 'left',
+  }
+}
+
+function buildDeltaInterpretation(row) {
+  if (!row || row.outcome === 'na') {
+    return {
+      headline: 'No comparable data',
+      detail: 'A/B values unavailable',
+      tone: 'na',
+    }
+  }
+  const deltaDisplay = formatTableDeltaDisplay(row)
+  if (row.outcome === 'tie' || row.delta === 0) {
+    const tieDetail = [`Δ ${deltaDisplay.main}`]
+    if (deltaDisplay.sub) tieDetail.push(`raw ${deltaDisplay.sub}`)
+    return {
+      headline: 'No change',
+      detail: tieDetail.join(' | '),
+      tone: 'tie',
+    }
+  }
+  const improved = row.outcome === 'right'
+  const isLatencyLike = row.groupKey === 'performance' || row.unit === 'ms'
+  const symbol = improved ? '▲' : '▼'
+  let headline = ''
+  if (isLatencyLike) {
+    const speedWord = improved ? 'faster' : 'slower'
+    const ratio = (row.left != null && row.right != null && row.left > 0 && row.right > 0)
+      ? (improved ? row.left / row.right : row.right / row.left)
+      : null
+    if (ratio != null && ratio >= 1.2) {
+      headline = `${symbol} ${formatTableNumber(ratio, 2)}x ${speedWord}`
+    } else if (row.deltaRate != null) {
+      headline = `${symbol} ${formatTableNumber(Math.abs(row.deltaRate), 1)}% ${speedWord}`
+    } else {
+      headline = `${symbol} ${formatTableDeltaMagnitude(row)} ${speedWord}`
+    }
+  } else {
+    const qualityWord = improved ? 'improved' : 'regressed'
+    headline = row.deltaRate != null
+      ? `${symbol} ${formatTableNumber(Math.abs(row.deltaRate), 1)}% ${qualityWord}`
+      : `${symbol} ${formatTableDeltaMagnitude(row)} ${qualityWord}`
+  }
+  const detail = []
+  detail.push(`Δ ${deltaDisplay.main}`)
+  if (row.deltaRate != null && !headline.includes('%')) {
+    detail.push(formatTableDeltaRate(row.deltaRate))
+  }
+  if (deltaDisplay.sub) detail.push(`raw ${deltaDisplay.sub}`)
+  return {
+    headline,
+    detail: detail.join(' | '),
+    tone: improved ? 'right' : 'left',
+  }
+}
+
+function buildResultLabel(row) {
+  if (!row || row.outcome === 'na') return { main: 'Not Comparable', sub: 'Check source metrics' }
+  if (row.outcome === 'tie') return { main: 'No Change', sub: METRIC_TREND_LABEL[row.trend] || '' }
+  if (row.outcome === 'right') return { main: 'Run B Better', sub: METRIC_TREND_LABEL[row.trend] || '' }
+  return { main: 'Run A Better', sub: METRIC_TREND_LABEL[row.trend] || '' }
+}
+
+function summarizeGroupRows(rows) {
+  return rows.reduce((acc, row) => {
+    if (row.outcome === 'right') acc.right += 1
+    if (row.outcome === 'left') acc.left += 1
+    if (row.outcome === 'tie') acc.tie += 1
+    if (row.outcome === 'na') acc.na += 1
+    return acc
+  }, { right: 0, left: 0, tie: 0, na: 0 })
+}
+
+function compareTableRowSorter(left, right) {
+  const leftCore = left.priority === 'core' ? 0 : 1
+  const rightCore = right.priority === 'core' ? 0 : 1
+  if (leftCore !== rightCore) return leftCore - rightCore
+  return (left.metricOrder || 0) - (right.metricOrder || 0)
+}
+
+function compactText(value, maxLength = 46) {
+  if (!value) return '-'
+  const normalized = String(value).trim()
+  if (!normalized) return '-'
+  if (normalized.length <= maxLength) return normalized
+  return `${normalized.slice(0, maxLength - 3)}...`
+}
+
+function formatRunIdForTable(value) {
+  if (!value) return '-'
+  const raw = String(value)
+  if (raw.length <= 20) return raw
+  return `${raw.slice(0, 8)}...${raw.slice(-8)}`
+}
+
+function resolveCompareRunPrimaryLabel(run, fallbackTitle) {
+  const runLabelRaw = String(run?.runLabel || '').trim()
+  let normalizedRunLabel = runLabelRaw
+  if (runLabelRaw.toLowerCase().startsWith('rag') && runLabelRaw.includes('T')) {
+    const isoCandidate = runLabelRaw.replace(/^RAG\s*테스트\s*/i, '').trim()
+    const formatted = fmtTime(isoCandidate)
+    if (formatted !== '-' && formatted !== isoCandidate) {
+      normalizedRunLabel = `RAG 테스트 ${formatted}`
+    }
+  }
+  const runLabel = compactText(normalizedRunLabel, 40)
+  if (runLabel !== '-') return runLabel
+  const methodLabel = compactText(formatGenerationMethodLabel(run?.generationMethodCodes), 40)
+  return methodLabel === '-' ? fallbackTitle : methodLabel
+}
+
+function resolveCompareRunSecondaryLabel(run) {
+  const pieces = [run?.datasetName, fmtTime(run?.finishedAt || run?.startedAt)]
+    .map((value) => String(value || '').trim())
+    .filter((value) => value && value !== '-')
+  return compactText(pieces.join(' | '), 52)
 }
 
 function formatGenerationMethodLabel(methodCodes) {
@@ -670,6 +1048,9 @@ export function RagPage({ notify }) {
       title: index === 0 ? 'Run A' : 'Run B',
       shortId: shortId(run.ragTestRunId),
       fullId: run.ragTestRunId,
+      tableId: formatRunIdForTable(run.ragTestRunId),
+      tableLabel: resolveCompareRunPrimaryLabel(run, index === 0 ? 'Run A' : 'Run B'),
+      tableSubLabel: resolveCompareRunSecondaryLabel(run),
       datasetName: run.datasetName || '-',
       methodLabel: formatGenerationMethodLabel(run.generationMethodCodes),
       finishedAt: fmtTime(run.finishedAt || run.startedAt),
@@ -682,15 +1063,18 @@ export function RagPage({ notify }) {
     const leftMetrics = runMetricsMap.get(leftRun.ragTestRunId) || {}
     const rightMetrics = runMetricsMap.get(rightRun.ragTestRunId) || {}
     return METRIC_GROUP_DEFS.map((group) => {
-      const rows = group.metrics.map((metricDef) => {
+      const rows = group.metrics.map((metricDef, metricOrder) => {
+        const metricMeta = METRIC_META_MAP[metricDef.key] || metricDef
         const left = leftMetrics[metricDef.key]
         const right = rightMetrics[metricDef.key]
         const delta = left != null && right != null ? right - left : null
         const deltaRate = (left != null && right != null && left !== 0) ? ((right - left) / Math.abs(left)) * 100 : null
         return {
-          ...metricDef,
+          ...metricMeta,
           groupKey: group.key,
           groupLabel: group.label,
+          metricOrder,
+          priority: KPI_METRIC_KEYS.has(metricDef.key) ? 'core' : metricMeta.priority,
           left,
           right,
           delta,
@@ -708,6 +1092,28 @@ export function RagPage({ notify }) {
     }).filter((group) => group.rows.length > 0)
   }, [compareRuns, runMetricsMap])
   const compareMetricRows = useMemo(() => compareMetricGroups.flatMap((group) => group.rows), [compareMetricGroups])
+  const compareWorkspaceGroups = useMemo(() => compareMetricGroups.map((group) => ({
+    ...group,
+    rows: [...group.rows].sort(compareTableRowSorter),
+  })), [compareMetricGroups])
+  const compareTableGroups = useMemo(() => compareMetricGroups.map((group) => {
+    const rows = [...group.rows].sort(compareTableRowSorter)
+    const outcomeSummary = summarizeGroupRows(rows)
+    const summaryParts = [
+      `Run B better ${outcomeSummary.right}`,
+      `Run A better ${outcomeSummary.left}`,
+      `No change ${outcomeSummary.tie}`,
+    ]
+    if (outcomeSummary.na > 0) {
+      summaryParts.push(`No data ${outcomeSummary.na}`)
+    }
+    return {
+      ...group,
+      rows,
+      outcomeSummary,
+      summaryLabel: summaryParts.join(' | '),
+    }
+  }), [compareMetricGroups])
   const compareSummary = useMemo(() => {
     if (compareMetricRows.length === 0 || compareRunMeta.length !== 2) return null
     const comparableRows = compareMetricRows.filter((row) => row.outcome !== 'na')
@@ -730,6 +1136,8 @@ export function RagPage({ notify }) {
     const focusLatencyRows = compareMetricRows.filter((row) => COMPARE_FOCUS_LATENCY_KEYS.includes(row.key))
     const avgLatencyRow = focusLatencyRows.find((row) => row.key === 'latency_avg_ms') || null
     const p95LatencyRow = focusLatencyRows.find((row) => row.key === 'latency_p95_ms') || null
+    const avgLatencyInsight = avgLatencyRow ? buildWorkspaceChangeInsight(avgLatencyRow) : null
+    const p95LatencyInsight = p95LatencyRow ? buildWorkspaceChangeInsight(p95LatencyRow) : null
     const headline = overallWinner === 'tie'
       ? `No clear winner. Weighted score A ${scoreA} : B ${scoreB}.`
       : overallWinner === 'right'
@@ -750,13 +1158,17 @@ export function RagPage({ notify }) {
         },
         {
           label: 'Representative Avg Latency',
-          value: avgLatencyRow ? formatDelta(avgLatencyRow.delta, avgLatencyRow) : '-',
-          meta: avgLatencyRow ? METRIC_OUTCOME_LABEL[avgLatencyRow.outcome] : 'No comparable data',
+          value: avgLatencyInsight ? avgLatencyInsight.summary : '-',
+          meta: avgLatencyInsight
+            ? `${avgLatencyInsight.detail} | ${METRIC_OUTCOME_LABEL[avgLatencyRow.outcome]}`
+            : 'No comparable data',
         },
         {
           label: 'Representative P95 Latency',
-          value: p95LatencyRow ? formatDelta(p95LatencyRow.delta, p95LatencyRow) : '-',
-          meta: p95LatencyRow ? METRIC_OUTCOME_LABEL[p95LatencyRow.outcome] : 'No comparable data',
+          value: p95LatencyInsight ? p95LatencyInsight.summary : '-',
+          meta: p95LatencyInsight
+            ? `${p95LatencyInsight.detail} | ${METRIC_OUTCOME_LABEL[p95LatencyRow.outcome]}`
+            : 'No comparable data',
         },
       ],
     }
@@ -769,13 +1181,23 @@ export function RagPage({ notify }) {
     const completedRuns = tests.filter((run) => String(run.status || '').toLowerCase() === 'completed')
     const lastRun = completedRuns[0]
     const lastMetrics = lastRun ? extractRunMetrics(lastRun.metricsJson) : {}
+    const latestTotalDuration = formatDurationDisplay(lastMetrics.total_duration_ms, {
+      precisionMs: 0,
+      precisionSeconds: 2,
+      includeRawMs: false,
+    }).primary
+    const latestAvgLatency = formatDurationDisplay(lastMetrics.latency_avg_ms, {
+      precisionMs: 2,
+      precisionSeconds: 2,
+      includeRawMs: false,
+    }).primary
     return [
       { label: '완료된 테스트 수', value: String(completedRuns.length), meta: '최근 50개 실행 기준' },
       { label: '선택된 비교 대상', value: String(compareRunIds.length), meta: compareRunIds.length === 2 ? '비교 준비 완료' : '2개 선택 시 비교 차트 표시' },
       { label: '최근 Recall@5', value: formatMetric(lastMetrics.recall_at_5), meta: lastRun ? `run ${shortId(lastRun.ragTestRunId)}` : '완료된 실행 없음' },
       { label: '최근 nDCG@10', value: formatMetric(lastMetrics.ndcg_at_10), meta: lastRun ? fmtTime(lastRun.finishedAt || lastRun.startedAt) : '-' },
-      { label: 'Latest Total Duration', value: formatMetricWithDef(lastMetrics.total_duration_ms, { precision: 0, unit: 'ms' }), meta: 'RAG end-to-end' },
-      { label: 'Latest Avg Latency', value: formatMetricWithDef(lastMetrics.latency_avg_ms, { precision: 2, unit: 'ms' }), meta: 'representative mode' },
+      { label: 'Latest Total Duration', value: latestTotalDuration, meta: 'RAG end-to-end' },
+      { label: 'Latest Avg Latency', value: latestAvgLatency, meta: 'representative mode' },
     ]
   }, [tests, compareRunIds])
 
@@ -1033,10 +1455,10 @@ export function RagPage({ notify }) {
                       <span className={`compare-run-dot compare-run-dot--${run.key}`} aria-hidden="true" />
                       <span className="compare-run-card__tag">{run.title}</span>
                     </div>
-                    <div className="compare-run-card__id" title={run.fullId}>{run.shortId}</div>
-                    <div className="compare-run-card__meta">{run.datasetName}</div>
+                    <div className="compare-run-card__name" title={run.tableLabel}>{run.tableLabel}</div>
+                    <div className="compare-run-card__id" title={run.fullId}>{run.tableId}</div>
+                    <div className="compare-run-card__meta">{run.tableSubLabel}</div>
                     <div className="compare-run-card__meta">{run.methodLabel}</div>
-                    <div className="compare-run-card__meta">{run.finishedAt}</div>
                   </article>
                 ))}
               </div>
@@ -1056,8 +1478,8 @@ export function RagPage({ notify }) {
                 </section>
               )}
 
-              {compareMetricGroups.map((group) => (
-                <section key={group.key} className="compare-group-section">
+              {compareWorkspaceGroups.map((group) => (
+                <section key={group.key} className={`compare-group-section compare-group-section--${group.key}`}>
                   <header className="compare-group-section__header">
                     <h3>{group.label}</h3>
                     <p>{group.description}</p>
@@ -1068,6 +1490,13 @@ export function RagPage({ notify }) {
                       const rightPct = row.right == null ? 0 : row.right === 0 ? 0 : Math.max(8, Math.min(100, (row.right / row.scaleMax) * 100))
                       const linkedClass = activeCompareMetricKey === row.key ? 'is-linked' : ''
                       const coreClass = row.priority === 'core' ? 'is-core' : ''
+                      const leftValue = formatWorkspaceMetricValue(row.left, row)
+                      const rightValue = formatWorkspaceMetricValue(row.right, row)
+                      const deltaValue = formatWorkspaceDeltaValue(row)
+                      const deltaRateText = formatWorkspaceDeltaRate(row.deltaRate)
+                      const changeInsight = buildWorkspaceChangeInsight(row)
+                      const leftLeadingClass = row.outcome === 'left' ? 'is-leading' : ''
+                      const rightLeadingClass = row.outcome === 'right' ? 'is-leading' : ''
                       return (
                         <article
                           key={row.key}
@@ -1085,28 +1514,39 @@ export function RagPage({ notify }) {
                               <span className={`metric-chip metric-chip--${row.outcome}`}>{METRIC_OUTCOME_LABEL[row.outcome]}</span>
                             </div>
                           </div>
-                          <div className="compare-metric-card__hint">{row.trend === 'lower' ? 'Lower is better' : 'Higher is better'}</div>
+                          <div className="compare-metric-card__hint">{METRIC_TREND_LABEL[row.trend] || METRIC_TREND_LABEL.higher}</div>
+                          <div className={`compare-metric-card__decision compare-metric-card__decision--${changeInsight.tone}`}>
+                            <strong className="compare-metric-card__decision-main">{changeInsight.summary}</strong>
+                            <span className="compare-metric-card__decision-detail">{changeInsight.detail}</span>
+                          </div>
                           <div className="compare-metric-card__bars">
-                            <div className="compare-metric-card__bar-row">
+                            <div className={`compare-metric-card__bar-row ${leftLeadingClass}`}>
                               <span className="compare-metric-card__run">A</span>
                               <div className="compare-metric-card__track">
                                 <span className="compare-metric-card__bar compare-metric-card__bar--a" style={{ width: `${leftPct}%` }} />
                               </div>
-                              <span className="compare-metric-card__value">{formatMetricWithDef(row.left, row)}</span>
+                              <span className="compare-metric-card__value">
+                                <strong>{leftValue.primary}</strong>
+                                {leftValue.secondary && <small>{leftValue.secondary}</small>}
+                              </span>
                             </div>
-                            <div className="compare-metric-card__bar-row">
+                            <div className={`compare-metric-card__bar-row ${rightLeadingClass}`}>
                               <span className="compare-metric-card__run">B</span>
                               <div className="compare-metric-card__track">
                                 <span className="compare-metric-card__bar compare-metric-card__bar--b" style={{ width: `${rightPct}%` }} />
                               </div>
-                              <span className="compare-metric-card__value">{formatMetricWithDef(row.right, row)}</span>
+                              <span className="compare-metric-card__value">
+                                <strong>{rightValue.primary}</strong>
+                                {rightValue.secondary && <small>{rightValue.secondary}</small>}
+                              </span>
                             </div>
                           </div>
                           <div className="compare-metric-card__delta-line">
                             <span>Delta (B-A)</span>
-                            <strong>{formatDelta(row.delta, row)}</strong>
-                            <span className="compare-metric-card__delta-rate">{formatDeltaRate(row.deltaRate)}</span>
+                            <strong>{deltaValue.primary}</strong>
+                            <span className="compare-metric-card__delta-rate">{deltaRateText}</span>
                           </div>
+                          {deltaValue.secondary && <div className="compare-metric-card__delta-sub">{deltaValue.secondary}</div>}
                         </article>
                       )
                     })}
@@ -1132,47 +1572,78 @@ export function RagPage({ notify }) {
             <table className="data-table compare-data-table">
               <thead>
                 <tr>
-                  <th>구분</th>
-                  <th>지표</th>
+                  <th className="compare-data-table__metric-col">Metric</th>
                   <th className="compare-data-table__run-col">
                     <span>{compareRunMeta[0].title}</span>
-                    <small title={compareRunMeta[0].fullId}>{compareRunMeta[0].shortId}</small>
+                    <strong title={compareRunMeta[0].tableLabel}>{compareRunMeta[0].tableLabel}</strong>
+                    <small className="compare-data-table__run-sub" title={compareRunMeta[0].tableSubLabel}>{compareRunMeta[0].tableSubLabel}</small>
+                    <small className="compare-data-table__run-id" title={compareRunMeta[0].fullId}>{compareRunMeta[0].tableId}</small>
                   </th>
                   <th className="compare-data-table__run-col">
                     <span>{compareRunMeta[1].title}</span>
-                    <small title={compareRunMeta[1].fullId}>{compareRunMeta[1].shortId}</small>
+                    <strong title={compareRunMeta[1].tableLabel}>{compareRunMeta[1].tableLabel}</strong>
+                    <small className="compare-data-table__run-sub" title={compareRunMeta[1].tableSubLabel}>{compareRunMeta[1].tableSubLabel}</small>
+                    <small className="compare-data-table__run-id" title={compareRunMeta[1].fullId}>{compareRunMeta[1].tableId}</small>
                   </th>
-                  <th>Delta (B-A)</th>
+                  <th className="compare-data-table__delta-col">Delta / Change</th>
+                  <th className="compare-data-table__result-col">Result</th>
                 </tr>
               </thead>
-              <tbody>
-                {compareMetricRows.map((row) => (
-                  <tr
-                    key={`${row.groupKey}:${row.key}`}
-                    className={`compare-data-table__row ${row.priority === 'core' ? 'is-core' : ''} ${activeCompareMetricKey === row.key ? 'is-linked' : ''}`}
-                    onMouseEnter={() => setActiveCompareMetricKey(row.key)}
-                    onMouseLeave={() => setActiveCompareMetricKey('')}
-                    onFocus={() => setActiveCompareMetricKey(row.key)}
-                    onBlur={() => setActiveCompareMetricKey('')}
-                    tabIndex={0}
-                  >
-                    <td>
-                      <span className={`compare-group-pill compare-group-pill--${row.groupKey}`}>{row.groupLabel}</span>
-                    </td>
-                    <td className="compare-data-table__metric">
-                      <div className="compare-data-table__metric-main">{row.label}</div>
-                      <div className="compare-data-table__metric-sub">{row.trend === 'lower' ? 'Lower is better' : 'Higher is better'}</div>
-                    </td>
-                    <td className="compare-data-table__num">{formatMetricWithDef(row.left, row)}</td>
-                    <td className="compare-data-table__num">{formatMetricWithDef(row.right, row)}</td>
-                    <td className={`compare-data-table__delta compare-data-table__delta--${row.outcome}`}>
-                      <span>{formatDelta(row.delta, row)}</span>
-                      <small>{formatDeltaRate(row.deltaRate)}</small>
-                      <small className="compare-data-table__delta-label">{METRIC_OUTCOME_LABEL[row.outcome]}</small>
-                    </td>
+              {compareTableGroups.map((group) => (
+                <tbody key={group.key} className={`compare-data-table__section compare-data-table__section--${group.key}`}>
+                  <tr className="compare-data-table__section-row">
+                    <th colSpan={5}>
+                      <div className="compare-data-table__section-head">
+                        <span className={`compare-group-pill compare-group-pill--${group.key}`}>{group.label}</span>
+                        <span className="compare-data-table__section-summary">{group.summaryLabel}</span>
+                      </div>
+                      <div className="compare-data-table__section-desc">{group.description}</div>
+                    </th>
                   </tr>
-                ))}
-              </tbody>
+                  {group.rows.map((row) => {
+                    const leftValue = formatTableMetricValue(row.left, row)
+                    const rightValue = formatTableMetricValue(row.right, row)
+                    const deltaInfo = buildDeltaInterpretation(row)
+                    const resultInfo = buildResultLabel(row)
+                    const trendLabel = METRIC_TREND_LABEL[row.trend] || METRIC_TREND_LABEL.higher
+                    return (
+                      <tr
+                        key={`${row.groupKey}:${row.key}`}
+                        className={`compare-data-table__row ${row.priority === 'core' ? 'is-core' : ''} ${activeCompareMetricKey === row.key ? 'is-linked' : ''}`}
+                        onMouseEnter={() => setActiveCompareMetricKey(row.key)}
+                        onMouseLeave={() => setActiveCompareMetricKey('')}
+                        onFocus={() => setActiveCompareMetricKey(row.key)}
+                        onBlur={() => setActiveCompareMetricKey('')}
+                        tabIndex={0}
+                      >
+                        <td className="compare-data-table__metric">
+                          <div className="compare-data-table__metric-main">
+                            <span>{row.label}</span>
+                            {row.priority === 'core' && <span className="metric-chip metric-chip--core compare-data-table__kpi-chip">KPI</span>}
+                          </div>
+                          <div className="compare-data-table__metric-sub">{trendLabel}</div>
+                        </td>
+                        <td className="compare-data-table__num">
+                          <strong>{leftValue.main}</strong>
+                          {leftValue.sub && <small>{leftValue.sub}</small>}
+                        </td>
+                        <td className="compare-data-table__num">
+                          <strong>{rightValue.main}</strong>
+                          {rightValue.sub && <small>{rightValue.sub}</small>}
+                        </td>
+                        <td className={`compare-data-table__delta compare-data-table__delta--${deltaInfo.tone}`}>
+                          <span className="compare-data-table__delta-main">{deltaInfo.headline}</span>
+                          <small className="compare-data-table__delta-sub">{deltaInfo.detail}</small>
+                        </td>
+                        <td className={`compare-data-table__result compare-data-table__result--${row.outcome}`}>
+                          <span className={`compare-result-chip compare-result-chip--${row.outcome}`}>{resultInfo.main}</span>
+                          <small>{resultInfo.sub}</small>
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              ))}
             </table>
           )}
         </div>
@@ -1253,7 +1724,7 @@ export function RagPage({ notify }) {
                     <td>{run.gatingApplied ? `${run.gatingPreset || 'enabled'}` : 'ungated'}</td>
                     <td>{rewriteMode}</td>
                     <td className="line-clamp">
-                      {`R@5 ${formatMetric(metrics.recall_at_5)} | nDCG ${formatMetric(metrics.ndcg_at_10)} | total ${formatMetricWithDef(metrics.total_duration_ms, { precision: 0, unit: 'ms' })}`}
+                      {`R@5 ${formatMetric(metrics.recall_at_5)} | nDCG ${formatMetric(metrics.ndcg_at_10)} | total ${formatDurationDisplay(metrics.total_duration_ms, { precisionMs: 0, precisionSeconds: 2, includeRawMs: false }).primary}`}
                     </td>
                     <td><button type="button" className="button button--ghost" onClick={() => openRunDetail(run.ragTestRunId)}>상세 조회</button></td>
                     <td>
