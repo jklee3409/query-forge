@@ -39,6 +39,12 @@ public class AdminConsoleService {
     private static final String STAGE_CUTOFF_UTILITY = "utility";
     private static final String STAGE_CUTOFF_DIVERSITY = "diversity";
     private static final String STAGE_CUTOFF_FULL_GATING = "full_gating";
+    private static final String GATING_PASS_STAGE_REJECTED = "rejected";
+    private static final String GATING_PASS_STAGE_PASSED_RULE = "passed_rule";
+    private static final String GATING_PASS_STAGE_PASSED_LLM = "passed_llm";
+    private static final String GATING_PASS_STAGE_PASSED_UTILITY = "passed_utility";
+    private static final String GATING_PASS_STAGE_PASSED_DIVERSITY = "passed_diversity";
+    private static final String GATING_PASS_STAGE_PASSED_ALL = "passed_all";
 
     private final AdminConsoleRepository repository;
     private final LlmJobService llmJobService;
@@ -144,11 +150,19 @@ public class AdminConsoleService {
     public List<AdminConsoleDtos.GatingResultRow> listGatingResults(
             UUID gatingBatchId,
             String methodCode,
+            String passStage,
             String queryType,
             Integer limit,
             Integer offset
     ) {
-        return repository.findGatingResults(gatingBatchId, normalizeOptionalMethodCode(methodCode), queryType, limit, offset);
+        return repository.findGatingResults(
+                gatingBatchId,
+                normalizeOptionalMethodCode(methodCode),
+                normalizeGatingPassStage(passStage),
+                queryType,
+                limit,
+                offset
+        );
     }
 
     @Transactional
@@ -802,22 +816,22 @@ public class AdminConsoleService {
     }
 
     private void ensureDefaultEvalDataset() {
-        if (repository.countEvalSamples() <= 0) {
+        if (repository.countEvalSamplesForDefaultDataset() <= 0) {
             return;
         }
-        JsonNode categoryDistribution = repository.aggregateCategoryDistributionFromSamples();
-        JsonNode singleMultiDistribution = repository.aggregateSingleMultiDistributionFromSamples();
-        int totalItems = (int) repository.countEvalSamples();
+        JsonNode categoryDistribution = repository.aggregateCategoryDistributionFromDefaultSamples();
+        JsonNode singleMultiDistribution = repository.aggregateSingleMultiDistributionFromDefaultSamples();
+        int totalItems = (int) repository.countEvalSamplesForDefaultDataset();
         UUID datasetId = repository.upsertEvalDataset(
                 DEFAULT_DATASET_KEY,
-                "기본 평가 데이터셋 (eval_samples)",
-                "eval_samples 전체를 자동 동기화한 기본 데이터셋",
+                "기본 평가 데이터셋 (build-eval-dataset)",
+                "build-eval-dataset 표본만 자동 동기화한 기본 데이터셋 (short-user 전용셋 제외)",
                 "v1",
                 totalItems,
                 categoryDistribution,
                 singleMultiDistribution
         );
-        repository.refreshEvalDatasetItems(datasetId);
+        repository.refreshDefaultEvalDatasetItems(datasetId);
     }
 
     private String normalizeMethodCode(String value) {
@@ -832,6 +846,24 @@ public class AdminConsoleService {
             return null;
         }
         return value.trim().toUpperCase();
+    }
+
+    private String normalizeGatingPassStage(String value) {
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        String normalized = value.trim().toLowerCase();
+        if (!List.of(
+                GATING_PASS_STAGE_REJECTED,
+                GATING_PASS_STAGE_PASSED_RULE,
+                GATING_PASS_STAGE_PASSED_LLM,
+                GATING_PASS_STAGE_PASSED_UTILITY,
+                GATING_PASS_STAGE_PASSED_DIVERSITY,
+                GATING_PASS_STAGE_PASSED_ALL
+        ).contains(normalized)) {
+            throw new IllegalArgumentException("unsupported pass_stage: " + value);
+        }
+        return normalized;
     }
 
     private String normalizeVersionName(String value) {

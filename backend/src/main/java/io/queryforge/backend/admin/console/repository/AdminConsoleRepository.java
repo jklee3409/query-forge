@@ -1165,6 +1165,7 @@ public class AdminConsoleRepository {
     public List<AdminConsoleDtos.GatingResultRow> findGatingResults(
             UUID gatingBatchId,
             String methodCode,
+            String passStage,
             String queryType,
             Integer limit,
             Integer offset
@@ -1202,6 +1203,37 @@ public class AdminConsoleRepository {
             sql.append(" AND gr.query_type = :queryType");
             params.addValue("queryType", queryType.trim());
         }
+        if (passStage != null && !passStage.isBlank()) {
+            switch (passStage) {
+                case "rejected" -> sql.append(" AND gr.accepted = FALSE");
+                case "passed_rule" -> sql.append(" AND COALESCE(gr.rule_pass, TRUE)");
+                case "passed_llm" -> sql.append("""
+                         AND COALESCE(gr.rule_pass, TRUE)
+                         AND COALESCE((gr.stage_payload_json ->> 'passed_llm_self_eval')::boolean, TRUE)
+                        """);
+                case "passed_utility" -> sql.append("""
+                         AND COALESCE(gr.rule_pass, TRUE)
+                         AND COALESCE((gr.stage_payload_json ->> 'passed_llm_self_eval')::boolean, TRUE)
+                         AND COALESCE((gr.stage_payload_json ->> 'passed_retrieval_utility')::boolean, TRUE)
+                        """);
+                case "passed_diversity" -> sql.append("""
+                         AND COALESCE(gr.rule_pass, TRUE)
+                         AND COALESCE((gr.stage_payload_json ->> 'passed_llm_self_eval')::boolean, TRUE)
+                         AND COALESCE((gr.stage_payload_json ->> 'passed_retrieval_utility')::boolean, TRUE)
+                         AND COALESCE(gr.diversity_pass, TRUE)
+                        """);
+                case "passed_all" -> sql.append("""
+                         AND COALESCE(gr.rule_pass, TRUE)
+                         AND COALESCE((gr.stage_payload_json ->> 'passed_llm_self_eval')::boolean, TRUE)
+                         AND COALESCE((gr.stage_payload_json ->> 'passed_retrieval_utility')::boolean, TRUE)
+                         AND COALESCE(gr.diversity_pass, TRUE)
+                         AND gr.accepted
+                        """);
+                default -> {
+                    // validated in service layer
+                }
+            }
+        }
         sql.append(" ORDER BY gr.created_at DESC LIMIT :limit OFFSET :offset");
         params.addValue("limit", normalizeLimit(limit, 300));
         params.addValue("offset", normalizeOffset(offset));
@@ -1231,6 +1263,18 @@ public class AdminConsoleRepository {
 
     public long countEvalSamples() {
         Long value = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM eval_samples", new MapSqlParameterSource(), Long.class);
+        return value == null ? 0L : value;
+    }
+
+    public long countEvalSamplesForDefaultDataset() {
+        String sql = """
+                SELECT COUNT(*)
+                FROM eval_samples s
+                WHERE COALESCE(s.metadata ->> 'builder', '') = 'build-eval-dataset'
+                   OR s.sample_id LIKE 'dev-human-%%'
+                   OR s.sample_id LIKE 'test-human-%%'
+                """;
+        Long value = jdbcTemplate.queryForObject(sql, new MapSqlParameterSource(), Long.class);
         return value == null ? 0L : value;
     }
 
@@ -1324,6 +1368,38 @@ public class AdminConsoleRepository {
                        s.single_or_multi_chunk,
                        TRUE
                 FROM eval_samples s
+                ORDER BY s.sample_id
+                """,
+                new MapSqlParameterSource("datasetId", datasetId)
+        );
+    }
+
+    @Transactional
+    public void refreshDefaultEvalDatasetItems(UUID datasetId) {
+        jdbcTemplate.update(
+                "DELETE FROM eval_dataset_item WHERE dataset_id = :datasetId",
+                new MapSqlParameterSource("datasetId", datasetId)
+        );
+        jdbcTemplate.update(
+                """
+                INSERT INTO eval_dataset_item (
+                    dataset_item_id,
+                    dataset_id,
+                    sample_id,
+                    query_category,
+                    single_or_multi_chunk,
+                    active
+                )
+                SELECT gen_random_uuid(),
+                       :datasetId,
+                       s.sample_id,
+                       s.query_category,
+                       s.single_or_multi_chunk,
+                       TRUE
+                FROM eval_samples s
+                WHERE COALESCE(s.metadata ->> 'builder', '') = 'build-eval-dataset'
+                   OR s.sample_id LIKE 'dev-human-%%'
+                   OR s.sample_id LIKE 'test-human-%%'
                 ORDER BY s.sample_id
                 """,
                 new MapSqlParameterSource("datasetId", datasetId)
@@ -2156,6 +2232,24 @@ public class AdminConsoleRepository {
         return readJson(jdbcTemplate.queryForObject(sql, new MapSqlParameterSource(), String.class));
     }
 
+    public JsonNode aggregateCategoryDistributionFromDefaultSamples() {
+        String sql = """
+                SELECT COALESCE(
+                    jsonb_object_agg(x.query_category, x.cnt),
+                    '{}'::jsonb
+                )::text AS payload
+                FROM (
+                    SELECT s.query_category, COUNT(*) AS cnt
+                    FROM eval_samples s
+                    WHERE COALESCE(s.metadata ->> 'builder', '') = 'build-eval-dataset'
+                       OR s.sample_id LIKE 'dev-human-%%'
+                       OR s.sample_id LIKE 'test-human-%%'
+                    GROUP BY s.query_category
+                ) x
+                """;
+        return readJson(jdbcTemplate.queryForObject(sql, new MapSqlParameterSource(), String.class));
+    }
+
     public JsonNode aggregateSingleMultiDistributionFromSamples() {
         String sql = """
                 SELECT COALESCE(
@@ -2166,6 +2260,24 @@ public class AdminConsoleRepository {
                     SELECT single_or_multi_chunk, COUNT(*) AS cnt
                     FROM eval_samples
                     GROUP BY single_or_multi_chunk
+                ) x
+                """;
+        return readJson(jdbcTemplate.queryForObject(sql, new MapSqlParameterSource(), String.class));
+    }
+
+    public JsonNode aggregateSingleMultiDistributionFromDefaultSamples() {
+        String sql = """
+                SELECT COALESCE(
+                    jsonb_object_agg(x.single_or_multi_chunk, x.cnt),
+                    '{}'::jsonb
+                )::text AS payload
+                FROM (
+                    SELECT s.single_or_multi_chunk, COUNT(*) AS cnt
+                    FROM eval_samples s
+                    WHERE COALESCE(s.metadata ->> 'builder', '') = 'build-eval-dataset'
+                       OR s.sample_id LIKE 'dev-human-%%'
+                       OR s.sample_id LIKE 'test-human-%%'
+                    GROUP BY s.single_or_multi_chunk
                 ) x
                 """;
         return readJson(jdbcTemplate.queryForObject(sql, new MapSqlParameterSource(), String.class));

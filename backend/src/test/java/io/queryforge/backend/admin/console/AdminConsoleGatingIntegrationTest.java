@@ -214,6 +214,86 @@ class AdminConsoleGatingIntegrationTest {
     }
 
     @Test
+    void gatingResultsSupportsPassStageFilter() throws Exception {
+        UUID methodA = jdbcTemplate.getJdbcTemplate().queryForObject(
+                "SELECT generation_method_id FROM synthetic_query_generation_method WHERE method_code = 'A'",
+                UUID.class
+        );
+        assertThat(methodA).isNotNull();
+
+        UUID gatingBatchId = UUID.randomUUID();
+        insertGatingBatch(gatingBatchId, methodA, "completed");
+
+        insertRegistryQuery("sq_stage_rule_fail", "A");
+        insertRegistryQuery("sq_stage_rule_pass_llm_fail", "A");
+        insertRegistryQuery("sq_stage_llm_pass_utility_fail", "A");
+        insertRegistryQuery("sq_stage_utility_pass_diversity_fail", "A");
+        insertRegistryQuery("sq_stage_diversity_pass_final_fail", "A");
+        insertRegistryQuery("sq_stage_all_pass", "A");
+
+        insertGatingResult(gatingBatchId, "sq_stage_rule_fail", "A", "Rule failed", false, false, false, false, false, "2026-04-13T10:00:00Z");
+        insertGatingResult(gatingBatchId, "sq_stage_rule_pass_llm_fail", "A", "Rule pass LLM fail", true, false, false, false, false, "2026-04-13T10:00:01Z");
+        insertGatingResult(gatingBatchId, "sq_stage_llm_pass_utility_fail", "A", "LLM pass Utility fail", true, true, false, false, false, "2026-04-13T10:00:02Z");
+        insertGatingResult(gatingBatchId, "sq_stage_utility_pass_diversity_fail", "A", "Utility pass Diversity fail", true, true, true, false, false, "2026-04-13T10:00:03Z");
+        insertGatingResult(gatingBatchId, "sq_stage_diversity_pass_final_fail", "A", "Diversity pass Final fail", true, true, true, true, false, "2026-04-13T10:00:04Z");
+        insertGatingResult(gatingBatchId, "sq_stage_all_pass", "A", "All pass", true, true, true, true, true, "2026-04-13T10:00:05Z");
+
+        mockMvc.perform(get("/api/admin/console/gating/batches/{gatingBatchId}/results", gatingBatchId)
+                        .param("pass_stage", "rejected"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(5))
+                .andExpect(jsonPath("$[0].syntheticQueryId").value("sq_stage_diversity_pass_final_fail"));
+
+        mockMvc.perform(get("/api/admin/console/gating/batches/{gatingBatchId}/results", gatingBatchId)
+                        .param("pass_stage", "passed_rule"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(5))
+                .andExpect(jsonPath("$[0].syntheticQueryId").value("sq_stage_all_pass"));
+
+        mockMvc.perform(get("/api/admin/console/gating/batches/{gatingBatchId}/results", gatingBatchId)
+                        .param("pass_stage", "passed_llm"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(4))
+                .andExpect(jsonPath("$[0].syntheticQueryId").value("sq_stage_all_pass"));
+
+        mockMvc.perform(get("/api/admin/console/gating/batches/{gatingBatchId}/results", gatingBatchId)
+                        .param("pass_stage", "passed_utility"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(3))
+                .andExpect(jsonPath("$[0].syntheticQueryId").value("sq_stage_all_pass"));
+
+        mockMvc.perform(get("/api/admin/console/gating/batches/{gatingBatchId}/results", gatingBatchId)
+                        .param("pass_stage", "passed_diversity"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(2))
+                .andExpect(jsonPath("$[0].syntheticQueryId").value("sq_stage_all_pass"))
+                .andExpect(jsonPath("$[1].syntheticQueryId").value("sq_stage_diversity_pass_final_fail"));
+
+        mockMvc.perform(get("/api/admin/console/gating/batches/{gatingBatchId}/results", gatingBatchId)
+                        .param("pass_stage", "passed_all"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].syntheticQueryId").value("sq_stage_all_pass"));
+    }
+
+    @Test
+    void gatingResultsRejectsUnsupportedPassStage() throws Exception {
+        UUID methodA = jdbcTemplate.getJdbcTemplate().queryForObject(
+                "SELECT generation_method_id FROM synthetic_query_generation_method WHERE method_code = 'A'",
+                UUID.class
+        );
+        assertThat(methodA).isNotNull();
+
+        UUID gatingBatchId = UUID.randomUUID();
+        insertGatingBatch(gatingBatchId, methodA, "completed");
+
+        mockMvc.perform(get("/api/admin/console/gating/batches/{gatingBatchId}/results", gatingBatchId)
+                        .param("pass_stage", "unknown"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.detail").value("unsupported pass_stage: unknown"));
+    }
+
+    @Test
     void runGatingRequiresGenerationBatchSelection() throws Exception {
         mockMvc.perform(post("/api/admin/console/gating/batches/run")
                         .contentType(APPLICATION_JSON)

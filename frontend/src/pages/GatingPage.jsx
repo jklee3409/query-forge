@@ -16,7 +16,7 @@ export function GatingPage({ notify }) {
   const [funnel, setFunnel] = useState(null)
   const [llmJobs, setLlmJobs] = useState([])
   const [selectedBatchId, setSelectedBatchId] = useState('')
-  const [resultFilter, setResultFilter] = useState({ methodCode: '', generationBatchId: '', gatingBatchId: '' })
+  const [resultFilter, setResultFilter] = useState({ methodCode: '', generationBatchId: '', gatingBatchId: '', passStage: '' })
   const [funnelFilter, setFunnelFilter] = useState({ methodCode: '', generationBatchId: '', gatingBatchId: '' })
   const [gatingBatchPage, setGatingBatchPage] = useState(0)
   const [resultPage, setResultPage] = useState(0)
@@ -128,7 +128,7 @@ export function GatingPage({ notify }) {
     setFunnel(await requestJson(url))
   }
 
-  const loadResults = async (batchId, page = 0, methodCode = resultFilter.methodCode) => {
+  const loadResults = async (batchId, page = 0, methodCode = resultFilter.methodCode, passStage = resultFilter.passStage) => {
     if (!batchId) {
       setResults([])
       setResultHasNextPage(false)
@@ -136,6 +136,7 @@ export function GatingPage({ notify }) {
     }
     const query = queryString({
       method_code: methodCode || null,
+      pass_stage: passStage || null,
       limit: resultPageSize + 1,
       offset: page * resultPageSize,
     })
@@ -181,10 +182,10 @@ export function GatingPage({ notify }) {
     if (resultReady) {
       const resultOptions = findQueryableGatingBatches(resultFilter.methodCode, resultFilter.generationBatchId)
       const resultBatchId = resolveGatingBatchId(resultFilter.gatingBatchId, resultOptions)
-      tasks.push(loadResults(resultBatchId, initialPage, resultFilter.methodCode))
+      tasks.push(loadResults(resultBatchId, initialPage, resultFilter.methodCode, resultFilter.passStage))
     }
     Promise.all(tasks).catch((error) => notify(error.message, 'error'))
-  }, [gatingBatches, funnelFilter.methodCode, funnelFilter.generationBatchId, funnelFilter.gatingBatchId, resultFilter.methodCode, resultFilter.generationBatchId, resultFilter.gatingBatchId])
+  }, [gatingBatches, funnelFilter.methodCode, funnelFilter.generationBatchId, funnelFilter.gatingBatchId, resultFilter.methodCode, resultFilter.generationBatchId, resultFilter.gatingBatchId, resultFilter.passStage])
 
   useEffect(() => {
     const totalPages = Math.max(1, Math.ceil(gatingBatches.length / historyPageSize))
@@ -316,7 +317,7 @@ export function GatingPage({ notify }) {
       setResultPage(initialPage)
       const options = findQueryableGatingBatches(resultFilter.methodCode, resultFilter.generationBatchId)
       const batchId = resolveGatingBatchId(resultFilter.gatingBatchId, options)
-      await loadResults(batchId, initialPage, resultFilter.methodCode)
+      await loadResults(batchId, initialPage, resultFilter.methodCode, resultFilter.passStage)
     } catch (error) {
       notify(error.message, 'error')
     }
@@ -595,6 +596,17 @@ export function GatingPage({ notify }) {
               <option value="">최신 배치</option>{resultGatingBatchOptions.map((batch) => <option key={batch.gatingBatchId} value={batch.gatingBatchId}>{shortId(batch.gatingBatchId)} ({batch.gatingPreset}, {batch.status || '-'})</option>)}
             </select>
           </label>
+          <label className="filter-field">통과 단계
+            <select value={resultFilter.passStage} onChange={(event) => setResultFilter((prev) => ({ ...prev, passStage: event.target.value }))}>
+              <option value="">전체</option>
+              <option value="rejected">탈락</option>
+              <option value="passed_rule">Rule 통과</option>
+              <option value="passed_llm">LLM 통과</option>
+              <option value="passed_utility">Utility 통과</option>
+              <option value="passed_diversity">Diversity 통과</option>
+              <option value="passed_all">전체 통과</option>
+            </select>
+          </label>
           <div className="filter-field filter-field--small"><button type="submit" className="button button--primary" disabled={!isFilterReady(resultFilter) || !resultReferenceBatchId}>조회</button></div>
         </form>
         <div className="table-wrap">
@@ -623,7 +635,7 @@ export function GatingPage({ notify }) {
             onClick={() => {
               const nextPage = Math.max(0, resultPage - 1)
               setResultPage(nextPage)
-              loadResults(resultReferenceBatchId, nextPage, resultFilter.methodCode).catch((error) => notify(error.message, 'error'))
+              loadResults(resultReferenceBatchId, nextPage, resultFilter.methodCode, resultFilter.passStage).catch((error) => notify(error.message, 'error'))
             }}
           >이전</button>
           <div className="pagination__label">페이지 {resultPage + 1}</div>
@@ -634,7 +646,7 @@ export function GatingPage({ notify }) {
             onClick={() => {
               const nextPage = resultPage + 1
               setResultPage(nextPage)
-              loadResults(resultReferenceBatchId, nextPage, resultFilter.methodCode).catch((error) => notify(error.message, 'error'))
+              loadResults(resultReferenceBatchId, nextPage, resultFilter.methodCode, resultFilter.passStage).catch((error) => notify(error.message, 'error'))
             }}
           >다음</button>
         </div>

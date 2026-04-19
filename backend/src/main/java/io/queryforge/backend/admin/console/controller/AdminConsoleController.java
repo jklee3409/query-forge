@@ -97,11 +97,12 @@ public class AdminConsoleController {
     public List<AdminConsoleDtos.GatingResultRow> gatingResults(
             @PathVariable UUID gatingBatchId,
             @RequestParam(name = "method_code", required = false) String methodCode,
+            @RequestParam(name = "pass_stage", required = false) String passStage,
             @RequestParam(name = "query_type", required = false) String queryType,
             @RequestParam(name = "limit", required = false) Integer limit,
             @RequestParam(name = "offset", required = false) Integer offset
     ) {
-        return service.listGatingResults(gatingBatchId, methodCode, queryType, limit, offset);
+        return service.listGatingResults(gatingBatchId, methodCode, passStage, queryType, limit, offset);
     }
 
     @GetMapping("/rag/datasets")
