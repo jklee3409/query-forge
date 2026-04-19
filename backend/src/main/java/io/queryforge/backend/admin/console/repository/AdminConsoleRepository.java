@@ -1205,22 +1205,28 @@ public class AdminConsoleRepository {
         }
         if (passStage != null && !passStage.isBlank()) {
             switch (passStage) {
-                case "rejected" -> sql.append(" AND gr.accepted = FALSE");
-                case "passed_rule" -> sql.append(" AND COALESCE(gr.rule_pass, TRUE)");
+                case "failed_rule", "rejected" -> sql.append(" AND COALESCE(gr.rule_pass, TRUE) = FALSE");
+                case "passed_rule" -> sql.append("""
+                         AND COALESCE(gr.rule_pass, TRUE)
+                         AND COALESCE((gr.stage_payload_json ->> 'passed_llm_self_eval')::boolean, FALSE) = FALSE
+                        """);
                 case "passed_llm" -> sql.append("""
                          AND COALESCE(gr.rule_pass, TRUE)
                          AND COALESCE((gr.stage_payload_json ->> 'passed_llm_self_eval')::boolean, TRUE)
+                         AND COALESCE((gr.stage_payload_json ->> 'passed_retrieval_utility')::boolean, FALSE) = FALSE
                         """);
                 case "passed_utility" -> sql.append("""
                          AND COALESCE(gr.rule_pass, TRUE)
                          AND COALESCE((gr.stage_payload_json ->> 'passed_llm_self_eval')::boolean, TRUE)
                          AND COALESCE((gr.stage_payload_json ->> 'passed_retrieval_utility')::boolean, TRUE)
+                         AND COALESCE(gr.diversity_pass, FALSE) = FALSE
                         """);
                 case "passed_diversity" -> sql.append("""
                          AND COALESCE(gr.rule_pass, TRUE)
                          AND COALESCE((gr.stage_payload_json ->> 'passed_llm_self_eval')::boolean, TRUE)
                          AND COALESCE((gr.stage_payload_json ->> 'passed_retrieval_utility')::boolean, TRUE)
                          AND COALESCE(gr.diversity_pass, TRUE)
+                         AND COALESCE(gr.accepted, FALSE) = FALSE
                         """);
                 case "passed_all" -> sql.append("""
                          AND COALESCE(gr.rule_pass, TRUE)

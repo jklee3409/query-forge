@@ -599,11 +599,11 @@ export function GatingPage({ notify }) {
           <label className="filter-field">통과 단계
             <select value={resultFilter.passStage} onChange={(event) => setResultFilter((prev) => ({ ...prev, passStage: event.target.value }))}>
               <option value="">전체</option>
-              <option value="rejected">탈락</option>
-              <option value="passed_rule">Rule 통과</option>
-              <option value="passed_llm">LLM 통과</option>
-              <option value="passed_utility">Utility 통과</option>
-              <option value="passed_diversity">Diversity 통과</option>
+              <option value="failed_rule">Rule 탈락</option>
+              <option value="passed_rule">Rule 통과 -> LLM 탈락</option>
+              <option value="passed_llm">LLM 통과 -> Utility 탈락</option>
+              <option value="passed_utility">Utility 통과 -> Diversity 탈락</option>
+              <option value="passed_diversity">Diversity 통과 -> Final 탈락</option>
               <option value="passed_all">전체 통과</option>
             </select>
           </label>

@@ -39,6 +39,7 @@ public class AdminConsoleService {
     private static final String STAGE_CUTOFF_UTILITY = "utility";
     private static final String STAGE_CUTOFF_DIVERSITY = "diversity";
     private static final String STAGE_CUTOFF_FULL_GATING = "full_gating";
+    private static final String GATING_PASS_STAGE_FAILED_RULE = "failed_rule";
     private static final String GATING_PASS_STAGE_REJECTED = "rejected";
     private static final String GATING_PASS_STAGE_PASSED_RULE = "passed_rule";
     private static final String GATING_PASS_STAGE_PASSED_LLM = "passed_llm";
@@ -853,8 +854,11 @@ public class AdminConsoleService {
             return null;
         }
         String normalized = value.trim().toLowerCase();
+        if (GATING_PASS_STAGE_REJECTED.equals(normalized)) {
+            normalized = GATING_PASS_STAGE_FAILED_RULE;
+        }
         if (!List.of(
-                GATING_PASS_STAGE_REJECTED,
+                GATING_PASS_STAGE_FAILED_RULE,
                 GATING_PASS_STAGE_PASSED_RULE,
                 GATING_PASS_STAGE_PASSED_LLM,
                 GATING_PASS_STAGE_PASSED_UTILITY,

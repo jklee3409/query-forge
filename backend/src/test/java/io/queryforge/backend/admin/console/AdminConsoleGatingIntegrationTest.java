@@ -239,35 +239,40 @@ class AdminConsoleGatingIntegrationTest {
         insertGatingResult(gatingBatchId, "sq_stage_all_pass", "A", "All pass", true, true, true, true, true, "2026-04-13T10:00:05Z");
 
         mockMvc.perform(get("/api/admin/console/gating/batches/{gatingBatchId}/results", gatingBatchId)
+                        .param("pass_stage", "failed_rule"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].syntheticQueryId").value("sq_stage_rule_fail"));
+
+        mockMvc.perform(get("/api/admin/console/gating/batches/{gatingBatchId}/results", gatingBatchId)
                         .param("pass_stage", "rejected"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.length()").value(5))
-                .andExpect(jsonPath("$[0].syntheticQueryId").value("sq_stage_diversity_pass_final_fail"));
+                .andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].syntheticQueryId").value("sq_stage_rule_fail"));
 
         mockMvc.perform(get("/api/admin/console/gating/batches/{gatingBatchId}/results", gatingBatchId)
                         .param("pass_stage", "passed_rule"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.length()").value(5))
-                .andExpect(jsonPath("$[0].syntheticQueryId").value("sq_stage_all_pass"));
+                .andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].syntheticQueryId").value("sq_stage_rule_pass_llm_fail"));
 
         mockMvc.perform(get("/api/admin/console/gating/batches/{gatingBatchId}/results", gatingBatchId)
                         .param("pass_stage", "passed_llm"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.length()").value(4))
-                .andExpect(jsonPath("$[0].syntheticQueryId").value("sq_stage_all_pass"));
+                .andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].syntheticQueryId").value("sq_stage_llm_pass_utility_fail"));
 
         mockMvc.perform(get("/api/admin/console/gating/batches/{gatingBatchId}/results", gatingBatchId)
                         .param("pass_stage", "passed_utility"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.length()").value(3))
-                .andExpect(jsonPath("$[0].syntheticQueryId").value("sq_stage_all_pass"));
+                .andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].syntheticQueryId").value("sq_stage_utility_pass_diversity_fail"));
 
         mockMvc.perform(get("/api/admin/console/gating/batches/{gatingBatchId}/results", gatingBatchId)
                         .param("pass_stage", "passed_diversity"))
                 .andExpect(status().isOk())
-                .andExpect(jsonPath("$.length()").value(2))
-                .andExpect(jsonPath("$[0].syntheticQueryId").value("sq_stage_all_pass"))
-                .andExpect(jsonPath("$[1].syntheticQueryId").value("sq_stage_diversity_pass_final_fail"));
+                .andExpect(jsonPath("$.length()").value(1))
+                .andExpect(jsonPath("$[0].syntheticQueryId").value("sq_stage_diversity_pass_final_fail"));
 
         mockMvc.perform(get("/api/admin/console/gating/batches/{gatingBatchId}/results", gatingBatchId)
                         .param("pass_stage", "passed_all"))
