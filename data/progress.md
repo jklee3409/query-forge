@@ -3,6 +3,12 @@
 ## Overview
 High-level progress tracking for the project.
 
+## [2026-04-20] Session Summary (Memory Snapshot Data Cleanup)
+- What was done: Removed 1,385 live `memory_entries` rows built from synthetic queries that are rejected in their recorded gating batch, removed the matching 1,385 memory `query_embeddings`, and later removed 6,273 orphan memory embeddings that no longer had a `memory_entries` owner row.
+- Key decisions: Backfilled `memory_entries.metadata.memory_experiment_key` for the remaining 515 memory rows by joining `memory_build_run_id` to experiment metadata, so current data matches the new experiment-key isolation path.
+- Issues encountered: Historical RAG result details can still reference deleted stale memory IDs, but future eval runs now rebuild isolated memory before scoring.
+- Next steps: Use new RAG test runs for post-fix comparison instead of reinterpreting old detail rows generated before cleanup.
+
 ## [2026-04-19] Session Summary (Short User 80 Rebuilt from Synthetic Random Candidates)
 - What was done: Replaced `data/eval/human_eval_short_user_test_80.jsonl` by rebuilding dataset `b2d47254-8655-4c9c-81ac-7615677ec5bd` from 80 randomly selected synthetic queries and wrote run summary to `data/reports/short_user_dataset_80_synthetic_compressed_2026-04-19.json`.
 - Key decisions: Maintained retrieval-aware grounding fields and preserved sample-level chunk/doc linkage while changing only short-user query text style to compressed Korean prompts.

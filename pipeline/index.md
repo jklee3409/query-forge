@@ -29,6 +29,8 @@ Python pipeline for data processing, synthetic query generation, quality gating,
 - This directory assumes DB migration `V17` is applied before runtime execution.
 - Quality gating rule thresholds include configurable Korean-ratio keys (`rule_min_korean_ratio`, `rule_min_korean_ratio_code_mixed`).
 - Retrieval/answer evaluation can be pinned to a snapshot via `source_gating_run_id`, with memory lookup filtering by `memory_entries.metadata.source_gate_run_id`.
+- Memory build now clears stale rows for the active snapshot before insertion and tags rows with `memory_experiment_key`; retrieval/answer eval loads memory by the current experiment key to prevent snapshot contamination.
+- Retrieval metrics use bounded exact expected-chunk `nDCG@10`, and answer correctness reads `expected_answer_key_points` from `eval_samples`.
 - Synthetic-free baseline config (`synthetic_free_baseline=true`) is supported with `build-memory` no-op and eval-time memory loading bypass for raw-only baseline execution.
 - Retrieval eval supports official bundled comparison modes with per-preset snapshot mapping (`comparison_snapshots`) and preserves per-mode summaries/latencies.
 - Answer eval outputs explicit end-to-end metrics required by AGENTS 3.6 (`correctness`, `grounding`, `hallucination_rate`) alongside legacy overlap metrics.

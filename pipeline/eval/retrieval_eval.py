@@ -374,7 +374,11 @@ def run_retrieval_eval(
         )
         chunks = load_chunk_items(connection)
         needs_memory = any(mode != "raw_only" for mode in active_modes)
-        memories = load_memory_items(connection) if needs_memory else []
+        memories = (
+            load_memory_items(connection, memory_experiment_key=config.experiment_key)
+            if needs_memory
+            else []
+        )
         raw_metrics_by_sample: dict[str, dict[str, float]] = {}
         mode_scores: dict[str, list[dict[str, Any]]] = defaultdict(list)
         latency_by_mode: dict[str, list[float]] = defaultdict(list)
@@ -613,6 +617,8 @@ def run_retrieval_eval(
             "comparison_source_runs": comparison_source_runs,
             "memory_generation_strategies": memory_strategy_filters,
             "synthetic_free_baseline": synthetic_free_baseline,
+            "memory_experiment_key": config.experiment_key if needs_memory else None,
+            "memory_entry_count_loaded": len(memories),
             "active_modes": active_modes,
             "summary": summary_rows,
             "category_summary": category_rows,

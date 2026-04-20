@@ -28,6 +28,7 @@ class EvalSample:
     dialog_context: dict[str, Any]
     expected_doc_ids: list[str]
     expected_chunk_ids: list[str]
+    expected_answer_key_points: list[str]
     query_category: str
     single_or_multi_chunk: str | None
 
@@ -112,6 +113,7 @@ def load_eval_samples(
                        es.dialog_context,
                        es.expected_doc_ids,
                        es.expected_chunk_ids,
+                       es.expected_answer_key_points,
                        es.query_category,
                        es.single_or_multi_chunk
                 FROM eval_samples es
@@ -132,6 +134,7 @@ def load_eval_samples(
                        dialog_context,
                        expected_doc_ids,
                        expected_chunk_ids,
+                       expected_answer_key_points,
                        query_category,
                        single_or_multi_chunk
                 FROM eval_samples
@@ -148,6 +151,7 @@ def load_eval_samples(
             dialog_context=dict(row["dialog_context"] or {}),
             expected_doc_ids=list(row["expected_doc_ids"] or []),
             expected_chunk_ids=list(row["expected_chunk_ids"] or []),
+            expected_answer_key_points=list(row["expected_answer_key_points"] or []),
             query_category=str(row["query_category"]),
             single_or_multi_chunk=row["single_or_multi_chunk"],
         )
@@ -177,10 +181,19 @@ def load_chunk_items(connection: psycopg.Connection[Any]) -> list[ChunkItem]:
     ]
 
 
-def load_memory_items(connection: psycopg.Connection[Any]) -> list[MemoryItem]:
+def load_memory_items(
+    connection: psycopg.Connection[Any],
+    *,
+    memory_experiment_key: str | None = None,
+) -> list[MemoryItem]:
+    where_clause = ""
+    parameters: list[Any] = []
+    if memory_experiment_key:
+        where_clause = "WHERE m.metadata ->> 'memory_experiment_key' = %s"
+        parameters.append(memory_experiment_key)
     with connection.cursor() as cursor:
         cursor.execute(
-            """
+            f"""
             SELECT m.memory_id,
                    m.query_text,
                    m.target_doc_id,
@@ -190,8 +203,10 @@ def load_memory_items(connection: psycopg.Connection[Any]) -> list[MemoryItem]:
                    m.metadata ->> 'source_gate_run_id' AS source_gate_run_id
             FROM memory_entries m
             LEFT JOIN synthetic_queries_gated g ON g.gated_query_id = m.source_gated_query_id
+            {where_clause}
             ORDER BY m.created_at DESC
-            """
+            """,
+            parameters,
         )
         rows = cursor.fetchall()
     return [
@@ -595,33 +610,45 @@ def retrieval_metrics(
     expected_doc_ids: list[str],
     retrieved: list[RetrievalCandidate],
 ) -> dict[str, float]:
+    expected_chunk_set = {str(chunk_id) for chunk_id in expected_chunk_ids if str(chunk_id).strip()}
+    expected_doc_set = {str(doc_id) for doc_id in expected_doc_ids if str(doc_id).strip()}
     ranks = {candidate.chunk_id: index + 1 for index, candidate in enumerate(retrieved)}
     doc_ranks: dict[str, int] = {}
     for index, candidate in enumerate(retrieved, start=1):
         if candidate.document_id not in doc_ranks:
             doc_ranks[candidate.document_id] = index
 
-    hits = sum(1 for chunk_id in expected_chunk_ids if chunk_id in ranks and ranks[chunk_id] <= 5)
-    recall_at_5 = hits / max(1, len(expected_chunk_ids))
+    if expected_chunk_set:
+        hits = sum(1 for chunk_id in expected_chunk_set if ranks.get(chunk_id, 9999) <= 5)
+        recall_at_5 = hits / max(1, len(expected_chunk_set))
+        first_rank = min([ranks.get(chunk_id, 9999) for chunk_id in expected_chunk_set] or [9999])
+    else:
+        hits = sum(1 for doc_id in expected_doc_set if doc_ranks.get(doc_id, 9999) <= 5)
+        recall_at_5 = hits / max(1, len(expected_doc_set))
+        first_rank = min([doc_ranks.get(doc_id, 9999) for doc_id in expected_doc_set] or [9999])
     hit_at_5 = 1.0 if hits > 0 else 0.0
-
-    first_rank = min([ranks.get(chunk_id, 9999) for chunk_id in expected_chunk_ids] or [9999])
     mrr_at_10 = 1.0 / first_rank if first_rank <= 10 else 0.0
 
     dcg = 0.0
-    idcg = 0.0
-    for index, candidate in enumerate(retrieved[:10], start=1):
-        relevance = 0.0
-        if candidate.chunk_id in expected_chunk_ids:
-            relevance = 1.0
-        elif candidate.document_id in expected_doc_ids:
-            relevance = 0.5
-        if relevance > 0:
-            dcg += relevance / math.log2(index + 1)
+    if expected_chunk_set:
+        seen_chunks: set[str] = set()
+        for index, candidate in enumerate(retrieved[:10], start=1):
+            if candidate.chunk_id in expected_chunk_set and candidate.chunk_id not in seen_chunks:
+                seen_chunks.add(candidate.chunk_id)
+                dcg += 1.0 / math.log2(index + 1)
+        ideal_count = min(10, len(expected_chunk_set))
+    else:
+        seen_docs: set[str] = set()
+        for index, candidate in enumerate(retrieved[:10], start=1):
+            if candidate.document_id in expected_doc_set and candidate.document_id not in seen_docs:
+                seen_docs.add(candidate.document_id)
+                dcg += 1.0 / math.log2(index + 1)
+        ideal_count = min(10, len(expected_doc_set))
 
-    for index in range(1, min(10, len(expected_chunk_ids)) + 1):
+    idcg = 0.0
+    for index in range(1, ideal_count + 1):
         idcg += 1.0 / math.log2(index + 1)
-    ndcg_at_10 = dcg / idcg if idcg > 0 else 0.0
+    ndcg_at_10 = max(0.0, min(1.0, dcg / idcg)) if idcg > 0 else 0.0
 
     return {
         "recall@5": recall_at_5,

@@ -3,6 +3,12 @@
 ## Overview
 High-level pipeline progress tracking.
 
+## [2026-04-20] Session Summary (Memory Snapshot Isolation + Metric Corrections)
+- What was done: Updated `memory/build_memory.py` to delete stale memory rows for the active snapshot before rebuilding and store `memory_experiment_key`; retrieval/answer eval now loads memory only for the current experiment key.
+- Key decisions: Fixed answer correctness to use `eval_samples.expected_answer_key_points` instead of looking inside `dialog_context`, and changed `nDCG@10` to exact expected-chunk relevance with bounded `[0,1]` output and doc fallback only when chunk ground truth is absent.
+- Issues encountered: Existing historical memory rows needed data backfill/cleanup outside code changes.
+- Next steps: Re-run one RAG evaluation to confirm `memory_entry_count_loaded` matches the current build-memory summary and rewrite gains are compared against same-run `raw_only`.
+
 ## [2026-04-19] Session Summary (Selective Rewrite Prompt v2 Preference)
 - What was done: Updated `eval/runtime.py::_rewrite_prompt_text` to resolve `selective_rewrite_v2.md` first and fall back to `selective_rewrite_v1.md` across `PROMPT_ROOT`/default path candidates.
 - Key decisions: Preserved retrieval eval runtime behavior and candidate schema; only prompt asset resolution order was changed.

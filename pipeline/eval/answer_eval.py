@@ -139,9 +139,7 @@ def _evaluate_answer_sample(
     ]
     answer_text = " ".join(segment for segment in answer_segments if segment).strip()
 
-    expected_points = " ".join(
-        [point for point in sample.dialog_context.get("expected_answer_key_points", [])]
-    )
+    expected_points = " ".join([point for point in sample.expected_answer_key_points])
     if not expected_points:
         expected_points = " ".join(sample.expected_chunk_ids)
     correctness = _overlap_ratio(expected_points, answer_text)
@@ -252,7 +250,11 @@ def run_answer_eval(
             eval_concurrency,
         )
         chunks = load_chunk_items(connection)
-        memories = load_memory_items(connection) if rewrite_enabled else []
+        memories = (
+            load_memory_items(connection, memory_experiment_key=config.experiment_key)
+            if rewrite_enabled
+            else []
+        )
 
         sample_rows: list[dict[str, Any]] = []
         with connection.cursor() as cursor:
@@ -379,6 +381,8 @@ def run_answer_eval(
             "synthetic_free_baseline": synthetic_free_baseline,
             "rewrite_enabled": rewrite_enabled,
             "selective_rewrite": selective_rewrite,
+            "memory_experiment_key": config.experiment_key if rewrite_enabled else None,
+            "memory_entry_count_loaded": len(memories),
             "summary": summary,
             "sample_count": len(sample_rows),
         }

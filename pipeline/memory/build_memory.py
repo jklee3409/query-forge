@@ -506,6 +506,78 @@ def _load_stage_cutoff_rows(
     ]
 
 
+def _delete_existing_snapshot_memory_entries(
+    connection: psycopg.Connection[Any],
+    *,
+    preset: str,
+    source_run_id: str | None,
+    source_batch_id: str | None,
+    strategies: list[str] | None = None,
+) -> int:
+    normalized_strategies = [
+        str(item).upper().strip()
+        for item in (strategies or [])
+        if str(item).strip()
+    ]
+    conditions: list[str] = [
+        "COALESCE(NULLIF(m.metadata ->> 'gating_preset', ''), %s) = %s",
+    ]
+    parameters: list[Any] = [preset, preset]
+    if normalized_strategies:
+        conditions.append("m.generation_strategy = ANY(%s)")
+        parameters.append(normalized_strategies)
+
+    snapshot_conditions: list[str] = []
+    if source_run_id:
+        snapshot_conditions.append("m.metadata ->> 'source_gate_run_id' = %s")
+        parameters.append(source_run_id)
+    if source_batch_id:
+        snapshot_conditions.append("m.metadata ->> 'source_gating_batch_id' = %s")
+        parameters.append(source_batch_id)
+        snapshot_conditions.append(
+            """
+            m.source_gated_query_id IN (
+                SELECT g.gated_query_id
+                FROM synthetic_query_gating_result gr
+                JOIN synthetic_queries_gated g
+                  ON g.synthetic_query_id = gr.synthetic_query_id
+                 AND g.gating_preset = %s
+                WHERE gr.gating_batch_id::text = %s
+            )
+            """
+        )
+        parameters.extend([preset, source_batch_id])
+
+    if not snapshot_conditions:
+        return 0
+
+    with connection.cursor() as cursor:
+        cursor.execute(
+            f"""
+            WITH deleted AS (
+                DELETE FROM memory_entries m
+                WHERE {" AND ".join(conditions)}
+                  AND ({" OR ".join(snapshot_conditions)})
+                RETURNING m.memory_id
+            ),
+            removed_embeddings AS (
+                DELETE FROM query_embeddings qe
+                USING deleted d
+                WHERE qe.owner_type = 'memory'
+                  AND qe.owner_id = d.memory_id::text
+                RETURNING 1
+            )
+            SELECT COUNT(*) AS deleted_count
+            FROM deleted
+            """,
+            parameters,
+        )
+        row = cursor.fetchone()
+    if row is None:
+        return 0
+    return int(row["deleted_count"] or 0)
+
+
 def _upsert_query_embedding(
     connection: psycopg.Connection[Any],
     *,
@@ -587,6 +659,7 @@ def run_memory_build(
                 "source_generation_strategies": [],
                 "memory_entries_built": 0,
                 "memory_entries_by_snapshot": {},
+                "memory_experiment_key": config.experiment_key,
                 "preview_memory_ids": [],
                 "embedding_model": "hash-embedding-v1",
                 "synthetic_free_baseline": True,
@@ -654,7 +727,9 @@ def run_memory_build(
 
         inserted_memory_ids: list[str] = []
         built_by_snapshot: dict[str, int] = {}
+        deleted_by_snapshot: dict[str, int] = {}
         total_rows = 0
+        total_deleted_rows = 0
         primary_source_run_id: str | None = None
         for preset, source_run_id, source_batch_id in snapshot_plan:
             resolved_source_run_id = source_run_id or _resolve_source_run_id_by_batch(
@@ -691,6 +766,15 @@ def run_memory_build(
                     )
             built_by_snapshot[preset] = len(rows)
             total_rows += len(rows)
+            deleted_rows = _delete_existing_snapshot_memory_entries(
+                connection,
+                preset=preset,
+                source_run_id=resolved_source_run_id,
+                source_batch_id=source_batch_id,
+                strategies=strategy_filters,
+            )
+            deleted_by_snapshot[preset] = deleted_rows
+            total_deleted_rows += deleted_rows
             for row in rows:
                 memory_id = str(uuid.uuid4())
                 embedding = embed_text(row.query_text)
@@ -698,8 +782,15 @@ def run_memory_build(
                 with connection.cursor() as cursor:
                     cursor.execute(
                         """
-                        DELETE FROM memory_entries
-                        WHERE source_gated_query_id = %s
+                        WITH deleted AS (
+                            DELETE FROM memory_entries
+                            WHERE source_gated_query_id = %s
+                            RETURNING memory_id
+                        )
+                        DELETE FROM query_embeddings qe
+                        USING deleted d
+                        WHERE qe.owner_type = 'memory'
+                          AND qe.owner_id = d.memory_id::text
                         """,
                         (row.gated_query_id,),
                     )
@@ -756,6 +847,7 @@ def run_memory_build(
                                     "stage_cutoff_level": stage_cutoff_level if stage_cutoff_enabled else None,
                                     "stage_cutoff_source_gating_batch_id": source_batch_id if stage_cutoff_enabled else None,
                                     "memory_build_run_id": run_context.experiment_run_id,
+                                    "memory_experiment_key": config.experiment_key,
                                 }
                             ),
                         ),
@@ -796,6 +888,9 @@ def run_memory_build(
             "source_generation_strategies": strategy_filters,
             "memory_entries_built": total_rows,
             "memory_entries_by_snapshot": built_by_snapshot,
+            "memory_entries_deleted_before_build": total_deleted_rows,
+            "memory_entries_deleted_by_snapshot": deleted_by_snapshot,
+            "memory_experiment_key": config.experiment_key,
             "preview_memory_ids": inserted_memory_ids,
             "embedding_model": "hash-embedding-v1",
             "stage_cutoff_enabled": stage_cutoff_enabled,
