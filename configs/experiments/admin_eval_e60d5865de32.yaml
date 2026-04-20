@@ -1,0 +1,60 @@
+experiment_key: admin_eval_e60d5865de32
+category: admin
+description: Admin console generated config
+generation_strategy: C
+enable_code_mixed: false
+enable_rule_filter: true
+enable_llm_self_eval: true
+enable_retrieval_utility: true
+enable_diversity: true
+enable_anti_copy: true
+gating_preset: full_gating
+llm_provider: gemini
+llm_model: gemini-2.5-flash-lite
+llm_summary_model: gemini-2.5-flash-lite
+llm_query_model: gemini-2.5-flash-lite
+llm_self_eval_model: gemini-2.5-flash-lite
+llm_rewrite_model: gemini-2.5-flash-lite
+llm_fallback_models: gemini-2.5-flash
+llm_rpm: 1000
+llm_tpm: 1000000
+llm_rpd: 10000
+llm_batch_size: 20
+memory_top_n: 5
+rewrite_candidate_count: 3
+rewrite_threshold: 0.05
+retrieval_top_k: 10
+rerank_top_n: 5
+use_session_context: false
+avg_queries_per_chunk: 2.0
+max_total_queries: 40
+rule_min_len_short: 4
+rule_max_len_short: 60
+rule_min_len_long: 8
+rule_max_len_long: 100
+rule_min_tokens: 2
+rule_max_tokens: 30
+rule_min_korean_ratio: 0.2
+rule_min_korean_ratio_code_mixed: 0.2
+retrieval_utility_weights: {target_top10: 0.6, outside_top5: 0.0, same_doc_top3: 0.55,
+  same_doc_top5: 0.4, multi_full_bonus: 0.12, target_top1: 1.0, multi_partial_bonus: 0.05,
+  target_top3: 0.85, target_top5: 0.7}
+gating_weights: {llm: 0.35, novelty: 0.15, utility: 0.5}
+utility_threshold: 0.7
+diversity_threshold_same_chunk: 0.93
+diversity_threshold_same_doc: 0.96
+final_score_threshold: 0.75
+random_seed: 31
+dataset_id: b2d47254-8655-4c9c-81ac-7615677ec5bd
+memory_generation_strategies: &id001 [C]
+source_generation_strategies: *id001
+synthetic_free_baseline: false
+gating_applied: true
+rewrite_enabled: true
+selective_rewrite: true
+run_discipline: exploratory
+stage_cutoff_enabled: false
+retrieval_modes: [selective_rewrite]
+source_gating_batch_id: 902878be-67e3-4d9f-9091-0d98fb55039f
+snapshot_id: 902878be-67e3-4d9f-9091-0d98fb55039f
+source_gating_run_id: a57f7932-ad1c-4b38-a5ea-a9f72a9e21bf
