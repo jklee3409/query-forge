@@ -813,12 +813,12 @@ public class AdminConsoleService {
             return List.of("raw_only");
         }
         if (!selectiveRewrite) {
-            return List.of("raw_only", "rewrite_always");
+            return List.of("raw_only", "memory_only_gated", "rewrite_always");
         }
         if (useSessionContext) {
-            return List.of("raw_only", "selective_rewrite_with_session");
+            return List.of("raw_only", "memory_only_gated", "rewrite_always", "selective_rewrite_with_session");
         }
-        return List.of("raw_only", "selective_rewrite");
+        return List.of("raw_only", "memory_only_gated", "rewrite_always", "selective_rewrite");
     }
 
     private void ensureDefaultEvalDataset() {
