@@ -153,6 +153,116 @@ function formatMetric(value) {
   return Number(value).toFixed(3)
 }
 
+const RUN_DETAIL_REWRITE_MODE_PRIORITY = [
+  'selective_rewrite_with_session',
+  'selective_rewrite',
+  'rewrite_always',
+  'memory_only_gated',
+  'memory_only_full_gating',
+  'memory_only_rule_only',
+  'memory_only_ungated',
+]
+
+const RUN_DETAIL_COMPARISON_METRICS = [
+  { label: 'Recall@5', aliases: ['recall@5', 'recall_at_5'], precision: 4 },
+  { label: 'Hit@5', aliases: ['hit@5', 'hit_at_5'], precision: 4 },
+  { label: 'MRR@10', aliases: ['mrr@10', 'mrr_at_10'], precision: 4 },
+  { label: 'nDCG@10', aliases: ['ndcg@10', 'ndcg_at_10'], precision: 4 },
+  { label: 'Adoption rate', aliases: ['adoption_rate'], precision: 4, rewriteOnly: true },
+  { label: 'Bad rewrite rate', aliases: ['bad_rewrite_rate'], precision: 4, rewriteOnly: true },
+  { label: 'MRR gain', aliases: ['rewrite_gain_mrr'], precision: 4, rewriteOnly: true },
+  { label: 'nDCG gain', aliases: ['rewrite_gain_ndcg'], precision: 4, rewriteOnly: true },
+  { label: 'Confidence delta', aliases: ['avg_confidence_delta'], precision: 4, rewriteOnly: true },
+]
+
+function normalizeModeName(row) {
+  return String(row?.mode || '').trim()
+}
+
+function metricFromRow(row, aliases) {
+  if (!row || !Array.isArray(aliases)) return null
+  for (const alias of aliases) {
+    const value = toMetricNumber(row[alias])
+    if (value != null) return value
+  }
+  return null
+}
+
+function resolveRunDetailRewriteRow(rows) {
+  const normalizedRows = Array.isArray(rows) ? rows : []
+  for (const mode of RUN_DETAIL_REWRITE_MODE_PRIORITY) {
+    const row = normalizedRows.find((item) => normalizeModeName(item) === mode)
+    if (row) return row
+  }
+  return null
+}
+
+function isQueryRewriteMode(mode) {
+  return ['selective_rewrite_with_session', 'selective_rewrite', 'rewrite_always'].includes(mode)
+}
+
+function renderRunDetailModeComparison(retrievalByModeRows) {
+  const rows = Array.isArray(retrievalByModeRows) ? retrievalByModeRows : []
+  const rawRow = rows.find((row) => normalizeModeName(row) === 'raw_only')
+  const rewriteRow = resolveRunDetailRewriteRow(rows)
+  if (!rawRow && !rewriteRow) return null
+
+  const baselineOnly = !rewriteRow
+  const rewriteMode = normalizeModeName(rewriteRow)
+  const comparisonLabel = isQueryRewriteMode(rewriteMode) ? 'Raw vs query rewrite' : 'Raw vs synthetic memory'
+  const comparisonRows = RUN_DETAIL_COMPARISON_METRICS
+    .map((metric) => {
+      const raw = metric.rewriteOnly ? null : metricFromRow(rawRow, metric.aliases)
+      const rewrite = rewriteRow ? metricFromRow(rewriteRow, metric.aliases) : null
+      const delta = raw != null && rewrite != null ? rewrite - raw : null
+      return { ...metric, raw, rewrite, delta }
+    })
+    .filter((row) => row.raw != null || row.rewrite != null || row.delta != null)
+
+  if (!comparisonRows.length) return null
+
+  return (
+    <article className="run-mode-compare">
+      <div className="run-mode-compare__header">
+        <div>
+          <div className="detail-item__label">{baselineOnly ? 'Baseline mode' : comparisonLabel}</div>
+          <div className="run-mode-compare__subtitle">{baselineOnly ? 'raw_only' : `raw_only / ${rewriteMode}`}</div>
+        </div>
+        <span className="metric-chip metric-chip--core">{baselineOnly ? 'raw_only' : rewriteMode}</span>
+      </div>
+      <div className="run-mode-compare__table-wrap">
+        <table className="run-mode-compare__table">
+          <thead>
+            <tr>
+              <th>Metric</th>
+              <th>raw_only</th>
+              {!baselineOnly && <th>{rewriteMode}</th>}
+              {!baselineOnly && <th>Delta</th>}
+            </tr>
+          </thead>
+          <tbody>
+            {comparisonRows.map((row) => {
+              const deltaTone = row.delta == null ? 'neutral' : row.delta > 0 ? 'positive' : row.delta < 0 ? 'negative' : 'neutral'
+              return (
+                <tr key={row.label}>
+                  <td>{row.label}</td>
+                  <td>{row.raw == null ? '-' : Number(row.raw).toFixed(row.precision)}</td>
+                  {!baselineOnly && <td>{row.rewrite == null ? '-' : Number(row.rewrite).toFixed(row.precision)}</td>}
+                  {!baselineOnly && (
+                    <td className={`run-mode-compare__delta run-mode-compare__delta--${deltaTone}`}>
+                      {row.delta == null ? '-' : formatDelta(row.delta, { precision: row.precision })}
+                    </td>
+                  )}
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
+    </article>
+  )
+}
+
 function formatMetricWithDef(value, def) {
   if (value == null) return '-'
   const precision = Number.isFinite(def?.precision) ? def.precision : 3
@@ -655,7 +765,7 @@ export function RagPage({ notify }) {
     officialGatingUngatedBatchId: '',
     officialGatingRuleOnlyBatchId: '',
     officialGatingFullGatingBatchId: '',
-    threshold: '0.05',
+    threshold: '0.10',
     retrievalTopK: '20',
     rerankTopN: '5',
     syntheticFreeBaseline: false,
@@ -1071,6 +1181,7 @@ export function RagPage({ notify }) {
               <article className="summary-card"><div className="summary-card__label">MRR@10</div><div className="summary-card__value">{summary.mrr_at_10 == null ? '-' : Number(summary.mrr_at_10).toFixed(4)}</div></article>
               <article className="summary-card"><div className="summary-card__label">nDCG@10</div><div className="summary-card__value">{summary.ndcg_at_10 == null ? '-' : Number(summary.ndcg_at_10).toFixed(4)}</div></article>
             </div>
+            {renderRunDetailModeComparison(retrievalByModeRows)}
             <DetailCard label="performance" value={JSON.stringify(performance, null, 2)} />
             <DetailCard label="retrieval_by_mode" value={JSON.stringify(retrievalByModeRows, null, 2)} />
             <DetailCard label="detail_rows" value={JSON.stringify(details, null, 2)} />

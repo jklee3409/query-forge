@@ -3,6 +3,12 @@
 ## Overview
 High-level backend progress tracking.
 
+## [2026-04-20] Session Summary (RAG Raw Mode Pairing + Threshold Default)
+- What was done: Updated `AdminConsoleService.runRagTest` so synthetic-backed RAG runs include `raw_only` with rewrite/memory modes, including official gating-effect runs; synthetic-free baseline still resolves to `raw_only` only.
+- Key decisions: Changed backend fallback/default `rewrite_threshold` from `0.05` to `0.10` in request handling and generated experiment configs.
+- Issues encountered: None.
+- Next steps: Add request-level integration coverage for exploratory selective rewrite, rewrite-always, official gating-effect, and synthetic-free baseline mode resolution.
+
 ## [2026-04-19] Session Summary (Prompt-based Rewrite Candidate Generation in Ask Path)
 - What was done: Added `RewriteCandidateService` and routed `RagService.ask`/`previewRewrite` candidate construction through prompt-driven LLM generation instead of hardcoded-only templates.
 - Key decisions: Prompt loading resolves `selective_rewrite_v2` first (`v1` fallback), supports env-driven Gemini/OpenAI providers, and falls back to deterministic heuristic candidates on any LLM/prompt failure.

@@ -3,6 +3,12 @@
 ## Overview
 High-level progress tracking for the project.
 
+## [2026-04-20] Session Summary (RAG Memory Snapshot Isolation + Raw Comparison)
+- What was done: Fixed RAG quality-test memory contamination by making memory builds clear stale rows for the selected snapshot and tagging memory rows with `memory_experiment_key`; retrieval/answer eval now loads only the current experiment's memory. Cleaned live DB stale rejected memory rows, removed orphan memory embeddings, and backfilled memory experiment keys.
+- Key decisions: `raw_only` is now included alongside synthetic rewrite/memory modes for non-baseline RAG tests, while synthetic-free baseline remains raw-only. Admin default `rewrite_threshold` is now `0.10`.
+- Issues encountered: Existing frontend build still reports unrelated `GatingPage.jsx` JSX warnings for literal `->` labels, but build completes.
+- Next steps: Run a fresh same-dataset synthetic rewrite test and compare `raw_only` vs rewrite mode in the single-run detail modal.
+
 ## [2026-04-19] Session Summary (Synthetic-Random Short-User Dataset 80 Rebuild)
 - What was done: Added `scripts/rebuild_short_user_dataset_from_synthetic.py` and rebuilt dataset `b2d47254-8655-4c9c-81ac-7615677ec5bd` from live `synthetic_queries_raw_all` by random sampling 80 candidates, compressing queries into short Korean user style, and refreshing both DB dataset items and `data/eval/human_eval_short_user_test_80.jsonl`.
 - Key decisions: Kept retrieval-aware schema unchanged (`expected_doc_ids`, `expected_chunk_ids`, `expected_answer_key_points`) and stored source provenance in sample metadata (`source_synthetic_query_id`, `source_generation_strategy`, `target_method`).

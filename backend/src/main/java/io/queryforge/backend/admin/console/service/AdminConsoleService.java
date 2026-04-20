@@ -412,7 +412,7 @@ public class AdminConsoleService {
         boolean useSessionContext = request.useSessionContext() != null && request.useSessionContext();
         int retrievalTopK = request.retrievalTopK() != null && request.retrievalTopK() > 0 ? request.retrievalTopK() : 20;
         int rerankTopN = request.rerankTopN() != null && request.rerankTopN() > 0 ? request.rerankTopN() : 5;
-        double threshold = request.threshold() != null ? request.threshold() : 0.05d;
+        double threshold = request.threshold() != null ? request.threshold() : 0.10d;
         String stageCutoffLevel = normalizeStageCutoffLevel(request.stageCutoffLevel(), gatingPreset);
 
         if (stageCutoffEnabled) {
@@ -593,7 +593,7 @@ public class AdminConsoleService {
             config.put("comparison_snapshots", comparisonSnapshots);
             config.put(
                     "retrieval_modes",
-                    List.of("memory_only_ungated", "memory_only_rule_only", "memory_only_full_gating")
+                    List.of("raw_only", "memory_only_ungated", "memory_only_rule_only", "memory_only_full_gating")
             );
             config.put("snapshot_id", comparisonBatchIds.get("full_gating").toString());
         } else if (RUN_DISCIPLINE_OFFICIAL.equals(runDiscipline)
@@ -813,12 +813,12 @@ public class AdminConsoleService {
             return List.of("raw_only");
         }
         if (!selectiveRewrite) {
-            return List.of("rewrite_always");
+            return List.of("raw_only", "rewrite_always");
         }
         if (useSessionContext) {
-            return List.of("selective_rewrite_with_session");
+            return List.of("raw_only", "selective_rewrite_with_session");
         }
-        return List.of("selective_rewrite");
+        return List.of("raw_only", "selective_rewrite");
     }
 
     private void ensureDefaultEvalDataset() {
@@ -1088,7 +1088,7 @@ public class AdminConsoleService {
         config.put("llm_batch_size", 20);
         config.put("memory_top_n", 5);
         config.put("rewrite_candidate_count", 3);
-        config.put("rewrite_threshold", 0.05);
+        config.put("rewrite_threshold", 0.10);
         config.put("retrieval_top_k", 20);
         config.put("rerank_top_n", 5);
         config.put("use_session_context", false);

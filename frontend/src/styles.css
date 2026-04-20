@@ -931,6 +931,81 @@ table.data-table {
   font-family: var(--font-mono);
 }
 
+.run-mode-compare {
+  min-width: 0;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow-soft);
+  padding: 18px;
+  display: grid;
+  gap: 12px;
+}
+
+.run-mode-compare__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.run-mode-compare__subtitle {
+  margin-top: 4px;
+  color: var(--text-soft);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  word-break: break-word;
+}
+
+.run-mode-compare__table-wrap {
+  overflow-x: auto;
+}
+
+.run-mode-compare__table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+
+.run-mode-compare__table th,
+.run-mode-compare__table td {
+  padding: 9px 10px;
+  border-bottom: 1px solid var(--border);
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.run-mode-compare__table th:first-child,
+.run-mode-compare__table td:first-child {
+  text-align: left;
+  color: #24344d;
+  font-weight: 700;
+}
+
+.run-mode-compare__table th {
+  color: var(--text-soft);
+  font-size: 11px;
+  text-transform: uppercase;
+  background: #f7faff;
+}
+
+.run-mode-compare__delta {
+  font-weight: 800;
+}
+
+.run-mode-compare__delta--positive {
+  color: var(--success);
+}
+
+.run-mode-compare__delta--negative {
+  color: var(--danger);
+}
+
+.run-mode-compare__delta--neutral {
+  color: var(--text-soft);
+}
+
 .modal-backdrop {
   position: fixed;
   inset: 0;

@@ -3,6 +3,12 @@
 ## Overview
 High-level progress tracking for the project.
 
+## [2026-04-20] Session Summary (RAG Detail Raw-vs-Rewrite View)
+- What was done: Updated `/admin/rag-tests` form default `rewrite_threshold` to `0.10` and added a single-run detail comparison table that shows `raw_only` next to the selected query-rewrite or synthetic-memory mode.
+- Key decisions: Synthetic-free baseline detail remains baseline-only; synthetic-backed runs show same-run raw vs synthetic mode metrics plus rewrite diagnostics when available.
+- Issues encountered: Existing unrelated `GatingPage.jsx` JSX warnings for literal `->` labels still appear during build.
+- Next steps: UI-smoke a newly completed synthetic rewrite run and verify the modal comparison table makes raw/rewrite deltas obvious.
+
 ## [2026-04-19] Session Summary (RAG Compare Workspace Duration Conversion Fix + Time UX)
 - What was done: Corrected compare-workspace duration display in `RagPage.jsx` so performance metrics consistently render with converted values (`<1000ms: ms`, `<60000ms: s`, `>=60000ms: m+s`) and removed raw pre-conversion ms subtext from workspace metric cards.
 - Key decisions: Kept API/data/delta calculation unchanged; switched workspace duration formatters to reuse table-grade conversion helpers and applied the same policy to top summary cards (`Latest Total Duration`, `Latest Avg Latency`) and run-history metric summary text.

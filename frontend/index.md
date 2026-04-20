@@ -34,6 +34,7 @@
 ---
 
 ## Recent Update
+- `/admin/rag-tests` now defaults rewrite threshold to `0.10` and single-run detail shows a raw-vs-query-rewrite/synthetic-memory comparison table when `raw_only` is present; synthetic-free baseline detail remains baseline-only.
 - `/admin/rag-tests` compare workspace now applies consistent duration conversion in cards and summary values (`ms -> s -> m+s`), removes raw ms subtext from workspace cards, and uses KST-based compact time display (`YYYY-MM-DD HH:mm`) via shared `fmtTime`.
 - `/admin/rag-tests` detailed comparison table was additionally tuned for dense backoffice analysis: stronger typography hierarchy, tighter row spacing, centered `Delta / Change` + `Result` judgment alignment, and consistent `ms -> s -> m+s` display formatting for performance metrics.
 - RAG 실험 비교 워크스페이스의 상단 run 카드, winner summary, metric 카드 UI를 판단 중심으로 재정렬하고, 성능 지표를 `ms`/`s` 자동 변환 + 해석형 delta(`x faster/slower`, `% change`)로 표시하도록 개선했다.
