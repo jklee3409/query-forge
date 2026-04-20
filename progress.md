@@ -3,6 +3,18 @@
 ## Overview
 High-level progress tracking for the project.
 
+## [2026-04-20] Session Summary (Local Retriever BM25 + Dense Switch)
+- What was done: Switched Python-side local retrieval from hash/overlap scoring to a cached BM25 + dense retriever for eval retrieval, eval answer retrieval, memory lookup, and quality-gating utility scoring. Added CPU defaults for `intfloat/multilingual-e5-small` and documented local retrieval env knobs.
+- Key decisions: Kept Cohere as an external reranker when available, but made local ranking strong enough to be a meaningful fallback. `sentence-transformers` is now a pipeline dependency; if the runtime does not have it installed yet, the new retriever falls back to BM25 + hash embedding.
+- Issues encountered: Current interpreter lacks `sentence-transformers`, so validation used BM25 + hash fallback and improved local-only `human_eval_short_user_80` metrics to Recall@5 `0.4750`, Hit@5 `0.5375`, MRR@10 `0.3425`, nDCG@10 `0.3811`.
+- Next steps: Sync the backend pipeline Python environment with the updated pipeline dependency set, then rerun controlled A/C/D RAG tests with Cohere quota available or explicitly disabled.
+
+## [2026-04-20] Session Summary (Rewrite Evidence Scoring + Research Modes)
+- What was done: Fixed selective rewrite evidence scoring so candidate queries recompute snapshot-memory affinity instead of reusing raw-query memory similarity; Cohere rerank fallback no longer emits synthetic relevance scores. Retrieval/memory lookup now uses hybrid semantic + lexical + technical-token scoring, and Admin RAG runs include `memory_only_gated` and `rewrite_always` alongside `raw_only` and selective modes.
+- Key decisions: Preserved the AGENTS pipeline order and strategy-separated synthetic storage while making each snapshot evaluation expose raw retrieval, memory-only retrieval, forced rewrite, and selective rewrite for research attribution.
+- Issues encountered: `python -m unittest discover pipeline/tests -v` still fails in pre-existing `test_corpus_import` migration setup (`corpus_sources` missing), while targeted runtime/LLM tests and backend tests pass.
+- Next steps: Run fresh A/C/D rewrite-effect tests and compare `raw_only`, `memory_only_gated`, `rewrite_always`, and `selective_rewrite` to separate candidate quality from selective gate quality.
+
 ## [2026-04-20] Session Summary (RAG Memory Snapshot Isolation + Raw Comparison)
 - What was done: Fixed RAG quality-test memory contamination by making memory builds clear stale rows for the selected snapshot and tagging memory rows with `memory_experiment_key`; retrieval/answer eval now loads only the current experiment's memory. Cleaned live DB stale rejected memory rows, removed orphan memory embeddings, and backfilled memory experiment keys.
 - Key decisions: `raw_only` is now included alongside synthetic rewrite/memory modes for non-baseline RAG tests, while synthetic-free baseline remains raw-only. Admin default `rewrite_threshold` is now `0.10`.

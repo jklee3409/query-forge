@@ -45,7 +45,7 @@ class CohereReranker:
             if not self._warned_unavailable:
                 self._warned_unavailable = True
                 print("[rerank] Cohere API key missing or disabled; fallback to local ranking.")
-            return [(index, 1.0 - (index / max(1, len(documents)))) for index in range(limited_top_n)]
+            return []
 
         payload = {
             "model": self.config.model,
@@ -67,13 +67,13 @@ class CohereReranker:
                 )
             except requests.RequestException:
                 if attempt + 1 >= self.config.max_retries:
-                    return [(index, 1.0 - (index / max(1, len(documents)))) for index in range(limited_top_n)]
+                    return []
                 time.sleep(min(20.0, 1.5 * (2 ** attempt)))
                 continue
 
             if response.status_code in {429, 500, 502, 503, 504}:
                 if attempt + 1 >= self.config.max_retries:
-                    return [(index, 1.0 - (index / max(1, len(documents)))) for index in range(limited_top_n)]
+                    return []
                 retry_after = 0.0
                 retry_after_raw = response.headers.get("Retry-After")
                 if retry_after_raw:
@@ -85,12 +85,12 @@ class CohereReranker:
                 continue
 
             if response.status_code >= 400:
-                return [(index, 1.0 - (index / max(1, len(documents)))) for index in range(limited_top_n)]
+                return []
 
             body = response.json() if response.content else {}
             rows = body.get("results") if isinstance(body, dict) else []
             if not isinstance(rows, list):
-                return [(index, 1.0 - (index / max(1, len(documents)))) for index in range(limited_top_n)]
+                return []
             reranked: list[tuple[int, float]] = []
             for row in rows:
                 if not isinstance(row, dict):
@@ -103,8 +103,8 @@ class CohereReranker:
                 reranked.append((index, score))
             if reranked:
                 return reranked[:limited_top_n]
-            return [(index, 1.0 - (index / max(1, len(documents)))) for index in range(limited_top_n)]
-        return [(index, 1.0 - (index / max(1, len(documents)))) for index in range(limited_top_n)]
+            return []
+        return []
 
     def _throttle(self) -> None:
         with self._lock:

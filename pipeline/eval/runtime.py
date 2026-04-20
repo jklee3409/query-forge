@@ -12,11 +12,13 @@ import psycopg
 
 try:
     from common.cohere_reranker import CohereReranker, load_cohere_rerank_config
-    from common.embeddings import cosine_similarity, embed_text
+    from common.embeddings import embed_text
+    from common.local_retriever import get_local_text_retriever, local_retriever_name
     from common.llm_client import LlmClient, load_stage_config
 except ModuleNotFoundError:  # pragma: no cover
     from pipeline.common.cohere_reranker import CohereReranker, load_cohere_rerank_config
-    from pipeline.common.embeddings import cosine_similarity, embed_text
+    from pipeline.common.embeddings import embed_text
+    from pipeline.common.local_retriever import get_local_text_retriever, local_retriever_name
     from pipeline.common.llm_client import LlmClient, load_stage_config
 
 
@@ -230,23 +232,31 @@ def retrieve_top_k(
     *,
     top_k: int,
 ) -> list[RetrievalCandidate]:
-    query_embedding = embed_text(query_text)
-    scored_all = [
-        RetrievalCandidate(
-            chunk_id=chunk.chunk_id,
-            document_id=chunk.document_id,
-            score=cosine_similarity(query_embedding, chunk.embedding),
-            text=chunk.text,
-        )
-        for chunk in chunks
-    ]
-    scored_all.sort(key=lambda item: item.score, reverse=True)
-
+    if not chunks:
+        return []
     candidate_pool_k = int(os.getenv("QUERY_FORGE_RERANK_CANDIDATE_K") or "50")
-    candidate_pool_k = max(top_k, min(candidate_pool_k, max(top_k, len(scored_all))))
-    reduced = scored_all[:candidate_pool_k]
+    candidate_pool_k = max(top_k, min(candidate_pool_k, max(top_k, len(chunks))))
+    retriever = get_local_text_retriever(
+        namespace="eval-chunks",
+        item_ids=[chunk.chunk_id for chunk in chunks],
+        texts=[chunk.text for chunk in chunks],
+        fallback_embeddings=[chunk.embedding for chunk in chunks],
+    )
+    ranked_pool = retriever.rank(query_text, top_k=candidate_pool_k)
+    reduced = [
+        RetrievalCandidate(
+            chunk_id=chunks[ranked.index].chunk_id,
+            document_id=chunks[ranked.index].document_id,
+            score=ranked.score,
+            text=chunks[ranked.index].text,
+        )
+        for ranked in ranked_pool
+    ]
+    if not reduced:
+        return []
+
     reranker = _cohere_reranker()
-    if not reduced or not reranker.available:
+    if not reranker.available:
         return reduced[:top_k]
 
     rerank_rows = reranker.rerank(
@@ -270,6 +280,10 @@ def retrieve_top_k(
                 )
             )
     return reranked if reranked else reduced[:top_k]
+
+
+def local_retriever_label() -> str:
+    return f"bm25-dense-local:{local_retriever_name()}"
 
 
 def rerank_retrieval_candidates(
@@ -315,9 +329,8 @@ def memory_top_n(
     source_gate_run_id: str | None = None,
     strategy_filters: list[str] | None = None,
 ) -> list[dict[str, Any]]:
-    query_embedding = embed_text(query_text)
     strategy_set = {item.upper() for item in strategy_filters or [] if str(item).strip()}
-    scored = []
+    eligible: list[MemoryItem] = []
     for memory in memories:
         if preset_filter and memory.gating_preset != preset_filter:
             continue
@@ -325,7 +338,18 @@ def memory_top_n(
             continue
         if strategy_set and memory.generation_strategy.upper() not in strategy_set:
             continue
-        similarity = cosine_similarity(query_embedding, memory.embedding)
+        eligible.append(memory)
+    if not eligible:
+        return []
+    retriever = get_local_text_retriever(
+        namespace="eval-memory",
+        item_ids=[memory.memory_id for memory in eligible],
+        texts=[memory.query_text for memory in eligible],
+        fallback_embeddings=[memory.embedding for memory in eligible],
+    )
+    scored = []
+    for ranked in retriever.rank(query_text, top_k=top_n):
+        memory = eligible[ranked.index]
         scored.append(
             {
                 "memory_id": memory.memory_id,
@@ -333,11 +357,14 @@ def memory_top_n(
                 "target_doc_id": memory.target_doc_id,
                 "target_chunk_ids": memory.target_chunk_ids,
                 "generation_strategy": memory.generation_strategy,
-                "similarity": similarity,
+                "similarity": ranked.score,
+                "dense_similarity": ranked.dense_score,
+                "bm25_score": ranked.bm25_score,
+                "technical_token_overlap": ranked.technical_score,
+                "retriever": retriever.retriever_name,
             }
         )
-    scored.sort(key=lambda item: item["similarity"], reverse=True)
-    return scored[:top_n]
+    return scored
 
 
 def _rewrite_prompt_text() -> str:
@@ -465,15 +492,18 @@ def build_rewrite_candidates(
 
 def confidence_score(
     retrieval: list[RetrievalCandidate],
-    dense_score: float,
+    memory_affinity_score: float,
 ) -> float:
     if not retrieval:
         return 0.0
-    top1 = (retrieval[0].score + 1.0) / 2.0
+    top1 = max(0.0, min(1.0, (retrieval[0].score + 1.0) / 2.0))
     top3_items = retrieval[:3]
-    top3 = sum((item.score + 1.0) / 2.0 for item in top3_items) / max(1, len(top3_items))
-    dense = (dense_score + 1.0) / 2.0
-    return (0.6 * top1) + (0.3 * top3) + (0.1 * dense)
+    top3 = sum(
+        max(0.0, min(1.0, (item.score + 1.0) / 2.0))
+        for item in top3_items
+    ) / max(1, len(top3_items))
+    memory_affinity = max(0.0, min(1.0, (memory_affinity_score + 1.0) / 2.0))
+    return (0.45 * top1) + (0.20 * top3) + (0.35 * memory_affinity)
 
 
 def _top_chunk_ids(retrieval: list[RetrievalCandidate], *, top_n: int = 5) -> list[str]:
@@ -521,8 +551,8 @@ def run_selective_rewrite(
         strategy_filters=strategy_filters,
     )
     raw_retrieval = retrieve_top_k(raw_query, chunks, top_k=retrieval_top_k)
-    raw_dense = memory_items[0]["similarity"] if memory_items else 0.0
-    raw_confidence = confidence_score(raw_retrieval, raw_dense)
+    raw_memory_affinity = memory_items[0]["similarity"] if memory_items else 0.0
+    raw_confidence = confidence_score(raw_retrieval, raw_memory_affinity)
 
     candidate_templates = build_rewrite_candidates(
         raw_query,
@@ -534,15 +564,32 @@ def run_selective_rewrite(
     best_candidate = None
     for template in candidate_templates:
         retrieved = retrieve_top_k(template["query"], chunks, top_k=retrieval_top_k)
-        dense = memory_items[0]["similarity"] if memory_items else 0.0
-        base_confidence = confidence_score(retrieved, dense)
+        candidate_memory_items = memory_top_n(
+            template["query"],
+            memories,
+            top_n=memory_top_n_value,
+            preset_filter=preset_filter,
+            source_gate_run_id=source_gate_run_id,
+            strategy_filters=strategy_filters,
+        )
+        candidate_memory_affinity = (
+            candidate_memory_items[0]["similarity"]
+            if candidate_memory_items
+            else 0.0
+        )
+        base_confidence = confidence_score(retrieved, candidate_memory_affinity)
         retrieval_shift = _retrieval_shift_score(raw_retrieval, retrieved)
-        score = base_confidence + (0.08 * retrieval_shift)
+        shift_bonus = 0.03 * retrieval_shift if base_confidence >= raw_confidence else 0.0
+        score = base_confidence + shift_bonus
         candidate = {
             "label": template["label"],
             "query": template["query"],
             "base_confidence": base_confidence,
+            "raw_memory_similarity": raw_memory_affinity,
+            "candidate_memory_similarity": candidate_memory_affinity,
+            "memory_similarity_delta": candidate_memory_affinity - raw_memory_affinity,
             "retrieval_shift_score": retrieval_shift,
+            "retrieval_shift_bonus": shift_bonus,
             "confidence": score,
             "retrieval": retrieved,
         }
@@ -594,7 +641,11 @@ def run_selective_rewrite(
                     "label": candidate["label"],
                     "query": candidate["query"],
                     "base_confidence": candidate.get("base_confidence", candidate["confidence"]),
+                    "raw_memory_similarity": candidate.get("raw_memory_similarity", 0.0),
+                    "candidate_memory_similarity": candidate.get("candidate_memory_similarity", 0.0),
+                    "memory_similarity_delta": candidate.get("memory_similarity_delta", 0.0),
                     "retrieval_shift_score": candidate.get("retrieval_shift_score", 0.0),
+                    "retrieval_shift_bonus": candidate.get("retrieval_shift_bonus", 0.0),
                     "confidence": candidate["confidence"],
                 }
                 for candidate in candidates

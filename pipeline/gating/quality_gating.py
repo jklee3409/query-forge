@@ -16,6 +16,7 @@ try:
     from common.embeddings import cosine_similarity, embed_text
     from common.experiment_config import ExperimentConfig, load_experiment_config
     from common.experiment_run import ExperimentRunRecorder
+    from common.local_retriever import get_local_text_retriever
     from common.llm_client import LlmClient, load_stage_config
     from common.prompt_assets import load_and_register_prompt
     from common.text_utils import copy_ratio, korean_ratio, special_char_ratio, token_count
@@ -25,6 +26,7 @@ except ModuleNotFoundError:  # pragma: no cover - direct module execution fallba
     from pipeline.common.embeddings import cosine_similarity, embed_text
     from pipeline.common.experiment_config import ExperimentConfig, load_experiment_config
     from pipeline.common.experiment_run import ExperimentRunRecorder
+    from pipeline.common.local_retriever import get_local_text_retriever
     from pipeline.common.llm_client import LlmClient, load_stage_config
     from pipeline.common.prompt_assets import load_and_register_prompt
     from pipeline.common.text_utils import copy_ratio, korean_ratio, special_char_ratio, token_count
@@ -402,10 +404,17 @@ def _load_chunk_items(connection: psycopg.Connection[Any]) -> tuple[list[ChunkIt
     return chunks, indexed
 
 
-def _rank_chunks(query_embedding: list[float], chunks: list[ChunkItem], top_k: int = 5) -> list[tuple[ChunkItem, float]]:
-    scored = [(chunk, cosine_similarity(query_embedding, chunk.embedding)) for chunk in chunks]
-    scored.sort(key=lambda item: item[1], reverse=True)
-    return scored[:top_k]
+def _rank_chunks(query_text: str, chunks: list[ChunkItem], top_k: int = 5) -> list[tuple[ChunkItem, float]]:
+    retriever = get_local_text_retriever(
+        namespace="gating-chunks",
+        item_ids=[chunk.chunk_id for chunk in chunks],
+        texts=[chunk.chunk_text for chunk in chunks],
+        fallback_embeddings=[chunk.embedding for chunk in chunks],
+    )
+    return [
+        (chunks[ranked.index], ranked.score)
+        for ranked in retriever.rank(query_text, top_k=top_k)
+    ]
 
 
 def _retrieval_utility_score(
@@ -418,7 +427,7 @@ def _retrieval_utility_score(
     candidate_pool_k: int,
 ) -> float:
     initial_top_k = max(10, candidate_pool_k)
-    pre_ranked = _rank_chunks(query_embedding, chunks, top_k=initial_top_k)
+    pre_ranked = _rank_chunks(query.query_text, chunks, top_k=initial_top_k)
     reranked: list[tuple[ChunkItem, float]] = []
     if pre_ranked:
         rerank_rows = reranker.rerank(

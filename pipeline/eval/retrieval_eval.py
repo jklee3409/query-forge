@@ -23,6 +23,7 @@ try:
         load_chunk_items,
         load_eval_samples,
         load_memory_items,
+        local_retriever_label,
         memory_top_n,
         retrieval_metrics,
         retrieve_top_k,
@@ -37,6 +38,7 @@ except ModuleNotFoundError:  # pragma: no cover
         load_chunk_items,
         load_eval_samples,
         load_memory_items,
+        local_retriever_label,
         memory_top_n,
         retrieval_metrics,
         retrieve_top_k,
@@ -237,7 +239,7 @@ def _evaluate_mode(
         candidate_count=config.rewrite_candidate_count,
         threshold=config.rewrite_threshold,
         retrieval_top_k=config.retrieval_top_k,
-        preset_filter=config.gating_preset if mode != "rewrite_always" else None,
+        preset_filter=config.gating_preset,
         source_gate_run_id=source_gating_run_id,
         strategy_filters=memory_strategy_filters,
         force_rewrite=force_rewrite,
@@ -522,7 +524,7 @@ def run_retrieval_eval(
                             rank,
                             None,
                             None,
-                            "hash-embedding-v1",
+                            local_retriever_label(),
                             item.score,
                             Jsonb(
                                 {

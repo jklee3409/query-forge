@@ -23,6 +23,7 @@ try:
         load_chunk_items,
         load_eval_samples,
         load_memory_items,
+        local_retriever_label,
         rerank_retrieval_candidates,
         retrieve_top_k,
         run_selective_rewrite,
@@ -37,6 +38,7 @@ except ModuleNotFoundError:  # pragma: no cover
         load_chunk_items,
         load_eval_samples,
         load_memory_items,
+        local_retriever_label,
         rerank_retrieval_candidates,
         retrieve_top_k,
         run_selective_rewrite,
@@ -347,7 +349,7 @@ def run_answer_eval(
                             rank,
                             None,
                             None,
-                            "cohere-rerank-hybrid",
+                            f"cohere-or-{local_retriever_label()}",
                             item.score,
                             Jsonb(
                                 {

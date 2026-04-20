@@ -3,6 +3,18 @@
 ## Overview
 High-level pipeline progress tracking.
 
+## [2026-04-20] Session Summary (BM25 + Local Dense Retriever)
+- What was done: Added `common/local_retriever.py` with cached BM25 + dense ranking, wired retrieval eval, answer eval, memory lookup, and gating utility scoring through it, and added CPU-oriented sentence-transformers configuration/dependency.
+- Key decisions: Default model is `intfloat/multilingual-e5-small` on CPU when `sentence-transformers` is installed; environments without it fall back to BM25 + hash embedding instead of fake Cohere scores. The retriever normalizes BM25, dense similarity, and technical-token overlap into the existing `[-1, 1]` score range.
+- Issues encountered: Current Python environment does not have `sentence-transformers`, so validation used the BM25 + hash fallback path. On `human_eval_short_user_80`, local-only metrics improved from prior hash/overlap baseline to Recall@5 `0.4750`, Hit@5 `0.5375`, MRR@10 `0.3425`, nDCG@10 `0.3811`.
+- Next steps: Install/sync `sentence-transformers` in the backend pipeline runtime and rerun A/C/D same-dataset RAG tests to measure real dense embedding contribution separately from BM25.
+
+## [2026-04-20] Session Summary (Selective Rewrite Evidence Recalibration)
+- What was done: Reworked eval runtime scoring so unavailable/erroring Cohere rerank returns no artificial scores, retrieval and memory lookup use hybrid semantic/lexical/technical-token similarity, and rewrite candidates recompute their own memory affinity before selective gating.
+- Key decisions: Removed the previous failure mode where all candidate `base_confidence` equaled raw confidence and only a capped retrieval-shift bonus affected the threshold decision. Shift now acts only as a small tie-breaker when the candidate is not weaker by evidence score.
+- Issues encountered: Full unittest discovery still hits an existing corpus import migration fixture issue unrelated to rewrite runtime; targeted `test_eval_runtime` and `test_llm_client` pass.
+- Next steps: Re-run RAG evaluation with A/C/D snapshots and inspect `memory_similarity_delta`, `retrieval_shift_bonus`, and adoption rates by mode.
+
 ## [2026-04-20] Session Summary (Memory Snapshot Isolation + Metric Corrections)
 - What was done: Updated `memory/build_memory.py` to delete stale memory rows for the active snapshot before rebuilding and store `memory_experiment_key`; retrieval/answer eval now loads memory only for the current experiment key.
 - Key decisions: Fixed answer correctness to use `eval_samples.expected_answer_key_points` instead of looking inside `dialog_context`, and changed `nDCG@10` to exact expected-chunk relevance with bounded `[0,1]` output and doc fallback only when chunk ground truth is absent.
