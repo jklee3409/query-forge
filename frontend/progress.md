@@ -3,6 +3,12 @@
 ## Overview
 High-level progress tracking for the project.
 
+## [2026-04-21] Session Summary (RAG Test Names + Fixed Retriever Presets)
+- What was done: Updated `/admin/rag-tests` with a `Test Name` input, changed default `retrieval_top_k` from `20` to `10`, and replaced editable dense/fallback/rerank retriever toggles with mode-driven fixed presets. Rebuilt the production React bundle into backend static resources.
+- Key decisions: Dense model is always read-only (`intfloat/multilingual-e5-small`); BM25/Dense/Hybrid selection now auto-applies candidate pool `50`, Cohere rerank off, hash fallback off, and mode-specific weights (`0/1/0`, `1/0/0`, `0.60/0.32/0.08`). RAG compare/history labels prefer configured test names and use stable legacy fallback names for old auto labels.
+- Issues encountered: Vite still warns about existing literal `->` option labels in `GatingPage.jsx`; build succeeds.
+- Next steps: UI-smoke named BM25/Dense/Hybrid runs and confirm compare cards/table headers use the configured names.
+
 ## [2026-04-21] Session Summary (Admin Retriever Mode Controls)
 - What was done: Added retriever mode controls to `/admin/rag-tests` and `/admin/quality-gating`, including BM25/Dense/Hybrid mode, dense model, dense-required/fallback toggles, Cohere rerank toggle, candidate pool, and fusion weights. Rebuilt the production React bundle into backend static resources.
 - Key decisions: Kept the controls close to existing retrieval/utility configuration rather than redesigning page flow. Defaults match backend/pipeline reproducibility settings: Hybrid, `intfloat/multilingual-e5-small`, dense required, fallback off, rerank on.

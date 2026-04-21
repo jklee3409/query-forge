@@ -3,6 +3,12 @@
 ## Overview
 High-level backend progress tracking.
 
+## [2026-04-21] Session Summary (RAG Test Run Names + Fixed Presets)
+- What was done: Extended `RagTestRunRequest` with `runName`, persisted it as `rag_test_run.run_label` and experiment config `run_name`, added migration `V20` to rename legacy auto-labeled RAG runs, and made Admin RAG tests resolve retriever settings through fixed mode presets.
+- Key decisions: RAG tests default `retrieval_top_k` to `10`; BM25/Dense/Hybrid now force server-side weights and flags (`candidate_pool_k=50`, Hybrid `0.60/0.32/0.08`, dense model fixed to `intfloat/multilingual-e5-small`, hash fallback off, Cohere rerank off) while leaving quality-gating's existing configurable resolver path intact.
+- Issues encountered: None.
+- Next steps: Add request-level integration coverage for `runName` persistence and fixed retriever preset normalization.
+
 ## [2026-04-21] Session Summary (Retriever Config API Wiring)
 - What was done: Added Admin Console `RetrieverConfigRequest` and wired `runGating` / `runRagTest` to write explicit retriever mode, dense model, fallback, rerank, candidate-pool, and fusion-weight settings into stage config, experiment YAML, and RAG experiment records.
 - Key decisions: Preserved existing RAG retrieval strategy mode bundling while treating BM25/Dense/Hybrid as a separate ranking-engine config. Default ranking mode is Hybrid with `intfloat/multilingual-e5-small`, dense required, hash fallback disabled, and Cohere rerank enabled.

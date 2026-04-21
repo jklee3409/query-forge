@@ -31,9 +31,10 @@ Spring Boot backend for Admin Console APIs, RAG APIs, pipeline command orchestra
 - Admin gating config supports dynamic rule-level Korean ratio thresholds via request payload (`ruleMinKoreanRatio`).
 - Admin RAG test run API supports optional snapshot binding via `sourceGatingBatchId` and validates it into fixed `source_gating_run_id`.
 - Admin RAG test run API supports `syntheticFreeBaseline` exploratory mode (synthetic-free baseline), forcing raw-only evaluation semantics without snapshot/method selection.
+- Admin RAG test run API accepts `runName` and persists it as `rag_test_run.run_label` plus experiment config `run_name`; migration `V20` assigns legacy auto-labeled RAG runs stable `Legacy RAG Test ###` names.
 - Synthetic-backed Admin RAG test configs include `raw_only`, `memory_only_gated`, `rewrite_always`, and the selected selective rewrite mode for same-dataset comparison; `rewrite_threshold` defaults to `0.10`.
 - Admin gating and RAG test APIs accept explicit retriever ranking config (`RetrieverConfigRequest`) for BM25 Only, Dense Only, and Hybrid ranking, persisted into generated experiment YAML and RAG experiment records.
-- Generated retriever configs default to Hybrid + `intfloat/multilingual-e5-small`, with dense required and hash fallback disabled unless the operator explicitly enables fallback.
+- Admin RAG test retriever configs are normalized server-side by mode: BM25 (`0/1/0`), Dense (`1/0/0`), Hybrid (`0.60/0.32/0.08`), candidate pool `50`, fixed dense model `intfloat/multilingual-e5-small`, dense required for Dense/Hybrid, hash fallback off, and Cohere rerank off for clean mode comparison. Quality-gating keeps its existing configurable retriever request path.
 - `RagService.ask` and `previewRewrite` now build rewrite candidates from prompt assets (`selective_rewrite_v2` preferred, `v1` fallback) via env-driven Gemini/OpenAI calls with heuristic fallback.
 - Official RAG comparison runs enforce explicit snapshot identities and bundled conditions by comparison axis (`officialRun` + `officialComparisonType`).
 - Official runs persist normalized reproducibility records in `rag_eval_experiment_record` (snapshot, strategy, gating/retrieval/rewrite config, dataset version, timestamp, metrics).

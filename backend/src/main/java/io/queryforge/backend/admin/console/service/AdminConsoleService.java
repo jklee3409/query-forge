@@ -52,6 +52,15 @@ public class AdminConsoleService {
     private static final String RETRIEVER_MODE_DENSE_ONLY = "dense_only";
     private static final String RETRIEVER_MODE_HYBRID = "hybrid";
     private static final String DEFAULT_DENSE_EMBEDDING_MODEL = "intfloat/multilingual-e5-small";
+    private static final double DEFAULT_HYBRID_DENSE_WEIGHT = 0.58d;
+    private static final double DEFAULT_HYBRID_BM25_WEIGHT = 0.34d;
+    private static final double DEFAULT_HYBRID_TECHNICAL_WEIGHT = 0.08d;
+    private static final int DEFAULT_RAG_RETRIEVAL_TOP_K = 10;
+    private static final int DEFAULT_RETRIEVER_CANDIDATE_POOL_K = 50;
+    private static final double DEFAULT_RAG_HYBRID_DENSE_WEIGHT = 0.60d;
+    private static final double DEFAULT_RAG_HYBRID_BM25_WEIGHT = 0.32d;
+    private static final double DEFAULT_RAG_HYBRID_TECHNICAL_WEIGHT = 0.08d;
+    private static final int MAX_RAG_RUN_LABEL_LENGTH = 120;
     private static final ZoneId KOREA_ZONE_ID = ZoneId.of("Asia/Seoul");
     private static final DateTimeFormatter RUN_LABEL_TIME_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")
             .withZone(KOREA_ZONE_ID);
@@ -420,9 +429,15 @@ public class AdminConsoleService {
         boolean rewriteEnabled = request.rewriteEnabled() == null || request.rewriteEnabled();
         boolean selectiveRewrite = request.selectiveRewrite() == null || request.selectiveRewrite();
         boolean useSessionContext = request.useSessionContext() != null && request.useSessionContext();
-        int retrievalTopK = request.retrievalTopK() != null && request.retrievalTopK() > 0 ? request.retrievalTopK() : 20;
+        int retrievalTopK = request.retrievalTopK() != null && request.retrievalTopK() > 0
+                ? request.retrievalTopK()
+                : DEFAULT_RAG_RETRIEVAL_TOP_K;
         int rerankTopN = request.rerankTopN() != null && request.rerankTopN() > 0 ? request.rerankTopN() : 5;
-        Map<String, Object> retrieverConfig = resolveRetrieverConfig(request.retrieverConfig());
+        Map<String, Object> retrieverConfig = resolveRetrieverConfig(request.retrieverConfig(), true);
+        String runLabel = resolveRagRunLabel(
+                request.runName(),
+                String.valueOf(retrieverConfig.get("retriever_mode"))
+        );
         double threshold = request.threshold() != null ? request.threshold() : 0.10d;
         String stageCutoffLevel = normalizeStageCutoffLevel(request.stageCutoffLevel(), gatingPreset);
 
@@ -523,7 +538,7 @@ public class AdminConsoleService {
         JsonNode methodCodesNode = objectMapper.valueToTree(methodCodes);
         JsonNode batchIdsNode = objectMapper.valueToTree(batchIds);
         UUID runId = repository.createRagTestRun(
-                "RAG 테스트 " + RUN_LABEL_TIME_FORMATTER.format(Instant.now()),
+                runLabel,
                 request.datasetId(),
                 methodCodesNode,
                 batchIdsNode,
@@ -544,6 +559,7 @@ public class AdminConsoleService {
                 experimentName,
                 syntheticFreeBaseline ? SYNTHETIC_FREE_BASELINE_METHOD : methodCodes.getFirst()
         );
+        config.put("run_name", runLabel);
         config.put("dataset_id", request.datasetId().toString());
         config.put("memory_generation_strategies", methodCodes);
         config.put("source_generation_strategies", methodCodes);
@@ -821,6 +837,21 @@ public class AdminConsoleService {
         return "";
     }
 
+    private String resolveRagRunLabel(String requestedRunName, String retrieverMode) {
+        String normalized = blankToNull(requestedRunName);
+        if (normalized != null) {
+            if (normalized.length() > MAX_RAG_RUN_LABEL_LENGTH) {
+                throw new IllegalArgumentException("run_name must be at most " + MAX_RAG_RUN_LABEL_LENGTH + " characters");
+            }
+            return normalized;
+        }
+        String mode = blankToNull(retrieverMode);
+        if (mode == null) {
+            mode = RETRIEVER_MODE_HYBRID;
+        }
+        return "RAG " + mode + " " + RUN_LABEL_TIME_FORMATTER.format(Instant.now());
+    }
+
     private List<String> resolveRetrievalModes(boolean rewriteEnabled, boolean selectiveRewrite, boolean useSessionContext) {
         if (!rewriteEnabled) {
             return List.of("raw_only");
@@ -835,30 +866,48 @@ public class AdminConsoleService {
     }
 
     private Map<String, Object> resolveRetrieverConfig(AdminConsoleDtos.RetrieverConfigRequest request) {
+        return resolveRetrieverConfig(request, false);
+    }
+
+    private Map<String, Object> resolveRetrieverConfig(
+            AdminConsoleDtos.RetrieverConfigRequest request,
+            boolean fixedModePreset
+    ) {
         String mode = normalizeRetrieverMode(request == null ? null : request.retrieverMode());
-        String denseModel = request == null || request.denseEmbeddingModel() == null || request.denseEmbeddingModel().isBlank()
-                ? DEFAULT_DENSE_EMBEDDING_MODEL
-                : request.denseEmbeddingModel().trim();
-        boolean denseRequired = request == null || request.denseEmbeddingRequired() == null
-                ? !RETRIEVER_MODE_BM25_ONLY.equals(mode)
-                : request.denseEmbeddingRequired();
+        String denseModel;
+        if (fixedModePreset || request == null || request.denseEmbeddingModel() == null || request.denseEmbeddingModel().isBlank()) {
+            denseModel = DEFAULT_DENSE_EMBEDDING_MODEL;
+        } else {
+            denseModel = request.denseEmbeddingModel().trim();
+        }
+        boolean denseRequired;
+        if (fixedModePreset || request == null || request.denseEmbeddingRequired() == null) {
+            denseRequired = !RETRIEVER_MODE_BM25_ONLY.equals(mode);
+        } else {
+            denseRequired = request.denseEmbeddingRequired();
+        }
         if (RETRIEVER_MODE_BM25_ONLY.equals(mode)) {
             denseRequired = false;
         }
-        boolean denseFallbackEnabled = request != null && Boolean.TRUE.equals(request.denseFallbackEnabled());
-        boolean rerankEnabled = request == null || request.rerankEnabled() == null || request.rerankEnabled();
-        int candidatePoolK = request == null || request.candidatePoolK() == null
-                ? 50
+        boolean denseFallbackEnabled = !fixedModePreset && request != null && Boolean.TRUE.equals(request.denseFallbackEnabled());
+        boolean rerankEnabled = fixedModePreset
+                ? false
+                : request == null || request.rerankEnabled() == null || request.rerankEnabled();
+        int candidatePoolK = fixedModePreset || request == null || request.candidatePoolK() == null
+                ? DEFAULT_RETRIEVER_CANDIDATE_POOL_K
                 : clampRange(request.candidatePoolK(), 1, 500, "retriever_candidate_pool_k");
 
-        double denseWeight = request == null || request.denseWeight() == null
-                ? 0.58d
+        double defaultDenseWeight = fixedModePreset ? DEFAULT_RAG_HYBRID_DENSE_WEIGHT : DEFAULT_HYBRID_DENSE_WEIGHT;
+        double defaultBm25Weight = fixedModePreset ? DEFAULT_RAG_HYBRID_BM25_WEIGHT : DEFAULT_HYBRID_BM25_WEIGHT;
+        double defaultTechnicalWeight = fixedModePreset ? DEFAULT_RAG_HYBRID_TECHNICAL_WEIGHT : DEFAULT_HYBRID_TECHNICAL_WEIGHT;
+        double denseWeight = fixedModePreset || request == null || request.denseWeight() == null
+                ? defaultDenseWeight
                 : clampRange(request.denseWeight(), 0.0d, 1.0d, "retriever_dense_weight");
-        double bm25Weight = request == null || request.bm25Weight() == null
-                ? 0.34d
+        double bm25Weight = fixedModePreset || request == null || request.bm25Weight() == null
+                ? defaultBm25Weight
                 : clampRange(request.bm25Weight(), 0.0d, 1.0d, "retriever_bm25_weight");
-        double technicalWeight = request == null || request.technicalWeight() == null
-                ? 0.08d
+        double technicalWeight = fixedModePreset || request == null || request.technicalWeight() == null
+                ? defaultTechnicalWeight
                 : clampRange(request.technicalWeight(), 0.0d, 1.0d, "retriever_technical_weight");
         if (RETRIEVER_MODE_BM25_ONLY.equals(mode)) {
             denseWeight = 0.0d;
@@ -871,9 +920,9 @@ public class AdminConsoleService {
         } else {
             double sum = denseWeight + bm25Weight + technicalWeight;
             if (sum <= 0.0d) {
-                denseWeight = 0.58d;
-                bm25Weight = 0.34d;
-                technicalWeight = 0.08d;
+                denseWeight = defaultDenseWeight;
+                bm25Weight = defaultBm25Weight;
+                technicalWeight = defaultTechnicalWeight;
             } else {
                 denseWeight = denseWeight / sum;
                 bm25Weight = bm25Weight / sum;
@@ -1198,7 +1247,7 @@ public class AdminConsoleService {
         config.put("memory_top_n", 5);
         config.put("rewrite_candidate_count", 3);
         config.put("rewrite_threshold", 0.10);
-        config.put("retrieval_top_k", 20);
+        config.put("retrieval_top_k", DEFAULT_RAG_RETRIEVAL_TOP_K);
         config.put("rerank_top_n", 5);
         config.put("use_session_context", false);
         config.put("avg_queries_per_chunk", 2.0);

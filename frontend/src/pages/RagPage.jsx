@@ -4,6 +4,47 @@ import { LlmJobsTable } from '../components/LlmJobsTable.jsx'
 import { requestJson, toNumber } from '../lib/api.js'
 import { fmtTime, shortId } from '../lib/format.js'
 
+const FIXED_DENSE_EMBEDDING_MODEL = 'intfloat/multilingual-e5-small'
+
+const RETRIEVER_MODE_PRESETS = {
+  bm25_only: {
+    denseEmbeddingRequired: false,
+    denseFallbackEnabled: false,
+    retrieverRerankEnabled: false,
+    retrieverCandidatePoolK: '50',
+    retrieverDenseWeight: '0.00',
+    retrieverBm25Weight: '1.00',
+    retrieverTechnicalWeight: '0.00',
+  },
+  dense_only: {
+    denseEmbeddingRequired: true,
+    denseFallbackEnabled: false,
+    retrieverRerankEnabled: false,
+    retrieverCandidatePoolK: '50',
+    retrieverDenseWeight: '1.00',
+    retrieverBm25Weight: '0.00',
+    retrieverTechnicalWeight: '0.00',
+  },
+  hybrid: {
+    denseEmbeddingRequired: true,
+    denseFallbackEnabled: false,
+    retrieverRerankEnabled: false,
+    retrieverCandidatePoolK: '50',
+    retrieverDenseWeight: '0.60',
+    retrieverBm25Weight: '0.32',
+    retrieverTechnicalWeight: '0.08',
+  },
+}
+
+function retrieverPresetForMode(mode) {
+  const normalizedMode = RETRIEVER_MODE_PRESETS[mode] ? mode : 'hybrid'
+  return {
+    retrieverMode: normalizedMode,
+    denseEmbeddingModel: FIXED_DENSE_EMBEDDING_MODEL,
+    ...RETRIEVER_MODE_PRESETS[normalizedMode],
+  }
+}
+
 const RETRIEVAL_METRIC_DEFS = [
   { key: 'recall_at_5', label: 'Recall@5', max: 1, precision: 3, trend: 'higher', priority: 'core' },
   { key: 'hit_at_5', label: 'Hit@5', max: 1, precision: 3, trend: 'higher', priority: 'core' },
@@ -58,13 +99,6 @@ const KPI_METRIC_KEYS = new Set([
   'latency_avg_ms',
   'latency_p95_ms',
 ])
-
-const METRIC_OUTCOME_LABEL = {
-  right: 'B Better',
-  left: 'A Better',
-  tie: 'No Change',
-  na: 'No Data',
-}
 
 const METRIC_TREND_LABEL = {
   higher: 'Higher is better',
@@ -574,11 +608,11 @@ function buildDeltaInterpretation(row) {
   }
 }
 
-function buildResultLabel(row) {
+function buildResultLabel(row, leftLabel = 'A', rightLabel = 'B') {
   if (!row || row.outcome === 'na') return { main: 'Not Comparable', sub: 'Check source metrics' }
   if (row.outcome === 'tie') return { main: 'No Change', sub: METRIC_TREND_LABEL[row.trend] || '' }
-  if (row.outcome === 'right') return { main: 'Run B Better', sub: METRIC_TREND_LABEL[row.trend] || '' }
-  return { main: 'Run A Better', sub: METRIC_TREND_LABEL[row.trend] || '' }
+  if (row.outcome === 'right') return { main: compareOutcomeLabel(row.outcome, leftLabel, rightLabel), sub: METRIC_TREND_LABEL[row.trend] || '' }
+  return { main: compareOutcomeLabel(row.outcome, leftLabel, rightLabel), sub: METRIC_TREND_LABEL[row.trend] || '' }
 }
 
 function summarizeGroupRows(rows) {
@@ -613,20 +647,29 @@ function formatRunIdForTable(value) {
   return `${raw.slice(0, 8)}...${raw.slice(-8)}`
 }
 
+function isGeneratedRagRunLabel(value) {
+  const raw = String(value || '').trim()
+  if (!raw) return true
+  return /^RAG\s*테스트\s+/i.test(raw)
+}
+
 function resolveCompareRunPrimaryLabel(run, fallbackTitle) {
   const runLabelRaw = String(run?.runLabel || '').trim()
-  let normalizedRunLabel = runLabelRaw
-  if (runLabelRaw.toLowerCase().startsWith('rag') && runLabelRaw.includes('T')) {
-    const isoCandidate = runLabelRaw.replace(/^RAG\s*테스트\s*/i, '').trim()
-    const formatted = fmtTime(isoCandidate)
-    if (formatted !== '-' && formatted !== isoCandidate) {
-      normalizedRunLabel = `RAG 테스트 ${formatted}`
-    }
+  if (runLabelRaw && !isGeneratedRagRunLabel(runLabelRaw)) {
+    return compactText(runLabelRaw, 40)
   }
-  const runLabel = compactText(normalizedRunLabel, 40)
-  if (runLabel !== '-') return runLabel
+  if (run?.ragTestRunId) {
+    return compactText(`Legacy RAG Test ${shortId(run.ragTestRunId)}`, 40)
+  }
   const methodLabel = compactText(formatGenerationMethodLabel(run?.generationMethodCodes), 40)
   return methodLabel === '-' ? fallbackTitle : methodLabel
+}
+
+function compareOutcomeLabel(outcome, leftLabel = 'A', rightLabel = 'B') {
+  if (outcome === 'right') return `${compactText(rightLabel, 24)} Better`
+  if (outcome === 'left') return `${compactText(leftLabel, 24)} Better`
+  if (outcome === 'tie') return 'No Change'
+  return 'No Data'
 }
 
 function resolveCompareRunSecondaryLabel(run) {
@@ -758,6 +801,7 @@ export function RagPage({ notify }) {
 
   const [form, setForm] = useState({
     datasetId: '',
+    runName: '',
     runDiscipline: 'exploratory',
     officialComparisonType: 'rewrite_effect',
     gatingPreset: 'full_gating',
@@ -766,17 +810,9 @@ export function RagPage({ notify }) {
     officialGatingRuleOnlyBatchId: '',
     officialGatingFullGatingBatchId: '',
     threshold: '0.10',
-    retrievalTopK: '20',
+    retrievalTopK: '10',
     rerankTopN: '5',
-    retrieverMode: 'hybrid',
-    denseEmbeddingModel: 'intfloat/multilingual-e5-small',
-    denseEmbeddingRequired: true,
-    denseFallbackEnabled: false,
-    retrieverRerankEnabled: true,
-    retrieverCandidatePoolK: '50',
-    retrieverDenseWeight: '0.58',
-    retrieverBm25Weight: '0.34',
-    retrieverTechnicalWeight: '0.08',
+    ...retrieverPresetForMode('hybrid'),
     syntheticFreeBaseline: false,
     gatingApplied: true,
     stageCutoffEnabled: false,
@@ -1071,6 +1107,7 @@ export function RagPage({ notify }) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           datasetId: form.datasetId,
+          runName: form.runName || null,
           methodCodes: syntheticFreeBaseline ? [] : methodCodesForRun,
           syntheticFreeBaseline,
           gatingPreset: runGatingPreset,
@@ -1257,19 +1294,23 @@ export function RagPage({ notify }) {
 
   const compareRuns = useMemo(() => compareRunIds.map((id) => tests.find((run) => run.ragTestRunId === id)).filter(Boolean), [compareRunIds, tests])
   const compareRunMeta = useMemo(
-    () => compareRuns.map((run, index) => ({
-      key: index === 0 ? 'a' : 'b',
-      slot: index === 0 ? 'A' : 'B',
-      title: index === 0 ? 'Run A' : 'Run B',
-      shortId: shortId(run.ragTestRunId),
-      fullId: run.ragTestRunId,
-      tableId: formatRunIdForTable(run.ragTestRunId),
-      tableLabel: resolveCompareRunPrimaryLabel(run, index === 0 ? 'Run A' : 'Run B'),
-      tableSubLabel: resolveCompareRunSecondaryLabel(run),
-      datasetName: run.datasetName || '-',
-      methodLabel: formatGenerationMethodLabel(run.generationMethodCodes),
-      finishedAt: fmtTime(run.finishedAt || run.startedAt),
-    })),
+    () => compareRuns.map((run, index) => {
+      const slot = index === 0 ? 'A' : 'B'
+      const displayName = resolveCompareRunPrimaryLabel(run, `RAG Test ${slot}`)
+      return {
+        key: index === 0 ? 'a' : 'b',
+        slot,
+        title: displayName,
+        shortId: shortId(run.ragTestRunId),
+        fullId: run.ragTestRunId,
+        tableId: formatRunIdForTable(run.ragTestRunId),
+        tableLabel: displayName,
+        tableSubLabel: resolveCompareRunSecondaryLabel(run),
+        datasetName: run.datasetName || '-',
+        methodLabel: formatGenerationMethodLabel(run.generationMethodCodes),
+        finishedAt: fmtTime(run.finishedAt || run.startedAt),
+      }
+    }),
     [compareRuns],
   )
   const compareMetricGroups = useMemo(() => {
@@ -1314,9 +1355,11 @@ export function RagPage({ notify }) {
   const compareTableGroups = useMemo(() => compareMetricGroups.map((group) => {
     const rows = [...group.rows].sort(compareTableRowSorter)
     const outcomeSummary = summarizeGroupRows(rows)
+    const leftLabel = compareRunMeta[0]?.tableLabel || 'A'
+    const rightLabel = compareRunMeta[1]?.tableLabel || 'B'
     const summaryParts = [
-      `Run B better ${outcomeSummary.right}`,
-      `Run A better ${outcomeSummary.left}`,
+      `${compactText(rightLabel, 24)} better ${outcomeSummary.right}`,
+      `${compactText(leftLabel, 24)} better ${outcomeSummary.left}`,
       `No change ${outcomeSummary.tie}`,
     ]
     if (outcomeSummary.na > 0) {
@@ -1328,11 +1371,15 @@ export function RagPage({ notify }) {
       outcomeSummary,
       summaryLabel: summaryParts.join(' | '),
     }
-  }), [compareMetricGroups])
+  }), [compareMetricGroups, compareRunMeta])
   const compareSummary = useMemo(() => {
     if (compareMetricRows.length === 0 || compareRunMeta.length !== 2) return null
     const comparableRows = compareMetricRows.filter((row) => row.outcome !== 'na')
     if (comparableRows.length === 0) return null
+    const leftLabel = compareRunMeta[0]?.tableLabel || 'A'
+    const rightLabel = compareRunMeta[1]?.tableLabel || 'B'
+    const compactLeftLabel = compactText(leftLabel, 28)
+    const compactRightLabel = compactText(rightLabel, 28)
     let scoreA = 0
     let scoreB = 0
     for (const row of comparableRows) {
@@ -1354,35 +1401,35 @@ export function RagPage({ notify }) {
     const avgLatencyInsight = avgLatencyRow ? buildWorkspaceChangeInsight(avgLatencyRow) : null
     const p95LatencyInsight = p95LatencyRow ? buildWorkspaceChangeInsight(p95LatencyRow) : null
     const headline = overallWinner === 'tie'
-      ? `No clear winner. Weighted score A ${scoreA} : B ${scoreB}.`
+      ? `No clear winner. Weighted score ${compactLeftLabel} ${scoreA} : ${compactRightLabel} ${scoreB}.`
       : overallWinner === 'right'
-      ? `Run B is ahead in weighted KPI score (${scoreB} vs ${scoreA}).`
-      : `Run A is ahead in weighted KPI score (${scoreA} vs ${scoreB}).`
+      ? `${compactRightLabel} is ahead in weighted KPI score (${scoreB} vs ${scoreA}).`
+      : `${compactLeftLabel} is ahead in weighted KPI score (${scoreA} vs ${scoreB}).`
     return {
       headline,
       cards: [
         {
           label: 'Overall Winner',
-          value: overallWinner === 'tie' ? 'Tie' : overallWinner === 'right' ? 'Run B' : 'Run A',
-          meta: `Weighted score A ${scoreA} / B ${scoreB}`,
+          value: overallWinner === 'tie' ? 'Tie' : overallWinner === 'right' ? compactRightLabel : compactLeftLabel,
+          meta: `Weighted score ${compactLeftLabel} ${scoreA} / ${compactRightLabel} ${scoreB}`,
         },
         {
           label: 'Retrieval Core Delta',
           value: retrievalDelta == null ? '-' : formatDelta(retrievalDelta, { precision: 3 }),
-          meta: retrievalDelta == null ? 'No comparable data' : `B vs A (${formatDeltaRate(retrievalDeltaRate)})`,
+          meta: retrievalDelta == null ? 'No comparable data' : `${compactRightLabel} vs ${compactLeftLabel} (${formatDeltaRate(retrievalDeltaRate)})`,
         },
         {
           label: 'Representative Avg Latency',
           value: avgLatencyInsight ? avgLatencyInsight.summary : '-',
           meta: avgLatencyInsight
-            ? `${avgLatencyInsight.detail} | ${METRIC_OUTCOME_LABEL[avgLatencyRow.outcome]}`
+            ? `${avgLatencyInsight.detail} | ${compareOutcomeLabel(avgLatencyRow.outcome, compactLeftLabel, compactRightLabel)}`
             : 'No comparable data',
         },
         {
           label: 'Representative P95 Latency',
           value: p95LatencyInsight ? p95LatencyInsight.summary : '-',
           meta: p95LatencyInsight
-            ? `${p95LatencyInsight.detail} | ${METRIC_OUTCOME_LABEL[p95LatencyRow.outcome]}`
+            ? `${p95LatencyInsight.detail} | ${compareOutcomeLabel(p95LatencyRow.outcome, compactLeftLabel, compactRightLabel)}`
             : 'No comparable data',
         },
       ],
@@ -1430,6 +1477,15 @@ export function RagPage({ notify }) {
                 {datasets.map((dataset) => <option key={dataset.datasetId} value={dataset.datasetId}>{dataset.datasetName} ({dataset.totalItems})</option>)}
               </select>
               <span className="field-hint">테스트 입력 샘플 집합입니다.</span>
+            </label>
+            <label className="filter-field">Test Name
+              <input
+                value={form.runName}
+                maxLength={120}
+                placeholder="Dense Hybrid v1"
+                onChange={(event) => setForm((prev) => ({ ...prev, runName: event.target.value }))}
+              />
+              <span className="field-hint">run_label</span>
             </label>
             <label className="filter-field">Run Discipline
               <select
@@ -1607,7 +1663,7 @@ export function RagPage({ notify }) {
 
           <div className="form-grid form-grid--3">
             <label className="filter-field filter-field--small">Retriever Mode
-              <select value={form.retrieverMode} onChange={(event) => setForm((prev) => ({ ...prev, retrieverMode: event.target.value, denseEmbeddingRequired: event.target.value === 'bm25_only' ? false : prev.denseEmbeddingRequired }))}>
+              <select value={form.retrieverMode} onChange={(event) => setForm((prev) => ({ ...prev, ...retrieverPresetForMode(event.target.value) }))}>
                 <option value="bm25_only">BM25 Only</option>
                 <option value="dense_only">Dense Only</option>
                 <option value="hybrid">Hybrid</option>
@@ -1617,42 +1673,27 @@ export function RagPage({ notify }) {
             <label className="filter-field">Dense Model
               <input
                 value={form.denseEmbeddingModel}
-                disabled={form.retrieverMode === 'bm25_only'}
-                onChange={(event) => setForm((prev) => ({ ...prev, denseEmbeddingModel: event.target.value }))}
+                disabled
+                readOnly
               />
               <span className="field-hint">intfloat/multilingual-e5-small</span>
             </label>
             <label className="filter-field filter-field--small">Candidate Pool
-              <input type="number" min="1" value={form.retrieverCandidatePoolK} onChange={(event) => setForm((prev) => ({ ...prev, retrieverCandidatePoolK: event.target.value }))} />
+              <input type="number" min="1" value={form.retrieverCandidatePoolK} disabled readOnly />
               <span className="field-hint">local rank 후보 풀 크기</span>
             </label>
             <label className="filter-field filter-field--small">Dense Weight
-              <input type="number" min="0" max="1" step="0.01" value={form.retrieverDenseWeight} disabled={form.retrieverMode !== 'hybrid'} onChange={(event) => setForm((prev) => ({ ...prev, retrieverDenseWeight: event.target.value }))} />
+              <input type="number" min="0" max="1" step="0.01" value={form.retrieverDenseWeight} disabled readOnly />
             </label>
             <label className="filter-field filter-field--small">BM25 Weight
-              <input type="number" min="0" max="1" step="0.01" value={form.retrieverBm25Weight} disabled={form.retrieverMode !== 'hybrid'} onChange={(event) => setForm((prev) => ({ ...prev, retrieverBm25Weight: event.target.value }))} />
+              <input type="number" min="0" max="1" step="0.01" value={form.retrieverBm25Weight} disabled readOnly />
             </label>
             <label className="filter-field filter-field--small">Technical Weight
-              <input type="number" min="0" max="1" step="0.01" value={form.retrieverTechnicalWeight} disabled={form.retrieverMode !== 'hybrid'} onChange={(event) => setForm((prev) => ({ ...prev, retrieverTechnicalWeight: event.target.value }))} />
+              <input type="number" min="0" max="1" step="0.01" value={form.retrieverTechnicalWeight} disabled readOnly />
             </label>
           </div>
 
           <div className="checkbox-row">
-            <label className={`check-pill ${form.denseEmbeddingRequired ? 'is-active' : ''} ${form.retrieverMode === 'bm25_only' ? 'is-disabled' : ''}`}>
-              <input type="checkbox" checked={form.denseEmbeddingRequired} disabled={form.retrieverMode === 'bm25_only'} onChange={(event) => setForm((prev) => ({ ...prev, denseEmbeddingRequired: event.target.checked }))} />
-              <span className="check-pill__box" aria-hidden="true">{form.denseEmbeddingRequired ? '✓' : ''}</span>
-              <span className="check-pill__text">Dense required</span>
-            </label>
-            <label className={`check-pill ${form.denseFallbackEnabled ? 'is-active' : ''} ${form.retrieverMode === 'bm25_only' ? 'is-disabled' : ''}`}>
-              <input type="checkbox" checked={form.denseFallbackEnabled} disabled={form.retrieverMode === 'bm25_only'} onChange={(event) => setForm((prev) => ({ ...prev, denseFallbackEnabled: event.target.checked }))} />
-              <span className="check-pill__box" aria-hidden="true">{form.denseFallbackEnabled ? '✓' : ''}</span>
-              <span className="check-pill__text">Hash fallback</span>
-            </label>
-            <label className={`check-pill ${form.retrieverRerankEnabled ? 'is-active' : ''}`}>
-              <input type="checkbox" checked={form.retrieverRerankEnabled} onChange={(event) => setForm((prev) => ({ ...prev, retrieverRerankEnabled: event.target.checked }))} />
-              <span className="check-pill__box" aria-hidden="true">{form.retrieverRerankEnabled ? '✓' : ''}</span>
-              <span className="check-pill__text">Cohere rerank</span>
-            </label>
             <label className={`check-pill ${form.syntheticFreeBaseline ? 'is-active' : ''}`}>
               <input type="checkbox" checked={form.syntheticFreeBaseline} onChange={(event) => setForm((prev) => ({ ...prev, syntheticFreeBaseline: event.target.checked }))} />
               <span className="check-pill__box" aria-hidden="true">{form.syntheticFreeBaseline ? '✓' : ''}</span>
@@ -1715,7 +1756,7 @@ export function RagPage({ notify }) {
                   <article key={run.key} className={`compare-run-card compare-run-card--${run.key}`}>
                     <div className="compare-run-card__title-row">
                       <span className={`compare-run-dot compare-run-dot--${run.key}`} aria-hidden="true" />
-                      <span className="compare-run-card__tag">{run.title}</span>
+                      <span className="compare-run-card__tag">{run.slot}</span>
                     </div>
                     <div className="compare-run-card__name" title={run.tableLabel}>{run.tableLabel}</div>
                     <div className="compare-run-card__id" title={run.fullId}>{run.tableId}</div>
@@ -1759,6 +1800,8 @@ export function RagPage({ notify }) {
                       const changeInsight = buildWorkspaceChangeInsight(row)
                       const leftLeadingClass = row.outcome === 'left' ? 'is-leading' : ''
                       const rightLeadingClass = row.outcome === 'right' ? 'is-leading' : ''
+                      const leftRunLabel = compareRunMeta[0]?.tableLabel || 'A'
+                      const rightRunLabel = compareRunMeta[1]?.tableLabel || 'B'
                       return (
                         <article
                           key={row.key}
@@ -1773,7 +1816,7 @@ export function RagPage({ notify }) {
                             <div className="compare-metric-card__title">{row.label}</div>
                             <div className="compare-metric-card__badges">
                               {row.priority === 'core' && <span className="metric-chip metric-chip--core">Core KPI</span>}
-                              <span className={`metric-chip metric-chip--${row.outcome}`}>{METRIC_OUTCOME_LABEL[row.outcome]}</span>
+                              <span className={`metric-chip metric-chip--${row.outcome}`}>{compareOutcomeLabel(row.outcome, leftRunLabel, rightRunLabel)}</span>
                             </div>
                           </div>
                           <div className="compare-metric-card__hint">{METRIC_TREND_LABEL[row.trend] || METRIC_TREND_LABEL.higher}</div>
@@ -1836,13 +1879,13 @@ export function RagPage({ notify }) {
                 <tr>
                   <th className="compare-data-table__metric-col">Metric</th>
                   <th className="compare-data-table__run-col">
-                    <span>{compareRunMeta[0].title}</span>
+                    <span>{compareRunMeta[0].slot}</span>
                     <strong title={compareRunMeta[0].tableLabel}>{compareRunMeta[0].tableLabel}</strong>
                     <small className="compare-data-table__run-sub" title={compareRunMeta[0].tableSubLabel}>{compareRunMeta[0].tableSubLabel}</small>
                     <small className="compare-data-table__run-id" title={compareRunMeta[0].fullId}>{compareRunMeta[0].tableId}</small>
                   </th>
                   <th className="compare-data-table__run-col">
-                    <span>{compareRunMeta[1].title}</span>
+                    <span>{compareRunMeta[1].slot}</span>
                     <strong title={compareRunMeta[1].tableLabel}>{compareRunMeta[1].tableLabel}</strong>
                     <small className="compare-data-table__run-sub" title={compareRunMeta[1].tableSubLabel}>{compareRunMeta[1].tableSubLabel}</small>
                     <small className="compare-data-table__run-id" title={compareRunMeta[1].fullId}>{compareRunMeta[1].tableId}</small>
@@ -1866,7 +1909,7 @@ export function RagPage({ notify }) {
                     const leftValue = formatTableMetricValue(row.left, row)
                     const rightValue = formatTableMetricValue(row.right, row)
                     const deltaInfo = buildDeltaInterpretation(row)
-                    const resultInfo = buildResultLabel(row)
+                    const resultInfo = buildResultLabel(row, compareRunMeta[0]?.tableLabel, compareRunMeta[1]?.tableLabel)
                     const trendLabel = METRIC_TREND_LABEL[row.trend] || METRIC_TREND_LABEL.higher
                     return (
                       <tr
@@ -1978,7 +2021,7 @@ export function RagPage({ notify }) {
                       </label>
                     </td>
                     <td className="run-history-exec">
-                      <div className="run-history-exec__title" title={run.runLabel || run.ragTestRunId}>
+                      <div className="run-history-exec__title" title={resolveCompareRunPrimaryLabel(run, 'RAG Test')}>
                         {resolveCompareRunPrimaryLabel(run, 'RAG Test')}
                       </div>
                       <div className="run-history-exec__meta">{resolveCompareRunSecondaryLabel(run)}</div>

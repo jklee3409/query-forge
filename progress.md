@@ -3,6 +3,12 @@
 ## Overview
 High-level progress tracking for the project.
 
+## [2026-04-21] Session Summary (RAG Test Presets + Run Names)
+- What was done: Updated `/admin/rag-tests` so retriever mode drives fixed RAG presets, added operator-provided RAG test names through the Admin API, backfilled legacy default RAG labels, and rebuilt the bundled React asset.
+- Key decisions: RAG tests now force `intfloat/multilingual-e5-small`, disable hash fallback and Cohere rerank for clean BM25/Dense/Hybrid comparisons, use Hybrid weights `0.60/0.32/0.08`, candidate pool `50`, and default `retrieval_top_k=10`.
+- Issues encountered: Vite still emits the existing `GatingPage.jsx` literal `->` JSX warnings, but build completes.
+- Next steps: Run one named BM25, Dense, and Hybrid RAG test on the same dataset/snapshot and compare run-name-labeled results.
+
 ## [2026-04-21] Session Summary (Retriever Mode Separation + Admin Controls)
 - What was done: Implemented BM25 Only, Dense Only, and Hybrid local retrieval modes across quality gating utility scoring, eval retrieval, answer eval, memory lookup, and rewrite candidate evaluation. Added explicit retriever config propagation from Admin GUI/API into experiment YAML and refreshed the bundled admin React asset.
 - Key decisions: Kept existing RAG strategy modes (`raw_only`, `memory_only_*`, `rewrite_*`) separate from the new ranking-engine mode. Dense/Hybrid now default to `intfloat/multilingual-e5-small` and only use hash fallback when `dense_fallback_enabled=true` is explicitly configured.
