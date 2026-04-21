@@ -173,7 +173,12 @@ def _evaluate_mode(
     comparison_source_runs: dict[str, str],
 ) -> tuple[dict[str, float], dict[str, Any], list[Any]]:
     if mode == "raw_only":
-        retrieval = retrieve_top_k(sample.query_text, chunks, top_k=config.retrieval_top_k)
+        retrieval = retrieve_top_k(
+            sample.query_text,
+            chunks,
+            top_k=config.retrieval_top_k,
+            retriever_config=config.retriever_config,
+        )
         rewrite_info = {
             "rewrite_applied": False,
             "raw_confidence": 0.0,
@@ -206,9 +211,15 @@ def _evaluate_mode(
             preset_filter=preset_filter,
             source_gate_run_id=source_run_filter,
             strategy_filters=memory_strategy_filters,
+            retriever_config=config.retriever_config,
         )
         final_query = top_memory[0]["query_text"] if top_memory else sample.query_text
-        retrieval = retrieve_top_k(final_query, chunks, top_k=config.retrieval_top_k)
+        retrieval = retrieve_top_k(
+            final_query,
+            chunks,
+            top_k=config.retrieval_top_k,
+            retriever_config=config.retriever_config,
+        )
         metrics = retrieval_metrics(
             expected_chunk_ids=sample.expected_chunk_ids,
             expected_doc_ids=sample.expected_doc_ids,
@@ -243,6 +254,7 @@ def _evaluate_mode(
         source_gate_run_id=source_gating_run_id,
         strategy_filters=memory_strategy_filters,
         force_rewrite=force_rewrite,
+        retriever_config=config.retriever_config,
     )
     metrics = retrieval_metrics(
         expected_chunk_ids=sample.expected_chunk_ids,
@@ -332,7 +344,10 @@ def run_retrieval_eval(
             description=config.description,
             config_path=str(config.config_path),
             config_hash=config.config_hash,
-            parameters={"stage": "eval-retrieval"},
+            parameters={
+                "stage": "eval-retrieval",
+                "retriever_config": config.retriever_config.to_metadata(),
+            },
             run_label="eval-retrieval",
         )
 
@@ -524,7 +539,7 @@ def run_retrieval_eval(
                             rank,
                             None,
                             None,
-                            local_retriever_label(),
+                            local_retriever_label(config.retriever_config),
                             item.score,
                             Jsonb(
                                 {
@@ -532,6 +547,7 @@ def run_retrieval_eval(
                                     "experiment_run_id": run_context.experiment_run_id,
                                     "retrieved_document_id": item.document_id,
                                     "retrieved_chunk_id": item.chunk_id,
+                                    "retriever_config": config.retriever_config.to_metadata(),
                                 }
                             ),
                         ),
@@ -621,6 +637,8 @@ def run_retrieval_eval(
             "synthetic_free_baseline": synthetic_free_baseline,
             "memory_experiment_key": config.experiment_key if needs_memory else None,
             "memory_entry_count_loaded": len(memories),
+            "retriever_config": config.retriever_config.to_metadata(),
+            "retriever_name": local_retriever_label(config.retriever_config),
             "active_modes": active_modes,
             "summary": summary_rows,
             "category_summary": category_rows,

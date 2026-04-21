@@ -16,7 +16,7 @@ try:
     from common.embeddings import cosine_similarity, embed_text
     from common.experiment_config import ExperimentConfig, load_experiment_config
     from common.experiment_run import ExperimentRunRecorder
-    from common.local_retriever import get_local_text_retriever
+    from common.local_retriever import RetrieverConfig, get_local_text_retriever
     from common.llm_client import LlmClient, load_stage_config
     from common.prompt_assets import load_and_register_prompt
     from common.text_utils import copy_ratio, korean_ratio, special_char_ratio, token_count
@@ -26,7 +26,7 @@ except ModuleNotFoundError:  # pragma: no cover - direct module execution fallba
     from pipeline.common.embeddings import cosine_similarity, embed_text
     from pipeline.common.experiment_config import ExperimentConfig, load_experiment_config
     from pipeline.common.experiment_run import ExperimentRunRecorder
-    from pipeline.common.local_retriever import get_local_text_retriever
+    from pipeline.common.local_retriever import RetrieverConfig, get_local_text_retriever
     from pipeline.common.llm_client import LlmClient, load_stage_config
     from pipeline.common.prompt_assets import load_and_register_prompt
     from pipeline.common.text_utils import copy_ratio, korean_ratio, special_char_ratio, token_count
@@ -404,12 +404,18 @@ def _load_chunk_items(connection: psycopg.Connection[Any]) -> tuple[list[ChunkIt
     return chunks, indexed
 
 
-def _rank_chunks(query_text: str, chunks: list[ChunkItem], top_k: int = 5) -> list[tuple[ChunkItem, float]]:
+def _rank_chunks(
+    query_text: str,
+    chunks: list[ChunkItem],
+    top_k: int = 5,
+    retriever_config: RetrieverConfig | None = None,
+) -> list[tuple[ChunkItem, float]]:
     retriever = get_local_text_retriever(
         namespace="gating-chunks",
         item_ids=[chunk.chunk_id for chunk in chunks],
         texts=[chunk.chunk_text for chunk in chunks],
         fallback_embeddings=[chunk.embedding for chunk in chunks],
+        retriever_config=retriever_config,
     )
     return [
         (chunks[ranked.index], ranked.score)
@@ -425,11 +431,17 @@ def _retrieval_utility_score(
     utility_weights: dict[str, float],
     reranker: CohereReranker,
     candidate_pool_k: int,
+    retriever_config: RetrieverConfig | None = None,
 ) -> float:
     initial_top_k = max(10, candidate_pool_k)
-    pre_ranked = _rank_chunks(query.query_text, chunks, top_k=initial_top_k)
+    pre_ranked = _rank_chunks(
+        query.query_text,
+        chunks,
+        top_k=initial_top_k,
+        retriever_config=retriever_config,
+    )
     reranked: list[tuple[ChunkItem, float]] = []
-    if pre_ranked:
+    if pre_ranked and (retriever_config is None or retriever_config.rerank_enabled):
         rerank_rows = reranker.rerank(
             query=query.query_text,
             documents=[chunk.chunk_text for chunk, _score in pre_ranked],
@@ -658,6 +670,7 @@ def run_quality_gating(
                 "enable_llm_self_eval": config.enable_llm_self_eval,
                 "enable_retrieval_utility": config.enable_retrieval_utility,
                 "enable_diversity": config.enable_diversity,
+                "retriever_config": config.retriever_config.to_metadata(),
             },
             run_label="gate-queries",
         )
@@ -667,7 +680,7 @@ def run_quality_gating(
         self_eval_prompt_text = self_eval_prompt_path.read_text(encoding="utf-8")
         self_eval_client = LlmClient(load_stage_config(stage="self_eval", raw_config=config.raw))
         reranker = CohereReranker(load_cohere_rerank_config(config.raw))
-        utility_candidate_pool_k = int(config.raw.get("utility_candidate_pool_k") or 40)
+        utility_candidate_pool_k = int(config.raw.get("utility_candidate_pool_k") or config.retriever_config.candidate_pool_k)
         utility_candidate_pool_k = max(5, min(utility_candidate_pool_k, 200))
 
         strategies = _strategies_for_gating(config)
@@ -793,6 +806,7 @@ def run_quality_gating(
                     utility_weights=config.retrieval_utility_weights,
                     reranker=reranker,
                     candidate_pool_k=utility_candidate_pool_k,
+                    retriever_config=config.retriever_config,
                 )
                 if config.enable_retrieval_utility:
                     passed_utility = utility_score >= config.utility_threshold
@@ -990,6 +1004,7 @@ def run_quality_gating(
                                 "experiment_run_id": run_context.experiment_run_id,
                                 "gating_batch_id": gating_batch_id,
                                 "rejected_stage": None if passed else rejected_stage,
+                                "retriever_config": config.retriever_config.to_metadata(),
                             }
                         ),
                     ),
@@ -1076,6 +1091,7 @@ def run_quality_gating(
                                     "passed_diversity": passed_diversity if config.enable_diversity else None,
                                     "llm_provider": self_eval_client.config.provider if config.enable_llm_self_eval else None,
                                     "llm_model": self_eval_client.config.model if config.enable_llm_self_eval else None,
+                                    "retriever_config": config.retriever_config.to_metadata(),
                                 }
                             ),
                         ),
@@ -1124,7 +1140,13 @@ def run_quality_gating(
                             utility_stage_pass,
                             utility_score,
                             None if utility_stage_pass is not False else "utility_failed",
-                            Jsonb({"threshold": config.utility_threshold, "enabled": config.enable_retrieval_utility}),
+                            Jsonb(
+                                {
+                                    "threshold": config.utility_threshold,
+                                    "enabled": config.enable_retrieval_utility,
+                                    "retriever_config": config.retriever_config.to_metadata(),
+                                }
+                            ),
                             diversity_stage_pass,
                             novelty_score,
                             None if diversity_stage_pass is not False else "diversity_failed",
@@ -1174,6 +1196,7 @@ def run_quality_gating(
             "newly_processed_queries": max(0, processed_total - processed_existing_count),
             "rejection_reasons": dict(rejection_counter),
             "stage_funnel": dict(stage_counter),
+            "retriever_config": config.retriever_config.to_metadata(),
             "self_eval_prompt": {
                 "id": self_eval_prompt.prompt_name,
                 "version": self_eval_prompt.version,

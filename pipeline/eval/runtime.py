@@ -13,12 +13,12 @@ import psycopg
 try:
     from common.cohere_reranker import CohereReranker, load_cohere_rerank_config
     from common.embeddings import embed_text
-    from common.local_retriever import get_local_text_retriever, local_retriever_name
+    from common.local_retriever import RetrieverConfig, build_retriever_config, get_local_text_retriever, local_retriever_name
     from common.llm_client import LlmClient, load_stage_config
 except ModuleNotFoundError:  # pragma: no cover
     from pipeline.common.cohere_reranker import CohereReranker, load_cohere_rerank_config
     from pipeline.common.embeddings import embed_text
-    from pipeline.common.local_retriever import get_local_text_retriever, local_retriever_name
+    from pipeline.common.local_retriever import RetrieverConfig, build_retriever_config, get_local_text_retriever, local_retriever_name
     from pipeline.common.llm_client import LlmClient, load_stage_config
 
 
@@ -231,16 +231,18 @@ def retrieve_top_k(
     chunks: list[ChunkItem],
     *,
     top_k: int,
+    retriever_config: RetrieverConfig | None = None,
 ) -> list[RetrievalCandidate]:
     if not chunks:
         return []
-    candidate_pool_k = int(os.getenv("QUERY_FORGE_RERANK_CANDIDATE_K") or "50")
-    candidate_pool_k = max(top_k, min(candidate_pool_k, max(top_k, len(chunks))))
+    config = retriever_config or build_retriever_config({})
+    candidate_pool_k = max(top_k, min(config.candidate_pool_k, max(top_k, len(chunks))))
     retriever = get_local_text_retriever(
         namespace="eval-chunks",
         item_ids=[chunk.chunk_id for chunk in chunks],
         texts=[chunk.text for chunk in chunks],
         fallback_embeddings=[chunk.embedding for chunk in chunks],
+        retriever_config=config,
     )
     ranked_pool = retriever.rank(query_text, top_k=candidate_pool_k)
     reduced = [
@@ -254,6 +256,9 @@ def retrieve_top_k(
     ]
     if not reduced:
         return []
+
+    if not config.rerank_enabled:
+        return reduced[:top_k]
 
     reranker = _cohere_reranker()
     if not reranker.available:
@@ -282,8 +287,8 @@ def retrieve_top_k(
     return reranked if reranked else reduced[:top_k]
 
 
-def local_retriever_label() -> str:
-    return f"bm25-dense-local:{local_retriever_name()}"
+def local_retriever_label(retriever_config: RetrieverConfig | None = None) -> str:
+    return local_retriever_name(retriever_config or build_retriever_config({}))
 
 
 def rerank_retrieval_candidates(
@@ -291,10 +296,14 @@ def rerank_retrieval_candidates(
     candidates: list[RetrievalCandidate],
     *,
     top_n: int,
+    retriever_config: RetrieverConfig | None = None,
 ) -> list[RetrievalCandidate]:
-    limited_top_n = max(1, min(top_n, len(candidates)))
-    if limited_top_n <= 0:
+    if not candidates or top_n <= 0:
         return []
+    limited_top_n = max(1, min(top_n, len(candidates)))
+    config = retriever_config or build_retriever_config({})
+    if not config.rerank_enabled:
+        return candidates[:limited_top_n]
     reranker = _cohere_reranker()
     if not reranker.available:
         return candidates[:limited_top_n]
@@ -328,6 +337,7 @@ def memory_top_n(
     preset_filter: str | None = None,
     source_gate_run_id: str | None = None,
     strategy_filters: list[str] | None = None,
+    retriever_config: RetrieverConfig | None = None,
 ) -> list[dict[str, Any]]:
     strategy_set = {item.upper() for item in strategy_filters or [] if str(item).strip()}
     eligible: list[MemoryItem] = []
@@ -341,11 +351,13 @@ def memory_top_n(
         eligible.append(memory)
     if not eligible:
         return []
+    config = retriever_config or build_retriever_config({})
     retriever = get_local_text_retriever(
         namespace="eval-memory",
         item_ids=[memory.memory_id for memory in eligible],
         texts=[memory.query_text for memory in eligible],
         fallback_embeddings=[memory.embedding for memory in eligible],
+        retriever_config=config,
     )
     scored = []
     for ranked in retriever.rank(query_text, top_k=top_n):
@@ -541,7 +553,9 @@ def run_selective_rewrite(
     source_gate_run_id: str | None = None,
     strategy_filters: list[str] | None = None,
     force_rewrite: bool = False,
+    retriever_config: RetrieverConfig | None = None,
 ) -> tuple[RewriteOutcome, list[RetrievalCandidate]]:
+    config = retriever_config or build_retriever_config({})
     memory_items = memory_top_n(
         raw_query,
         memories,
@@ -549,8 +563,9 @@ def run_selective_rewrite(
         preset_filter=preset_filter,
         source_gate_run_id=source_gate_run_id,
         strategy_filters=strategy_filters,
+        retriever_config=config,
     )
-    raw_retrieval = retrieve_top_k(raw_query, chunks, top_k=retrieval_top_k)
+    raw_retrieval = retrieve_top_k(raw_query, chunks, top_k=retrieval_top_k, retriever_config=config)
     raw_memory_affinity = memory_items[0]["similarity"] if memory_items else 0.0
     raw_confidence = confidence_score(raw_retrieval, raw_memory_affinity)
 
@@ -563,7 +578,7 @@ def run_selective_rewrite(
     candidates: list[dict[str, Any]] = []
     best_candidate = None
     for template in candidate_templates:
-        retrieved = retrieve_top_k(template["query"], chunks, top_k=retrieval_top_k)
+        retrieved = retrieve_top_k(template["query"], chunks, top_k=retrieval_top_k, retriever_config=config)
         candidate_memory_items = memory_top_n(
             template["query"],
             memories,
@@ -571,6 +586,7 @@ def run_selective_rewrite(
             preset_filter=preset_filter,
             source_gate_run_id=source_gate_run_id,
             strategy_filters=strategy_filters,
+            retriever_config=config,
         )
         candidate_memory_affinity = (
             candidate_memory_items[0]["similarity"]

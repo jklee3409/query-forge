@@ -3,6 +3,12 @@
 ## Overview
 High-level progress tracking for the project.
 
+## [2026-04-21] Session Summary (Admin Retriever Mode Controls)
+- What was done: Added retriever mode controls to `/admin/rag-tests` and `/admin/quality-gating`, including BM25/Dense/Hybrid mode, dense model, dense-required/fallback toggles, Cohere rerank toggle, candidate pool, and fusion weights. Rebuilt the production React bundle into backend static resources.
+- Key decisions: Kept the controls close to existing retrieval/utility configuration rather than redesigning page flow. Defaults match backend/pipeline reproducibility settings: Hybrid, `intfloat/multilingual-e5-small`, dense required, fallback off, rerank on.
+- Issues encountered: Vite still warns about existing literal `->` option labels in `GatingPage.jsx`; build succeeds.
+- Next steps: UI-smoke Admin run creation for one BM25, one Dense, and one Hybrid experiment and compare generated YAML.
+
 ## [2026-04-20] Session Summary (RAG Detail Raw-vs-Rewrite View)
 - What was done: Updated `/admin/rag-tests` form default `rewrite_threshold` to `0.10` and added a single-run detail comparison table that shows `raw_only` next to the selected query-rewrite or synthetic-memory mode.
 - Key decisions: Synthetic-free baseline detail remains baseline-only; synthetic-backed runs show same-run raw vs synthetic mode metrics plus rewrite diagnostics when available.

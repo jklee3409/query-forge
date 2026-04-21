@@ -768,6 +768,15 @@ export function RagPage({ notify }) {
     threshold: '0.10',
     retrievalTopK: '20',
     rerankTopN: '5',
+    retrieverMode: 'hybrid',
+    denseEmbeddingModel: 'intfloat/multilingual-e5-small',
+    denseEmbeddingRequired: true,
+    denseFallbackEnabled: false,
+    retrieverRerankEnabled: true,
+    retrieverCandidatePoolK: '50',
+    retrieverDenseWeight: '0.58',
+    retrieverBm25Weight: '0.34',
+    retrieverTechnicalWeight: '0.08',
     syntheticFreeBaseline: false,
     gatingApplied: true,
     stageCutoffEnabled: false,
@@ -1090,6 +1099,17 @@ export function RagPage({ notify }) {
           threshold: toNumber(form.threshold),
           retrievalTopK: toNumber(form.retrievalTopK),
           rerankTopN: toNumber(form.rerankTopN),
+          retrieverConfig: {
+            retrieverMode: form.retrieverMode,
+            denseEmbeddingModel: form.denseEmbeddingModel,
+            denseEmbeddingRequired: Boolean(form.denseEmbeddingRequired),
+            denseFallbackEnabled: Boolean(form.denseFallbackEnabled),
+            rerankEnabled: Boolean(form.retrieverRerankEnabled),
+            candidatePoolK: toNumber(form.retrieverCandidatePoolK),
+            denseWeight: toNumber(form.retrieverDenseWeight),
+            bm25Weight: toNumber(form.retrieverBm25Weight),
+            technicalWeight: toNumber(form.retrieverTechnicalWeight),
+          },
         }),
       })
       await Promise.all([loadTests(), loadRewriteLogs(), loadLlmJobs(), loadGatingBatches()])
@@ -1585,7 +1605,54 @@ export function RagPage({ notify }) {
             </label>
           </div>
 
+          <div className="form-grid form-grid--3">
+            <label className="filter-field filter-field--small">Retriever Mode
+              <select value={form.retrieverMode} onChange={(event) => setForm((prev) => ({ ...prev, retrieverMode: event.target.value, denseEmbeddingRequired: event.target.value === 'bm25_only' ? false : prev.denseEmbeddingRequired }))}>
+                <option value="bm25_only">BM25 Only</option>
+                <option value="dense_only">Dense Only</option>
+                <option value="hybrid">Hybrid</option>
+              </select>
+              <span className="field-hint">BM25/Dense/Hybrid ranking mode</span>
+            </label>
+            <label className="filter-field">Dense Model
+              <input
+                value={form.denseEmbeddingModel}
+                disabled={form.retrieverMode === 'bm25_only'}
+                onChange={(event) => setForm((prev) => ({ ...prev, denseEmbeddingModel: event.target.value }))}
+              />
+              <span className="field-hint">intfloat/multilingual-e5-small</span>
+            </label>
+            <label className="filter-field filter-field--small">Candidate Pool
+              <input type="number" min="1" value={form.retrieverCandidatePoolK} onChange={(event) => setForm((prev) => ({ ...prev, retrieverCandidatePoolK: event.target.value }))} />
+              <span className="field-hint">local rank 후보 풀 크기</span>
+            </label>
+            <label className="filter-field filter-field--small">Dense Weight
+              <input type="number" min="0" max="1" step="0.01" value={form.retrieverDenseWeight} disabled={form.retrieverMode !== 'hybrid'} onChange={(event) => setForm((prev) => ({ ...prev, retrieverDenseWeight: event.target.value }))} />
+            </label>
+            <label className="filter-field filter-field--small">BM25 Weight
+              <input type="number" min="0" max="1" step="0.01" value={form.retrieverBm25Weight} disabled={form.retrieverMode !== 'hybrid'} onChange={(event) => setForm((prev) => ({ ...prev, retrieverBm25Weight: event.target.value }))} />
+            </label>
+            <label className="filter-field filter-field--small">Technical Weight
+              <input type="number" min="0" max="1" step="0.01" value={form.retrieverTechnicalWeight} disabled={form.retrieverMode !== 'hybrid'} onChange={(event) => setForm((prev) => ({ ...prev, retrieverTechnicalWeight: event.target.value }))} />
+            </label>
+          </div>
+
           <div className="checkbox-row">
+            <label className={`check-pill ${form.denseEmbeddingRequired ? 'is-active' : ''} ${form.retrieverMode === 'bm25_only' ? 'is-disabled' : ''}`}>
+              <input type="checkbox" checked={form.denseEmbeddingRequired} disabled={form.retrieverMode === 'bm25_only'} onChange={(event) => setForm((prev) => ({ ...prev, denseEmbeddingRequired: event.target.checked }))} />
+              <span className="check-pill__box" aria-hidden="true">{form.denseEmbeddingRequired ? '✓' : ''}</span>
+              <span className="check-pill__text">Dense required</span>
+            </label>
+            <label className={`check-pill ${form.denseFallbackEnabled ? 'is-active' : ''} ${form.retrieverMode === 'bm25_only' ? 'is-disabled' : ''}`}>
+              <input type="checkbox" checked={form.denseFallbackEnabled} disabled={form.retrieverMode === 'bm25_only'} onChange={(event) => setForm((prev) => ({ ...prev, denseFallbackEnabled: event.target.checked }))} />
+              <span className="check-pill__box" aria-hidden="true">{form.denseFallbackEnabled ? '✓' : ''}</span>
+              <span className="check-pill__text">Hash fallback</span>
+            </label>
+            <label className={`check-pill ${form.retrieverRerankEnabled ? 'is-active' : ''}`}>
+              <input type="checkbox" checked={form.retrieverRerankEnabled} onChange={(event) => setForm((prev) => ({ ...prev, retrieverRerankEnabled: event.target.checked }))} />
+              <span className="check-pill__box" aria-hidden="true">{form.retrieverRerankEnabled ? '✓' : ''}</span>
+              <span className="check-pill__text">Cohere rerank</span>
+            </label>
             <label className={`check-pill ${form.syntheticFreeBaseline ? 'is-active' : ''}`}>
               <input type="checkbox" checked={form.syntheticFreeBaseline} onChange={(event) => setForm((prev) => ({ ...prev, syntheticFreeBaseline: event.target.checked }))} />
               <span className="check-pill__box" aria-hidden="true">{form.syntheticFreeBaseline ? '✓' : ''}</span>

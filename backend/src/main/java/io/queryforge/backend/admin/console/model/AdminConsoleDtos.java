@@ -179,7 +179,21 @@ public final class AdminConsoleDtos {
             GatingRuleConfig ruleConfig,
             GatingWeightsConfig gatingWeights,
             GatingUtilityScoreConfig utilityScoreWeights,
-            GatingThresholdConfig thresholds
+            GatingThresholdConfig thresholds,
+            RetrieverConfigRequest retrieverConfig
+    ) {
+    }
+
+    public record RetrieverConfigRequest(
+            String retrieverMode,
+            String denseEmbeddingModel,
+            Boolean denseEmbeddingRequired,
+            Boolean denseFallbackEnabled,
+            Boolean rerankEnabled,
+            Integer candidatePoolK,
+            Double denseWeight,
+            Double bm25Weight,
+            Double technicalWeight
     ) {
     }
 
@@ -327,6 +341,7 @@ public final class AdminConsoleDtos {
             Double threshold,
             Integer retrievalTopK,
             Integer rerankTopN,
+            RetrieverConfigRequest retrieverConfig,
             String createdBy
     ) {
     }

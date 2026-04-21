@@ -93,6 +93,15 @@ export function GatingPage({ notify }) {
     diversityThresholdSameChunk: '0.93',
     diversityThresholdSameDoc: '0.96',
     finalScoreThreshold: '0.75',
+    retrieverMode: 'hybrid',
+    denseEmbeddingModel: 'intfloat/multilingual-e5-small',
+    denseEmbeddingRequired: true,
+    denseFallbackEnabled: false,
+    retrieverRerankEnabled: true,
+    retrieverCandidatePoolK: '50',
+    retrieverDenseWeight: '0.58',
+    retrieverBm25Weight: '0.34',
+    retrieverTechnicalWeight: '0.08',
   })
 
   const loadSelectors = async () => {
@@ -245,6 +254,17 @@ export function GatingPage({ notify }) {
               diversityThresholdSameChunk: toNumber(form.diversityThresholdSameChunk),
               diversityThresholdSameDoc: toNumber(form.diversityThresholdSameDoc),
               finalScoreThreshold: toNumber(form.finalScoreThreshold),
+            },
+            retrieverConfig: {
+              retrieverMode: form.retrieverMode,
+              denseEmbeddingModel: form.denseEmbeddingModel,
+              denseEmbeddingRequired: Boolean(form.denseEmbeddingRequired),
+              denseFallbackEnabled: Boolean(form.denseFallbackEnabled),
+              rerankEnabled: Boolean(form.retrieverRerankEnabled),
+              candidatePoolK: toNumber(form.retrieverCandidatePoolK),
+              denseWeight: toNumber(form.retrieverDenseWeight),
+              bm25Weight: toNumber(form.retrieverBm25Weight),
+              technicalWeight: toNumber(form.retrieverTechnicalWeight),
             },
           },
         }),
@@ -497,6 +517,33 @@ export function GatingPage({ notify }) {
               <NumberInput label="멀티 전체 보너스" step="0.01" value={form.utilityMultiFullBonus} onChange={(value) => setForm((prev) => ({ ...prev, utilityMultiFullBonus: value }))} />
               <NumberInput label="Utility 임계치" step="0.01" value={form.utilityThreshold} onChange={(value) => setForm((prev) => ({ ...prev, utilityThreshold: value }))} />
             </StageCard>
+            <article className="stage-card">
+              <div className="stage-card__header">
+                <div className="stage-card__title">Retriever</div>
+                <span className="metric-chip">{form.retrieverMode}</span>
+              </div>
+              <div className="stage-card__body">
+                <label className="filter-field">Retriever Mode
+                  <select value={form.retrieverMode} onChange={(event) => setForm((prev) => ({ ...prev, retrieverMode: event.target.value, denseEmbeddingRequired: event.target.value === 'bm25_only' ? false : prev.denseEmbeddingRequired }))}>
+                    <option value="bm25_only">BM25 Only</option>
+                    <option value="dense_only">Dense Only</option>
+                    <option value="hybrid">Hybrid</option>
+                  </select>
+                </label>
+                <label className="filter-field">Dense Model
+                  <input value={form.denseEmbeddingModel} disabled={form.retrieverMode === 'bm25_only'} onChange={(event) => setForm((prev) => ({ ...prev, denseEmbeddingModel: event.target.value }))} />
+                </label>
+                <NumberInput label="Candidate Pool" value={form.retrieverCandidatePoolK} onChange={(value) => setForm((prev) => ({ ...prev, retrieverCandidatePoolK: value }))} />
+                <NumberInput label="Dense Weight" step="0.01" value={form.retrieverDenseWeight} onChange={(value) => setForm((prev) => ({ ...prev, retrieverDenseWeight: value }))} />
+                <NumberInput label="BM25 Weight" step="0.01" value={form.retrieverBm25Weight} onChange={(value) => setForm((prev) => ({ ...prev, retrieverBm25Weight: value }))} />
+                <NumberInput label="Technical Weight" step="0.01" value={form.retrieverTechnicalWeight} onChange={(value) => setForm((prev) => ({ ...prev, retrieverTechnicalWeight: value }))} />
+                <div className="checkbox-row">
+                  <label><input type="checkbox" checked={form.denseEmbeddingRequired} disabled={form.retrieverMode === 'bm25_only'} onChange={(event) => setForm((prev) => ({ ...prev, denseEmbeddingRequired: event.target.checked }))} />Dense required</label>
+                  <label><input type="checkbox" checked={form.denseFallbackEnabled} disabled={form.retrieverMode === 'bm25_only'} onChange={(event) => setForm((prev) => ({ ...prev, denseFallbackEnabled: event.target.checked }))} />Hash fallback</label>
+                  <label><input type="checkbox" checked={form.retrieverRerankEnabled} onChange={(event) => setForm((prev) => ({ ...prev, retrieverRerankEnabled: event.target.checked }))} />Cohere rerank</label>
+                </div>
+              </div>
+            </article>
             <StageCard title="Diversity" checked={form.enableDiversity} onToggle={(checked) => setForm((prev) => ({ ...prev, enableDiversity: checked }))}>
               <NumberInput label="Diversity 가중치" step="0.01" value={form.diversityWeight} onChange={(value) => setForm((prev) => ({ ...prev, diversityWeight: value }))} />
               <NumberInput label="동일 청크 임계치" step="0.01" value={form.diversityThresholdSameChunk} onChange={(value) => setForm((prev) => ({ ...prev, diversityThresholdSameChunk: value }))} />

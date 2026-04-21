@@ -8,6 +8,11 @@ from typing import Any
 
 import yaml
 
+try:
+    from common.local_retriever import RetrieverConfig, build_retriever_config
+except ModuleNotFoundError:  # pragma: no cover
+    from pipeline.common.local_retriever import RetrieverConfig, build_retriever_config
+
 
 DEFAULT_QUERY_TYPE_DISTRIBUTION: dict[str, float] = {
     "definition": 0.19,
@@ -74,6 +79,7 @@ class ExperimentConfig:
     diversity_threshold_same_chunk: float
     diversity_threshold_same_doc: float
     limit_chunks: int | None
+    retriever_config: RetrieverConfig
     config_path: Path
     raw: dict[str, Any]
 
@@ -167,6 +173,7 @@ def load_experiment_config(
         ),
         diversity_threshold_same_doc=float(raw.get("diversity_threshold_same_doc", 0.96)),
         limit_chunks=int(raw["limit_chunks"]) if raw.get("limit_chunks") else None,
+        retriever_config=build_retriever_config(raw),
         config_path=config_path,
         raw=raw,
     )

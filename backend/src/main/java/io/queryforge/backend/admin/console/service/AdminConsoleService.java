@@ -48,6 +48,10 @@ public class AdminConsoleService {
     private static final String GATING_PASS_STAGE_PASSED_UTILITY = "passed_utility";
     private static final String GATING_PASS_STAGE_PASSED_DIVERSITY = "passed_diversity";
     private static final String GATING_PASS_STAGE_PASSED_ALL = "passed_all";
+    private static final String RETRIEVER_MODE_BM25_ONLY = "bm25_only";
+    private static final String RETRIEVER_MODE_DENSE_ONLY = "dense_only";
+    private static final String RETRIEVER_MODE_HYBRID = "hybrid";
+    private static final String DEFAULT_DENSE_EMBEDDING_MODEL = "intfloat/multilingual-e5-small";
     private static final ZoneId KOREA_ZONE_ID = ZoneId.of("Asia/Seoul");
     private static final DateTimeFormatter RUN_LABEL_TIME_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")
             .withZone(KOREA_ZONE_ID);
@@ -198,6 +202,9 @@ public class AdminConsoleService {
         AdminConsoleDtos.GatingRunConfig requestConfig = request.config();
         AdminConsoleDtos.GatingStageFlags stageFlags = requestConfig == null ? null : requestConfig.stageFlags();
         AdminConsoleDtos.GatingThresholdConfig thresholdConfig = requestConfig == null ? null : requestConfig.thresholds();
+        Map<String, Object> retrieverConfig = resolveRetrieverConfig(
+                requestConfig == null ? null : requestConfig.retrieverConfig()
+        );
         Map<String, Object> stageConfig = new LinkedHashMap<>();
         stageConfig.put(
                 "enable_rule_filter",
@@ -240,6 +247,7 @@ public class AdminConsoleService {
         stageConfig.put("diversity_threshold_same_doc", diversityThresholdSameDoc);
         stageConfig.put("final_score_threshold", finalScoreThreshold);
         stageConfig.put("llm_batch_size", 1);
+        stageConfig.put("retriever_config", retrieverConfig);
 
         repository.clearCompletedGatingResults(method.generationMethodId(), request.generationBatchId());
 
@@ -274,6 +282,8 @@ public class AdminConsoleService {
         config.put("diversity_threshold_same_doc", diversityThresholdSameDoc);
         config.put("final_score_threshold", finalScoreThreshold);
         config.put("llm_batch_size", 1);
+        config.put("utility_candidate_pool_k", retrieverConfig.get("retriever_candidate_pool_k"));
+        attachRetrieverConfig(config, retrieverConfig);
         config.put("gating_batch_id", gatingBatchId.toString());
         if (sourceGenerationRunId != null) {
             config.put("source_generation_run_id", sourceGenerationRunId.toString());
@@ -412,6 +422,7 @@ public class AdminConsoleService {
         boolean useSessionContext = request.useSessionContext() != null && request.useSessionContext();
         int retrievalTopK = request.retrievalTopK() != null && request.retrievalTopK() > 0 ? request.retrievalTopK() : 20;
         int rerankTopN = request.rerankTopN() != null && request.rerankTopN() > 0 ? request.rerankTopN() : 5;
+        Map<String, Object> retrieverConfig = resolveRetrieverConfig(request.retrieverConfig());
         double threshold = request.threshold() != null ? request.threshold() : 0.10d;
         String stageCutoffLevel = normalizeStageCutoffLevel(request.stageCutoffLevel(), gatingPreset);
 
@@ -545,6 +556,7 @@ public class AdminConsoleService {
         config.put("rewrite_threshold", threshold);
         config.put("retrieval_top_k", retrievalTopK);
         config.put("rerank_top_n", rerankTopN);
+        attachRetrieverConfig(config, retrieverConfig);
         config.put("run_discipline", runDiscipline);
         config.put("stage_cutoff_enabled", stageCutoffEnabled);
         if (stageCutoffEnabled) {
@@ -647,6 +659,7 @@ public class AdminConsoleService {
         initialRetrievalConfig.put("rerank_top_n", rerankTopN);
         initialRetrievalConfig.put("retrieval_modes", config.get("retrieval_modes"));
         initialRetrievalConfig.put("synthetic_free_baseline", syntheticFreeBaseline);
+        initialRetrievalConfig.put("retriever_config", retrieverConfig);
         Map<String, Object> initialRewriteConfig = new LinkedHashMap<>();
         initialRewriteConfig.put("rewrite_enabled", rewriteEnabled);
         initialRewriteConfig.put("selective_rewrite", selectiveRewrite);
@@ -819,6 +832,102 @@ public class AdminConsoleService {
             return List.of("raw_only", "memory_only_gated", "rewrite_always", "selective_rewrite_with_session");
         }
         return List.of("raw_only", "memory_only_gated", "rewrite_always", "selective_rewrite");
+    }
+
+    private Map<String, Object> resolveRetrieverConfig(AdminConsoleDtos.RetrieverConfigRequest request) {
+        String mode = normalizeRetrieverMode(request == null ? null : request.retrieverMode());
+        String denseModel = request == null || request.denseEmbeddingModel() == null || request.denseEmbeddingModel().isBlank()
+                ? DEFAULT_DENSE_EMBEDDING_MODEL
+                : request.denseEmbeddingModel().trim();
+        boolean denseRequired = request == null || request.denseEmbeddingRequired() == null
+                ? !RETRIEVER_MODE_BM25_ONLY.equals(mode)
+                : request.denseEmbeddingRequired();
+        if (RETRIEVER_MODE_BM25_ONLY.equals(mode)) {
+            denseRequired = false;
+        }
+        boolean denseFallbackEnabled = request != null && Boolean.TRUE.equals(request.denseFallbackEnabled());
+        boolean rerankEnabled = request == null || request.rerankEnabled() == null || request.rerankEnabled();
+        int candidatePoolK = request == null || request.candidatePoolK() == null
+                ? 50
+                : clampRange(request.candidatePoolK(), 1, 500, "retriever_candidate_pool_k");
+
+        double denseWeight = request == null || request.denseWeight() == null
+                ? 0.58d
+                : clampRange(request.denseWeight(), 0.0d, 1.0d, "retriever_dense_weight");
+        double bm25Weight = request == null || request.bm25Weight() == null
+                ? 0.34d
+                : clampRange(request.bm25Weight(), 0.0d, 1.0d, "retriever_bm25_weight");
+        double technicalWeight = request == null || request.technicalWeight() == null
+                ? 0.08d
+                : clampRange(request.technicalWeight(), 0.0d, 1.0d, "retriever_technical_weight");
+        if (RETRIEVER_MODE_BM25_ONLY.equals(mode)) {
+            denseWeight = 0.0d;
+            bm25Weight = 1.0d;
+            technicalWeight = 0.0d;
+        } else if (RETRIEVER_MODE_DENSE_ONLY.equals(mode)) {
+            denseWeight = 1.0d;
+            bm25Weight = 0.0d;
+            technicalWeight = 0.0d;
+        } else {
+            double sum = denseWeight + bm25Weight + technicalWeight;
+            if (sum <= 0.0d) {
+                denseWeight = 0.58d;
+                bm25Weight = 0.34d;
+                technicalWeight = 0.08d;
+            } else {
+                denseWeight = denseWeight / sum;
+                bm25Weight = bm25Weight / sum;
+                technicalWeight = technicalWeight / sum;
+            }
+        }
+
+        Map<String, Double> fusionWeights = new LinkedHashMap<>();
+        fusionWeights.put("dense", denseWeight);
+        fusionWeights.put("bm25", bm25Weight);
+        fusionWeights.put("technical", technicalWeight);
+
+        Map<String, Object> retrieverConfig = new LinkedHashMap<>();
+        retrieverConfig.put("retriever_mode", mode);
+        retrieverConfig.put("dense_embedding_model", denseModel);
+        retrieverConfig.put("dense_embedding_required", denseRequired);
+        retrieverConfig.put("dense_fallback_enabled", denseFallbackEnabled);
+        retrieverConfig.put("dense_embedding_device", "cpu");
+        retrieverConfig.put("dense_embedding_batch_size", 32);
+        retrieverConfig.put("rerank_enabled", rerankEnabled);
+        retrieverConfig.put("retriever_candidate_pool_k", candidatePoolK);
+        retrieverConfig.put("candidate_pool_k", candidatePoolK);
+        retrieverConfig.put("retriever_fusion_weights", fusionWeights);
+        return retrieverConfig;
+    }
+
+    private String normalizeRetrieverMode(String value) {
+        if (value == null || value.isBlank()) {
+            return RETRIEVER_MODE_HYBRID;
+        }
+        String normalized = value.trim().toLowerCase().replace("-", "_");
+        if ("bm25".equals(normalized)) {
+            return RETRIEVER_MODE_BM25_ONLY;
+        }
+        if ("dense".equals(normalized)) {
+            return RETRIEVER_MODE_DENSE_ONLY;
+        }
+        if (!List.of(RETRIEVER_MODE_BM25_ONLY, RETRIEVER_MODE_DENSE_ONLY, RETRIEVER_MODE_HYBRID).contains(normalized)) {
+            throw new IllegalArgumentException("unsupported retriever_mode: " + value);
+        }
+        return normalized;
+    }
+
+    private void attachRetrieverConfig(Map<String, Object> config, Map<String, Object> retrieverConfig) {
+        config.put("retriever_config", retrieverConfig);
+        config.put("retriever_mode", retrieverConfig.get("retriever_mode"));
+        config.put("dense_embedding_model", retrieverConfig.get("dense_embedding_model"));
+        config.put("dense_embedding_required", retrieverConfig.get("dense_embedding_required"));
+        config.put("dense_fallback_enabled", retrieverConfig.get("dense_fallback_enabled"));
+        config.put("dense_embedding_device", retrieverConfig.get("dense_embedding_device"));
+        config.put("dense_embedding_batch_size", retrieverConfig.get("dense_embedding_batch_size"));
+        config.put("rerank_enabled", retrieverConfig.get("rerank_enabled"));
+        config.put("retriever_candidate_pool_k", retrieverConfig.get("retriever_candidate_pool_k"));
+        config.put("retriever_fusion_weights", retrieverConfig.get("retriever_fusion_weights"));
     }
 
     private void ensureDefaultEvalDataset() {

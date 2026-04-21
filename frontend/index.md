@@ -34,6 +34,8 @@
 ---
 
 ## Recent Update
+- `/admin/rag-tests` and `/admin/quality-gating` now expose retriever ranking controls for BM25 Only, Dense Only, and Hybrid modes, including dense model, dense-required/fallback, rerank, candidate-pool, and fusion-weight settings.
+- Admin retriever controls default to Hybrid + `intfloat/multilingual-e5-small`, dense required, hash fallback disabled, and Cohere rerank enabled so generated experiments are reproducible by ranking mode.
 - `/admin/rag-tests` now defaults rewrite threshold to `0.10` and single-run detail shows a raw-vs-query-rewrite/synthetic-memory comparison table when `raw_only` is present; synthetic-free baseline detail remains baseline-only.
 - `/admin/rag-tests` compare workspace now applies consistent duration conversion in cards and summary values (`ms -> s -> m+s`), removes raw ms subtext from workspace cards, and uses KST-based compact time display (`YYYY-MM-DD HH:mm`) via shared `fmtTime`.
 - `/admin/rag-tests` detailed comparison table was additionally tuned for dense backoffice analysis: stronger typography hierarchy, tighter row spacing, centered `Delta / Change` + `Result` judgment alignment, and consistent `ms -> s -> m+s` display formatting for performance metrics.

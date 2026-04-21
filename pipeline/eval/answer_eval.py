@@ -118,9 +118,15 @@ def _evaluate_answer_sample(
             source_gate_run_id=source_gating_run_id,
             strategy_filters=memory_strategy_filters,
             force_rewrite=not selective_rewrite,
+            retriever_config=config.retriever_config,
         )
     else:
-        retrieval = retrieve_top_k(sample.query_text, chunks, top_k=config.retrieval_top_k)
+        retrieval = retrieve_top_k(
+            sample.query_text,
+            chunks,
+            top_k=config.retrieval_top_k,
+            retriever_config=config.retriever_config,
+        )
         rewrite_outcome = RewriteOutcome(
             final_query=sample.query_text,
             rewrite_applied=False,
@@ -134,6 +140,7 @@ def _evaluate_answer_sample(
         rewrite_outcome.final_query if rewrite_enabled else sample.query_text,
         retrieval,
         top_n=config.rerank_top_n,
+        retriever_config=config.retriever_config,
     )
     answer_segments = [
         extract_extractive_summary(item.text, max_sentences=1)
@@ -223,7 +230,10 @@ def run_answer_eval(
             description=config.description,
             config_path=str(config.config_path),
             config_hash=config.config_hash,
-            parameters={"stage": "eval-answer"},
+            parameters={
+                "stage": "eval-answer",
+                "retriever_config": config.retriever_config.to_metadata(),
+            },
             run_label="eval-answer",
         )
 
@@ -349,7 +359,7 @@ def run_answer_eval(
                             rank,
                             None,
                             None,
-                            f"cohere-or-{local_retriever_label()}",
+                            f"cohere-or-{local_retriever_label(config.retriever_config)}",
                             item.score,
                             Jsonb(
                                 {
@@ -357,6 +367,7 @@ def run_answer_eval(
                                     "final_query": final_query,
                                     "retrieved_document_id": item.document_id,
                                     "retrieved_chunk_id": item.chunk_id,
+                                    "retriever_config": config.retriever_config.to_metadata(),
                                 }
                             ),
                         ),
@@ -385,6 +396,8 @@ def run_answer_eval(
             "selective_rewrite": selective_rewrite,
             "memory_experiment_key": config.experiment_key if rewrite_enabled else None,
             "memory_entry_count_loaded": len(memories),
+            "retriever_config": config.retriever_config.to_metadata(),
+            "retriever_name": local_retriever_label(config.retriever_config),
             "summary": summary,
             "sample_count": len(sample_rows),
         }

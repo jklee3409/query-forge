@@ -7,14 +7,14 @@ from unittest.mock import patch
 from pipeline.common.cohere_reranker import CohereRerankConfig, CohereReranker
 from pipeline.common.embeddings import embed_text
 from pipeline.common import local_retriever
-from pipeline.common.local_retriever import get_local_text_retriever
+from pipeline.common.local_retriever import build_retriever_config, get_local_text_retriever
 from pipeline.eval import runtime
 from pipeline.eval.runtime import ChunkItem, MemoryItem
 
 
 class EvalRuntimeRewriteTests(unittest.TestCase):
     def tearDown(self) -> None:
-        local_retriever._MODEL_BACKEND = None
+        local_retriever._MODEL_BACKENDS.clear()
         local_retriever._RETRIEVER_CACHE.clear()
 
     def test_unavailable_cohere_reranker_returns_no_synthetic_scores(self) -> None:
@@ -37,7 +37,7 @@ class EvalRuntimeRewriteTests(unittest.TestCase):
 
     def test_local_retriever_uses_bm25_for_technical_exact_match(self) -> None:
         with patch.dict(os.environ, {"QUERY_FORGE_LOCAL_REAL_EMBEDDINGS_ENABLED": "false"}, clear=False):
-            local_retriever._MODEL_BACKEND = None
+            local_retriever._MODEL_BACKENDS.clear()
             local_retriever._RETRIEVER_CACHE.clear()
             retriever = get_local_text_retriever(
                 namespace="test",
@@ -50,6 +50,7 @@ class EvalRuntimeRewriteTests(unittest.TestCase):
                     embed_text("JNDI jee jndi-lookup resource-ref lookup-on-startup setting"),
                     embed_text("MockMvc web request session setup and controller test"),
                 ],
+                retriever_config=build_retriever_config({"dense_fallback_enabled": True}),
             )
 
             ranked = retriever.rank("jee jndi-lookup resource-ref", top_k=2)
@@ -108,6 +109,7 @@ class EvalRuntimeRewriteTests(unittest.TestCase):
                 preset_filter="full_gating",
                 source_gate_run_id="gate-run",
                 strategy_filters=["A"],
+                retriever_config=build_retriever_config({"dense_fallback_enabled": True}),
             )
 
             self.assertTrue(outcome.rewrite_applied)

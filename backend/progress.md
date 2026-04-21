@@ -3,6 +3,12 @@
 ## Overview
 High-level backend progress tracking.
 
+## [2026-04-21] Session Summary (Retriever Config API Wiring)
+- What was done: Added Admin Console `RetrieverConfigRequest` and wired `runGating` / `runRagTest` to write explicit retriever mode, dense model, fallback, rerank, candidate-pool, and fusion-weight settings into stage config, experiment YAML, and RAG experiment records.
+- Key decisions: Preserved existing RAG retrieval strategy mode bundling while treating BM25/Dense/Hybrid as a separate ranking-engine config. Default ranking mode is Hybrid with `intfloat/multilingual-e5-small`, dense required, hash fallback disabled, and Cohere rerank enabled.
+- Issues encountered: Frontend build regenerated the backend static React JS asset hash.
+- Next steps: Add request-level integration assertions for retriever config persistence and run mode-by-mode RAG evaluations through Admin.
+
 ## [2026-04-20] Session Summary (RAG Research Mode Bundle)
 - What was done: Updated exploratory Admin RAG retrieval mode resolution so synthetic-backed runs include `memory_only_gated` and `rewrite_always` with `raw_only` and the selected selective rewrite mode.
 - Key decisions: Kept synthetic-free baseline as `raw_only` only; synthetic-backed runs now satisfy the AGENTS query rewrite evaluation shape needed to distinguish memory quality, forced rewrite quality, and selective gate behavior.

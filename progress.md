@@ -3,6 +3,12 @@
 ## Overview
 High-level progress tracking for the project.
 
+## [2026-04-21] Session Summary (Retriever Mode Separation + Admin Controls)
+- What was done: Implemented BM25 Only, Dense Only, and Hybrid local retrieval modes across quality gating utility scoring, eval retrieval, answer eval, memory lookup, and rewrite candidate evaluation. Added explicit retriever config propagation from Admin GUI/API into experiment YAML and refreshed the bundled admin React asset.
+- Key decisions: Kept existing RAG strategy modes (`raw_only`, `memory_only_*`, `rewrite_*`) separate from the new ranking-engine mode. Dense/Hybrid now default to `intfloat/multilingual-e5-small` and only use hash fallback when `dense_fallback_enabled=true` is explicitly configured.
+- Issues encountered: Frontend production build still emits pre-existing JSX warnings for literal `->` option text in `GatingPage.jsx`, but build completes.
+- Next steps: Run same dataset/snapshot BM25 vs Dense vs Hybrid RAG tests and compare retrieval quality together with latency.
+
 ## [2026-04-20] Session Summary (Local Retriever BM25 + Dense Switch)
 - What was done: Switched Python-side local retrieval from hash/overlap scoring to a cached BM25 + dense retriever for eval retrieval, eval answer retrieval, memory lookup, and quality-gating utility scoring. Added CPU defaults for `intfloat/multilingual-e5-small` and documented local retrieval env knobs.
 - Key decisions: Kept Cohere as an external reranker when available, but made local ranking strong enough to be a meaningful fallback. `sentence-transformers` is now a pipeline dependency; if the runtime does not have it installed yet, the new retriever falls back to BM25 + hash embedding.

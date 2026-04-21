@@ -3,6 +3,12 @@
 ## Overview
 High-level pipeline progress tracking.
 
+## [2026-04-21] Session Summary (Explicit Retriever Modes)
+- What was done: Added `RetrieverConfig` and explicit `bm25_only` / `dense_only` / `hybrid` mode handling to `common/local_retriever.py`, then propagated that config through quality gating utility scoring, retrieval eval, answer eval, memory lookup, and selective rewrite candidate scoring.
+- Key decisions: BM25 mode avoids dense model loading entirely; Dense/Hybrid require the configured sentence-transformers model by default and only allow hash embedding fallback when explicitly enabled. Eval/gating summaries now persist retriever metadata for reproducibility.
+- Issues encountered: Existing eval runtime tests directly referenced the previous single dense-backend cache, so the tests were adjusted to clear the new keyed backend cache and pass explicit fallback config where needed.
+- Next steps: Execute controlled BM25/Dense/Hybrid retrieval runs on the same dataset and snapshot to quantify quality and latency tradeoffs.
+
 ## [2026-04-20] Session Summary (BM25 + Local Dense Retriever)
 - What was done: Added `common/local_retriever.py` with cached BM25 + dense ranking, wired retrieval eval, answer eval, memory lookup, and gating utility scoring through it, and added CPU-oriented sentence-transformers configuration/dependency.
 - Key decisions: Default model is `intfloat/multilingual-e5-small` on CPU when `sentence-transformers` is installed; environments without it fall back to BM25 + hash embedding instead of fake Cohere scores. The retriever normalizes BM25, dense similarity, and technical-token overlap into the existing `[-1, 1]` score range.
