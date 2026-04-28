@@ -15,6 +15,12 @@ High-level progress tracking for the project.
 - Issues encountered: None in code path migration; targeted test execution required extending command timeout once.
 - Next steps: Run controlled same-dataset/same-snapshot RAG A/B/C runs with only `rewrite_retrieval_strategy` changed and compare quality + latency together.
 
+## [2026-04-28] Session Summary (Selective Rewrite Prompt v2 Intent/Memory Policy Tightening)
+- What was done: Updated `configs/prompts/rewrite/selective_rewrite_v2.md` to make intent-preservation explicit and to constrain memory usage as augmentation-only hints for retrieval optimization.
+- Key decisions: Prompt now enforces conflict resolution in favor of raw query intent, keeps technical anchors, and requires candidate-level intent consistency while improving retrievability.
+- Issues encountered: None.
+- Next steps: Execute same snapshot/dataset prompt A/B comparison with fixed retriever/threshold to measure adoption and retrieval metric impact.
+
 ## [2026-04-28] Session Summary (RAG Memory Embedding Alignment + Targeted Run Purge)
 - What was done: Updated `pipeline/memory/build_memory.py` so memory vectors are built with the run retriever config (`dense_embedding_model`) instead of hardcoded hash embedding, and embedding metadata/dim (`query_embeddings.embedding_dim`) now follows the actual vector length. Deleted only requested RAG run histories for `dd2eb98c-7570-4934-bd61-b90d5316f4e4` and `84205b72-76d5-418c-a628-520af0d374f3` from `rag_test_run` + linked `llm_job/llm_job_item`.
 - Key decisions: Allowed gating-stage embedding model and RAG-stage embedding model to differ, but enforced that memory build uses the RAG test retriever embedding space for internal consistency.

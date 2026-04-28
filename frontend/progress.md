@@ -3,6 +3,12 @@
 ## Overview
 High-level progress tracking for the project.
 
+## [2026-04-28] Session Summary (RAG Test Default Preset Re-tune for Baseline-Comparable Ops)
+- What was done: Updated `/admin/rag-tests` default form state in `RagPage.jsx` so new runs start with `retrieverMode=bm25_only` and `rewriteThreshold=0.14` (`threshold` field), with fallback preset normalization defaulting to BM25 mode.
+- Key decisions: Kept existing fixed-mode preset behavior/read-only retriever weights and changed only the initial defaults to match current operator comparison strategy.
+- Issues encountered: None.
+- Next steps: Validate one new default run from GUI and confirm payload contains BM25-only config plus updated threshold.
+
 ## [2026-04-28] Session Summary (Gating Batch History Preset+Retriever Badge Tags)
 - What was done: Updated `/admin/quality-gating` batch history table to render preset as icon-style tag badges that include both `gatingPreset` and retriever mode (`retrieverMode`) instead of plain preset text.
 - Key decisions: Reused existing token-badge visual language to keep consistency with stage/reason chips and avoid new component churn.

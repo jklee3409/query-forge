@@ -9,6 +9,12 @@ High-level progress tracking for the project.
 - Issues encountered: None.
 - Next steps: Sample-check English `E` outputs and revise prompt wording if retrieval traces show over-generic short queries.
 
+## [2026-04-28] Session Summary (Selective Rewrite Prompt v2: Intent-Preservation + Memory-Augmented Retrieval)
+- What was done: Revised `prompts/rewrite/selective_rewrite_v2.md` to explicitly enforce intent-preserving rewrite generation while using `top_memory_candidates` as constrained augmentation hints. Added strict memory-conflict handling, candidate-level intent consistency checks, and compact retrieval-oriented query phrasing rules.
+- Key decisions: Kept prompt asset id/version unchanged (`selective_rewrite_v2`) for runtime compatibility, and strengthened behavior via instruction policy rather than pipeline logic changes.
+- Issues encountered: None.
+- Next steps: Re-run same-snapshot selective rewrite experiments and compare adoption/quality deltas by prompt revision with fixed threshold and retriever settings.
+
 ## [2026-04-19] Session Summary (Rewrite Prompt v2 Added)
 - What was done: Added `configs/prompts/rewrite/selective_rewrite_v2.md` for retrieval-optimized rewrite generation and kept `selective_rewrite_v1.md` as compatibility fallback.
 - Key decisions: v2 emphasizes lexical anchor preservation for hash-embedding retrieval characteristics while preserving candidate schema/labels.
