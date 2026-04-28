@@ -801,6 +801,7 @@ export function RagPage({ notify }) {
 
   const [form, setForm] = useState({
     datasetId: '',
+    evalQueryLanguage: 'ko',
     runName: '',
     runDiscipline: 'exploratory',
     officialComparisonType: 'rewrite_effect',
@@ -862,6 +863,15 @@ export function RagPage({ notify }) {
   useEffect(() => {
     Promise.all([loadMethods(), loadDatasets(), loadTests(), loadGatingBatches(), loadRewriteLogs(), loadLlmJobs()]).catch((error) => notify(error.message, 'error'))
   }, [])
+
+  useEffect(() => {
+    if (!form.datasetId) return
+    const dataset = datasets.find((item) => item.datasetId === form.datasetId)
+    if (!dataset) return
+    const preferredLanguage = String(dataset.datasetKey || '').toLowerCase().endsWith('_en') ? 'en' : 'ko'
+    if (form.evalQueryLanguage === preferredLanguage) return
+    setForm((prev) => ({ ...prev, evalQueryLanguage: preferredLanguage }))
+  }, [datasets, form.datasetId, form.evalQueryLanguage])
 
   useEffect(() => {
     const totalPages = Math.max(1, Math.ceil(tests.length / historyPageSize))
@@ -1107,6 +1117,7 @@ export function RagPage({ notify }) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           datasetId: form.datasetId,
+          evalQueryLanguage: form.evalQueryLanguage,
           runName: form.runName || null,
           methodCodes: syntheticFreeBaseline ? [] : methodCodesForRun,
           syntheticFreeBaseline,
@@ -1207,7 +1218,10 @@ export function RagPage({ notify }) {
         .map((row) => {
           const method = row.targetMethod ? `[${row.targetMethod}] ` : ''
           const focus = Array.isArray(row.evaluationFocus) && row.evaluationFocus.length > 0 ? ` (${row.evaluationFocus.join(',')})` : ''
-          return `[${row.sampleId}] ${method}${row.queryCategory} - ${row.userQueryKo}${focus}`
+          const queryText = row.queryLanguage === 'en'
+            ? (row.userQueryEn || row.userQueryKo || '')
+            : (row.userQueryKo || row.userQueryEn || '')
+          return `[${row.sampleId}] [${row.queryLanguage || 'ko'}] ${method}${row.queryCategory} - ${queryText}${focus}`
         })
         .join('\n')
       setModal({
@@ -1478,6 +1492,13 @@ export function RagPage({ notify }) {
               </select>
               <span className="field-hint">테스트 입력 샘플 집합입니다.</span>
             </label>
+            <label className="filter-field">Eval Query Language
+              <select value={form.evalQueryLanguage} onChange={(event) => setForm((prev) => ({ ...prev, evalQueryLanguage: event.target.value }))}>
+                <option value="ko">ko</option>
+                <option value="en">en</option>
+              </select>
+              <span className="field-hint">eval runtime rewrite/retrieval input language</span>
+            </label>
             <label className="filter-field">Test Name
               <input
                 value={form.runName}
@@ -1596,7 +1617,7 @@ export function RagPage({ notify }) {
                 {form.gatingApplied ? '메모리 조회 대상 게이팅 단계를 선택합니다.' : '게이팅 미반영 상태이므로 ungated로 고정됩니다.'}
               </span>
             </label>
-            <label className="filter-field">생성 방식(A/B/C/D)
+            <label className="filter-field">생성 방식
               <div className="method-row">
                 {methods.map((method) => (
                   <label

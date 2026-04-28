@@ -3,6 +3,12 @@
 ## Overview
 High-level backend progress tracking.
 
+## [2026-04-28] Session Summary (English Strategy E + Eval Query Language Wiring)
+- What was done: Added Flyway `V21` for `synthetic_queries_raw_e`, expanded method/registry constraints to include `E`, added `eval_samples.user_query_en/query_language`, and wired Admin Console DTO/service/repository paths to persist `eval_query_language` and expose English dataset preview fields.
+- Key decisions: Admin synthetic remains DB-driven for strategy listing, so backend changes focused on schema/default config normalization and language-aware defaults (`E` => `query_language=en`, Korean-ratio defaults `0.0`).
+- Issues encountered: Existing runtime detail loaders assumed `user_query_ko`; `LlmJobService` now resolves display query text by sample language.
+- Next steps: Apply the new migration in the target DB and run one Admin synthetic `E` batch plus one snapshot-bound English RAG test.
+
 ## [2026-04-21] Session Summary (RAG Test Run Names + Fixed Presets)
 - What was done: Extended `RagTestRunRequest` with `runName`, persisted it as `rag_test_run.run_label` and experiment config `run_name`, added migration `V20` to rename legacy auto-labeled RAG runs, and made Admin RAG tests resolve retriever settings through fixed mode presets.
 - Key decisions: RAG tests default `retrieval_top_k` to `10`; BM25/Dense/Hybrid now force server-side weights and flags (`candidate_pool_k=50`, Hybrid `0.60/0.32/0.08`, dense model fixed to `intfloat/multilingual-e5-small`, hash fallback off, Cohere rerank off) while leaving quality-gating's existing configurable resolver path intact.

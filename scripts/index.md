@@ -16,6 +16,7 @@
 - `expand_short_user_dataset.py`: short-user 80문항 재생성/감사 + DB 반영
 - `verify_eval_dataset_origin.py`: eval dataset 출처 검증(build-eval-dataset vs synthetic 중복)
 - `rebuild_short_user_dataset_from_synthetic.py`: synthetic 후보 랜덤 샘플 기반 short-user 80문항 재구성 + DB/JSONL/리포트 반영
+- `build_short_user_en_dataset.py`: 기존 short-user 80을 기준으로 별도 English short-user 80 dataset/JSONL 생성 및 선택적 DB 업서트
 
 ---
 
@@ -33,9 +34,9 @@
 - short-user 확장/감사: `python scripts/expand_short_user_dataset.py`
 - eval dataset 출처 검증: `python scripts/verify_eval_dataset_origin.py --dataset-id <dataset_id>`
 - synthetic 랜덤 재구성: `python scripts/rebuild_short_user_dataset_from_synthetic.py --dataset-id <dataset_id>`
+- English short-user 80 생성: `python scripts/build_short_user_en_dataset.py [--skip-db]`
 
 ---
 
 ## Notes
 - 구조나 책임이 바뀌면 이 문서를 함께 갱신한다.
-

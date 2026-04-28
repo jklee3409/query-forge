@@ -31,7 +31,8 @@ public class AdminConsoleRepository {
             "synthetic_queries_raw_a",
             "synthetic_queries_raw_b",
             "synthetic_queries_raw_c",
-            "synthetic_queries_raw_d"
+            "synthetic_queries_raw_d",
+            "synthetic_queries_raw_e"
     );
 
     private final NamedParameterJdbcTemplate jdbcTemplate;
@@ -40,6 +41,8 @@ public class AdminConsoleRepository {
     public record EvalSampleMeta(
             String sampleId,
             String userQueryKo,
+            String userQueryEn,
+            String queryLanguage,
             String queryCategory
     ) {
     }
@@ -782,7 +785,14 @@ public class AdminConsoleRepository {
                        r.synthetic_query_id,
                        r.query_text,
                        r.query_type,
-                       COALESCE(r.language_profile, CASE WHEN r.query_type = 'code_mixed' THEN 'code_mixed' ELSE 'ko' END),
+                       COALESCE(
+                           r.language_profile,
+                           CASE
+                               WHEN r.generation_strategy = 'E' THEN 'en'
+                               WHEN r.query_type = 'code_mixed' THEN 'code_mixed'
+                               ELSE 'ko'
+                           END
+                       ),
                        r.generation_strategy,
                        g.passed_rule_filter,
                        COALESCE(
@@ -1457,12 +1467,16 @@ public class AdminConsoleRepository {
                        s.query_category,
                        s.single_or_multi_chunk,
                        s.user_query_ko,
+                       s.user_query_en,
+                       COALESCE(NULLIF(s.query_language, ''), COALESCE(i.metadata ->> 'query_language', d.metadata ->> 'query_language', 'ko')) AS query_language,
                        s.dialog_context::text AS dialog_context,
                        s.metadata ->> 'target_method' AS target_method,
                        COALESCE(s.metadata -> 'evaluation_focus', '[]'::jsonb)::text AS evaluation_focus
                 FROM eval_dataset_item i
                 JOIN eval_samples s
                   ON s.sample_id = i.sample_id
+                JOIN eval_dataset d
+                  ON d.dataset_id = i.dataset_id
                 WHERE i.dataset_id = :datasetId
                   AND i.active = TRUE
                 ORDER BY s.sample_id
@@ -1481,11 +1495,45 @@ public class AdminConsoleRepository {
                         rs.getString("query_category"),
                         rs.getString("single_or_multi_chunk"),
                         rs.getString("user_query_ko"),
+                        rs.getString("user_query_en"),
+                        rs.getString("query_language"),
                         readJson(rs, "dialog_context"),
                         rs.getString("target_method"),
                         readJson(rs, "evaluation_focus")
                 )
         );
+    }
+
+    public Optional<String> findEvalDatasetQueryLanguage(UUID datasetId) {
+        String sql = """
+                SELECT COALESCE(
+                           NULLIF(d.metadata ->> 'query_language', ''),
+                           NULLIF(
+                               (
+                                   SELECT CASE
+                                              WHEN COUNT(*) FILTER (WHERE COALESCE(NULLIF(s.query_language, ''), 'ko') = 'en') > 0
+                                                  THEN 'en'
+                                              ELSE 'ko'
+                                          END
+                                   FROM eval_dataset_item i
+                                   JOIN eval_samples s
+                                     ON s.sample_id = i.sample_id
+                                   WHERE i.dataset_id = d.dataset_id
+                                     AND i.active = TRUE
+                               ),
+                               ''
+                           ),
+                           'ko'
+                       ) AS query_language
+                FROM eval_dataset d
+                WHERE d.dataset_id = :datasetId
+                """;
+        List<String> rows = jdbcTemplate.query(
+                sql,
+                new MapSqlParameterSource("datasetId", datasetId),
+                (rs, rowNum) -> rs.getString("query_language")
+        );
+        return rows.stream().findFirst();
     }
 
     @Transactional
@@ -1889,7 +1937,11 @@ public class AdminConsoleRepository {
             return List.of();
         }
         String sql = """
-                SELECT sample_id, user_query_ko, query_category
+                SELECT sample_id,
+                       user_query_ko,
+                       user_query_en,
+                       COALESCE(NULLIF(query_language, ''), 'ko') AS query_language,
+                       query_category
                 FROM eval_samples
                 WHERE sample_id IN (:sampleIds)
                 """;
@@ -1899,6 +1951,8 @@ public class AdminConsoleRepository {
                 (rs, rowNum) -> new EvalSampleMeta(
                         rs.getString("sample_id"),
                         rs.getString("user_query_ko"),
+                        rs.getString("user_query_en"),
+                        rs.getString("query_language"),
                         rs.getString("query_category")
                 )
         );
@@ -2493,7 +2547,14 @@ public class AdminConsoleRepository {
                 SET generation_batch_id = :batchId,
                     generation_method_id = b.generation_method_id,
                     prompt_template_version = COALESCE(r.prompt_template_version, r.prompt_version),
-                    language_profile = COALESCE(r.language_profile, CASE WHEN r.query_type = 'code_mixed' THEN 'code_mixed' ELSE 'ko' END),
+                    language_profile = COALESCE(
+                        r.language_profile,
+                        CASE
+                            WHEN r.generation_strategy = 'E' THEN 'en'
+                            WHEN r.query_type = 'code_mixed' THEN 'code_mixed'
+                            ELSE 'ko'
+                        END
+                    ),
                     normalized_query_text = COALESCE(r.normalized_query_text, lower(regexp_replace(trim(r.query_text), '\\s+', ' ', 'g')))
                 FROM synthetic_query_generation_batch b
                 WHERE b.batch_id = :batchId

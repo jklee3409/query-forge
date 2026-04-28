@@ -6,7 +6,7 @@ Python pipeline for data processing, synthetic query generation, quality gating,
 ---
 
 ## Structure
-- `generation/synthetic_query_generator.py`: synthetic query generation (A/B/C/D)
+- `generation/synthetic_query_generator.py`: synthetic query generation (A/B/C/D/E)
 - `gating/quality_gating.py`: quality gating
 - `memory/build_memory.py`: memory entry construction
 - `datasets/build_eval_dataset.py`: evaluation dataset creation
@@ -19,15 +19,16 @@ Python pipeline for data processing, synthetic query generation, quality gating,
 ## Responsibilities
 - Preserve fixed pipeline stage order from AGENTS constraints.
 - Enforce strategy-separated synthetic raw writes.
-- Keep gating/memory/eval compatible with split raw tables.
+- Keep gating/memory/eval compatible with split raw tables and query-language-aware evaluation.
 
 ---
 
 ## Key Notes
-- Synthetic generation now writes to `synthetic_queries_raw_a/b/c/d` by strategy.
+- Synthetic generation now writes to `synthetic_queries_raw_a/b/c/d/e` by strategy.
 - Gating/memory/eval reads use `synthetic_queries_raw_all` (union view over split tables).
 - This directory assumes DB migration `V17` is applied before runtime execution.
 - Quality gating rule thresholds include configurable Korean-ratio keys (`rule_min_korean_ratio`, `rule_min_korean_ratio_code_mixed`).
+- Quality gating self-eval now accepts language-neutral `naturalness` scoring while keeping backward compatibility with legacy `korean_naturalness` outputs.
 - Retrieval/answer evaluation can be pinned to a snapshot via `source_gating_run_id`, with memory lookup filtering by `memory_entries.metadata.source_gate_run_id`.
 - Memory build now clears stale rows for the active snapshot before insertion and tags rows with `memory_experiment_key`; retrieval/answer eval loads memory by the current experiment key to prevent snapshot contamination.
 - Retrieval metrics use bounded exact expected-chunk `nDCG@10`, and answer correctness reads `expected_answer_key_points` from `eval_samples`.
@@ -42,5 +43,6 @@ Python pipeline for data processing, synthetic query generation, quality gating,
 - Memory build and eval-dataset sampling now require valid corpus joins (`corpus_documents`/`corpus_chunks`) to block stale ID propagation.
 - Eval runtime chunk loading excludes orphan chunks by joining `corpus_documents`, and import skips chunk rows with missing corpus document references.
 - Selective rewrite prompt loading prefers `configs/prompts/rewrite/selective_rewrite_v2.md` with automatic fallback to `selective_rewrite_v1.md`.
+- Eval runtime can load English eval samples (`user_query_en`) through `eval_query_language=en`, and selective rewrite receives the sample query language for English/Korean candidate generation.
 - Selective rewrite adoption now considers retrieval shift (`top-k` composition change + `top1` change) in addition to confidence, reducing zero-adoption lock when rerank scores are flat.
 - Langfuse LLM observability is integrated at `common/langfuse_observability.py` and wired only through `common/llm_client.py` with fail-open behavior.

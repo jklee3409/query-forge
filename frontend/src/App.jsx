@@ -13,7 +13,7 @@ export const ADMIN_PAGE_META = {
   },
   synthetic: {
     title: '합성 질의 생성 관리',
-    subtitle: 'A/B/C/D 방식의 생성 배치 이력과 품질 메타데이터를 추적합니다.',
+    subtitle: 'A/B/C/D/E 방식의 생성 배치 이력과 품질 메타데이터를 추적합니다.',
     path: '/admin/synthetic-queries',
   },
   gating: {

@@ -315,6 +315,8 @@ public final class AdminConsoleDtos {
             String queryCategory,
             String singleOrMultiChunk,
             String userQueryKo,
+            String userQueryEn,
+            String queryLanguage,
             JsonNode dialogContext,
             String targetMethod,
             JsonNode evaluationFocus
@@ -323,6 +325,7 @@ public final class AdminConsoleDtos {
 
     public record RagTestRunRequest(
             UUID datasetId,
+            String evalQueryLanguage,
             String runName,
             List<String> methodCodes,
             Boolean syntheticFreeBaseline,

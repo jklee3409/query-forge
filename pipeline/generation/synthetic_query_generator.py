@@ -92,6 +92,7 @@ STRATEGY_RAW_TABLES: dict[str, str] = {
     "B": "synthetic_queries_raw_b",
     "C": "synthetic_queries_raw_c",
     "D": "synthetic_queries_raw_d",
+    "E": "synthetic_queries_raw_e",
 }
 
 
@@ -152,6 +153,7 @@ def _resolve_prompt_bundle(
         "B": prompt_root / "query_generation" / "gen_b_v1.md",
         "C": prompt_root / "query_generation" / "gen_c_v1.md",
         "D": prompt_root / "query_generation" / "gen_d_v1.md",
+        "E": prompt_root / "query_generation" / "gen_e_v1.md",
     }
     for required_path in (summary_en_path, summary_ko_path, translate_path, *query_paths.values()):
         if not required_path.exists():
@@ -340,6 +342,8 @@ def _normalize_query_text(text: str) -> str:
 
 
 def _language_profile(strategy: str, query_type: str) -> str:
+    if strategy == "E":
+        return "en"
     if strategy == "D" or query_type == "code_mixed":
         return "code_mixed"
     return "ko"
@@ -611,8 +615,9 @@ def _extract_query_text(
     response: dict[str, Any],
 ) -> tuple[str, dict[str, Any]]:
     def _fallback_query_text() -> str:
+        primary_keys = ("query_en", "query_ko") if generation_strategy == "E" else ("query_ko", "query_en")
         candidate_keys = (
-            "query_ko",
+            *primary_keys,
             "query_text",
             "query",
             "question",
@@ -645,6 +650,9 @@ def _extract_query_text(
         query_text = str(response.get("query_ko") or "").strip() or _fallback_query_text()
         query_en = str(response.get("query_en") or "").strip()
         return query_text, {"query_en": query_en}
+    if generation_strategy == "E":
+        query_en = str(response.get("query_en") or "").strip() or _fallback_query_text()
+        return query_en, {"query_en": query_en}
     if generation_strategy == "D":
         query_ko = str(response.get("query_ko") or "").strip() or _fallback_query_text()
         query_code_mixed = str(response.get("query_code_mixed") or "").strip()
@@ -1141,6 +1149,7 @@ def run_generation(
 
                 normalized_query_text = _normalize_query_text(query_text)
                 language_profile = _language_profile(generation_strategy, query_type)
+                query_language = "en" if generation_strategy == "E" else "ko"
                 payload = {
                     "synthetic_query_id": stable_query_id,
                     "experiment_run_id": run_context.experiment_run_id,
@@ -1153,7 +1162,7 @@ def run_generation(
                     "answerability_type": answerability_type,
                     "query_text": query_text,
                     "normalized_query_text": normalized_query_text,
-                    "query_language": "ko",
+                    "query_language": query_language,
                     "language_profile": language_profile,
                     "query_type": query_type,
                     "generation_strategy": generation_strategy,

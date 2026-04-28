@@ -659,7 +659,7 @@ public class LlmJobService {
                         runId,
                         sampleId,
                         meta != null ? meta.queryCategory() : null,
-                        meta != null ? meta.userQueryKo() : sampleId,
+                        resolveEvalSampleQueryText(meta),
                         row.path("final_query").asText(""),
                         row.path("rewrite_applied").asBoolean(false),
                         nullableJson(row.get("memory_top_n")),
@@ -685,6 +685,19 @@ public class LlmJobService {
             return parent;
         }
         throw new IllegalStateException("failed to resolve repository root for llm jobs");
+    }
+
+    private String resolveEvalSampleQueryText(AdminConsoleRepository.EvalSampleMeta meta) {
+        if (meta == null) {
+            return "";
+        }
+        if ("en".equalsIgnoreCase(meta.queryLanguage()) && meta.userQueryEn() != null && !meta.userQueryEn().isBlank()) {
+            return meta.userQueryEn();
+        }
+        if (meta.userQueryKo() != null && !meta.userQueryKo().isBlank()) {
+            return meta.userQueryKo();
+        }
+        return meta.userQueryEn() == null ? "" : meta.userQueryEn();
     }
 
     private Map<String, Object> buildRagPerformanceMetrics(

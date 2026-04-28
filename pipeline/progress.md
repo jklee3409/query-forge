@@ -3,6 +3,12 @@
 ## Overview
 High-level pipeline progress tracking.
 
+## [2026-04-28] Session Summary (English Generation/Gating/Rewrite Eval Path)
+- What was done: Extended synthetic generation to support strategy `E` with `gen_e_v1`, English query persistence (`query_language=en`, `language_profile=en`), generalized quality-gating self-eval from Korean-only naturalness to language-neutral naturalness, and updated eval runtime/retrieval/answer flows to load `user_query_en` via `eval_query_language`.
+- Key decisions: Kept the existing prompt asset family names and added language awareness at runtime instead of duplicating the full eval stack; selective rewrite now falls back heuristically when LLM rewrite setup is unavailable.
+- Issues encountered: Existing rewrite runtime tests patched the old builder name, so tests were realigned to the new language-aware rewrite wrapper.
+- Next steps: Run one `generate-queries -> gate-queries -> build-memory -> eval-retrieval -> eval-answer` chain for strategy `E` after Flyway apply and inspect English rewrite adoption rates.
+
 ## [2026-04-21] Session Summary (Explicit Retriever Modes)
 - What was done: Added `RetrieverConfig` and explicit `bm25_only` / `dense_only` / `hybrid` mode handling to `common/local_retriever.py`, then propagated that config through quality gating utility scoring, retrieval eval, answer eval, memory lookup, and selective rewrite candidate scoring.
 - Key decisions: BM25 mode avoids dense model loading entirely; Dense/Hybrid require the configured sentence-transformers model by default and only allow hash embedding fallback when explicitly enabled. Eval/gating summaries now persist retriever metadata for reproducibility.

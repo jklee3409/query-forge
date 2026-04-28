@@ -69,6 +69,7 @@ data/synthetic/*
 data/eval/*
 !data/eval/.gitkeep
 !data/eval/README.md
+!data/eval/human_eval_short_user_test_80_en.jsonl
 data/reports/*
 !data/reports/.gitkeep
 !data/reports/README.md

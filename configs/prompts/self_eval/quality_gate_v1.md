@@ -11,7 +11,7 @@ Score each dimension from 1 to 5:
 - grounded
 - answerable
 - user_like
-- korean_naturalness
+- naturalness
 - copy_control
 
 Structured output target fields:
@@ -21,14 +21,14 @@ Structured output target fields:
     "grounded": 1,
     "answerable": 1,
     "user_like": 1,
-    "korean_naturalness": 1,
+    "naturalness": 1,
     "copy_control": 1
   },
   "reasons": {
     "grounded": "...",
     "answerable": "...",
     "user_like": "...",
-    "korean_naturalness": "...",
+    "naturalness": "...",
     "copy_control": "..."
   },
   "overall_comment": "..."

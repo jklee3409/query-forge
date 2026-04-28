@@ -3,6 +3,12 @@
 ## Overview
 High-level progress tracking for the project.
 
+## [2026-04-28] Session Summary (English Query Generation Prompt + Language-Aware Rewrite/Gating Prompts)
+- What was done: Added `configs/prompts/query_generation/gen_e_v1.md` for English-native synthetic query generation, rewrote `selective_rewrite_v2.md` to accept `query_language`, and generalized `quality_gate_v1.md` scoring from `korean_naturalness` to `naturalness`.
+- Key decisions: Reused existing prompt families and versions where possible to keep runtime lookup simple; English support was added by prompt contract expansion rather than a second rewrite prompt family.
+- Issues encountered: None.
+- Next steps: Sample-check English `E` outputs and revise prompt wording if retrieval traces show over-generic short queries.
+
 ## [2026-04-19] Session Summary (Rewrite Prompt v2 Added)
 - What was done: Added `configs/prompts/rewrite/selective_rewrite_v2.md` for retrieval-optimized rewrite generation and kept `selective_rewrite_v1.md` as compatibility fallback.
 - Key decisions: v2 emphasizes lexical anchor preservation for hash-embedding retrieval characteristics while preserving candidate schema/labels.

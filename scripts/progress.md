@@ -3,6 +3,12 @@
 ## Overview
 High-level progress tracking for the project.
 
+## [2026-04-28] Session Summary (English Short-User 80 Builder)
+- What was done: Added `scripts/build_short_user_en_dataset.py` to generate `data/eval/human_eval_short_user_test_80_en.jsonl` and optionally upsert the separate English dataset (`human_eval_short_user_80_en`) into DB tables.
+- Key decisions: Kept DB writes optional via `--skip-db` so the artifact can be generated before applying the new Flyway migration, and stored paired-sample metadata linking each English row back to the existing Korean short-user 80 set.
+- Issues encountered: The source Korean short-user prompts contain mojibake in terminal output, so the English companion queries are regenerated from grounded technical terms and answer hints rather than literal text translation.
+- Next steps: Run the script without `--skip-db` in the target environment after Flyway `V21` is applied.
+
 ## [2026-04-19] Session Summary (Synthetic Candidate Random 80 Rebuilder Added)
 - What was done: Added `scripts/rebuild_short_user_dataset_from_synthetic.py` to rebuild dataset `b2d47254-8655-4c9c-81ac-7615677ec5bd` by randomly sampling 80 rows from `synthetic_queries_raw_all`, compressing them into short/lazy Korean user queries, and updating DB + JSONL + report outputs.
 - Key decisions: Preserved existing eval schema and DB contracts; only presentation/query-text layer was changed while keeping source chunk grounding intact.

@@ -3,6 +3,12 @@
 ## Overview
 High-level progress tracking for the project.
 
+## [2026-04-28] Session Summary (English Eval Language Controls + E Strategy Copy)
+- What was done: Updated Admin RAG form state/payload to include `evalQueryLanguage`, auto-default it from dataset key (`*_en` => `en`), and show English dataset preview text when dataset items expose `userQueryEn/queryLanguage`. Updated admin shell copy so synthetic generation subtitle now reflects `A/B/C/D/E`.
+- Key decisions: Kept method selection UI dynamic from backend method rows instead of hardcoding strategy buttons; the only explicit strategy-label change in RAG was removing the static `A/B/C/D` suffix from the selection label.
+- Issues encountered: Existing `GatingPage.jsx` JSX `->` warnings are still present and unrelated to this task.
+- Next steps: Operator-smoke one English dataset selection path and confirm preview/run payloads show `evalQueryLanguage=en`.
+
 ## [2026-04-21] Session Summary (RAG Test Names + Fixed Retriever Presets)
 - What was done: Updated `/admin/rag-tests` with a `Test Name` input, changed default `retrieval_top_k` from `20` to `10`, and replaced editable dense/fallback/rerank retriever toggles with mode-driven fixed presets. Rebuilt the production React bundle into backend static resources.
 - Key decisions: Dense model is always read-only (`intfloat/multilingual-e5-small`); BM25/Dense/Hybrid selection now auto-applies candidate pool `50`, Cohere rerank off, hash fallback off, and mode-specific weights (`0/1/0`, `1/0/0`, `0.60/0.32/0.08`). RAG compare/history labels prefer configured test names and use stable legacy fallback names for old auto labels.

@@ -36,6 +36,8 @@
 ## Recent Update
 - `/admin/rag-tests` now has a `Test Name` input wired to backend `runName`, defaults `Retrieval Top-K` to `10`, and shows configured/legacy-stable names in run history and comparison UI instead of relying on generic Run A/Run B labels.
 - `/admin/rag-tests` retriever controls now use fixed mode presets: dense model is read-only (`intfloat/multilingual-e5-small`), Dense Required/Hash Fallback/Cohere Rerank checkboxes are removed, candidate pool is fixed at `50`, and mode weights are BM25 `0/1/0`, Dense `1/0/0`, Hybrid `0.60/0.32/0.08`.
+- `/admin/rag-tests` now exposes `Eval Query Language` so the same runtime can evaluate Korean or English dataset variants, and dataset preview resolves `userQueryEn` when the selected dataset is English.
+- Admin shell synthetic-page copy now reflects `A/B/C/D/E` strategy coverage while the strategy picker itself remains DB-driven.
 - `/admin/rag-tests` and `/admin/quality-gating` now expose retriever ranking controls for BM25 Only, Dense Only, and Hybrid modes, including dense model, dense-required/fallback, rerank, candidate-pool, and fusion-weight settings.
 - Admin retriever controls default to Hybrid + `intfloat/multilingual-e5-small`, dense required, hash fallback disabled, and Cohere rerank enabled so generated experiments are reproducible by ranking mode.
 - `/admin/rag-tests` now defaults rewrite threshold to `0.10` and single-run detail shows a raw-vs-query-rewrite/synthetic-memory comparison table when `raw_only` is present; synthetic-free baseline detail remains baseline-only.

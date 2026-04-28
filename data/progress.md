@@ -3,6 +3,12 @@
 ## Overview
 High-level progress tracking for the project.
 
+## [2026-04-28] Session Summary (English Short User 80 Asset Added)
+- What was done: Added `data/eval/human_eval_short_user_test_80_en.jsonl` as the separate English short-user evaluation dataset paired to the existing Korean 80 set.
+- Key decisions: Kept the same retrieval-aware grounding fields and assigned new English sample ids (`test-short-user-en-###`) plus paired-sample metadata instead of modifying the existing Korean dataset in place.
+- Issues encountered: Source Korean short-user prompts include mojibake in terminal output, so the companion English queries were regenerated from technical terms plus grounded answer hints instead of direct literal translation.
+- Next steps: Upsert the English dataset rows into the runtime DB with `scripts/build_short_user_en_dataset.py` after Flyway `V21` is applied.
+
 ## [2026-04-20] Session Summary (Memory Snapshot Data Cleanup)
 - What was done: Removed 1,385 live `memory_entries` rows built from synthetic queries that are rejected in their recorded gating batch, removed the matching 1,385 memory `query_embeddings`, and later removed 6,273 orphan memory embeddings that no longer had a `memory_entries` owner row.
 - Key decisions: Backfilled `memory_entries.metadata.memory_experiment_key` for the remaining 515 memory rows by joining `memory_build_run_id` to experiment metadata, so current data matches the new experiment-key isolation path.

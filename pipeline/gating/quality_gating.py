@@ -60,14 +60,14 @@ SELF_EVAL_RESPONSE_SCHEMA: dict[str, Any] = {
                 "grounded",
                 "answerable",
                 "user_like",
-                "korean_naturalness",
+                "naturalness",
                 "copy_control",
             ],
             "properties": {
                 "grounded": {"type": "integer"},
                 "answerable": {"type": "integer"},
                 "user_like": {"type": "integer"},
-                "korean_naturalness": {"type": "integer"},
+                "naturalness": {"type": "integer"},
                 "copy_control": {"type": "integer"},
             },
             "additionalProperties": True,
@@ -85,6 +85,8 @@ class RawQueryRow:
     target_chunk_ids: list[str]
     answerability_type: str
     query_text: str
+    query_language: str
+    language_profile: str
     query_type: str
     generation_strategy: str
     source_summary: str
@@ -177,6 +179,12 @@ def _load_raw_queries(
                    target_chunk_ids,
                    answerability_type,
                    query_text,
+                   COALESCE(NULLIF(query_language, ''), CASE WHEN generation_strategy = 'E' THEN 'en' ELSE 'ko' END) AS query_language,
+                   COALESCE(NULLIF(language_profile, ''), CASE
+                       WHEN generation_strategy = 'E' THEN 'en'
+                       WHEN query_type = 'code_mixed' THEN 'code_mixed'
+                       ELSE 'ko'
+                   END) AS language_profile,
                    query_type,
                    generation_strategy,
                    source_summary,
@@ -197,6 +205,8 @@ def _load_raw_queries(
             target_chunk_ids=list(row["target_chunk_ids"] or []),
             answerability_type=str(row["answerability_type"]),
             query_text=str(row["query_text"]),
+            query_language=str(row["query_language"] or "ko"),
+            language_profile=str(row["language_profile"] or "ko"),
             query_type=str(row["query_type"]),
             generation_strategy=str(row["generation_strategy"]),
             source_summary=str(row["source_summary"] or ""),
@@ -503,6 +513,8 @@ def _llm_self_eval(
             {
                 "query_text": query.query_text,
                 "query_type": query.query_type,
+                "query_language": query.query_language,
+                "language_profile": query.language_profile,
                 "answerability_type": query.answerability_type,
                 "source_chunk_text": source_chunk.chunk_text,
                 "source_summary": query.source_summary,
@@ -521,7 +533,7 @@ def _llm_self_eval(
         "grounded": int(scores_raw.get("grounded", 3)),
         "answerable": int(scores_raw.get("answerable", 3)),
         "user_like": int(scores_raw.get("user_like", 3)),
-        "korean_naturalness": int(scores_raw.get("korean_naturalness", 3)),
+        "naturalness": int(scores_raw.get("naturalness", scores_raw.get("korean_naturalness", 3))),
         "copy_control": int(scores_raw.get("copy_control", 3)),
     }
     return scores, payload
@@ -533,7 +545,7 @@ def _llm_pass(scores: dict[str, int]) -> bool:
             scores["grounded"] >= 4,
             scores["answerable"] >= 3,
             scores["user_like"] >= 3,
-            scores["korean_naturalness"] >= 3,
+            scores["naturalness"] >= 3,
             scores["copy_control"] >= 3,
         ]
     )
@@ -599,14 +611,15 @@ def _rule_pass(
     if copied > 0.60:
         reasons.append("copy_ratio_high")
 
-    ratio = korean_ratio(stripped)
-    min_korean_ratio = float(config.raw.get("rule_min_korean_ratio", 0.40))
-    min_korean_ratio_code_mixed = float(config.raw.get("rule_min_korean_ratio_code_mixed", 0.20))
-    min_korean_ratio = max(0.0, min(1.0, min_korean_ratio))
-    min_korean_ratio_code_mixed = max(0.0, min(1.0, min_korean_ratio_code_mixed))
-    min_korean_ratio = min_korean_ratio_code_mixed if query.query_type == "code_mixed" else min_korean_ratio
-    if ratio < min_korean_ratio:
-        reasons.append("korean_ratio_low")
+    if query.query_language.lower() == "ko" or query.language_profile == "code_mixed":
+        ratio = korean_ratio(stripped)
+        min_korean_ratio = float(config.raw.get("rule_min_korean_ratio", 0.40))
+        min_korean_ratio_code_mixed = float(config.raw.get("rule_min_korean_ratio_code_mixed", 0.20))
+        min_korean_ratio = max(0.0, min(1.0, min_korean_ratio))
+        min_korean_ratio_code_mixed = max(0.0, min(1.0, min_korean_ratio_code_mixed))
+        min_korean_ratio = min_korean_ratio_code_mixed if query.language_profile == "code_mixed" else min_korean_ratio
+        if ratio < min_korean_ratio:
+            reasons.append("korean_ratio_low")
 
     return len(reasons) == 0, reasons
 
@@ -1060,7 +1073,7 @@ def run_quality_gating(
                             query.synthetic_query_id,
                             query.query_text,
                             query.query_type,
-                            "code_mixed" if query.query_type == "code_mixed" else "ko",
+                            query.language_profile,
                             query.generation_strategy,
                             passed_rule if config.enable_rule_filter else None,
                             llm_avg,

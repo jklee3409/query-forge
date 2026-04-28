@@ -27,6 +27,7 @@ class EvalSample:
     sample_id: str
     split: str
     query_text: str
+    query_language: str
     dialog_context: dict[str, Any]
     expected_doc_ids: list[str]
     expected_chunk_ids: list[str]
@@ -104,7 +105,9 @@ def load_eval_samples(
     connection: psycopg.Connection[Any],
     *,
     dataset_id: str | None = None,
+    query_language: str = "ko",
 ) -> list[EvalSample]:
+    normalized_language = "en" if str(query_language).strip().lower() == "en" else "ko"
     with connection.cursor() as cursor:
         if dataset_id:
             cursor.execute(
@@ -112,6 +115,8 @@ def load_eval_samples(
                 SELECT es.sample_id,
                        es.split,
                        es.user_query_ko,
+                       es.user_query_en,
+                       COALESCE(NULLIF(es.query_language, ''), COALESCE(ed.metadata ->> 'query_language', 'ko')) AS query_language,
                        es.dialog_context,
                        es.expected_doc_ids,
                        es.expected_chunk_ids,
@@ -123,6 +128,8 @@ def load_eval_samples(
                   ON edi.sample_id = es.sample_id
                  AND edi.dataset_id = %s
                  AND edi.active = TRUE
+                JOIN eval_dataset ed
+                  ON ed.dataset_id = edi.dataset_id
                 ORDER BY es.split, es.sample_id
                 """,
                 (dataset_id,),
@@ -133,6 +140,8 @@ def load_eval_samples(
                 SELECT sample_id,
                        split,
                        user_query_ko,
+                       user_query_en,
+                       COALESCE(NULLIF(query_language, ''), 'ko') AS query_language,
                        dialog_context,
                        expected_doc_ids,
                        expected_chunk_ids,
@@ -149,7 +158,13 @@ def load_eval_samples(
         EvalSample(
             sample_id=str(row["sample_id"]),
             split=str(row["split"]),
-            query_text=str(row["user_query_ko"]),
+            query_text=str(
+                (row["user_query_en"] if normalized_language == "en" and row["user_query_en"] else row["user_query_ko"])
+                or row["user_query_en"]
+                or row["user_query_ko"]
+                or ""
+            ),
+            query_language=normalized_language,
             dialog_context=dict(row["dialog_context"] or {}),
             expected_doc_ids=list(row["expected_doc_ids"] or []),
             expected_chunk_ids=list(row["expected_chunk_ids"] or []),
@@ -502,6 +517,109 @@ def build_rewrite_candidates(
     raise RuntimeError("LLM rewrite candidate response was empty.")
 
 
+def _heuristic_rewrite_candidates_v2(
+    raw_query: str,
+    memory_items: list[dict[str, Any]],
+    *,
+    session_context: dict[str, Any],
+    candidate_count: int,
+    query_language: str,
+) -> list[dict[str, str]]:
+    top_memory_query = memory_items[0]["query_text"] if memory_items else raw_query
+    previous_entity = str(session_context.get("previous_assistant_summary") or "").strip()
+    previous_question = str(session_context.get("previous_user_question") or "").strip()
+
+    if query_language == "en":
+        templates = [
+            {"label": "explicit_standalone", "query": raw_query},
+            {"label": "memory_anchored", "query": f"{raw_query} {top_memory_query}".strip()},
+            {"label": "task_or_error_focused", "query": f"{raw_query} troubleshooting example".strip()},
+        ]
+        if previous_entity or previous_question:
+            templates[0]["query"] = f"{previous_question} {raw_query} {previous_entity}".strip()
+        return templates[:candidate_count]
+
+    return _heuristic_rewrite_candidates(
+        raw_query,
+        memory_items,
+        session_context=session_context,
+        candidate_count=candidate_count,
+    )
+
+
+def build_rewrite_candidates_v2(
+    raw_query: str,
+    memory_items: list[dict[str, Any]],
+    *,
+    session_context: dict[str, Any],
+    candidate_count: int,
+    query_language: str,
+) -> list[dict[str, str]]:
+    trace_id = f"rewrite:{hashlib.sha1(raw_query.encode('utf-8')).hexdigest()[:12]}"
+    fallback_allowed = str(os.getenv("QUERY_FORGE_ALLOW_HEURISTIC_REWRITE_FALLBACK") or "true").lower() == "true"
+    try:
+        response = _rewrite_client().chat_json(
+            system_prompt=_rewrite_prompt_text(),
+            user_prompt=json.dumps(
+                {
+                    "raw_query": raw_query,
+                    "query_language": query_language,
+                    "session_context": session_context,
+                    "top_memory_candidates": memory_items[:5],
+                    "candidate_count": candidate_count,
+                },
+                ensure_ascii=False,
+                indent=2,
+            ),
+            response_schema=REWRITE_RESPONSE_SCHEMA,
+            request_purpose="selective_rewrite",
+            trace_id=trace_id,
+        )
+    except Exception:
+        if fallback_allowed:
+            return _heuristic_rewrite_candidates_v2(
+                raw_query,
+                memory_items,
+                session_context=session_context,
+                candidate_count=candidate_count,
+                query_language=query_language,
+            )
+        raise
+    candidate_rows = response.get("candidates")
+    if not isinstance(candidate_rows, list):
+        if fallback_allowed:
+            return _heuristic_rewrite_candidates_v2(
+                raw_query,
+                memory_items,
+                session_context=session_context,
+                candidate_count=candidate_count,
+                query_language=query_language,
+            )
+        raise RuntimeError("LLM rewrite response must contain `candidates` list.")
+    normalized: list[dict[str, str]] = []
+    for item in candidate_rows:
+        if not isinstance(item, dict):
+            continue
+        query = str(item.get("query") or "").strip()
+        if not query:
+            continue
+        label = str(item.get("label") or f"candidate_{len(normalized) + 1}").strip()
+        normalized.append({"label": label, "query": query})
+        if len(normalized) >= candidate_count:
+            break
+    if normalized:
+        return normalized
+    if fallback_allowed:
+        return _heuristic_rewrite_candidates_v2(
+            raw_query,
+            memory_items,
+            session_context=session_context,
+            candidate_count=candidate_count,
+            query_language=query_language,
+        )
+    raise RuntimeError("LLM rewrite candidate response was empty.")
+
+
 def confidence_score(
     retrieval: list[RetrievalCandidate],
     memory_affinity_score: float,
@@ -542,6 +660,7 @@ def _retrieval_shift_score(
 def run_selective_rewrite(
     *,
     raw_query: str,
+    query_language: str,
     session_context: dict[str, Any],
     chunks: list[ChunkItem],
     memories: list[MemoryItem],
@@ -569,11 +688,12 @@ def run_selective_rewrite(
     raw_memory_affinity = memory_items[0]["similarity"] if memory_items else 0.0
     raw_confidence = confidence_score(raw_retrieval, raw_memory_affinity)
 
-    candidate_templates = build_rewrite_candidates(
+    candidate_templates = build_rewrite_candidates_v2(
         raw_query,
         memory_items,
         session_context=session_context,
         candidate_count=candidate_count,
+        query_language=query_language,
     )
     candidates: list[dict[str, Any]] = []
     best_candidate = None

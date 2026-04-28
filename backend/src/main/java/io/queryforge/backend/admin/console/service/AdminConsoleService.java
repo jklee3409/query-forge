@@ -48,6 +48,8 @@ public class AdminConsoleService {
     private static final String GATING_PASS_STAGE_PASSED_UTILITY = "passed_utility";
     private static final String GATING_PASS_STAGE_PASSED_DIVERSITY = "passed_diversity";
     private static final String GATING_PASS_STAGE_PASSED_ALL = "passed_all";
+    private static final String QUERY_LANGUAGE_KO = "ko";
+    private static final String QUERY_LANGUAGE_EN = "en";
     private static final String RETRIEVER_MODE_BM25_ONLY = "bm25_only";
     private static final String RETRIEVER_MODE_DENSE_ONLY = "dense_only";
     private static final String RETRIEVER_MODE_HYBRID = "hybrid";
@@ -231,7 +233,7 @@ public class AdminConsoleService {
                 "enable_diversity",
                 flagValue(stageFlags == null ? null : stageFlags.enableDiversity(), gatingPreset, "diversity")
         );
-        Map<String, Object> ruleConfig = resolveRuleConfig(requestConfig == null ? null : requestConfig.ruleConfig());
+        Map<String, Object> ruleConfig = resolveRuleConfig(methodCode, requestConfig == null ? null : requestConfig.ruleConfig());
         Map<String, Double> utilityScoreWeights = resolveUtilityScoreWeights(
                 requestConfig == null ? null : requestConfig.utilityScoreWeights()
         );
@@ -386,6 +388,10 @@ public class AdminConsoleService {
         if (request.datasetId() == null) {
             throw new IllegalArgumentException("dataset_id is required");
         }
+        String evalQueryLanguage = normalizeEvalQueryLanguage(
+                request.evalQueryLanguage(),
+                repository.findEvalDatasetQueryLanguage(request.datasetId()).orElse(null)
+        );
         boolean syntheticFreeBaseline = Boolean.TRUE.equals(request.syntheticFreeBaseline());
         List<String> methodCodes = syntheticFreeBaseline ? List.of() : normalizeMethodCodes(request.methodCodes());
         if (!syntheticFreeBaseline && methodCodes.isEmpty()) {
@@ -561,6 +567,7 @@ public class AdminConsoleService {
         );
         config.put("run_name", runLabel);
         config.put("dataset_id", request.datasetId().toString());
+        config.put("eval_query_language", evalQueryLanguage);
         config.put("memory_generation_strategies", methodCodes);
         config.put("source_generation_strategies", methodCodes);
         config.put("synthetic_free_baseline", syntheticFreeBaseline);
@@ -1040,6 +1047,15 @@ public class AdminConsoleService {
         return value.trim();
     }
 
+    private String normalizeEvalQueryLanguage(String requested, String datasetDefault) {
+        String candidate = firstNonBlank(requested, datasetDefault, QUERY_LANGUAGE_KO);
+        candidate = candidate == null ? QUERY_LANGUAGE_KO : candidate.trim().toLowerCase();
+        if (!List.of(QUERY_LANGUAGE_KO, QUERY_LANGUAGE_EN).contains(candidate)) {
+            throw new IllegalArgumentException("unsupported eval_query_language: " + requested);
+        }
+        return candidate;
+    }
+
     private String normalizeGatingPreset(String value) {
         if (value == null || value.isBlank()) {
             return "full_gating";
@@ -1102,7 +1118,8 @@ public class AdminConsoleService {
         return value;
     }
 
-    private Map<String, Object> resolveRuleConfig(AdminConsoleDtos.GatingRuleConfig request) {
+    private Map<String, Object> resolveRuleConfig(String methodCode, AdminConsoleDtos.GatingRuleConfig request) {
+        boolean englishOnly = "E".equalsIgnoreCase(methodCode);
         Map<String, Object> ruleConfig = new LinkedHashMap<>();
         ruleConfig.put(
                 "rule_min_len_short",
@@ -1129,9 +1146,11 @@ public class AdminConsoleService {
                 request == null || request.maxTokens() == null ? 30 : clampRange(request.maxTokens(), 1, 120, "rule_max_tokens")
         );
         double minKoreanRatio = request == null || request.minKoreanRatio() == null
-                ? 0.20d
+                ? (englishOnly ? 0.0d : 0.20d)
                 : clampRange(request.minKoreanRatio(), 0.0d, 1.0d, "rule_min_korean_ratio");
-        double minKoreanRatioCodeMixed = request == null || request.minKoreanRatio() == null ? 0.20d : minKoreanRatio;
+        double minKoreanRatioCodeMixed = request == null || request.minKoreanRatio() == null
+                ? (englishOnly ? 0.0d : 0.20d)
+                : minKoreanRatio;
         ruleConfig.put("rule_min_korean_ratio", minKoreanRatio);
         ruleConfig.put("rule_min_korean_ratio_code_mixed", minKoreanRatioCodeMixed);
         return ruleConfig;
@@ -1221,12 +1240,15 @@ public class AdminConsoleService {
     }
 
     private Map<String, Object> baseExperimentConfig(String experimentKey, String methodCode) {
+        boolean englishOnly = "E".equalsIgnoreCase(methodCode);
         Map<String, Object> config = new LinkedHashMap<>();
         config.put("experiment_key", experimentKey);
         config.put("category", "admin");
         config.put("description", "Admin console generated config");
         config.put("generation_strategy", methodCode);
         config.put("enable_code_mixed", "D".equalsIgnoreCase(methodCode));
+        config.put("query_language", englishOnly ? QUERY_LANGUAGE_EN : QUERY_LANGUAGE_KO);
+        config.put("query_language_profile", englishOnly ? QUERY_LANGUAGE_EN : ("D".equalsIgnoreCase(methodCode) ? "code_mixed" : QUERY_LANGUAGE_KO));
         config.put("enable_rule_filter", true);
         config.put("enable_llm_self_eval", true);
         config.put("enable_retrieval_utility", true);
@@ -1258,8 +1280,8 @@ public class AdminConsoleService {
         config.put("rule_max_len_long", 100);
         config.put("rule_min_tokens", 2);
         config.put("rule_max_tokens", 30);
-        config.put("rule_min_korean_ratio", 0.20);
-        config.put("rule_min_korean_ratio_code_mixed", 0.20);
+        config.put("rule_min_korean_ratio", englishOnly ? 0.0 : 0.20);
+        config.put("rule_min_korean_ratio_code_mixed", englishOnly ? 0.0 : 0.20);
         config.put(
                 "retrieval_utility_weights",
                 Map.of(

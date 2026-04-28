@@ -30,6 +30,7 @@
 - `preprocess`, `chunk-docs`, `glossary-docs` 결과를 `processed/`에 저장
 - generation/gating/memory 관련 산출물을 `synthetic/`에 저장
 - retrieval/answer 평가 산출물을 `eval/`, 요약 리포트를 `reports/`에 저장
+- `eval/` now includes a separate English short-user companion set (`human_eval_short_user_test_80_en.jsonl`) for paired KO/EN retrieval experiments on the same English technical-doc domain.
 - 실행 로그와 중간 실행 파일은 `logs/`, `tmp/`로 분리
 
 ---

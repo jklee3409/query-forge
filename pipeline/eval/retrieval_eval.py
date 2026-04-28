@@ -243,6 +243,7 @@ def _evaluate_mode(
     use_context = mode == "selective_rewrite_with_session"
     rewrite_outcome, retrieval = run_selective_rewrite(
         raw_query=sample.query_text,
+        query_language=sample.query_language,
         session_context=sample.dialog_context if use_context else {},
         chunks=chunks,
         memories=memories,
@@ -382,7 +383,8 @@ def run_retrieval_eval(
             active_modes = ["raw_only"]
         eval_concurrency = _resolve_eval_concurrency(config.raw)
 
-        samples = load_eval_samples(connection, dataset_id=dataset_id)
+        eval_query_language = str(config.raw.get("eval_query_language") or "ko").strip().lower()
+        samples = load_eval_samples(connection, dataset_id=dataset_id, query_language=eval_query_language)
         LOGGER.info(
             "retrieval_eval_parallelism samples=%s modes=%s concurrency=%s",
             len(samples),

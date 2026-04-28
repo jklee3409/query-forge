@@ -18,17 +18,19 @@ Spring Boot backend for Admin Console APIs, RAG APIs, pipeline command orchestra
 - Provide admin APIs for synthetic query generation, quality gating, and RAG test operations.
 - Execute pipeline commands via backend-managed jobs.
 - Maintain DB schema evolution through Flyway.
-- Preserve strategy-separated synthetic raw storage (A/B/C/D) and split-aware read paths.
+- Preserve strategy-separated synthetic raw storage (A/B/C/D/E) and split-aware read paths.
 
 ---
 
 ## Key Notes
 - Legacy single-table `synthetic_queries_raw` is retired by migration `V17`.
-- Read paths use `synthetic_queries_raw_all` (union view over `synthetic_queries_raw_a/b/c/d`).
+- Read paths use `synthetic_queries_raw_all` (union view over `synthetic_queries_raw_a/b/c/d/e`).
 - Write/provenance updates for synthetic raw rows are strategy-table specific.
 - Admin gating result API supports strategy filtering via `method_code` and paging via `limit/offset`.
 - Admin gating funnel API supports optional strategy filtering via `method_code` (`전체/A/B/C/D`).
 - Admin gating config supports dynamic rule-level Korean ratio thresholds via request payload (`ruleMinKoreanRatio`).
+- Admin synthetic supports English-native strategy `E`; backend defaults mark it as `query_language=en` and avoid Korean-ratio rule defaults in subsequent gating configs.
+- Eval sample storage now supports `user_query_en` plus `query_language`, and Admin RAG run requests persist `evalQueryLanguage` into experiment config for language-specific runtime loading.
 - Admin RAG test run API supports optional snapshot binding via `sourceGatingBatchId` and validates it into fixed `source_gating_run_id`.
 - Admin RAG test run API supports `syntheticFreeBaseline` exploratory mode (synthetic-free baseline), forcing raw-only evaluation semantics without snapshot/method selection.
 - Admin RAG test run API accepts `runName` and persists it as `rag_test_run.run_label` plus experiment config `run_name`; migration `V20` assigns legacy auto-labeled RAG runs stable `Legacy RAG Test ###` names.

@@ -3,6 +3,12 @@
 ## Overview
 High-level progress tracking for the project.
 
+## [2026-04-28] Session Summary (English Synthetic E + English Short-User 80 Eval Path)
+- What was done: Added English synthetic generation strategy `E` end-to-end for Admin synthetic runs, extended split raw storage/schema/method registry to `A/B/C/D/E`, made quality gating and selective rewrite language-aware for English eval runs, added separate English short-user-80 dataset assets/scripts, and exposed eval query language selection in Admin RAG UI/runtime.
+- Key decisions: Kept AGENTS strategy-separated storage by adding `synthetic_queries_raw_e` instead of merging tables; English short-user 80 uses a separate dataset id/key (`human_eval_short_user_80_en`) and runtime now selects `user_query_en` via `eval_query_language=en`.
+- Issues encountered: Existing `GatingPage.jsx` JSX `->` warnings remain pre-existing; runtime rewrite tests needed fail-open heuristic fallback and updated patch target after the new language-aware rewrite wrapper.
+- Next steps: Apply Flyway `V21`, run `scripts/build_short_user_en_dataset.py` without `--skip-db` against the target DB, then execute paired KO/EN RAG runs on matched snapshots.
+
 ## [2026-04-21] Session Summary (RAG Test Presets + Run Names)
 - What was done: Updated `/admin/rag-tests` so retriever mode drives fixed RAG presets, added operator-provided RAG test names through the Admin API, backfilled legacy default RAG labels, and rebuilt the bundled React asset.
 - Key decisions: RAG tests now force `intfloat/multilingual-e5-small`, disable hash fallback and Cohere rerank for clean BM25/Dense/Hybrid comparisons, use Hybrid weights `0.60/0.32/0.08`, candidate pool `50`, and default `retrieval_top_k=10`.

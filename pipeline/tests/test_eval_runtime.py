@@ -60,8 +60,8 @@ class EvalRuntimeRewriteTests(unittest.TestCase):
             self.assertIn("hash-embedding-v1", retriever.retriever_name)
 
     def test_selective_rewrite_uses_candidate_memory_affinity(self) -> None:
-        original_builder = runtime.build_rewrite_candidates
-        runtime.build_rewrite_candidates = lambda *args, **kwargs: [
+        original_builder = runtime.build_rewrite_candidates_v2
+        runtime.build_rewrite_candidates_v2 = lambda *args, **kwargs: [
             {
                 "label": "memory_anchored",
                 "query": "Spring Security OAuth2AccessTokenResponseHttpMessageConverter 사용 예시",
@@ -99,6 +99,7 @@ class EvalRuntimeRewriteTests(unittest.TestCase):
 
             outcome, retrieval = runtime.run_selective_rewrite(
                 raw_query="OAuth2AccessTokenResponseHttpMessageConverter 방법은 같이 쓰는 예시?",
+                query_language="ko",
                 session_context={},
                 chunks=chunks,
                 memories=memories,
@@ -118,7 +119,7 @@ class EvalRuntimeRewriteTests(unittest.TestCase):
             self.assertEqual(retrieval[0].chunk_id, "expected")
             self.assertGreater(outcome.candidates[0]["memory_similarity_delta"], 0.0)
         finally:
-            runtime.build_rewrite_candidates = original_builder
+            runtime.build_rewrite_candidates_v2 = original_builder
 
 
 if __name__ == "__main__":

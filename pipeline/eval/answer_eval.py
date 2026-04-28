@@ -107,6 +107,7 @@ def _evaluate_answer_sample(
     if rewrite_enabled:
         rewrite_outcome, retrieval = run_selective_rewrite(
             raw_query=sample.query_text,
+            query_language=sample.query_language,
             session_context=sample.dialog_context if config.use_session_context else {},
             chunks=chunks,
             memories=memories,
@@ -255,7 +256,8 @@ def run_answer_eval(
             selective_rewrite = False
             gating_applied = False
         eval_concurrency = _resolve_eval_concurrency(config.raw)
-        samples = load_eval_samples(connection, dataset_id=dataset_id)
+        eval_query_language = str(config.raw.get("eval_query_language") or "ko").strip().lower()
+        samples = load_eval_samples(connection, dataset_id=dataset_id, query_language=eval_query_language)
         LOGGER.info(
             "answer_eval_parallelism samples=%s concurrency=%s",
             len(samples),
