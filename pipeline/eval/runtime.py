@@ -78,6 +78,7 @@ class RewriteOutcome:
 _REWRITE_CLIENT: LlmClient | None = None
 _REWRITE_PROMPT_TEXT: str | None = None
 _RERANKER: CohereReranker | None = None
+REWRITE_RETRIEVAL_STRATEGIES = {"replace", "interleave", "max_score"}
 
 REWRITE_RESPONSE_SCHEMA: dict[str, Any] = {
     "type": "object",
@@ -657,6 +658,60 @@ def _retrieval_shift_score(
     return (0.7 * jaccard_distance) + (0.3 * top1_changed)
 
 
+def _normalize_rewrite_retrieval_strategy(value: str | None) -> str:
+    normalized = str(value or "").strip().lower()
+    return normalized if normalized in REWRITE_RETRIEVAL_STRATEGIES else "replace"
+
+
+def _dedup_candidates(
+    rows: list[RetrievalCandidate],
+    *,
+    top_k: int,
+) -> list[RetrievalCandidate]:
+    seen: set[str] = set()
+    merged: list[RetrievalCandidate] = []
+    for row in rows:
+        chunk_id = str(row.chunk_id or "").strip()
+        if not chunk_id or chunk_id in seen:
+            continue
+        seen.add(chunk_id)
+        merged.append(row)
+        if len(merged) >= top_k:
+            break
+    return merged
+
+
+def _merge_raw_and_rewrite_retrieval(
+    *,
+    strategy: str,
+    raw_retrieval: list[RetrievalCandidate],
+    rewrite_retrieval: list[RetrievalCandidate],
+    top_k: int,
+) -> list[RetrievalCandidate]:
+    if strategy == "replace":
+        return rewrite_retrieval
+    if strategy == "interleave":
+        interleaved: list[RetrievalCandidate] = []
+        max_len = max(len(raw_retrieval), len(rewrite_retrieval))
+        for index in range(max_len):
+            if index < len(raw_retrieval):
+                interleaved.append(raw_retrieval[index])
+            if index < len(rewrite_retrieval):
+                interleaved.append(rewrite_retrieval[index])
+        return _dedup_candidates(interleaved, top_k=top_k)
+
+    by_chunk: dict[str, RetrievalCandidate] = {}
+    for row in [*raw_retrieval, *rewrite_retrieval]:
+        chunk_id = str(row.chunk_id or "").strip()
+        if not chunk_id:
+            continue
+        existing = by_chunk.get(chunk_id)
+        if existing is None or row.score > existing.score:
+            by_chunk[chunk_id] = row
+    ranked = sorted(by_chunk.values(), key=lambda item: item.score, reverse=True)
+    return ranked[:top_k]
+
+
 def run_selective_rewrite(
     *,
     raw_query: str,
@@ -672,6 +727,7 @@ def run_selective_rewrite(
     source_gate_run_id: str | None = None,
     strategy_filters: list[str] | None = None,
     force_rewrite: bool = False,
+    rewrite_retrieval_strategy: str = "replace",
     retriever_config: RetrieverConfig | None = None,
 ) -> tuple[RewriteOutcome, list[RetrievalCandidate]]:
     config = retriever_config or build_retriever_config({})
@@ -688,6 +744,7 @@ def run_selective_rewrite(
     raw_memory_affinity = memory_items[0]["similarity"] if memory_items else 0.0
     raw_confidence = confidence_score(raw_retrieval, raw_memory_affinity)
 
+    normalized_strategy = _normalize_rewrite_retrieval_strategy(rewrite_retrieval_strategy)
     candidate_templates = build_rewrite_candidates_v2(
         raw_query,
         memory_items,
@@ -753,7 +810,15 @@ def run_selective_rewrite(
     same_query = normalized_raw_query == normalized_best_query
     should_apply = force_rewrite or (not same_query and delta >= threshold)
     final_query = best_candidate["query"] if should_apply else raw_query
-    final_retrieval = best_candidate["retrieval"] if should_apply else raw_retrieval
+    if should_apply:
+        final_retrieval = _merge_raw_and_rewrite_retrieval(
+            strategy=normalized_strategy,
+            raw_retrieval=raw_retrieval,
+            rewrite_retrieval=best_candidate["retrieval"],
+            top_k=retrieval_top_k,
+        )
+    else:
+        final_retrieval = raw_retrieval
     reason = (
         "forced"
         if should_apply and force_rewrite

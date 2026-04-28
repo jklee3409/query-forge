@@ -3,6 +3,24 @@
 ## Overview
 High-level pipeline progress tracking.
 
+## [2026-04-28] Session Summary (BM25-Only Memory Build Dimension Fix)
+- What was done: Fixed `memory/build_memory.py` so BM25-only runs no longer generate 3072-dim hash vectors against 384-dim DB columns. Added explicit target-dimension normalization (`384`) in `_embed_memory_query` for fallback/hash paths.
+- Key decisions: Kept BM25-only behavior on retrieval mode (no dense backend), but aligned persisted vector dimensions to storage schema to avoid `expected 384 dimensions, not 3072` failures.
+- Issues encountered: Recent schema alignment to `halfvec(384)` exposed legacy hash fallback dimension assumptions during `build-memory`.
+- Next steps: Re-run failed BM25-only RAG tests and verify full pipeline completion (`build-memory -> eval-retrieval -> eval-answer`).
+
+## [2026-04-28] Session Summary (Selective Rewrite Retrieval Merge Strategies)
+- What was done: Added rewrite retrieval merge logic in `eval/runtime.py` with strategies `replace`, `interleave`, and `max_score` so rewritten queries can be combined with raw-query retrieval results instead of unconditional replacement. Wired strategy selection into both retrieval and answer eval stages via experiment config key `rewrite_retrieval_strategy`.
+- Key decisions: Preserved backward compatibility by normalizing missing/invalid strategy inputs to `replace` at runtime.
+- Issues encountered: None.
+- Next steps: Evaluate strategy impact per snapshot with controlled one-variable experiments and monitor rewrite adoption vs MRR/nDCG deltas.
+
+## [2026-04-28] Session Summary (Build-Memory Dense Embedding Model Alignment)
+- What was done: Refactored `memory/build_memory.py` to derive memory embeddings from experiment retriever config via local retriever dense backend, replacing hardcoded hash embedding writes. Updated `query_embeddings` upsert to persist actual `embedding_dim` from vector length.
+- Key decisions: Kept hash as runtime fallback model only when dense backend cannot load; otherwise memory embedding model now follows `dense_embedding_model` (e.g., `intfloat/multilingual-e5-small`) to align with RAG test retrieval space.
+- Issues encountered: Legacy flow stamped `embedding_model=hash-embedding-v1` for all memory builds, which can degrade `memory_only_*` modes in dense-only RAG experiments.
+- Next steps: Execute one RAG run using `dense_only` and verify memory build summary reports non-hash embedding model with expected dimensions.
+
 ## [2026-04-28] Session Summary (English Generation/Gating/Rewrite Eval Path)
 - What was done: Extended synthetic generation to support strategy `E` with `gen_e_v1`, English query persistence (`query_language=en`, `language_profile=en`), generalized quality-gating self-eval from Korean-only naturalness to language-neutral naturalness, and updated eval runtime/retrieval/answer flows to load `user_query_en` via `eval_query_language`.
 - Key decisions: Kept the existing prompt asset family names and added language awareness at runtime instead of duplicating the full eval stack; selective rewrite now falls back heuristically when LLM rewrite setup is unavailable.

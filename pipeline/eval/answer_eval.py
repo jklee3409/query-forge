@@ -119,6 +119,7 @@ def _evaluate_answer_sample(
             source_gate_run_id=source_gating_run_id,
             strategy_filters=memory_strategy_filters,
             force_rewrite=not selective_rewrite,
+            rewrite_retrieval_strategy=str(config.raw.get("rewrite_retrieval_strategy") or "replace"),
             retriever_config=config.retriever_config,
         )
     else:

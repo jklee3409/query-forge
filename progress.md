@@ -9,6 +9,18 @@ High-level progress tracking for the project.
 - Issues encountered: `synthetic_queries_raw_e` inherited both `ck_synthetic_queries_raw_d_strategy` and the old `A-D` generic strategy check from `synthetic_queries_raw_d`, making every `generation_strategy='E'` insert impossible.
 - Next steps: Apply `V22` to the running DB, retry the failed `GENERATE_SYNTHETIC_QUERY` job, and verify `synthetic_queries_raw_e` plus `synthetic_queries_raw_all` counts for the recovered batch.
 
+## [2026-04-28] Session Summary (RAG Rewrite Retrieval Merge Strategy: Replace/Interleave/MaxScore)
+- What was done: Added rewrite retrieval merge strategies so selective/forced rewrite no longer has to fully replace the raw query retrieval list. Implemented `rewrite_retrieval_strategy` (`replace`, `interleave`, `max_score`) in pipeline runtime and wired the option through Admin RAG request -> experiment config -> eval retrieval/answer execution.
+- Key decisions: Kept existing default behavior as `replace` for backward compatibility; `interleave` and `max_score` are opt-in strategies for preserving original user intent while incorporating synthetic rewrite benefits.
+- Issues encountered: None in code path migration; targeted test execution required extending command timeout once.
+- Next steps: Run controlled same-dataset/same-snapshot RAG A/B/C runs with only `rewrite_retrieval_strategy` changed and compare quality + latency together.
+
+## [2026-04-28] Session Summary (RAG Memory Embedding Alignment + Targeted Run Purge)
+- What was done: Updated `pipeline/memory/build_memory.py` so memory vectors are built with the run retriever config (`dense_embedding_model`) instead of hardcoded hash embedding, and embedding metadata/dim (`query_embeddings.embedding_dim`) now follows the actual vector length. Deleted only requested RAG run histories for `dd2eb98c-7570-4934-bd61-b90d5316f4e4` and `84205b72-76d5-418c-a628-520af0d374f3` from `rag_test_run` + linked `llm_job/llm_job_item`.
+- Key decisions: Allowed gating-stage embedding model and RAG-stage embedding model to differ, but enforced that memory build uses the RAG test retriever embedding space for internal consistency.
+- Issues encountered: Previous memory build path always wrote `hash-embedding-v1`, causing memory retrieval quality distortion when RAG retriever was dense-only e5.
+- Next steps: Run a fresh same-snapshot RAG test and verify `metrics_json.memory.embedding_model` matches run retriever dense model.
+
 ## [2026-04-28] Session Summary (English Synthetic E + English Short-User 80 Eval Path)
 - What was done: Added English synthetic generation strategy `E` end-to-end for Admin synthetic runs, extended split raw storage/schema/method registry to `A/B/C/D/E`, made quality gating and selective rewrite language-aware for English eval runs, added separate English short-user-80 dataset assets/scripts, and exposed eval query language selection in Admin RAG UI/runtime.
 - Key decisions: Kept AGENTS strategy-separated storage by adding `synthetic_queries_raw_e` instead of merging tables; English short-user 80 uses a separate dataset id/key (`human_eval_short_user_80_en`) and runtime now selects `user_query_en` via `eval_query_language=en`.

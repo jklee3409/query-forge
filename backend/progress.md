@@ -9,6 +9,12 @@ High-level backend progress tracking.
 - Issues encountered: Existing E-method specific fallback path (`forceBm25RetrieverConfig`) remains in service and is orthogonal to this generic Dense/Hybrid failure guard.
 - Next steps: Run one gating batch each with `dense_only` and `hybrid` under no-sentence-transformers environment and verify batch completes with fallback backend.
 
+## [2026-04-28] Session Summary (RAG Rewrite Retrieval Strategy Request/Config Wiring)
+- What was done: Extended `RagTestRunRequest` with `rewriteRetrievalStrategy`, added backend normalization/validation (`replace`, `interleave`, `max_score`), and persisted the strategy into generated experiment config plus `rag_eval_experiment_record.rewrite_config`.
+- Key decisions: Default strategy remains `replace` when omitted so existing clients and historical run semantics are unchanged.
+- Issues encountered: None.
+- Next steps: Add API-level integration coverage for invalid strategy rejection and default/explicit strategy config persistence.
+
 ## [2026-04-28] Session Summary (E Gating Dense Dependency Fallback)
 - What was done: Investigated failed gating batch `15660322-b3a9-4391-a88a-464fc6e5e11a` and confirmed the failure came from retrieval utility dense backend bootstrap (`sentence-transformers` unavailable), then updated `AdminConsoleService.runGating` to force BM25-only retriever config by default for method `E` when retriever config is omitted.
 - Key decisions: Kept user-provided retriever config untouched; applied fallback only to default E-path to unblock English strategy gating without changing the overall gating pipeline flow.

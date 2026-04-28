@@ -342,6 +342,7 @@ public final class AdminConsoleDtos {
             Boolean rewriteEnabled,
             Boolean selectiveRewrite,
             Boolean useSessionContext,
+            String rewriteRetrievalStrategy,
             Integer topK,
             Double threshold,
             Integer retrievalTopK,

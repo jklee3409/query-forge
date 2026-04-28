@@ -35,6 +35,9 @@ public class AdminConsoleService {
     private static final String RUN_DISCIPLINE_EXPLORATORY = "exploratory";
     private static final String COMPARISON_GATING_EFFECT = "gating_effect";
     private static final String COMPARISON_REWRITE_EFFECT = "rewrite_effect";
+    private static final String REWRITE_RETRIEVAL_STRATEGY_REPLACE = "replace";
+    private static final String REWRITE_RETRIEVAL_STRATEGY_INTERLEAVE = "interleave";
+    private static final String REWRITE_RETRIEVAL_STRATEGY_MAX_SCORE = "max_score";
     private static final String SYNTHETIC_FREE_BASELINE_METHOD = "BASELINE";
     private static final String STAGE_CUTOFF_RULE_ONLY = "rule_only";
     private static final String STAGE_CUTOFF_RULE_PLUS_LLM = "rule_plus_llm";
@@ -448,6 +451,7 @@ public class AdminConsoleService {
                 String.valueOf(retrieverConfig.get("retriever_mode"))
         );
         double threshold = request.threshold() != null ? request.threshold() : 0.10d;
+        String rewriteRetrievalStrategy = normalizeRewriteRetrievalStrategy(request.rewriteRetrievalStrategy());
         String stageCutoffLevel = normalizeStageCutoffLevel(request.stageCutoffLevel(), gatingPreset);
 
         if (stageCutoffEnabled) {
@@ -580,6 +584,7 @@ public class AdminConsoleService {
         config.put("selective_rewrite", selectiveRewrite);
         config.put("use_session_context", useSessionContext);
         config.put("rewrite_threshold", threshold);
+        config.put("rewrite_retrieval_strategy", rewriteRetrievalStrategy);
         config.put("retrieval_top_k", retrievalTopK);
         config.put("rerank_top_n", rerankTopN);
         attachRetrieverConfig(config, retrieverConfig);
@@ -691,6 +696,7 @@ public class AdminConsoleService {
         initialRewriteConfig.put("selective_rewrite", selectiveRewrite);
         initialRewriteConfig.put("use_session_context", useSessionContext);
         initialRewriteConfig.put("rewrite_threshold", threshold);
+        initialRewriteConfig.put("rewrite_retrieval_strategy", rewriteRetrievalStrategy);
         repository.upsertRagExperimentRecord(
                 runId,
                 initialSnapshotId,
@@ -817,6 +823,21 @@ public class AdminConsoleService {
                 STAGE_CUTOFF_FULL_GATING
         ).contains(normalized)) {
             throw new IllegalArgumentException("unsupported stage_cutoff_level: " + value);
+        }
+        return normalized;
+    }
+
+    private String normalizeRewriteRetrievalStrategy(String value) {
+        if (value == null || value.isBlank()) {
+            return REWRITE_RETRIEVAL_STRATEGY_REPLACE;
+        }
+        String normalized = value.trim().toLowerCase();
+        if (!List.of(
+                REWRITE_RETRIEVAL_STRATEGY_REPLACE,
+                REWRITE_RETRIEVAL_STRATEGY_INTERLEAVE,
+                REWRITE_RETRIEVAL_STRATEGY_MAX_SCORE
+        ).contains(normalized)) {
+            throw new IllegalArgumentException("unsupported rewrite_retrieval_strategy: " + value);
         }
         return normalized;
     }

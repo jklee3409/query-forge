@@ -37,7 +37,7 @@ const RETRIEVER_MODE_PRESETS = {
 }
 
 function retrieverPresetForMode(mode) {
-  const normalizedMode = RETRIEVER_MODE_PRESETS[mode] ? mode : 'hybrid'
+  const normalizedMode = RETRIEVER_MODE_PRESETS[mode] ? mode : 'bm25_only'
   return {
     retrieverMode: normalizedMode,
     denseEmbeddingModel: FIXED_DENSE_EMBEDDING_MODEL,
@@ -810,10 +810,10 @@ export function RagPage({ notify }) {
     officialGatingUngatedBatchId: '',
     officialGatingRuleOnlyBatchId: '',
     officialGatingFullGatingBatchId: '',
-    threshold: '0.10',
+    threshold: '0.14',
     retrievalTopK: '10',
     rerankTopN: '5',
-    ...retrieverPresetForMode('hybrid'),
+    ...retrieverPresetForMode('bm25_only'),
     syntheticFreeBaseline: false,
     gatingApplied: true,
     stageCutoffEnabled: false,
@@ -821,6 +821,7 @@ export function RagPage({ notify }) {
     rewriteEnabled: true,
     selectiveRewrite: true,
     useSessionContext: false,
+    rewriteRetrievalStrategy: 'replace',
   })
 
   const loadMethods = async () => {
@@ -1144,6 +1145,7 @@ export function RagPage({ notify }) {
           rewriteEnabled,
           selectiveRewrite,
           useSessionContext,
+          rewriteRetrievalStrategy: form.rewriteRetrievalStrategy,
           threshold: toNumber(form.threshold),
           retrievalTopK: toNumber(form.retrievalTopK),
           rerankTopN: toNumber(form.rerankTopN),
@@ -1729,6 +1731,18 @@ export function RagPage({ notify }) {
             <label><input type="checkbox" checked={form.rewriteEnabled} disabled={form.syntheticFreeBaseline} onChange={(event) => setForm((prev) => ({ ...prev, rewriteEnabled: event.target.checked }))} />Rewrite 사용</label>
             <label><input type="checkbox" checked={form.selectiveRewrite} disabled={form.syntheticFreeBaseline || !form.rewriteEnabled} onChange={(event) => setForm((prev) => ({ ...prev, selectiveRewrite: event.target.checked, useSessionContext: event.target.checked ? prev.useSessionContext : false }))} />Selective</label>
             <label><input type="checkbox" checked={form.useSessionContext} disabled={form.syntheticFreeBaseline || !form.rewriteEnabled || !form.selectiveRewrite} onChange={(event) => setForm((prev) => ({ ...prev, useSessionContext: event.target.checked }))} />Session Context</label>
+            <label>
+              Rewrite Retrieval
+              <select
+                value={form.rewriteRetrievalStrategy}
+                disabled={form.syntheticFreeBaseline || !form.rewriteEnabled}
+                onChange={(event) => setForm((prev) => ({ ...prev, rewriteRetrievalStrategy: event.target.value }))}
+              >
+                <option value="replace">replace</option>
+                <option value="interleave">interleave</option>
+                <option value="max_score">max_score</option>
+              </select>
+            </label>
           </div>
 
           <div className="state-note">
