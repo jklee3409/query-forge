@@ -13,15 +13,18 @@ try:
     from common.embeddings import embed_text, embedding_to_halfvec_literal
     from common.experiment_config import load_experiment_config
     from common.experiment_run import ExperimentRunRecorder
+    from common.local_retriever import build_retriever_config, get_local_text_retriever
     from loaders.common import connect, default_database_args
 except ModuleNotFoundError:  # pragma: no cover - direct module execution fallback
     from pipeline.common.embeddings import embed_text, embedding_to_halfvec_literal
     from pipeline.common.experiment_config import load_experiment_config
     from pipeline.common.experiment_run import ExperimentRunRecorder
+    from pipeline.common.local_retriever import build_retriever_config, get_local_text_retriever
     from pipeline.loaders.common import connect, default_database_args
 
 
 LOGGER = logging.getLogger(__name__)
+TARGET_EMBEDDING_DIMENSION = 384
 
 STAGE_CUTOFF_RULE_ONLY = "rule_only"
 STAGE_CUTOFF_RULE_PLUS_LLM = "rule_plus_llm"
@@ -588,6 +591,7 @@ def _upsert_query_embedding(
     metadata: dict[str, Any],
 ) -> None:
     literal = embedding_to_halfvec_literal(embedding_values)
+    embedding_dim = len(embedding_values)
     with connection.cursor() as cursor:
         cursor.execute(
             """
@@ -599,14 +603,51 @@ def _upsert_query_embedding(
                 embedding,
                 metadata
             ) VALUES (
-                %s, %s, %s, 3072, CAST(%s AS halfvec), %s
+                %s, %s, %s, %s, CAST(%s AS halfvec), %s
             )
             ON CONFLICT (owner_type, owner_id, embedding_model) DO UPDATE
             SET embedding = EXCLUDED.embedding,
                 metadata = EXCLUDED.metadata
             """,
-            (owner_type, owner_id, embedding_model, literal, Jsonb(metadata)),
+            (owner_type, owner_id, embedding_model, embedding_dim, literal, Jsonb(metadata)),
         )
+
+
+def _embed_memory_query(text: str, *, retriever_config: Any) -> tuple[list[float], str]:
+    retriever = get_local_text_retriever(
+        namespace="memory-build-embedding",
+        item_ids=["memory-build"],
+        texts=[text],
+        retriever_config=retriever_config,
+    )
+    dense_passages = retriever._dense_passages  # noqa: SLF001 - internal cache reuse for single-vector extraction
+    if dense_passages is None:
+        raw_embedding = embed_text(text, dim=TARGET_EMBEDDING_DIMENSION)
+    else:
+        try:
+            passage_count = len(dense_passages)
+        except TypeError:
+            passage_count = 0
+        raw_embedding = (
+            dense_passages[0]
+            if passage_count > 0
+            else embed_text(text, dim=TARGET_EMBEDDING_DIMENSION)
+        )
+    if hasattr(raw_embedding, "tolist"):
+        embedding = [float(value) for value in raw_embedding.tolist()]
+    else:
+        embedding = [float(value) for value in raw_embedding]
+    embedding_model = (
+        retriever_config.dense_embedding_model
+        if str(retriever.dense_backend_name).startswith("sentence-transformers:")
+        else "hash-embedding-v1"
+    )
+    if len(embedding) != TARGET_EMBEDDING_DIMENSION:
+        if len(embedding) > TARGET_EMBEDDING_DIMENSION:
+            embedding = embedding[:TARGET_EMBEDDING_DIMENSION]
+        else:
+            embedding = embedding + ([0.0] * (TARGET_EMBEDDING_DIMENSION - len(embedding)))
+    return embedding, embedding_model
 
 
 def run_memory_build(
@@ -682,6 +723,8 @@ def run_memory_build(
                 continue
             strategy_filters.append(normalized)
         configured_gating_run_id = str(config.raw.get("source_gating_run_id") or "").strip() or None
+        retriever_config = build_retriever_config(config.raw)
+        summary_embedding_model = retriever_config.dense_embedding_model
         stage_cutoff_enabled = bool(config.raw.get("stage_cutoff_enabled", False))
         stage_cutoff_level = _normalize_stage_cutoff_level(str(config.raw.get("stage_cutoff_level") or config.gating_preset))
         stage_cutoff_source_batch_id = str(
@@ -777,7 +820,11 @@ def run_memory_build(
             total_deleted_rows += deleted_rows
             for row in rows:
                 memory_id = str(uuid.uuid4())
-                embedding = embed_text(row.query_text)
+                embedding, embedding_model = _embed_memory_query(
+                    row.query_text,
+                    retriever_config=retriever_config,
+                )
+                summary_embedding_model = embedding_model
                 embedding_literal = embedding_to_halfvec_literal(embedding)
                 with connection.cursor() as cursor:
                     cursor.execute(
@@ -857,7 +904,7 @@ def run_memory_build(
                     connection,
                     owner_type="memory",
                     owner_id=memory_id,
-                    embedding_model="hash-embedding-v1",
+                    embedding_model=embedding_model,
                     embedding_values=embedding,
                     metadata={"source_gated_query_id": row.gated_query_id},
                 )
@@ -865,7 +912,7 @@ def run_memory_build(
                     connection,
                     owner_type="synthetic_gated",
                     owner_id=row.gated_query_id,
-                    embedding_model="hash-embedding-v1",
+                    embedding_model=embedding_model,
                     embedding_values=embedding,
                     metadata={"synthetic_query_id": row.synthetic_query_id},
                 )
@@ -873,7 +920,7 @@ def run_memory_build(
                     connection,
                     owner_type="synthetic_raw",
                     owner_id=row.synthetic_query_id,
-                    embedding_model="hash-embedding-v1",
+                    embedding_model=embedding_model,
                     embedding_values=embedding,
                     metadata={"gated_query_id": row.gated_query_id},
                 )
@@ -892,7 +939,7 @@ def run_memory_build(
             "memory_entries_deleted_by_snapshot": deleted_by_snapshot,
             "memory_experiment_key": config.experiment_key,
             "preview_memory_ids": inserted_memory_ids,
-            "embedding_model": "hash-embedding-v1",
+            "embedding_model": summary_embedding_model,
             "stage_cutoff_enabled": stage_cutoff_enabled,
             "stage_cutoff_level": stage_cutoff_level if stage_cutoff_enabled else None,
             "stage_cutoff_source_gating_batch_id": stage_cutoff_source_batch_id if stage_cutoff_enabled else None,
