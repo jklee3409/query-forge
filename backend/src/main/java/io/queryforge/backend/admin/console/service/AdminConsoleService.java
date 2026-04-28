@@ -216,6 +216,9 @@ public class AdminConsoleService {
         Map<String, Object> retrieverConfig = resolveRetrieverConfig(
                 requestConfig == null ? null : requestConfig.retrieverConfig()
         );
+        if ("E".equalsIgnoreCase(methodCode) && requestConfig != null && requestConfig.retrieverConfig() == null) {
+            retrieverConfig = forceBm25RetrieverConfig(retrieverConfig);
+        }
         Map<String, Object> stageConfig = new LinkedHashMap<>();
         stageConfig.put(
                 "enable_rule_filter",
@@ -896,7 +899,9 @@ public class AdminConsoleService {
         if (RETRIEVER_MODE_BM25_ONLY.equals(mode)) {
             denseRequired = false;
         }
-        boolean denseFallbackEnabled = !fixedModePreset && request != null && Boolean.TRUE.equals(request.denseFallbackEnabled());
+        boolean denseFallbackEnabled = fixedModePreset
+                ? false
+                : request == null || request.denseFallbackEnabled() == null || request.denseFallbackEnabled();
         boolean rerankEnabled = fixedModePreset
                 ? false
                 : request == null || request.rerankEnabled() == null || request.rerankEnabled();
@@ -984,6 +989,19 @@ public class AdminConsoleService {
         config.put("rerank_enabled", retrieverConfig.get("rerank_enabled"));
         config.put("retriever_candidate_pool_k", retrieverConfig.get("retriever_candidate_pool_k"));
         config.put("retriever_fusion_weights", retrieverConfig.get("retriever_fusion_weights"));
+    }
+
+    private Map<String, Object> forceBm25RetrieverConfig(Map<String, Object> source) {
+        Map<String, Object> normalized = new LinkedHashMap<>(source);
+        normalized.put("retriever_mode", RETRIEVER_MODE_BM25_ONLY);
+        normalized.put("dense_embedding_required", false);
+        normalized.put("dense_fallback_enabled", false);
+        normalized.put("retriever_fusion_weights", Map.of(
+                "dense", 0.0d,
+                "bm25", 1.0d,
+                "technical", 0.0d
+        ));
+        return normalized;
     }
 
     private void ensureDefaultEvalDataset() {
@@ -1153,6 +1171,12 @@ public class AdminConsoleService {
                 : minKoreanRatio;
         ruleConfig.put("rule_min_korean_ratio", minKoreanRatio);
         ruleConfig.put("rule_min_korean_ratio_code_mixed", minKoreanRatioCodeMixed);
+        if (englishOnly) {
+            ruleConfig.put("rule_max_len_short_en", 120);
+            ruleConfig.put("rule_max_len_long_en", 200);
+            ruleConfig.put("rule_max_copy_ratio_en", 0.85d);
+        }
+        ruleConfig.put("rule_max_copy_ratio", 0.60d);
         return ruleConfig;
     }
 

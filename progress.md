@@ -3,6 +3,12 @@
 ## Overview
 High-level progress tracking for the project.
 
+## [2026-04-28] Session Summary (Raw E Migration Fix + Failed Batch Recovery)
+- What was done: Investigated failed English synthetic batch `ca64cad2-27d4-4510-b251-a4037bbd8dfd`, identified the root cause as copied `D`-strategy constraints on `synthetic_queries_raw_e`, and added follow-up migration `V22` to normalize the table definition before retrying the failed job.
+- Key decisions: Kept the original `V21` as historical truth and fixed the live schema with a new migration so existing environments can recover without rewriting applied migration history.
+- Issues encountered: `synthetic_queries_raw_e` inherited both `ck_synthetic_queries_raw_d_strategy` and the old `A-D` generic strategy check from `synthetic_queries_raw_d`, making every `generation_strategy='E'` insert impossible.
+- Next steps: Apply `V22` to the running DB, retry the failed `GENERATE_SYNTHETIC_QUERY` job, and verify `synthetic_queries_raw_e` plus `synthetic_queries_raw_all` counts for the recovered batch.
+
 ## [2026-04-28] Session Summary (English Synthetic E + English Short-User 80 Eval Path)
 - What was done: Added English synthetic generation strategy `E` end-to-end for Admin synthetic runs, extended split raw storage/schema/method registry to `A/B/C/D/E`, made quality gating and selective rewrite language-aware for English eval runs, added separate English short-user-80 dataset assets/scripts, and exposed eval query language selection in Admin RAG UI/runtime.
 - Key decisions: Kept AGENTS strategy-separated storage by adding `synthetic_queries_raw_e` instead of merging tables; English short-user 80 uses a separate dataset id/key (`human_eval_short_user_80_en`) and runtime now selects `user_query_en` via `eval_query_language=en`.

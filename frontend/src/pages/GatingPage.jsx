@@ -471,6 +471,23 @@ export function GatingPage({ notify }) {
     )
   }
 
+  const renderPresetRetrieverBadges = (batch) => {
+    const preset = String(batch?.gatingPreset || '').trim()
+    const retrieverMode = String(batch?.retrieverMode || '').trim()
+    return (
+      <div className="token-badge-list">
+        <span className="token-badge" data-kind="stage" title={`preset: ${preset || '-'}`}>
+          <span className="token-badge__icon" aria-hidden="true">P</span>
+          <span className="token-badge__text">{preset || '-'}</span>
+        </span>
+        <span className="token-badge" data-kind="query" title={`retriever: ${retrieverMode || '-'}`}>
+          <span className="token-badge__icon" aria-hidden="true">R</span>
+          <span className="token-badge__text">{retrieverMode || '-'}</span>
+        </span>
+      </div>
+    )
+  }
+
   return (
     <>
       <section className="panel">
@@ -567,7 +584,7 @@ export function GatingPage({ notify }) {
                 const acceptance = batch.processedCount > 0 ? ((batch.acceptedCount / batch.processedCount) * 100).toFixed(1) : '0.0'
                 return (
                   <tr key={batch.gatingBatchId}>
-                    <td><IdBadge value={batch.gatingBatchId} /></td><td>{batch.gatingPreset}</td><td>{batch.methodCode || '-'}</td><td><StatusBadge value={batch.status} /></td>
+                    <td><IdBadge value={batch.gatingBatchId} /></td><td>{renderPresetRetrieverBadges(batch)}</td><td>{batch.methodCode || '-'}</td><td><StatusBadge value={batch.status} /></td>
                     <td>{batch.processedCount ?? 0}</td><td>{batch.acceptedCount ?? 0}</td><td>{acceptance}%</td>
                     <td><button type="button" className="button button--ghost" onClick={() => openBatchDetail(batch)}>상세 조회</button></td>
                   </tr>

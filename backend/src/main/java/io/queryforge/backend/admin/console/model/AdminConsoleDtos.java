@@ -247,6 +247,7 @@ public final class AdminConsoleDtos {
     public record GatingBatchRow(
             UUID gatingBatchId,
             String gatingPreset,
+            String retrieverMode,
             UUID generationBatchId,
             String methodCode,
             String methodName,

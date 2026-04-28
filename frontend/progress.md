@@ -3,6 +3,12 @@
 ## Overview
 High-level progress tracking for the project.
 
+## [2026-04-28] Session Summary (Gating Batch History Preset+Retriever Badge Tags)
+- What was done: Updated `/admin/quality-gating` batch history table to render preset as icon-style tag badges that include both `gatingPreset` and retriever mode (`retrieverMode`) instead of plain preset text.
+- Key decisions: Reused existing token-badge visual language to keep consistency with stage/reason chips and avoid new component churn.
+- Issues encountered: Existing JSX literal `->` warnings remain from unrelated option labels; build still completes successfully.
+- Next steps: UI-smoke recent gating history rows and confirm badge tooltips/labels correctly show `preset` and `retriever`.
+
 ## [2026-04-28] Session Summary (English Eval Language Controls + E Strategy Copy)
 - What was done: Updated Admin RAG form state/payload to include `evalQueryLanguage`, auto-default it from dataset key (`*_en` => `en`), and show English dataset preview text when dataset items expose `userQueryEn/queryLanguage`. Updated admin shell copy so synthetic generation subtitle now reflects `A/B/C/D/E`.
 - Key decisions: Kept method selection UI dynamic from backend method rows instead of hardcoding strategy buttons; the only explicit strategy-label change in RAG was removing the static `A/B/C/D` suffix from the selection label.

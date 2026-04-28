@@ -2498,9 +2498,12 @@ public class AdminConsoleRepository {
     }
 
     private AdminConsoleDtos.GatingBatchRow mapGatingBatchRow(ResultSet rs) throws SQLException {
+        JsonNode stageConfig = readJson(rs, "stage_config");
+        String retrieverMode = stageConfig.path("retriever_config").path("retriever_mode").asText(null);
         return new AdminConsoleDtos.GatingBatchRow(
                 readUuid(rs, "gating_batch_id"),
                 rs.getString("gating_preset"),
+                retrieverMode,
                 readUuid(rs, "generation_batch_id"),
                 rs.getString("method_code"),
                 rs.getString("method_name"),
@@ -2513,7 +2516,7 @@ public class AdminConsoleRepository {
                 rs.getInt("accepted_count"),
                 rs.getInt("rejected_count"),
                 readJson(rs, "rejection_summary"),
-                readJson(rs, "stage_config")
+                stageConfig
         );
     }
 

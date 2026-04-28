@@ -3,6 +3,24 @@
 ## Overview
 High-level backend progress tracking.
 
+## [2026-04-28] Session Summary (Gating Dense/Hybrid Failure Guard + Retriever Mode Exposure)
+- What was done: Updated gating retriever config default so `dense_fallback_enabled` is enabled by default (unless fixed-mode preset flow), preventing whole-batch failure when sentence-transformers/torch dense backend is unavailable. Extended `GatingBatchRow` mapping to expose `retrieverMode` from `stage_config_json.retriever_config.retriever_mode`.
+- Key decisions: Kept explicit user override behavior; if operators set fallback false intentionally, strict failure semantics stay available. Added retriever mode exposure in DTO/repository only (no schema change).
+- Issues encountered: Existing E-method specific fallback path (`forceBm25RetrieverConfig`) remains in service and is orthogonal to this generic Dense/Hybrid failure guard.
+- Next steps: Run one gating batch each with `dense_only` and `hybrid` under no-sentence-transformers environment and verify batch completes with fallback backend.
+
+## [2026-04-28] Session Summary (E Gating Dense Dependency Fallback)
+- What was done: Investigated failed gating batch `15660322-b3a9-4391-a88a-464fc6e5e11a` and confirmed the failure came from retrieval utility dense backend bootstrap (`sentence-transformers` unavailable), then updated `AdminConsoleService.runGating` to force BM25-only retriever config by default for method `E` when retriever config is omitted.
+- Key decisions: Kept user-provided retriever config untouched; applied fallback only to default E-path to unblock English strategy gating without changing the overall gating pipeline flow.
+- Issues encountered: Existing batch was already persisted with hybrid+dense-required config and cannot be auto-healed; rerun is required.
+- Next steps: Re-run quality gating for method `E` (same generation batch) and verify `stage_config_json.retriever_config.retriever_mode = bm25_only` plus successful completion.
+
+## [2026-04-28] Session Summary (Raw E Constraint Hotfix)
+- What was done: Added Flyway `V22` to normalize `synthetic_queries_raw_e` after live `E` generation failure, removing copied `D`-only strategy checks, widening the generic strategy check to include `E`, forcing `query_language` default to `en`, and restoring missing FK constraints for `generation_method_id` / `generation_batch_id`.
+- Key decisions: Fixed the live DB bug with a follow-up migration instead of rewriting applied `V21`; the fix is idempotent enough to be applied manually first and later picked up by Flyway startup without changing generation/runtime code paths.
+- Issues encountered: `V21` created `synthetic_queries_raw_e` via `LIKE synthetic_queries_raw_d INCLUDING CONSTRAINTS`, so `D`-only checks and `A-D` generic checks were copied into the new table and blocked the first real `E` insert.
+- Next steps: Apply `V22` in the target DB, retry failed generation job `2b0ed910-8e2f-4186-8424-436b3c9b8148`, and confirm `synthetic_queries_raw_e` rows are written for batch `ca64cad2-27d4-4510-b251-a4037bbd8dfd`.
+
 ## [2026-04-28] Session Summary (English Strategy E + Eval Query Language Wiring)
 - What was done: Added Flyway `V21` for `synthetic_queries_raw_e`, expanded method/registry constraints to include `E`, added `eval_samples.user_query_en/query_language`, and wired Admin Console DTO/service/repository paths to persist `eval_query_language` and expose English dataset preview fields.
 - Key decisions: Admin synthetic remains DB-driven for strategy listing, so backend changes focused on schema/default config normalization and language-aware defaults (`E` => `query_language=en`, Korean-ratio defaults `0.0`).

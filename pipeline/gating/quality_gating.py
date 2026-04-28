@@ -584,10 +584,11 @@ def _rule_pass(
     reasons: list[str] = []
     stripped = query.query_text.strip()
     length = len(stripped)
+    is_english = query.query_language.lower() == "en"
     short_min_len = int(config.raw.get("rule_min_len_short", 4))
-    short_max_len = int(config.raw.get("rule_max_len_short", 60))
+    short_max_len = int(config.raw.get("rule_max_len_short_en" if is_english else "rule_max_len_short", 120 if is_english else 60))
     long_min_len = int(config.raw.get("rule_min_len_long", 8))
-    long_max_len = int(config.raw.get("rule_max_len_long", 100))
+    long_max_len = int(config.raw.get("rule_max_len_long_en" if is_english else "rule_max_len_long", 200 if is_english else 100))
     min_len = short_min_len if query.query_type in SHORT_TYPES else long_min_len
     max_len = short_max_len if query.query_type in SHORT_TYPES else long_max_len
     if length < min_len or length > max_len:
@@ -607,8 +608,13 @@ def _rule_pass(
     if not allowed_special and special_ratio > 0.20:
         reasons.append("special_ratio_high")
 
-    copied = copy_ratio(stripped, source_chunk.title + " " + source_chunk.chunk_text, ngram=4)
-    if copied > 0.60:
+    copy_ngram = int(config.raw.get("rule_copy_ratio_ngram", 4))
+    copy_threshold = float(config.raw.get(
+        "rule_max_copy_ratio_en" if is_english else "rule_max_copy_ratio",
+        0.85 if is_english else 0.60,
+    ))
+    copied = copy_ratio(stripped, source_chunk.title + " " + source_chunk.chunk_text, ngram=copy_ngram)
+    if copied > copy_threshold:
         reasons.append("copy_ratio_high")
 
     if query.query_language.lower() == "ko" or query.language_profile == "code_mixed":
