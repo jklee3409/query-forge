@@ -77,6 +77,18 @@ def _resolve_eval_concurrency(raw_config: dict[str, Any]) -> int:
     return max(1, min(parsed, 32))
 
 
+def _is_rewrite_anchor_injection_enabled(raw_config: dict[str, Any]) -> bool:
+    value = raw_config.get("rewrite_anchor_injection_enabled", True)
+    if isinstance(value, bool):
+        return value
+    normalized = str(value or "").strip().lower()
+    if normalized in {"", "true", "1", "yes", "y", "on"}:
+        return True
+    if normalized in {"false", "0", "no", "n", "off"}:
+        return False
+    return True
+
+
 def _mean(rows: list[float]) -> float:
     if not rows:
         return 0.0
@@ -256,6 +268,7 @@ def _evaluate_mode(
         strategy_filters=memory_strategy_filters,
         force_rewrite=force_rewrite,
         rewrite_retrieval_strategy=str(config.raw.get("rewrite_retrieval_strategy") or "replace"),
+        rewrite_anchor_injection_enabled=_is_rewrite_anchor_injection_enabled(config.raw),
         retriever_config=config.retriever_config,
     )
     metrics = retrieval_metrics(

@@ -4,7 +4,8 @@ import hashlib
 import json
 import math
 import os
-from dataclasses import dataclass
+import re
+from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
@@ -54,6 +55,8 @@ class MemoryItem:
     generation_strategy: str
     source_gate_run_id: str | None
     embedding: list[float]
+    product: str | None = None
+    glossary_terms: list[str] = field(default_factory=list)
 
 
 @dataclass(slots=True)
@@ -100,6 +103,117 @@ REWRITE_RESPONSE_SCHEMA: dict[str, Any] = {
     },
     "additionalProperties": True,
 }
+
+ANCHOR_TOKEN_PATTERN = re.compile(r"[@A-Za-z0-9_./:$-]+")
+ANCHOR_STOPWORDS = {
+    "spring",
+    "security",
+    "framework",
+    "example",
+    "examples",
+    "config",
+    "configuration",
+}
+
+
+def _normalize_anchor_token(token: str) -> str:
+    normalized = str(token or "").strip().strip(".,;:!?()[]{}<>\"'`")
+    return normalized
+
+
+def _looks_technical_anchor(token: str) -> bool:
+    if len(token) < 3:
+        return False
+    if token.startswith("@"):
+        return True
+    if any(separator in token for separator in (".", "_", "-", "/", ":")):
+        return True
+    has_alpha = any(char.isalpha() for char in token)
+    has_digit = any(char.isdigit() for char in token)
+    if has_alpha and has_digit:
+        return True
+    if any(char.isupper() for char in token) and any(char.islower() for char in token):
+        return True
+    return False
+
+
+def _extract_anchor_tokens(text: str, *, max_items: int) -> list[str]:
+    if not text:
+        return []
+    collected: list[str] = []
+    seen: set[str] = set()
+    for raw_token in ANCHOR_TOKEN_PATTERN.findall(text):
+        token = _normalize_anchor_token(raw_token)
+        if not token:
+            continue
+        lowered = token.lower()
+        if lowered in ANCHOR_STOPWORDS:
+            continue
+        if not _looks_technical_anchor(token):
+            continue
+        key = lowered
+        if key in seen:
+            continue
+        seen.add(key)
+        collected.append(token)
+        if len(collected) >= max_items:
+            break
+    return collected
+
+
+def _build_rewrite_anchor_candidates(
+    *,
+    raw_query: str,
+    query_language: str,
+    memory_items: list[dict[str, Any]],
+    max_anchors: int = 8,
+) -> dict[str, Any]:
+    anchors: list[dict[str, Any]] = []
+    seen: set[str] = set()
+
+    def add_anchor(anchor: str, source: str, memory_row: dict[str, Any] | None = None) -> None:
+        normalized = _normalize_anchor_token(anchor)
+        if not normalized:
+            return
+        key = normalized.lower()
+        if key in seen:
+            return
+        seen.add(key)
+        payload: dict[str, Any] = {"anchor": normalized, "source": source}
+        if memory_row:
+            payload["memory_id"] = memory_row.get("memory_id")
+            payload["generation_strategy"] = memory_row.get("generation_strategy")
+            payload["product"] = memory_row.get("product")
+        anchors.append(payload)
+
+    for token in _extract_anchor_tokens(raw_query, max_items=4):
+        add_anchor(token, "raw_query")
+        if len(anchors) >= max_anchors:
+            break
+
+    for memory_row in memory_items[:5]:
+        glossary_terms = memory_row.get("glossary_terms")
+        if isinstance(glossary_terms, list):
+            for term in glossary_terms:
+                if not isinstance(term, str):
+                    continue
+                add_anchor(term, "memory_glossary", memory_row)
+                if len(anchors) >= max_anchors:
+                    break
+        if len(anchors) >= max_anchors:
+            break
+        for token in _extract_anchor_tokens(str(memory_row.get("query_text") or ""), max_items=3):
+            add_anchor(token, "memory_query", memory_row)
+            if len(anchors) >= max_anchors:
+                break
+        if len(anchors) >= max_anchors:
+            break
+
+    return {
+        "query_language": query_language,
+        "anchors": anchors,
+        "anchor_terms": [item["anchor"] for item in anchors],
+    }
 
 
 def load_eval_samples(
@@ -218,7 +332,9 @@ def load_memory_items(
                    m.target_chunk_ids,
                    COALESCE(NULLIF(m.metadata ->> 'gating_preset', ''), g.gating_preset, 'full_gating') AS gating_preset,
                    m.generation_strategy,
-                   m.metadata ->> 'source_gate_run_id' AS source_gate_run_id
+                   m.metadata ->> 'source_gate_run_id' AS source_gate_run_id,
+                   m.product,
+                   m.glossary_terms
             FROM memory_entries m
             LEFT JOIN synthetic_queries_gated g ON g.gated_query_id = m.source_gated_query_id
             {where_clause}
@@ -237,6 +353,8 @@ def load_memory_items(
             generation_strategy=str(row["generation_strategy"]),
             source_gate_run_id=str(row["source_gate_run_id"]) if row["source_gate_run_id"] else None,
             embedding=embed_text(str(row["query_text"])),
+            product=str(row["product"]) if row["product"] else None,
+            glossary_terms=[str(item) for item in (row["glossary_terms"] or []) if str(item).strip()],
         )
         for row in rows
     ]
@@ -385,6 +503,8 @@ def memory_top_n(
                 "target_doc_id": memory.target_doc_id,
                 "target_chunk_ids": memory.target_chunk_ids,
                 "generation_strategy": memory.generation_strategy,
+                "product": memory.product,
+                "glossary_terms": memory.glossary_terms,
                 "similarity": ranked.score,
                 "dense_similarity": ranked.dense_score,
                 "bm25_score": ranked.bm25_score,
@@ -465,17 +585,27 @@ def build_rewrite_candidates(
     *,
     session_context: dict[str, Any],
     candidate_count: int,
+    rewrite_anchor_injection_enabled: bool = True,
 ) -> list[dict[str, str]]:
     trace_id = f"rewrite:{hashlib.sha1(raw_query.encode('utf-8')).hexdigest()[:12]}"
+    payload: dict[str, Any] = {
+        "raw_query": raw_query,
+        "session_context": session_context,
+        "top_memory_candidates": memory_items[:5],
+        "candidate_count": candidate_count,
+    }
+    if rewrite_anchor_injection_enabled:
+        anchor_context = _build_rewrite_anchor_candidates(
+            raw_query=raw_query,
+            query_language="ko",
+            memory_items=memory_items,
+        )
+        payload["anchor_candidates"] = anchor_context["anchors"]
+        payload["anchor_terms"] = anchor_context["anchor_terms"]
     response = _rewrite_client().chat_json(
         system_prompt=_rewrite_prompt_text(),
         user_prompt=json.dumps(
-            {
-                "raw_query": raw_query,
-                "session_context": session_context,
-                "top_memory_candidates": memory_items[:5],
-                "candidate_count": candidate_count,
-            },
+            payload,
             ensure_ascii=False,
             indent=2,
         ),
@@ -555,20 +685,30 @@ def build_rewrite_candidates_v2(
     session_context: dict[str, Any],
     candidate_count: int,
     query_language: str,
+    rewrite_anchor_injection_enabled: bool = True,
 ) -> list[dict[str, str]]:
     trace_id = f"rewrite:{hashlib.sha1(raw_query.encode('utf-8')).hexdigest()[:12]}"
     fallback_allowed = str(os.getenv("QUERY_FORGE_ALLOW_HEURISTIC_REWRITE_FALLBACK") or "true").lower() == "true"
+    payload: dict[str, Any] = {
+        "raw_query": raw_query,
+        "query_language": query_language,
+        "session_context": session_context,
+        "top_memory_candidates": memory_items[:5],
+        "candidate_count": candidate_count,
+    }
+    if rewrite_anchor_injection_enabled:
+        anchor_context = _build_rewrite_anchor_candidates(
+            raw_query=raw_query,
+            query_language=query_language,
+            memory_items=memory_items,
+        )
+        payload["anchor_candidates"] = anchor_context["anchors"]
+        payload["anchor_terms"] = anchor_context["anchor_terms"]
     try:
         response = _rewrite_client().chat_json(
             system_prompt=_rewrite_prompt_text(),
             user_prompt=json.dumps(
-                {
-                    "raw_query": raw_query,
-                    "query_language": query_language,
-                    "session_context": session_context,
-                    "top_memory_candidates": memory_items[:5],
-                    "candidate_count": candidate_count,
-                },
+                payload,
                 ensure_ascii=False,
                 indent=2,
             ),
@@ -728,6 +868,7 @@ def run_selective_rewrite(
     strategy_filters: list[str] | None = None,
     force_rewrite: bool = False,
     rewrite_retrieval_strategy: str = "replace",
+    rewrite_anchor_injection_enabled: bool = True,
     retriever_config: RetrieverConfig | None = None,
 ) -> tuple[RewriteOutcome, list[RetrievalCandidate]]:
     config = retriever_config or build_retriever_config({})
@@ -751,6 +892,7 @@ def run_selective_rewrite(
         session_context=session_context,
         candidate_count=candidate_count,
         query_language=query_language,
+        rewrite_anchor_injection_enabled=rewrite_anchor_injection_enabled,
     )
     candidates: list[dict[str, Any]] = []
     best_candidate = None
