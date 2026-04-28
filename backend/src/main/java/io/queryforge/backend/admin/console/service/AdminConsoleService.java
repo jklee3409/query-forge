@@ -441,6 +441,8 @@ public class AdminConsoleService {
         boolean rewriteEnabled = request.rewriteEnabled() == null || request.rewriteEnabled();
         boolean selectiveRewrite = request.selectiveRewrite() == null || request.selectiveRewrite();
         boolean useSessionContext = request.useSessionContext() != null && request.useSessionContext();
+        boolean rewriteAnchorInjectionEnabled =
+                request.rewriteAnchorInjectionEnabled() == null || request.rewriteAnchorInjectionEnabled();
         int retrievalTopK = request.retrievalTopK() != null && request.retrievalTopK() > 0
                 ? request.retrievalTopK()
                 : DEFAULT_RAG_RETRIEVAL_TOP_K;
@@ -499,6 +501,7 @@ public class AdminConsoleService {
             rewriteEnabled = false;
             selectiveRewrite = false;
             useSessionContext = false;
+            rewriteAnchorInjectionEnabled = false;
         }
 
         if (RUN_DISCIPLINE_OFFICIAL.equals(runDiscipline) && COMPARISON_REWRITE_EFFECT.equals(officialComparisonType)) {
@@ -543,8 +546,12 @@ public class AdminConsoleService {
             rewriteEnabled = false;
             selectiveRewrite = false;
             useSessionContext = false;
+            rewriteAnchorInjectionEnabled = false;
             stageCutoffEnabled = false;
             stageCutoffLevel = null;
+        }
+        if (!rewriteEnabled) {
+            rewriteAnchorInjectionEnabled = false;
         }
 
         String experimentName = "admin_eval_" + UUID.randomUUID().toString().replace("-", "").substring(0, 12);
@@ -560,6 +567,7 @@ public class AdminConsoleService {
                 rewriteEnabled,
                 selectiveRewrite,
                 useSessionContext,
+                rewriteAnchorInjectionEnabled,
                 request.topK(),
                 threshold,
                 retrievalTopK,
@@ -585,6 +593,7 @@ public class AdminConsoleService {
         config.put("use_session_context", useSessionContext);
         config.put("rewrite_threshold", threshold);
         config.put("rewrite_retrieval_strategy", rewriteRetrievalStrategy);
+        config.put("rewrite_anchor_injection_enabled", rewriteAnchorInjectionEnabled);
         config.put("retrieval_top_k", retrievalTopK);
         config.put("rerank_top_n", rerankTopN);
         attachRetrieverConfig(config, retrieverConfig);
@@ -697,6 +706,7 @@ public class AdminConsoleService {
         initialRewriteConfig.put("use_session_context", useSessionContext);
         initialRewriteConfig.put("rewrite_threshold", threshold);
         initialRewriteConfig.put("rewrite_retrieval_strategy", rewriteRetrievalStrategy);
+        initialRewriteConfig.put("rewrite_anchor_injection_enabled", rewriteAnchorInjectionEnabled);
         repository.upsertRagExperimentRecord(
                 runId,
                 initialSnapshotId,

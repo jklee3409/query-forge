@@ -67,8 +67,8 @@ const PERFORMANCE_METRIC_DEFS = [
   { key: 'eval_retrieval_ms', label: 'Eval-Retrieval Stage (검색 평가 단계)', precision: 0, unit: 'ms', trend: 'lower' },
   { key: 'eval_answer_ms', label: 'Eval-Answer Stage (답변 평가 단계)', precision: 0, unit: 'ms', trend: 'lower' },
   { key: 'orchestration_overhead_ms', label: 'Orchestration Overhead (오케스트레이션 오버헤드)', precision: 0, unit: 'ms', trend: 'lower' },
-  { key: 'latency_avg_ms', label: 'Representative Avg Latency (대표 평균 지연시간)', precision: 2, unit: 'ms', trend: 'lower', priority: 'core' },
-  { key: 'latency_p95_ms', label: 'Representative P95 Latency (대표 P95 지연시간)', precision: 2, unit: 'ms', trend: 'lower', priority: 'core' },
+  { key: 'latency_avg_ms', label: 'Research Mode Avg Latency', precision: 2, unit: 'ms', trend: 'lower', priority: 'core' },
+  { key: 'latency_p95_ms', label: 'Research Mode P95 Latency', precision: 2, unit: 'ms', trend: 'lower', priority: 'core' },
   { key: 'rewrite_overhead_avg_latency_ms', label: 'Rewrite Overhead (Avg) (리라이트 오버헤드 평균)', precision: 2, unit: 'ms', trend: 'lower' },
 ]
 
@@ -99,6 +99,21 @@ const KPI_METRIC_KEYS = new Set([
   'latency_avg_ms',
   'latency_p95_ms',
 ])
+
+const REWRITE_RETRIEVAL_OPTION_META = {
+  replace: {
+    label: 'replace',
+    description: '재작성 결과로 교체',
+  },
+  interleave: {
+    label: 'interleave',
+    description: '원본/재작성 번갈아 결합',
+  },
+  max_score: {
+    label: 'max_score',
+    description: '두 결과에서 점수 우선 결합',
+  },
+}
 
 const METRIC_TREND_LABEL = {
   higher: 'Higher is better',
@@ -134,12 +149,32 @@ function firstMetricNumber(values) {
   return null
 }
 
+const RESEARCH_MODE_PRIORITY = [
+  'selective_rewrite_with_session',
+  'selective_rewrite',
+  'rewrite_always',
+  'raw_only',
+  'memory_only_full_gating',
+  'memory_only_gated',
+  'memory_only_rule_only',
+  'memory_only_ungated',
+]
+
+function pickResearchMode(byMode) {
+  for (const mode of RESEARCH_MODE_PRIORITY) {
+    if (byMode?.[mode]) return mode
+  }
+  const fallback = Object.keys(byMode || {})[0]
+  return fallback || ''
+}
+
 function extractRunMetrics(metricsJson) {
   const payload = parseMetricsNode(metricsJson)
   const retrievalPayload = parseMetricsNode(payload.retrieval || payload.metrics_json?.retrieval || payload)
   const answerPayload = parseMetricsNode(payload.answer || payload.metrics_json?.answer)
   const performancePayload = parseMetricsNode(payload.performance || payload.metrics_json?.performance)
   const stageDurationPayload = parseMetricsNode(performancePayload.stage_duration_ms)
+  const latencyByModePayload = parseMetricsNode(performancePayload.latency_by_mode_ms || payload.latency_by_mode || payload.latency_by_mode_ms)
   const answerSummary = parseMetricsNode(answerPayload.summary || answerPayload)
   const summaryRaw = Array.isArray(retrievalPayload.summary) ? retrievalPayload.summary : []
   const byMode = summaryRaw.reduce((acc, row) => {
@@ -148,18 +183,12 @@ function extractRunMetrics(metricsJson) {
     acc[mode] = row
     return acc
   }, {})
-  const representativeMode = String(payload.representative_mode || retrievalPayload.representative_mode || '')
-  const preferredModes = [
-    representativeMode,
-    'selective_rewrite',
-    'selective_rewrite_with_session',
-    'memory_only_full_gating',
-    'memory_only_gated',
-    'raw_only',
-  ].filter(Boolean)
-  const summary = preferredModes.map((mode) => byMode[mode]).find(Boolean) || {}
+  const researchMode = pickResearchMode(byMode)
+  const summary = byMode[researchMode] || {}
+  const latencyForMode = parseMetricsNode(latencyByModePayload[researchMode])
   return {
-    representative_mode: summary.mode || representativeMode || '-',
+    representative_mode: summary.mode || researchMode || '-',
+    research_mode: summary.mode || researchMode || '-',
     by_mode: byMode,
     recall_at_5: firstMetricNumber([payload.recall_at_5, payload.recallAt5, summary.recall_at_5, summary['recall@5']]),
     hit_at_5: firstMetricNumber([payload.hit_at_5, payload.hitAt5, summary.hit_at_5, summary['hit@5']]),
@@ -176,8 +205,8 @@ function extractRunMetrics(metricsJson) {
     eval_retrieval_ms: firstMetricNumber([stageDurationPayload.eval_retrieval_ms]),
     eval_answer_ms: firstMetricNumber([stageDurationPayload.eval_answer_ms]),
     orchestration_overhead_ms: firstMetricNumber([performancePayload.orchestration_overhead_ms]),
-    latency_avg_ms: firstMetricNumber([performancePayload.representative_mode_latency_avg_ms, payload.latency_avg_ms]),
-    latency_p95_ms: firstMetricNumber([performancePayload.representative_mode_latency_p95_ms]),
+    latency_avg_ms: firstMetricNumber([latencyForMode.avg_latency_ms, performancePayload.representative_mode_latency_avg_ms, payload.latency_avg_ms]),
+    latency_p95_ms: firstMetricNumber([latencyForMode.p95_latency_ms, performancePayload.representative_mode_latency_p95_ms]),
     rewrite_overhead_avg_latency_ms: firstMetricNumber([performancePayload.rewrite_overhead_avg_latency_ms]),
   }
 }
@@ -233,6 +262,56 @@ function resolveRunDetailRewriteRow(rows) {
 
 function isQueryRewriteMode(mode) {
   return ['selective_rewrite_with_session', 'selective_rewrite', 'rewrite_always'].includes(mode)
+}
+
+function renderRunDetailModeSummary(retrievalByModeRows) {
+  const rows = (Array.isArray(retrievalByModeRows) ? retrievalByModeRows : [])
+    .filter((row) => row && typeof row === 'object' && normalizeModeName(row))
+  if (!rows.length) return null
+
+  const byMode = rows.reduce((acc, row) => {
+    acc[normalizeModeName(row)] = row
+    return acc
+  }, {})
+  const orderedModes = [
+    'raw_only',
+    'rewrite_always',
+    'selective_rewrite',
+    'selective_rewrite_with_session',
+    'memory_only_gated',
+    'memory_only_full_gating',
+    'memory_only_rule_only',
+    'memory_only_ungated',
+  ]
+  const orderedRows = [
+    ...orderedModes.map((mode) => byMode[mode]).filter(Boolean),
+    ...rows.filter((row) => !orderedModes.includes(normalizeModeName(row))),
+  ]
+
+  return (
+    <section className="run-mode-compare">
+      <div className="run-mode-compare__header">
+        <div>
+          <strong>Retrieval Summary by Mode</strong>
+          <div className="run-mode-compare__subtitle">All displayed values are mode-level metrics, not representative KPI.</div>
+        </div>
+      </div>
+      <div className="summary-grid">
+        {orderedRows.map((row) => {
+          const mode = normalizeModeName(row)
+          return (
+            <article key={mode} className="summary-card">
+              <div className="summary-card__label">{mode}</div>
+              <div className="summary-card__value">R5 {metricFromRow(row, ['recall@5', 'recall_at_5'])?.toFixed(4) ?? '-'}</div>
+              <div className="summary-card__meta">H5 {metricFromRow(row, ['hit@5', 'hit_at_5'])?.toFixed(4) ?? '-'}</div>
+              <div className="summary-card__meta">MRR10 {metricFromRow(row, ['mrr@10', 'mrr_at_10'])?.toFixed(4) ?? '-'}</div>
+              <div className="summary-card__meta">nDCG10 {metricFromRow(row, ['ndcg@10', 'ndcg_at_10'])?.toFixed(4) ?? '-'}</div>
+            </article>
+          )
+        })}
+      </div>
+    </section>
+  )
 }
 
 function renderRunDetailModeComparison(retrievalByModeRows) {
@@ -747,9 +826,24 @@ function resolveRewriteMode(run) {
   return { kind: 'rewrite-selective', icon: 'SL', label: 'selective' }
 }
 
+function resolveRewriteAnchorEnabled(run) {
+  if (!run?.rewriteEnabled) return false
+  if (run?.rewriteAnchorInjectionEnabled == null) return true
+  return Boolean(run.rewriteAnchorInjectionEnabled)
+}
+
 function buildRewriteTags(run) {
   const mode = resolveRewriteMode(run)
-  return [toHistoryTag(mode.kind, mode.icon, mode.label)]
+  const anchorEnabled = resolveRewriteAnchorEnabled(run)
+  return [
+    toHistoryTag(mode.kind, mode.icon, mode.label),
+    toHistoryTag(
+      anchorEnabled ? 'anchor-on' : 'anchor-off',
+      anchorEnabled ? 'AN' : 'AX',
+      anchorEnabled ? 'anchor on' : 'anchor off',
+      anchorEnabled ? 'rewrite anchor injection enabled' : 'rewrite anchor injection disabled',
+    ),
+  ]
 }
 
 function buildCoreMetricTags(metrics) {
@@ -822,6 +916,7 @@ export function RagPage({ notify }) {
     selectiveRewrite: true,
     useSessionContext: false,
     rewriteRetrievalStrategy: 'replace',
+    rewriteAnchorInjectionEnabled: true,
   })
 
   const loadMethods = async () => {
@@ -917,6 +1012,7 @@ export function RagPage({ notify }) {
         && !prev.rewriteEnabled
         && !prev.selectiveRewrite
         && !prev.useSessionContext
+        && !prev.rewriteAnchorInjectionEnabled
       ) {
         return prev
       }
@@ -933,6 +1029,7 @@ export function RagPage({ notify }) {
         rewriteEnabled: false,
         selectiveRewrite: false,
         useSessionContext: false,
+        rewriteAnchorInjectionEnabled: false,
       }
     })
   }, [form.syntheticFreeBaseline])
@@ -1113,6 +1210,9 @@ export function RagPage({ notify }) {
       const rewriteEnabled = syntheticFreeBaseline ? false : Boolean(form.rewriteEnabled)
       const selectiveRewrite = syntheticFreeBaseline ? false : Boolean(form.selectiveRewrite)
       const useSessionContext = syntheticFreeBaseline ? false : Boolean(form.useSessionContext)
+      const rewriteAnchorInjectionEnabled = syntheticFreeBaseline
+        ? false
+        : rewriteEnabled && Boolean(form.rewriteAnchorInjectionEnabled)
       const created = await requestJson('/api/admin/console/rag/tests/run', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1146,6 +1246,7 @@ export function RagPage({ notify }) {
           selectiveRewrite,
           useSessionContext,
           rewriteRetrievalStrategy: form.rewriteRetrievalStrategy,
+          rewriteAnchorInjectionEnabled,
           threshold: toNumber(form.threshold),
           retrievalTopK: toNumber(form.retrievalTopK),
           rerankTopN: toNumber(form.rerankTopN),
@@ -1238,23 +1339,32 @@ export function RagPage({ notify }) {
   const openRunDetail = async (runId) => {
     try {
       const payload = await requestJson(`/api/admin/console/rag/tests/${runId}?detail_limit=100`)
+      const runRow = payload.run || {}
       const summary = payload.summary || {}
       const metricsJson = parseMetricsNode(summary.metrics_json)
       const performance = parseMetricsNode(metricsJson.performance)
       const retrievalByMode = parseMetricsNode(metricsJson.retrieval_by_mode)
       const retrievalByModeRows = Object.values(retrievalByMode).filter((row) => row && typeof row === 'object')
       const details = Array.isArray(payload.details) ? payload.details : []
+      const rewriteMode = resolveRewriteMode(runRow)
+      const anchorEnabled = resolveRewriteAnchorEnabled(runRow)
       setModal({
         title: `RAG 실행 상세 · ${shortId(runId)}`,
         body: (
           <div className="detail-grid detail-grid--single">
-            <div className="summary-grid">
-              <article className="summary-card"><div className="summary-card__label">Recall@5</div><div className="summary-card__value">{summary.recall_at_5 == null ? '-' : Number(summary.recall_at_5).toFixed(4)}</div></article>
-              <article className="summary-card"><div className="summary-card__label">Hit@5</div><div className="summary-card__value">{summary.hit_at_5 == null ? '-' : Number(summary.hit_at_5).toFixed(4)}</div></article>
-              <article className="summary-card"><div className="summary-card__label">MRR@10</div><div className="summary-card__value">{summary.mrr_at_10 == null ? '-' : Number(summary.mrr_at_10).toFixed(4)}</div></article>
-              <article className="summary-card"><div className="summary-card__label">nDCG@10</div><div className="summary-card__value">{summary.ndcg_at_10 == null ? '-' : Number(summary.ndcg_at_10).toFixed(4)}</div></article>
-            </div>
+            {renderRunDetailModeSummary(retrievalByModeRows)}
             {renderRunDetailModeComparison(retrievalByModeRows)}
+            <DetailCard
+              label="run_profile"
+              value={JSON.stringify(
+                {
+                  rewrite_mode: rewriteMode.label,
+                  rewrite_anchor_injection_enabled: anchorEnabled,
+                },
+                null,
+                2,
+              )}
+            />
             <DetailCard label="performance" value={JSON.stringify(performance, null, 2)} />
             <DetailCard label="retrieval_by_mode" value={JSON.stringify(retrievalByModeRows, null, 2)} />
             <DetailCard label="detail_rows" value={JSON.stringify(details, null, 2)} />
@@ -1475,7 +1585,7 @@ export function RagPage({ notify }) {
       { label: '최근 Recall@5', value: formatMetric(lastMetrics.recall_at_5), meta: lastRun ? `run ${shortId(lastRun.ragTestRunId)}` : '완료된 실행 없음' },
       { label: '최근 nDCG@10', value: formatMetric(lastMetrics.ndcg_at_10), meta: lastRun ? fmtTime(lastRun.finishedAt || lastRun.startedAt) : '-' },
       { label: 'Latest Total Duration', value: latestTotalDuration, meta: 'RAG end-to-end' },
-      { label: 'Latest Avg Latency', value: latestAvgLatency, meta: 'representative mode' },
+      { label: 'Latest Avg Latency', value: latestAvgLatency, meta: `research mode (${lastMetrics.research_mode || '-'})` },
     ]
   }, [tests, compareRunIds])
 
@@ -1731,17 +1841,23 @@ export function RagPage({ notify }) {
             <label><input type="checkbox" checked={form.rewriteEnabled} disabled={form.syntheticFreeBaseline} onChange={(event) => setForm((prev) => ({ ...prev, rewriteEnabled: event.target.checked }))} />Rewrite 사용</label>
             <label><input type="checkbox" checked={form.selectiveRewrite} disabled={form.syntheticFreeBaseline || !form.rewriteEnabled} onChange={(event) => setForm((prev) => ({ ...prev, selectiveRewrite: event.target.checked, useSessionContext: event.target.checked ? prev.useSessionContext : false }))} />Selective</label>
             <label><input type="checkbox" checked={form.useSessionContext} disabled={form.syntheticFreeBaseline || !form.rewriteEnabled || !form.selectiveRewrite} onChange={(event) => setForm((prev) => ({ ...prev, useSessionContext: event.target.checked }))} />Session Context</label>
-            <label>
-              Rewrite Retrieval
-              <select
-                value={form.rewriteRetrievalStrategy}
-                disabled={form.syntheticFreeBaseline || !form.rewriteEnabled}
-                onChange={(event) => setForm((prev) => ({ ...prev, rewriteRetrievalStrategy: event.target.value }))}
-              >
-                <option value="replace">replace</option>
-                <option value="interleave">interleave</option>
-                <option value="max_score">max_score</option>
-              </select>
+            <label><input type="checkbox" checked={form.rewriteAnchorInjectionEnabled} disabled={form.syntheticFreeBaseline || !form.rewriteEnabled} onChange={(event) => setForm((prev) => ({ ...prev, rewriteAnchorInjectionEnabled: event.target.checked }))} />Anchor Injection</label>
+            <label className="rewrite-strategy-field">
+              <span className="rewrite-strategy-field__label">Rewrite Retrieval</span>
+              <div className="rewrite-strategy-field__control">
+                <select
+                  value={form.rewriteRetrievalStrategy}
+                  disabled={form.syntheticFreeBaseline || !form.rewriteEnabled}
+                  onChange={(event) => setForm((prev) => ({ ...prev, rewriteRetrievalStrategy: event.target.value }))}
+                >
+                  <option value="replace">replace</option>
+                  <option value="interleave">interleave</option>
+                  <option value="max_score">max_score</option>
+                </select>
+                <span className="rewrite-strategy-field__chip">
+                  {REWRITE_RETRIEVAL_OPTION_META[form.rewriteRetrievalStrategy]?.description || '전략 선택'}
+                </span>
+              </div>
             </label>
           </div>
 

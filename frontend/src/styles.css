@@ -463,6 +463,66 @@ textarea {
   cursor: not-allowed;
 }
 
+.rewrite-strategy-field {
+  min-height: 34px;
+  padding: 8px 10px;
+  border-radius: 12px;
+  border: 1px solid #c6d8f3;
+  background: linear-gradient(180deg, #ffffff 0%, #f5f9ff 100%);
+  display: grid;
+  gap: 6px;
+}
+
+.rewrite-strategy-field__label {
+  font-size: 11px;
+  font-weight: 800;
+  color: #2d4d7e;
+  letter-spacing: 0.02em;
+}
+
+.rewrite-strategy-field__control {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.rewrite-strategy-field__control select {
+  min-width: 150px;
+  border: 1px solid #9cb8e4;
+  border-radius: 10px;
+  padding: 7px 11px;
+  background: #ffffff;
+  color: #12345f;
+  font-weight: 700;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.8);
+}
+
+.rewrite-strategy-field__control select:focus {
+  outline: none;
+  border-color: #0b66d7;
+  box-shadow: 0 0 0 3px rgba(11, 102, 215, 0.15);
+}
+
+.rewrite-strategy-field__control select:disabled {
+  background: #eef2f8;
+  color: #7f8b9d;
+  border-color: #c4cfdf;
+}
+
+.rewrite-strategy-field__chip {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 0 10px;
+  border-radius: 999px;
+  border: 1px solid #9cb8e4;
+  background: #eaf2ff;
+  color: #1e4f8e;
+  font-size: 11px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
 .state-note {
   padding: 10px 12px;
   border-radius: 12px;

@@ -1468,7 +1468,7 @@ public class AdminConsoleRepository {
                        s.single_or_multi_chunk,
                        s.user_query_ko,
                        s.user_query_en,
-                       COALESCE(NULLIF(s.query_language, ''), COALESCE(i.metadata ->> 'query_language', d.metadata ->> 'query_language', 'ko')) AS query_language,
+                       COALESCE(NULLIF(s.query_language, ''), COALESCE(d.metadata ->> 'query_language', 'ko')) AS query_language,
                        s.dialog_context::text AS dialog_context,
                        s.metadata ->> 'target_method' AS target_method,
                        COALESCE(s.metadata -> 'evaluation_focus', '[]'::jsonb)::text AS evaluation_focus
@@ -1547,6 +1547,7 @@ public class AdminConsoleRepository {
             Boolean rewriteEnabled,
             Boolean selectiveRewrite,
             Boolean useSessionContext,
+            Boolean rewriteAnchorInjectionEnabled,
             Integer topK,
             Double threshold,
             Integer retrievalTopK,
@@ -1568,6 +1569,7 @@ public class AdminConsoleRepository {
                     rewrite_enabled,
                     selective_rewrite,
                     use_session_context,
+                    rewrite_anchor_injection_enabled,
                     top_k,
                     threshold,
                     retrieval_top_k,
@@ -1586,6 +1588,7 @@ public class AdminConsoleRepository {
                     :rewriteEnabled,
                     :selectiveRewrite,
                     :useSessionContext,
+                    :rewriteAnchorInjectionEnabled,
                     :topK,
                     :threshold,
                     :retrievalTopK,
@@ -1607,6 +1610,7 @@ public class AdminConsoleRepository {
                         .addValue("rewriteEnabled", rewriteEnabled)
                         .addValue("selectiveRewrite", selectiveRewrite)
                         .addValue("useSessionContext", useSessionContext)
+                        .addValue("rewriteAnchorInjectionEnabled", rewriteAnchorInjectionEnabled)
                         .addValue("topK", topK)
                         .addValue("threshold", threshold)
                         .addValue("retrievalTopK", retrievalTopK)
@@ -1974,6 +1978,7 @@ public class AdminConsoleRepository {
                        r.rewrite_enabled,
                        r.selective_rewrite,
                        r.use_session_context,
+                       r.rewrite_anchor_injection_enabled,
                        r.retrieval_top_k,
                        r.threshold,
                        r.started_at,
@@ -2162,6 +2167,7 @@ public class AdminConsoleRepository {
                        r.rewrite_enabled,
                        r.selective_rewrite,
                        r.use_session_context,
+                       r.rewrite_anchor_injection_enabled,
                        r.retrieval_top_k,
                        r.threshold,
                        r.started_at,
@@ -2280,6 +2286,7 @@ public class AdminConsoleRepository {
                        r.rewrite_enabled,
                        r.selective_rewrite,
                        r.use_session_context,
+                       r.rewrite_anchor_injection_enabled,
                        r.retrieval_top_k,
                        r.threshold,
                        r.started_at,
@@ -2536,6 +2543,7 @@ public class AdminConsoleRepository {
                 rs.getObject("rewrite_enabled", Boolean.class),
                 rs.getObject("selective_rewrite", Boolean.class),
                 rs.getObject("use_session_context", Boolean.class),
+                rs.getObject("rewrite_anchor_injection_enabled", Boolean.class),
                 rs.getObject("retrieval_top_k", Integer.class),
                 rs.getObject("threshold", Double.class),
                 readInstant(rs, "started_at"),
