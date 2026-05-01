@@ -149,6 +149,7 @@ public final class AdminConsoleDtos {
             JsonNode sourceLinks,
             String sourceSummary,
             JsonNode glossaryTerms,
+            JsonNode mappedAnchors,
             String promptTemplateVersion,
             String promptVersion,
             String promptHash,

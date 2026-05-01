@@ -22,6 +22,7 @@ public class CorpusAdminService {
     private final CorpusAdminRepository repository;
     private final ObjectMapper objectMapper;
     private final SourceCatalogService sourceCatalogService;
+    private final AnchorExtractionService anchorExtractionService;
 
     @Transactional
     public List<CorpusAdminDtos.SourceSummary> listSources() {
@@ -275,11 +276,72 @@ public class CorpusAdminService {
     }
 
     @Transactional
+    public CorpusAdminDtos.AnchorExtractResponse extractAnchors(CorpusAdminDtos.AnchorExtractRequest request) {
+        if (request == null) {
+            throw new IllegalArgumentException("anchor extract request is required");
+        }
+        return anchorExtractionService.extractAnchors(request.documentIds(), request.chunkIds());
+    }
+
+    @Transactional
     public CorpusAdminDtos.SourceSummary updateSourceEnabled(String sourceId, boolean enabled) {
         repository.updateSourceEnabled(sourceId, enabled);
         return repository.findSources().stream()
                 .filter(source -> source.sourceId().equals(sourceId))
                 .findFirst()
                 .orElseThrow();
+    }
+
+    @Transactional
+    public CorpusAdminDtos.SourceSummary upsertSource(CorpusAdminDtos.SourceUpsertRequest request) {
+        if (request == null) {
+            throw new IllegalArgumentException("source upsert request is required");
+        }
+        String sourceId = requireTrimmed(request.sourceId(), "sourceId");
+        String productName = requireTrimmed(request.productName(), "productName");
+        List<String> startUrls = normalizeDistinctNonBlank(request.startUrls());
+        List<String> allowPrefixes = normalizeDistinctNonBlank(request.allowPrefixes());
+        List<String> denyPatterns = normalizeDistinctNonBlank(request.denyUrlPatterns());
+        boolean enabled = request.enabled() == null || request.enabled();
+        double requestDelaySeconds = request.requestDelaySeconds() == null
+                ? 0.75
+                : Math.max(0.0, Math.min(15.0, request.requestDelaySeconds()));
+        int maxDepth = request.maxDepth() == null ? 4 : Math.max(1, Math.min(20, request.maxDepth()));
+
+        sourceCatalogService.upsertSourceAndPersistConfig(
+                sourceId,
+                productName,
+                startUrls,
+                allowPrefixes,
+                denyPatterns,
+                enabled,
+                requestDelaySeconds,
+                maxDepth
+        );
+        return repository.findSourceById(sourceId);
+    }
+
+    private String requireTrimmed(String value, String field) {
+        if (value == null || value.isBlank()) {
+            throw new IllegalArgumentException(field + " is required");
+        }
+        return value.trim();
+    }
+
+    private List<String> normalizeDistinctNonBlank(List<String> values) {
+        if (values == null || values.isEmpty()) {
+            return List.of();
+        }
+        LinkedHashSet<String> dedup = new LinkedHashSet<>();
+        for (String value : values) {
+            if (value == null) {
+                continue;
+            }
+            String trimmed = value.trim();
+            if (!trimmed.isBlank()) {
+                dedup.add(trimmed);
+            }
+        }
+        return List.copyOf(dedup);
     }
 }

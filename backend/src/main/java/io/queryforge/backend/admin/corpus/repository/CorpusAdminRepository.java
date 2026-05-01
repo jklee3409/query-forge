@@ -74,6 +74,56 @@ public class CorpusAdminRepository {
         return jdbcTemplate.query(sql, sourceRowMapper());
     }
 
+    public CorpusAdminDtos.SourceSummary findSourceById(String sourceId) {
+        String sql = """
+                SELECT cs.source_id,
+                       cs.source_type,
+                       cs.product_name,
+                       cs.source_name,
+                       cs.base_url,
+                       cs.include_patterns::text AS include_patterns,
+                       cs.exclude_patterns::text AS exclude_patterns,
+                       cs.default_version,
+                       cs.enabled,
+                       cs.created_at,
+                       cs.updated_at,
+                       COALESCE(doc_stats.total_documents, 0) AS total_documents,
+                       COALESCE(doc_stats.active_documents, 0) AS active_documents,
+                       COALESCE(version_stats.version_stats, '[]'::jsonb)::text AS version_stats
+                FROM corpus_sources cs
+                LEFT JOIN LATERAL (
+                    SELECT COUNT(*) AS total_documents,
+                           COUNT(*) FILTER (WHERE is_active) AS active_documents
+                    FROM corpus_documents cd
+                    WHERE cd.source_id = cs.source_id
+                ) doc_stats ON TRUE
+                LEFT JOIN LATERAL (
+                    SELECT jsonb_agg(
+                               jsonb_build_object(
+                                   'version_label', version_counts.version_label,
+                                   'document_count', version_counts.document_count,
+                                   'active_count', version_counts.active_count
+                               )
+                               ORDER BY version_counts.version_label
+                           ) AS version_stats
+                    FROM (
+                        SELECT cd.version_label,
+                               COUNT(*) AS document_count,
+                               COUNT(*) FILTER (WHERE cd.is_active) AS active_count
+                        FROM corpus_documents cd
+                        WHERE cd.source_id = cs.source_id
+                        GROUP BY cd.version_label
+                    ) version_counts
+                ) version_stats ON TRUE
+                WHERE cs.source_id = :sourceId
+                """;
+        return jdbcTemplate.queryForObject(
+                sql,
+                new MapSqlParameterSource("sourceId", sourceId),
+                sourceRowMapper()
+        );
+    }
+
     public List<CorpusAdminDtos.RunSummary> findRuns(
             UUID runId,
             String runStatus,

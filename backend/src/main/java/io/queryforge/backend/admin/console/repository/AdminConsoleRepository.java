@@ -474,6 +474,26 @@ public class AdminConsoleRepository {
                        )::text AS source_links,
                        r.source_summary,
                        r.glossary_terms::text AS glossary_terms,
+                       COALESCE(
+                           (
+                               SELECT jsonb_agg(
+                                   jsonb_build_object(
+                                       'term_id', t.term_id,
+                                       'canonical_form', t.canonical_form,
+                                       'term_type', t.term_type,
+                                       'chunk_id', l.source_chunk_id
+                                   )
+                                   ORDER BY t.canonical_form, l.source_chunk_id
+                               )
+                               FROM synthetic_query_anchor_link l
+                               JOIN corpus_glossary_terms t
+                                 ON t.term_id = l.term_id
+                                AND t.is_active = TRUE
+                               WHERE l.synthetic_query_id = r.synthetic_query_id
+                                 AND l.is_active = TRUE
+                           ),
+                           '[]'::jsonb
+                       )::text AS mapped_anchors,
                        r.prompt_template_version,
                        r.prompt_version,
                        r.prompt_hash,
@@ -498,6 +518,7 @@ public class AdminConsoleRepository {
                         readJson(rs, "source_links"),
                         rs.getString("source_summary"),
                         readJson(rs, "glossary_terms"),
+                        readJson(rs, "mapped_anchors"),
                         rs.getString("prompt_template_version"),
                         rs.getString("prompt_version"),
                         rs.getString("prompt_hash"),

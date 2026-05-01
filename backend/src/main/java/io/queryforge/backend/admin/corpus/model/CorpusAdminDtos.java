@@ -288,8 +288,39 @@ public final class CorpusAdminDtos {
     }
 
     @Builder
+    public record AnchorExtractRequest(
+            List<String> documentIds,
+            List<String> chunkIds
+    ) {
+    }
+
+    public record AnchorExtractResponse(
+            int targetChunkCount,
+            int deletedEvidenceCount,
+            int insertedEvidenceCount,
+            int updatedTermCount,
+            int deactivatedTermCount,
+            int remappedSyntheticQueryCount,
+            int remappedLinkCount
+    ) {
+    }
+
+    @Builder
     public record SourceUpdateRequest(
             Boolean enabled
+    ) {
+    }
+
+    @Builder
+    public record SourceUpsertRequest(
+            String sourceId,
+            String productName,
+            List<String> startUrls,
+            List<String> allowPrefixes,
+            List<String> denyUrlPatterns,
+            Boolean enabled,
+            Double requestDelaySeconds,
+            Integer maxDepth
     ) {
     }
 

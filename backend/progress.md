@@ -3,6 +3,12 @@
 ## Overview
 High-level backend progress tracking.
 
+## [2026-05-01] Session Summary (Anchor Re-extraction API + Active Anchor Mapping)
+- What was done: Added Flyway `V25__add_anchor_reextract_and_query_anchor_links.sql` to create `synthetic_query_anchor_link` and backfill link rows from synthetic query source chunks to active glossary evidence. Added corpus API `POST /api/admin/corpus/anchors/extract` and implemented `AnchorExtractionService` to: resolve selected document/chunk scope, replace chunk-level glossary evidence, refresh glossary term active/evidence state, and remap affected synthetic queries to valid active anchors.
+- Key decisions: Scoped replacement deletes to selected chunk evidence only, preserving all existing corpus document/chunk rows. Kept legacy raw `glossary_terms` snapshot unchanged for backward compatibility while adding `mappedAnchors` in synthetic query detail as the active-anchor source.
+- Issues encountered: None in backend test path; full backend tests passed.
+- Next steps: Extend admin GUI trigger for anchor extraction and evaluate adopting mapped active anchors in downstream memory/rewrite runtime paths.
+
 ## [2026-04-28] Session Summary (Gating Dense/Hybrid Failure Guard + Retriever Mode Exposure)
 - What was done: Updated gating retriever config default so `dense_fallback_enabled` is enabled by default (unless fixed-mode preset flow), preventing whole-batch failure when sentence-transformers/torch dense backend is unavailable. Extended `GatingBatchRow` mapping to expose `retrieverMode` from `stage_config_json.retriever_config.retriever_mode`.
 - Key decisions: Kept explicit user override behavior; if operators set fallback false intentionally, strict failure semantics stay available. Added retriever mode exposure in DTO/repository only (no schema change).

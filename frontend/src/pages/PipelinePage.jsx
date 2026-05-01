@@ -18,6 +18,17 @@ export function PipelinePage({ notify }) {
   const [filters, setFilters] = useState({ source_id: '', version_label: '', document_id: '', search: '' })
   const [modal, setModal] = useState(null)
   const [busyRunType, setBusyRunType] = useState('')
+  const [selectedSourceIds, setSelectedSourceIds] = useState([])
+  const [sourceForm, setSourceForm] = useState({
+    sourceId: '',
+    productName: '',
+    startUrlsText: '',
+    allowPrefixesText: '',
+    denyUrlPatternsText: '',
+    enabled: true,
+    requestDelaySeconds: 0.75,
+    maxDepth: 4,
+  })
 
   const loadSummary = async () => {
     setSummary(await requestJson('/api/admin/pipeline/dashboard'))
@@ -63,7 +74,11 @@ export function PipelinePage({ notify }) {
     setBusyRunType(runType)
     try {
       const endpoint = runType === 'full_ingest' ? '/api/admin/pipeline/full-ingest' : `/api/admin/pipeline/${runType}`
-      await requestJson(endpoint, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })
+      await requestJson(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sourceIds: selectedSourceIds }),
+      })
       setRunPage(0)
       await Promise.all([loadSummary(), loadRuns(0)])
       notify('파이프라인 실행 요청을 접수했습니다.')
@@ -71,6 +86,36 @@ export function PipelinePage({ notify }) {
       notify(error.message, 'error')
     } finally {
       setBusyRunType('')
+    }
+  }
+
+  const parseLines = (value) =>
+    String(value || '')
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0)
+
+  const submitSourceForm = async (event) => {
+    event.preventDefault()
+    try {
+      await requestJson('/api/admin/corpus/sources', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sourceId: sourceForm.sourceId.trim(),
+          productName: sourceForm.productName.trim(),
+          startUrls: parseLines(sourceForm.startUrlsText),
+          allowPrefixes: parseLines(sourceForm.allowPrefixesText),
+          denyUrlPatterns: parseLines(sourceForm.denyUrlPatternsText),
+          enabled: sourceForm.enabled,
+          requestDelaySeconds: Number(sourceForm.requestDelaySeconds),
+          maxDepth: Number(sourceForm.maxDepth),
+        }),
+      })
+      await Promise.all([loadSources(), loadSummary()])
+      notify('Source saved.')
+    } catch (error) {
+      notify(error.message, 'error')
     }
   }
 
@@ -129,6 +174,22 @@ export function PipelinePage({ notify }) {
       <section className="panel">
         <div className="table-title">실행 제어</div>
         <p className="panel-subtitle">단계별 또는 전체 파이프라인 실행을 요청할 수 있습니다.</p>
+        <div className="filter-bar">
+          <label className="filter-field">Run Sources
+            <select
+              multiple
+              value={selectedSourceIds}
+              onChange={(event) => {
+                const values = Array.from(event.target.selectedOptions).map((option) => option.value)
+                setSelectedSourceIds(values)
+              }}
+            >
+              {sources.map((source) => (
+                <option key={source.sourceId} value={source.sourceId}>{source.sourceId} ({source.productName || '-'})</option>
+              ))}
+            </select>
+          </label>
+        </div>
         <div className="toolbar">
           <button type="button" className="button button--primary" disabled={busyRunType === 'collect'} onClick={() => triggerPipeline('collect')}>문서 수집</button>
           <button type="button" className="button button--primary" disabled={busyRunType === 'normalize'} onClick={() => triggerPipeline('normalize')}>문서 정제</button>
@@ -136,6 +197,44 @@ export function PipelinePage({ notify }) {
           <button type="button" className="button button--primary" disabled={busyRunType === 'glossary'} onClick={() => triggerPipeline('glossary')}>용어 추출</button>
           <button type="button" className="button" disabled={busyRunType === 'full_ingest'} onClick={() => triggerPipeline('full_ingest')}>전체 실행</button>
         </div>
+      </section>
+
+      <section className="table-shell">
+        <div className="table-header">
+          <div className="table-title">Source Registration</div>
+        </div>
+        <form className="filter-bar" onSubmit={submitSourceForm}>
+          <label className="filter-field">sourceId
+            <input value={sourceForm.sourceId} onChange={(event) => setSourceForm((prev) => ({ ...prev, sourceId: event.target.value }))} required />
+          </label>
+          <label className="filter-field">productName
+            <input value={sourceForm.productName} onChange={(event) => setSourceForm((prev) => ({ ...prev, productName: event.target.value }))} required />
+          </label>
+          <label className="filter-field">requestDelaySeconds
+            <input type="number" step="0.1" min="0" value={sourceForm.requestDelaySeconds} onChange={(event) => setSourceForm((prev) => ({ ...prev, requestDelaySeconds: event.target.value }))} />
+          </label>
+          <label className="filter-field">maxDepth
+            <input type="number" min="1" value={sourceForm.maxDepth} onChange={(event) => setSourceForm((prev) => ({ ...prev, maxDepth: event.target.value }))} />
+          </label>
+          <label className="filter-field">enabled
+            <select value={sourceForm.enabled ? 'true' : 'false'} onChange={(event) => setSourceForm((prev) => ({ ...prev, enabled: event.target.value === 'true' }))}>
+              <option value="true">true</option>
+              <option value="false">false</option>
+            </select>
+          </label>
+          <label className="filter-field">startUrls (line-separated)
+            <textarea rows={3} value={sourceForm.startUrlsText} onChange={(event) => setSourceForm((prev) => ({ ...prev, startUrlsText: event.target.value }))} required />
+          </label>
+          <label className="filter-field">allowPrefixes (line-separated)
+            <textarea rows={3} value={sourceForm.allowPrefixesText} onChange={(event) => setSourceForm((prev) => ({ ...prev, allowPrefixesText: event.target.value }))} required />
+          </label>
+          <label className="filter-field">denyUrlPatterns (line-separated)
+            <textarea rows={3} value={sourceForm.denyUrlPatternsText} onChange={(event) => setSourceForm((prev) => ({ ...prev, denyUrlPatternsText: event.target.value }))} />
+          </label>
+          <div className="filter-field filter-field--small">
+            <button type="submit" className="button button--primary">Save Source</button>
+          </div>
+        </form>
       </section>
 
       <section className="table-shell">

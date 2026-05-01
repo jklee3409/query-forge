@@ -181,6 +181,13 @@ public class CorpusAdminController {
         return service.updateSourceEnabled(sourceId, Boolean.TRUE.equals(request.enabled()));
     }
 
+    @PostMapping("/sources")
+    public CorpusAdminDtos.SourceSummary upsertSource(
+            @RequestBody CorpusAdminDtos.SourceUpsertRequest request
+    ) {
+        return service.upsertSource(request);
+    }
+
     @GetMapping("/glossary/{termId}/evidence")
     public List<CorpusAdminDtos.GlossaryEvidenceDto> getGlossaryEvidence(@PathVariable UUID termId) {
         return service.listGlossaryEvidence(termId);
@@ -206,6 +213,13 @@ public class CorpusAdminController {
     @DeleteMapping("/glossary/aliases/{aliasId}")
     public void deleteGlossaryAlias(@PathVariable UUID aliasId) {
         service.deleteGlossaryAlias(aliasId);
+    }
+
+    @PostMapping("/anchors/extract")
+    public CorpusAdminDtos.AnchorExtractResponse extractAnchors(
+            @RequestBody CorpusAdminDtos.AnchorExtractRequest request
+    ) {
+        return service.extractAnchors(request);
     }
 
     @GetMapping("/documents/{documentId}/preview/raw-vs-cleaned")

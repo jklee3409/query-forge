@@ -175,6 +175,7 @@ export function SyntheticPage({ notify }) {
             <DetailCard label="배치 / 언어" value={`${payload.generationBatchId || '-'} / ${payload.languageProfile || '-'}`} />
             <DetailCard label="source_chunk" value={JSON.stringify(payload.sourceChunk || {}, null, 2)} />
             <DetailCard label="source_links" value={JSON.stringify(payload.sourceLinks || {}, null, 2)} />
+            <DetailCard label="mapped_anchors" value={JSON.stringify(payload.mappedAnchors || [], null, 2)} />
             <DetailCard label="raw_output" value={JSON.stringify(payload.rawOutput || {}, null, 2)} />
           </div>
         ),

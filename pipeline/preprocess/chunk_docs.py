@@ -35,6 +35,9 @@ TYPE_DECLARATION_RE = re.compile(
 INLINE_TYPE_RE = re.compile(
     r"\b[A-Z][A-Za-z0-9_$]*(?:Builder|Factory|Configurer|Template|Repository|Controller|Service|Configuration|Properties|Client|Manager|Resolver|Filter|Context|Bean|Application|Exception|Handler|Provider|Converter|Strategy|Endpoint|Details|Authentication|DataSource)\b"
 )
+GENERIC_TECH_TERM_RE = re.compile(
+    r"\b(?:[A-Z][A-Za-z0-9]+(?:[A-Z][A-Za-z0-9]+)+|[a-z][a-z0-9]+(?:[-_][a-z0-9]+){1,4}|[A-Za-z][A-Za-z0-9]*\.[A-Za-z0-9._-]+)\b"
+)
 
 
 @dataclass(slots=True)
@@ -858,6 +861,22 @@ def looks_like_cli_command(line: str, prefixes: list[str]) -> bool:
     return any(stripped.startswith(prefix) for prefix in prefixes)
 
 
+def generic_anchor_candidates(text: str) -> list[str]:
+    if not text:
+        return []
+    seen: dict[str, None] = {}
+    for match in GENERIC_TECH_TERM_RE.findall(text):
+        token = match.strip()
+        if len(token) < 3 or len(token) > 120:
+            continue
+        if token.casefold() in {"http", "https", "www"}:
+            continue
+        if token.count(".") > 6:
+            continue
+        seen.setdefault(token, None)
+    return list(seen.keys())
+
+
 def extract_glossary_terms(
     documents: dict[str, list[dict[str, Any]]],
     settings: GlossarySettings,
@@ -972,6 +991,18 @@ def extract_glossary_terms(
                         candidates,
                         term_type="class_interface",
                         canonical_form=inline_type,
+                        alias_candidates=None,
+                        source_product=source_product,
+                        document_id=section_document_id,
+                        section_id=section_id,
+                        keep_in_english=True,
+                    )
+
+                for generic_term in generic_anchor_candidates(text):
+                    add_glossary_candidate(
+                        candidates,
+                        term_type="concept",
+                        canonical_form=generic_term,
                         alias_candidates=None,
                         source_product=source_product,
                         document_id=section_document_id,

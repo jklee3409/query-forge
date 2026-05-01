@@ -12,6 +12,7 @@ import java.io.InputStream;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -40,6 +41,54 @@ public class SourceCatalogService {
         } catch (IOException exception) {
             throw new IllegalStateException("Failed to load source config directory: " + sourceDir, exception);
         }
+    }
+
+    public void upsertSourceAndPersistConfig(
+            String sourceId,
+            String product,
+            List<String> startUrls,
+            List<String> allowPrefixes,
+            List<String> denyPatterns,
+            boolean enabled,
+            double requestDelaySeconds,
+            int maxDepth
+    ) {
+        if (sourceId == null || sourceId.isBlank()) {
+            throw new IllegalArgumentException("sourceId is required");
+        }
+        if (product == null || product.isBlank()) {
+            throw new IllegalArgumentException("productName is required");
+        }
+        if (startUrls == null || startUrls.isEmpty()) {
+            throw new IllegalArgumentException("startUrls is required");
+        }
+        if (allowPrefixes == null || allowPrefixes.isEmpty()) {
+            throw new IllegalArgumentException("allowPrefixes is required");
+        }
+        Path sourceDir = resolveWithinRepo(properties.sourceConfigDir(), "source config directory");
+        try {
+            Files.createDirectories(sourceDir);
+            Path yamlPath = sourceDir.resolve(sourceId + ".yaml");
+            Map<String, Object> payload = new LinkedHashMap<>();
+            payload.put("source_id", sourceId);
+            payload.put("product", product);
+            payload.put("start_urls", startUrls);
+            payload.put("allow_prefixes", allowPrefixes);
+            payload.put("deny_url_patterns", denyPatterns == null ? List.of() : denyPatterns);
+            payload.put("request_delay_seconds", requestDelaySeconds);
+            payload.put("max_depth", maxDepth);
+            payload.put("enabled", enabled);
+            payload.put("metadata", Map.of(
+                    "provider", "admin",
+                    "doc_family", "technical",
+                    "collection_format", "html"
+            ));
+            String yamlBody = new Yaml().dump(payload);
+            Files.writeString(yamlPath, yamlBody);
+        } catch (IOException exception) {
+            throw new IllegalStateException("Failed to persist source config YAML.", exception);
+        }
+        syncSourcesFromConfig();
     }
 
     public Path repoRoot() {

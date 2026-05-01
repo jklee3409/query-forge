@@ -3,6 +3,12 @@
 ## Overview
 High-level progress tracking for the project.
 
+## [2026-05-01] Session Summary (Anchor Re-extraction Pipeline + Synthetic Query Active-Anchor Mapping)
+- What was done: Added Flyway `V25` to introduce `synthetic_query_anchor_link` and backfill links from existing query-source chunks to active glossary evidence. Implemented backend anchor re-extraction API (`POST /api/admin/corpus/anchors/extract`) that re-extracts anchors for selected document/chunk scope, replaces chunk-level glossary evidence safely, refreshes glossary term activity/evidence counts, and remaps affected synthetic queries to valid active anchors.
+- Key decisions: Kept existing corpus documents/chunks untouched and scoped destructive operations only to `corpus_glossary_evidence` rows of explicitly selected chunks. Query detail now exposes active mapped anchors via `synthetic_query_anchor_link` + `corpus_glossary_terms.is_active` instead of relying only on raw snapshot glossary arrays.
+- Issues encountered: Frontend build continues to emit pre-existing `GatingPage.jsx` JSX warnings for literal `->` text, but build succeeds.
+- Next steps: Add dedicated admin UI flow for anchor re-extraction trigger/preview and optionally migrate memory/rewrite paths to consume mapped active anchors as primary source.
+
 ## [2026-04-28] Session Summary (Raw E Migration Fix + Failed Batch Recovery)
 - What was done: Investigated failed English synthetic batch `ca64cad2-27d4-4510-b251-a4037bbd8dfd`, identified the root cause as copied `D`-strategy constraints on `synthetic_queries_raw_e`, and added follow-up migration `V22` to normalize the table definition before retrying the failed job.
 - Key decisions: Kept the original `V21` as historical truth and fixed the live schema with a new migration so existing environments can recover without rewriting applied migration history.

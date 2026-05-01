@@ -3,6 +3,12 @@
 ## Overview
 High-level progress tracking for the project.
 
+## [2026-05-01] Session Summary (Synthetic Detail: Active Anchor Mapping Exposure)
+- What was done: Updated `/admin/synthetic-queries` detail modal (`SyntheticPage.jsx`) to display `mapped_anchors` returned from backend active anchor mapping (`synthetic_query_anchor_link`).
+- Key decisions: Kept existing raw snapshot fields (`source_chunk`, `source_links`, `raw_output`) unchanged and added mapped-anchor visibility as additive debug information for anchor re-extraction validation.
+- Issues encountered: None.
+- Next steps: Add a dedicated admin action screen to trigger scoped anchor re-extraction and inspect per-query remap counts.
+
 ## [2026-04-28] Session Summary (RAG Test Default Preset Re-tune for Baseline-Comparable Ops)
 - What was done: Updated `/admin/rag-tests` default form state in `RagPage.jsx` so new runs start with `retrieverMode=bm25_only` and `rewriteThreshold=0.14` (`threshold` field), with fallback preset normalization defaulting to BM25 mode.
 - Key decisions: Kept existing fixed-mode preset behavior/read-only retriever weights and changed only the initial defaults to match current operator comparison strategy.
