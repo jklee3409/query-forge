@@ -13,6 +13,8 @@ import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.UUID;
+import java.net.URI;
+import java.util.Locale;
 
 @Service
 @RequiredArgsConstructor
@@ -319,6 +321,101 @@ public class CorpusAdminService {
                 maxDepth
         );
         return repository.findSourceById(sourceId);
+    }
+
+    @Transactional
+    public CorpusAdminDtos.SourceSummary autoRegisterSource(CorpusAdminDtos.SourceAutoRegisterRequest request) {
+        if (request == null || request.url() == null || request.url().isBlank()) {
+            throw new IllegalArgumentException("url is required");
+        }
+        URI uri;
+        try {
+            uri = URI.create(request.url().trim());
+        } catch (Exception exception) {
+            throw new IllegalArgumentException("Invalid URL format");
+        }
+        if (uri.getScheme() == null || uri.getHost() == null) {
+            throw new IllegalArgumentException("URL must include scheme and host");
+        }
+
+        String normalizedUrl = uri.normalize().toString();
+        String sourceId = request.sourceId() == null || request.sourceId().isBlank()
+                ? inferSourceId(uri)
+                : request.sourceId().trim();
+        String productName = request.productName() == null || request.productName().isBlank()
+                ? inferProductName(uri)
+                : request.productName().trim();
+        String allowPrefix = inferAllowPrefix(uri);
+
+        sourceCatalogService.upsertSourceAndPersistConfig(
+                sourceId,
+                productName,
+                List.of(normalizedUrl),
+                List.of(allowPrefix),
+                defaultDenyPatterns(),
+                request.enabled() == null || request.enabled(),
+                request.requestDelaySeconds() == null ? 0.75 : Math.max(0.0, Math.min(15.0, request.requestDelaySeconds())),
+                request.maxDepth() == null ? 4 : Math.max(1, Math.min(20, request.maxDepth()))
+        );
+        return repository.findSourceById(sourceId);
+    }
+
+    private String inferSourceId(URI uri) {
+        String hostPart = uri.getHost().toLowerCase(Locale.ROOT).replace(".", "-");
+        String path = uri.getPath() == null ? "" : uri.getPath().toLowerCase(Locale.ROOT);
+        String[] segments = path.split("/");
+        List<String> picks = new ArrayList<>();
+        for (String segment : segments) {
+            if (segment == null || segment.isBlank()) {
+                continue;
+            }
+            if (segment.endsWith(".html")) {
+                continue;
+            }
+            picks.add(segment.replaceAll("[^a-z0-9-]", "-"));
+            if (picks.size() == 2) {
+                break;
+            }
+        }
+        String tail = picks.isEmpty() ? "docs" : String.join("-", picks);
+        return (hostPart + "-" + tail).replaceAll("-{2,}", "-");
+    }
+
+    private String inferProductName(URI uri) {
+        String path = uri.getPath() == null ? "" : uri.getPath();
+        String[] segments = path.split("/");
+        for (String segment : segments) {
+            if (segment == null || segment.isBlank()) {
+                continue;
+            }
+            if ("reference".equalsIgnoreCase(segment) || segment.endsWith(".html")) {
+                continue;
+            }
+            return segment;
+        }
+        return uri.getHost();
+    }
+
+    private String inferAllowPrefix(URI uri) {
+        String path = uri.getPath() == null ? "/" : uri.getPath();
+        int referenceIndex = path.indexOf("/reference/");
+        String normalizedPath;
+        if (referenceIndex >= 0) {
+            normalizedPath = path.substring(0, referenceIndex + "/reference/".length());
+        } else {
+            int lastSlash = path.lastIndexOf('/');
+            normalizedPath = lastSlash <= 0 ? "/" : path.substring(0, lastSlash + 1);
+        }
+        return uri.getScheme() + "://" + uri.getHost() + normalizedPath;
+    }
+
+    private List<String> defaultDenyPatterns() {
+        return List.of(
+                ".*#.*",
+                ".*/search.*",
+                ".*/login.*",
+                ".*\\?.*"
+        );
     }
 
     private String requireTrimmed(String value, String field) {

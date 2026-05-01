@@ -102,4 +102,20 @@ class CorpusAdminMutationIntegrationTest {
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.enabled").value(false));
     }
+
+    @Test
+    void sourceAutoRegisterFromUrlWorks() throws Exception {
+        mockMvc.perform(post("/api/admin/corpus/sources/auto-register")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "url": "https://docs.spring.io/spring-framework/reference/integration/rest-clients.html"
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.sourceId").value("docs-spring-io-spring-framework-reference"))
+                .andExpect(jsonPath("$.productName").value("spring-framework"))
+                .andExpect(jsonPath("$.enabled").value(true))
+                .andExpect(jsonPath("$.includePatterns[0]").value("https://docs.spring.io/spring-framework/reference/"));
+    }
 }

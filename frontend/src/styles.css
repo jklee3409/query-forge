@@ -352,6 +352,7 @@ textarea {
 
 .filter-field input,
 .filter-field select,
+.filter-field textarea,
 .chat-controls select,
 .chat-controls input,
 .chat-panel textarea {
@@ -362,6 +363,11 @@ textarea {
   border-radius: 10px;
   background: #ffffff;
   color: var(--text);
+}
+
+.filter-field textarea {
+  resize: vertical;
+  min-height: 92px;
 }
 
 .filter-field select:disabled,
@@ -650,6 +656,65 @@ textarea {
   flex-wrap: wrap;
   gap: 10px;
   align-items: center;
+}
+
+.source-pick-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(240px, 1fr));
+  gap: 10px;
+}
+
+.source-pick-card {
+  display: grid;
+  gap: 6px;
+  text-align: left;
+  padding: 12px;
+  border-radius: 12px;
+  border: 1px solid #d3ddec;
+  background: #ffffff;
+  cursor: pointer;
+  transition: all 0.16s ease;
+}
+
+.source-pick-card:hover {
+  border-color: #89abda;
+  box-shadow: 0 6px 14px rgba(15, 40, 76, 0.08);
+}
+
+.source-pick-card.is-selected {
+  border-color: #0b66d7;
+  background: #eef5ff;
+}
+
+.source-pick-card__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.source-pick-card__head strong {
+  font-size: 13px;
+}
+
+.source-pick-card__product {
+  font-size: 12px;
+  color: #32445f;
+  font-weight: 700;
+}
+
+.source-pick-card__url {
+  font-size: 11px;
+  color: #5b6d86;
+  font-family: var(--font-mono);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.source-pick-card__stats {
+  font-size: 11px;
+  color: #667892;
 }
 
 .button {

@@ -12,13 +12,14 @@ export function PipelinePage({ notify }) {
   const [runPage, setRunPage] = useState(0)
   const [runHasNextPage, setRunHasNextPage] = useState(false)
   const [sources, setSources] = useState([])
+  const [sourceSearch, setSourceSearch] = useState('')
+  const [selectedSourceIds, setSelectedSourceIds] = useState([])
   const [documents, setDocuments] = useState([])
   const [documentPage, setDocumentPage] = useState(0)
   const [documentHasNextPage, setDocumentHasNextPage] = useState(false)
   const [filters, setFilters] = useState({ source_id: '', version_label: '', document_id: '', search: '' })
   const [modal, setModal] = useState(null)
   const [busyRunType, setBusyRunType] = useState('')
-  const [selectedSourceIds, setSelectedSourceIds] = useState([])
   const [sourceForm, setSourceForm] = useState({
     sourceId: '',
     productName: '',
@@ -29,6 +30,7 @@ export function PipelinePage({ notify }) {
     requestDelaySeconds: 0.75,
     maxDepth: 4,
   })
+  const [quickSourceUrl, setQuickSourceUrl] = useState('')
 
   const loadSummary = async () => {
     setSummary(await requestJson('/api/admin/pipeline/dashboard'))
@@ -70,6 +72,37 @@ export function PipelinePage({ notify }) {
     Promise.all([loadSummary(), loadRuns(0), loadSources(), loadDocuments(filters, 0)]).catch((error) => notify(error.message, 'error'))
   }, [])
 
+  const parseLines = (value) =>
+    String(value || '')
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter((line) => line.length > 0)
+
+  const normalizedSourceSearch = sourceSearch.trim().toLowerCase()
+  const filteredSources = sources.filter((source) => {
+    if (!normalizedSourceSearch) {
+      return true
+    }
+    const haystack = `${source.sourceId || ''} ${source.productName || ''} ${source.baseUrl || ''}`.toLowerCase()
+    return haystack.includes(normalizedSourceSearch)
+  })
+
+  const toggleSourceSelection = (sourceId) => {
+    setSelectedSourceIds((prev) =>
+      prev.includes(sourceId) ? prev.filter((id) => id !== sourceId) : [...prev, sourceId]
+    )
+  }
+
+  const toggleAllVisibleSources = () => {
+    const visibleSourceIds = filteredSources.map((source) => source.sourceId)
+    const allSelected = visibleSourceIds.length > 0 && visibleSourceIds.every((id) => selectedSourceIds.includes(id))
+    if (allSelected) {
+      setSelectedSourceIds((prev) => prev.filter((id) => !visibleSourceIds.includes(id)))
+      return
+    }
+    setSelectedSourceIds((prev) => Array.from(new Set([...prev, ...visibleSourceIds])))
+  }
+
   const triggerPipeline = async (runType) => {
     setBusyRunType(runType)
     try {
@@ -88,12 +121,6 @@ export function PipelinePage({ notify }) {
       setBusyRunType('')
     }
   }
-
-  const parseLines = (value) =>
-    String(value || '')
-      .split(/\r?\n/)
-      .map((line) => line.trim())
-      .filter((line) => line.length > 0)
 
   const submitSourceForm = async (event) => {
     event.preventDefault()
@@ -114,6 +141,35 @@ export function PipelinePage({ notify }) {
       })
       await Promise.all([loadSources(), loadSummary()])
       notify('Source saved.')
+    } catch (error) {
+      notify(error.message, 'error')
+    }
+  }
+
+  const resetSourceForm = () => {
+    setSourceForm({
+      sourceId: '',
+      productName: '',
+      startUrlsText: '',
+      allowPrefixesText: '',
+      denyUrlPatternsText: '',
+      enabled: true,
+      requestDelaySeconds: 0.75,
+      maxDepth: 4,
+    })
+  }
+
+  const autoRegisterSourceFromUrl = async (event) => {
+    event.preventDefault()
+    try {
+      await requestJson('/api/admin/corpus/sources/auto-register', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: quickSourceUrl.trim() }),
+      })
+      setQuickSourceUrl('')
+      await Promise.all([loadSources(), loadSummary()])
+      notify('URL 기반 source 자동 등록이 완료되었습니다.')
     } catch (error) {
       notify(error.message, 'error')
     }
@@ -174,21 +230,57 @@ export function PipelinePage({ notify }) {
       <section className="panel">
         <div className="table-title">실행 제어</div>
         <p className="panel-subtitle">단계별 또는 전체 파이프라인 실행을 요청할 수 있습니다.</p>
-        <div className="filter-bar">
-          <label className="filter-field">Run Sources
-            <select
-              multiple
-              value={selectedSourceIds}
-              onChange={(event) => {
-                const values = Array.from(event.target.selectedOptions).map((option) => option.value)
-                setSelectedSourceIds(values)
-              }}
-            >
-              {sources.map((source) => (
-                <option key={source.sourceId} value={source.sourceId}>{source.sourceId} ({source.productName || '-'})</option>
-              ))}
-            </select>
-          </label>
+        <div className="filter-bar filter-bar--stack">
+          <div className="form-grid form-grid--3">
+            <label className="filter-field">Run Sources Search
+              <input
+                value={sourceSearch}
+                onChange={(event) => setSourceSearch(event.target.value)}
+                placeholder="sourceId / productName / baseUrl"
+              />
+              <span className="field-hint">실행 대상 Source 목록을 검색해서 빠르게 고를 수 있습니다.</span>
+            </label>
+            <div className="filter-field">Selected Scope
+              <div className="state-note">
+                {selectedSourceIds.length === 0
+                  ? '현재 선택 없음: 실행 시 enabled source 전체 대상'
+                  : `${selectedSourceIds.length}개 source 선택됨`}
+              </div>
+              <span className="field-hint">선택이 없으면 백엔드 기본 정책으로 전체 활성 소스를 사용합니다.</span>
+            </div>
+            <div className="filter-field">Quick Action
+              <div className="form-actions">
+                <button type="button" className="button" onClick={toggleAllVisibleSources}>
+                  {filteredSources.length > 0 && filteredSources.every((s) => selectedSourceIds.includes(s.sourceId)) ? '보이는 소스 해제' : '보이는 소스 전체 선택'}
+                </button>
+                <button type="button" className="button" onClick={() => setSelectedSourceIds([])}>선택 초기화</button>
+              </div>
+            </div>
+          </div>
+
+          <div className="source-pick-grid">
+            {filteredSources.map((source) => {
+              const isSelected = selectedSourceIds.includes(source.sourceId)
+              return (
+                <button
+                  key={source.sourceId}
+                  type="button"
+                  className={`source-pick-card ${isSelected ? 'is-selected' : ''}`}
+                  onClick={() => toggleSourceSelection(source.sourceId)}
+                >
+                  <div className="source-pick-card__head">
+                    <strong>{source.sourceId}</strong>
+                    <StatusBadge value={source.enabled ? 'success' : 'cancelled'} label={source.enabled ? 'enabled' : 'disabled'} />
+                  </div>
+                  <div className="source-pick-card__product">{source.productName || '-'}</div>
+                  <div className="source-pick-card__url">{source.baseUrl || '-'}</div>
+                  <div className="source-pick-card__stats">
+                    total {source.totalDocuments ?? 0} / active {source.activeDocuments ?? 0}
+                  </div>
+                </button>
+              )
+            })}
+          </div>
         </div>
         <div className="toolbar">
           <button type="button" className="button button--primary" disabled={busyRunType === 'collect'} onClick={() => triggerPipeline('collect')}>문서 수집</button>
@@ -203,36 +295,61 @@ export function PipelinePage({ notify }) {
         <div className="table-header">
           <div className="table-title">Source Registration</div>
         </div>
-        <form className="filter-bar" onSubmit={submitSourceForm}>
-          <label className="filter-field">sourceId
-            <input value={sourceForm.sourceId} onChange={(event) => setSourceForm((prev) => ({ ...prev, sourceId: event.target.value }))} required />
-          </label>
-          <label className="filter-field">productName
-            <input value={sourceForm.productName} onChange={(event) => setSourceForm((prev) => ({ ...prev, productName: event.target.value }))} required />
-          </label>
-          <label className="filter-field">requestDelaySeconds
-            <input type="number" step="0.1" min="0" value={sourceForm.requestDelaySeconds} onChange={(event) => setSourceForm((prev) => ({ ...prev, requestDelaySeconds: event.target.value }))} />
-          </label>
-          <label className="filter-field">maxDepth
-            <input type="number" min="1" value={sourceForm.maxDepth} onChange={(event) => setSourceForm((prev) => ({ ...prev, maxDepth: event.target.value }))} />
-          </label>
-          <label className="filter-field">enabled
-            <select value={sourceForm.enabled ? 'true' : 'false'} onChange={(event) => setSourceForm((prev) => ({ ...prev, enabled: event.target.value === 'true' }))}>
-              <option value="true">true</option>
-              <option value="false">false</option>
-            </select>
-          </label>
-          <label className="filter-field">startUrls (line-separated)
-            <textarea rows={3} value={sourceForm.startUrlsText} onChange={(event) => setSourceForm((prev) => ({ ...prev, startUrlsText: event.target.value }))} required />
-          </label>
-          <label className="filter-field">allowPrefixes (line-separated)
-            <textarea rows={3} value={sourceForm.allowPrefixesText} onChange={(event) => setSourceForm((prev) => ({ ...prev, allowPrefixesText: event.target.value }))} required />
-          </label>
-          <label className="filter-field">denyUrlPatterns (line-separated)
-            <textarea rows={3} value={sourceForm.denyUrlPatternsText} onChange={(event) => setSourceForm((prev) => ({ ...prev, denyUrlPatternsText: event.target.value }))} />
+        <form className="filter-bar" onSubmit={autoRegisterSourceFromUrl}>
+          <label className="filter-field" style={{ flex: 1 }}>Quick URL Auto Register
+            <input
+              value={quickSourceUrl}
+              onChange={(event) => setQuickSourceUrl(event.target.value)}
+              placeholder="https://docs.spring.io/spring-framework/reference/integration/rest-clients.html"
+              required
+            />
+            <span className="field-hint">URL 한 개를 넣으면 sourceId/product/allowPrefix/denyPattern 기본값을 자동 추론해 등록합니다.</span>
           </label>
           <div className="filter-field filter-field--small">
+            <button type="submit" className="button button--primary">Auto Register</button>
+          </div>
+        </form>
+        <form className="filter-bar filter-bar--stack" onSubmit={submitSourceForm}>
+          <div className="form-grid form-grid--2">
+            <label className="filter-field">sourceId
+              <input value={sourceForm.sourceId} onChange={(event) => setSourceForm((prev) => ({ ...prev, sourceId: event.target.value }))} required />
+              <span className="field-hint">소스 고유 ID입니다. 재사용 가능한 slug 형식 권장. 예: `spring-security-docs`</span>
+            </label>
+            <label className="filter-field">productName
+              <input value={sourceForm.productName} onChange={(event) => setSourceForm((prev) => ({ ...prev, productName: event.target.value }))} required />
+              <span className="field-hint">문서 군집명입니다. 문서/청크 조회와 통계에서 제품 이름으로 사용됩니다.</span>
+            </label>
+            <label className="filter-field">requestDelaySeconds
+              <input type="number" step="0.1" min="0" value={sourceForm.requestDelaySeconds} onChange={(event) => setSourceForm((prev) => ({ ...prev, requestDelaySeconds: event.target.value }))} />
+              <span className="field-hint">페이지 요청 사이 대기 시간(초)입니다. 차단 회피 및 서버 부하 제어에 사용됩니다.</span>
+            </label>
+            <label className="filter-field">maxDepth
+              <input type="number" min="1" value={sourceForm.maxDepth} onChange={(event) => setSourceForm((prev) => ({ ...prev, maxDepth: event.target.value }))} />
+              <span className="field-hint">시작 URL에서 링크를 몇 단계까지 추적할지 정하는 탐색 깊이입니다.</span>
+            </label>
+            <label className="filter-field">enabled
+              <select value={sourceForm.enabled ? 'true' : 'false'} onChange={(event) => setSourceForm((prev) => ({ ...prev, enabled: event.target.value === 'true' }))}>
+                <option value="true">true</option>
+                <option value="false">false</option>
+              </select>
+              <span className="field-hint">collect/full_ingest 기본 실행 시 포함할지 여부입니다.</span>
+            </label>
+            <label className="filter-field">startUrls (line-separated)
+              <textarea rows={4} value={sourceForm.startUrlsText} onChange={(event) => setSourceForm((prev) => ({ ...prev, startUrlsText: event.target.value }))} required />
+              <span className="field-hint">크롤러 시작점 URL 목록입니다. 한 줄에 하나씩 입력합니다.</span>
+            </label>
+            <label className="filter-field">allowPrefixes (line-separated)
+              <textarea rows={4} value={sourceForm.allowPrefixesText} onChange={(event) => setSourceForm((prev) => ({ ...prev, allowPrefixesText: event.target.value }))} required />
+              <span className="field-hint">허용 URL prefix 범위입니다. 해당 prefix 외 링크는 수집에서 제외됩니다.</span>
+            </label>
+            <label className="filter-field">denyUrlPatterns (line-separated)
+              <textarea rows={4} value={sourceForm.denyUrlPatternsText} onChange={(event) => setSourceForm((prev) => ({ ...prev, denyUrlPatternsText: event.target.value }))} />
+              <span className="field-hint">제외 URL 정규식 패턴입니다. 로그인/검색/태그/앵커 링크 등을 차단할 때 사용합니다.</span>
+            </label>
+          </div>
+          <div className="form-actions">
             <button type="submit" className="button button--primary">Save Source</button>
+            <button type="button" className="button" onClick={resetSourceForm}>Reset Form</button>
           </div>
         </form>
       </section>

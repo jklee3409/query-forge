@@ -188,6 +188,13 @@ public class CorpusAdminController {
         return service.upsertSource(request);
     }
 
+    @PostMapping("/sources/auto-register")
+    public CorpusAdminDtos.SourceSummary autoRegisterSource(
+            @RequestBody CorpusAdminDtos.SourceAutoRegisterRequest request
+    ) {
+        return service.autoRegisterSource(request);
+    }
+
     @GetMapping("/glossary/{termId}/evidence")
     public List<CorpusAdminDtos.GlossaryEvidenceDto> getGlossaryEvidence(@PathVariable UUID termId) {
         return service.listGlossaryEvidence(termId);

@@ -325,6 +325,17 @@ public final class CorpusAdminDtos {
     }
 
     @Builder
+    public record SourceAutoRegisterRequest(
+            String url,
+            String sourceId,
+            String productName,
+            Boolean enabled,
+            Double requestDelaySeconds,
+            Integer maxDepth
+    ) {
+    }
+
+    @Builder
     public record GlossaryTermPatchRequest(
             Boolean keepInEnglish,
             Boolean active,
