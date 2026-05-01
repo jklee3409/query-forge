@@ -376,6 +376,50 @@ textarea {
   color: #7f8b9d;
 }
 
+.anchor-eval-shell {
+  gap: 14px;
+  background: linear-gradient(160deg, #f8fbff 0%, #f2f6ff 100%);
+}
+
+.anchor-eval-panel {
+  border: 1px solid #cfdaf0;
+  border-radius: 14px;
+  padding: 14px;
+  background: #ffffff;
+}
+
+.anchor-eval-panel__title {
+  font-size: 13px;
+  font-weight: 800;
+  color: #1b2a44;
+  margin-bottom: 10px;
+}
+
+.anchor-eval-chip-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.anchor-eval-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid #c9d7ef;
+  background: #f1f6ff;
+  color: #1f3b63;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.anchor-eval-chip.is-loading {
+  background: #fff7e8;
+  border-color: #f0d7aa;
+  color: #8a5b16;
+}
+
 .field-hint {
   font-size: 11px;
   color: #6c7687;

@@ -342,7 +342,15 @@ public class CorpusAdminService {
                 candidateLimit,
                 createdBy
         );
-        List<CorpusAdminDtos.ChunkDetail> chunks = repository.findAnchorEvalTargetChunks(request.productName(), request.sourceId(), sampleSize);
+        List<String> documentIds = normalizeDistinctNonBlank(request.documentIds());
+        List<String> chunkIds = normalizeDistinctNonBlank(request.chunkIds());
+        List<CorpusAdminDtos.ChunkDetail> chunks = repository.findAnchorEvalTargetChunks(
+                request.productName(),
+                request.sourceId(),
+                documentIds,
+                chunkIds,
+                sampleSize
+        );
         for (CorpusAdminDtos.ChunkDetail chunk : chunks) {
             UUID sampleId = UUID.randomUUID();
             repository.insertAnchorEvalSample(sampleId, runId, chunk.documentId(), chunk.chunkId(), chunk.chunkText());

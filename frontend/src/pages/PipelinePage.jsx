@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { DetailCard, IdBadge, Modal, StatusBadge } from '../components/Common.jsx'
 import { fmtTime, shortId } from '../lib/format.js'
 import { queryString, requestJson } from '../lib/api.js'
@@ -23,10 +23,15 @@ export function PipelinePage({ notify }) {
   const [anchorEvalRuns, setAnchorEvalRuns] = useState([])
   const [anchorEvalBusy, setAnchorEvalBusy] = useState(false)
   const [anchorEvalDetailBusy, setAnchorEvalDetailBusy] = useState(false)
+  const [anchorEvalScopeDocuments, setAnchorEvalScopeDocuments] = useState([])
+  const [anchorEvalScopeChunks, setAnchorEvalScopeChunks] = useState([])
+  const [anchorEvalLoadingScope, setAnchorEvalLoadingScope] = useState(false)
   const [anchorEvalForm, setAnchorEvalForm] = useState({
     runName: '',
     productName: '',
     sourceId: '',
+    selectedDocumentIds: [],
+    selectedChunkIds: [],
     sampleSize: 20,
     candidateLimit: 10,
   })
@@ -41,6 +46,11 @@ export function PipelinePage({ notify }) {
     maxDepth: 4,
   })
   const [quickSourceUrl, setQuickSourceUrl] = useState('')
+
+  const selectedSourceForEval = useMemo(
+    () => sources.find((source) => source.sourceId === anchorEvalForm.sourceId) || null,
+    [sources, anchorEvalForm.sourceId]
+  )
 
   const loadSummary = async () => {
     setSummary(await requestJson('/api/admin/pipeline/dashboard'))
@@ -75,6 +85,69 @@ export function PipelinePage({ notify }) {
   const loadAnchorEvalRuns = async () => {
     const payload = await requestJson('/api/admin/corpus/anchors/eval/runs?limit=20&offset=0')
     setAnchorEvalRuns(Array.isArray(payload) ? payload : [])
+  }
+
+  const loadAnchorEvalScopeDocuments = async (sourceId, productName) => {
+    if (!sourceId && !productName) {
+      setAnchorEvalScopeDocuments([])
+      return
+    }
+    const query = queryString({
+      source_id: sourceId || undefined,
+      product_name: productName || undefined,
+      active_only: true,
+      limit: 500,
+      offset: 0,
+    })
+    const payload = await requestJson(`/api/admin/corpus/documents?${query}`)
+    setAnchorEvalScopeDocuments(Array.isArray(payload) ? payload : [])
+  }
+
+  const loadAnchorEvalScopeChunks = async (documentIds) => {
+    if (!Array.isArray(documentIds) || documentIds.length === 0) {
+      setAnchorEvalScopeChunks([])
+      return
+    }
+    const responses = await Promise.all(
+      documentIds.map((documentId) => {
+        const query = queryString({ document_id: documentId, active_only: true, limit: 200, offset: 0 })
+        return requestJson(`/api/admin/corpus/chunks?${query}`)
+      })
+    )
+    const merged = responses.flatMap((rows) => (Array.isArray(rows) ? rows : []))
+    setAnchorEvalScopeChunks(merged)
+  }
+
+  const handleAnchorEvalSourceChange = async (nextSourceId) => {
+    const source = sources.find((item) => item.sourceId === nextSourceId)
+    setAnchorEvalForm((prev) => ({
+      ...prev,
+      sourceId: nextSourceId,
+      productName: source?.productName || '',
+      selectedDocumentIds: [],
+      selectedChunkIds: [],
+    }))
+    setAnchorEvalLoadingScope(true)
+    try {
+      await loadAnchorEvalScopeDocuments(nextSourceId, source?.productName || '')
+      setAnchorEvalScopeChunks([])
+    } finally {
+      setAnchorEvalLoadingScope(false)
+    }
+  }
+
+  const handleAnchorEvalDocumentSelection = async (selectedDocumentIds) => {
+    setAnchorEvalForm((prev) => ({
+      ...prev,
+      selectedDocumentIds,
+      selectedChunkIds: [],
+    }))
+    setAnchorEvalLoadingScope(true)
+    try {
+      await loadAnchorEvalScopeChunks(selectedDocumentIds)
+    } finally {
+      setAnchorEvalLoadingScope(false)
+    }
   }
 
   const applyDocumentFilters = async (nextFilters = filters) => {
@@ -229,6 +302,8 @@ export function PipelinePage({ notify }) {
           runName: anchorEvalForm.runName || null,
           productName: anchorEvalForm.productName || null,
           sourceId: anchorEvalForm.sourceId || null,
+          documentIds: anchorEvalForm.selectedDocumentIds,
+          chunkIds: anchorEvalForm.selectedChunkIds,
           sampleSize: Number(anchorEvalForm.sampleSize),
           candidateLimit: Number(anchorEvalForm.candidateLimit),
         }),
@@ -570,22 +645,73 @@ export function PipelinePage({ notify }) {
           <div className="table-title">Anchor Eval</div>
           <button type="button" className="button" onClick={() => loadAnchorEvalRuns().catch((error) => notify(error.message, 'error'))}>새로고침</button>
         </div>
-        <form className="filter-bar" onSubmit={createAnchorEvalRun}>
-          <label className="filter-field">runName
-            <input value={anchorEvalForm.runName} onChange={(event) => setAnchorEvalForm((prev) => ({ ...prev, runName: event.target.value }))} placeholder="optional" />
-          </label>
-          <label className="filter-field">productName
-            <input value={anchorEvalForm.productName} onChange={(event) => setAnchorEvalForm((prev) => ({ ...prev, productName: event.target.value }))} placeholder="optional" />
-          </label>
-          <label className="filter-field">sourceId
-            <input value={anchorEvalForm.sourceId} onChange={(event) => setAnchorEvalForm((prev) => ({ ...prev, sourceId: event.target.value }))} placeholder="optional" />
-          </label>
-          <label className="filter-field">sampleSize
-            <input type="number" min="1" max="200" value={anchorEvalForm.sampleSize} onChange={(event) => setAnchorEvalForm((prev) => ({ ...prev, sampleSize: event.target.value }))} />
-          </label>
-          <label className="filter-field">candidateLimit
-            <input type="number" min="1" max="50" value={anchorEvalForm.candidateLimit} onChange={(event) => setAnchorEvalForm((prev) => ({ ...prev, candidateLimit: event.target.value }))} />
-          </label>
+        <form className="filter-bar filter-bar--stack anchor-eval-shell" onSubmit={createAnchorEvalRun}>
+          <div className="form-grid form-grid--3">
+            <label className="filter-field">Run Name
+              <input value={anchorEvalForm.runName} onChange={(event) => setAnchorEvalForm((prev) => ({ ...prev, runName: event.target.value }))} placeholder="optional" />
+            </label>
+            <label className="filter-field">Source
+              <select value={anchorEvalForm.sourceId} onChange={(event) => handleAnchorEvalSourceChange(event.target.value).catch((error) => notify(error.message, 'error'))}>
+                <option value="">전체 소스</option>
+                {sources.map((source) => (
+                  <option key={source.sourceId} value={source.sourceId}>{source.sourceId} ({source.productName || '-'})</option>
+                ))}
+              </select>
+              <span className="field-hint">소스를 고르면 문서/청크 드롭다운이 자동 갱신됩니다.</span>
+            </label>
+            <label className="filter-field">Product Name
+              <input value={anchorEvalForm.productName} onChange={(event) => setAnchorEvalForm((prev) => ({ ...prev, productName: event.target.value }))} placeholder="optional" />
+            </label>
+            <label className="filter-field">Sample Size
+              <input type="number" min="1" max="200" value={anchorEvalForm.sampleSize} onChange={(event) => setAnchorEvalForm((prev) => ({ ...prev, sampleSize: event.target.value }))} />
+            </label>
+            <label className="filter-field">Candidate Limit
+              <input type="number" min="1" max="50" value={anchorEvalForm.candidateLimit} onChange={(event) => setAnchorEvalForm((prev) => ({ ...prev, candidateLimit: event.target.value }))} />
+            </label>
+          </div>
+          <div className="anchor-eval-panel">
+            <div className="anchor-eval-panel__title">문서/청크 범위 선택</div>
+            <div className="form-grid form-grid--2">
+              <label className="filter-field">Documents (multi-select)
+                <select
+                  multiple
+                  size={8}
+                  value={anchorEvalForm.selectedDocumentIds}
+                  onChange={(event) => {
+                    const next = Array.from(event.target.selectedOptions).map((option) => option.value)
+                    handleAnchorEvalDocumentSelection(next).catch((error) => notify(error.message, 'error'))
+                  }}
+                  disabled={anchorEvalLoadingScope || !anchorEvalForm.sourceId}
+                >
+                  {anchorEvalScopeDocuments.map((doc) => (
+                    <option key={doc.documentId} value={doc.documentId}>{doc.title || doc.documentId}</option>
+                  ))}
+                </select>
+              </label>
+              <label className="filter-field">Chunks (multi-select)
+                <select
+                  multiple
+                  size={8}
+                  value={anchorEvalForm.selectedChunkIds}
+                  onChange={(event) => {
+                    const next = Array.from(event.target.selectedOptions).map((option) => option.value)
+                    setAnchorEvalForm((prev) => ({ ...prev, selectedChunkIds: next }))
+                  }}
+                  disabled={anchorEvalLoadingScope || anchorEvalForm.selectedDocumentIds.length === 0}
+                >
+                  {anchorEvalScopeChunks.map((chunk) => (
+                    <option key={chunk.chunkId} value={chunk.chunkId}>{chunk.chunkId} · {(chunk.sectionPathText || '').slice(0, 80)}</option>
+                  ))}
+                </select>
+              </label>
+            </div>
+            <div className="anchor-eval-chip-row">
+              <span className="anchor-eval-chip">source: {selectedSourceForEval?.sourceId || 'all'}</span>
+              <span className="anchor-eval-chip">docs: {anchorEvalForm.selectedDocumentIds.length}</span>
+              <span className="anchor-eval-chip">chunks: {anchorEvalForm.selectedChunkIds.length}</span>
+              {anchorEvalLoadingScope && <span className="anchor-eval-chip is-loading">loading...</span>}
+            </div>
+          </div>
           <div className="filter-field filter-field--small">
             <button type="submit" className="button button--primary" disabled={anchorEvalBusy}>평가 Run 생성</button>
           </div>

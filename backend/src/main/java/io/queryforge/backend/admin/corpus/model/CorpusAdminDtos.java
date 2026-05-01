@@ -310,6 +310,8 @@ public final class CorpusAdminDtos {
             String runName,
             String productName,
             String sourceId,
+            List<String> documentIds,
+            List<String> chunkIds,
             Integer sampleSize,
             Integer candidateLimit,
             String createdBy

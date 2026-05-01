@@ -622,6 +622,8 @@ public class CorpusAdminRepository {
     public List<CorpusAdminDtos.ChunkDetail> findAnchorEvalTargetChunks(
             String productName,
             String sourceId,
+            List<String> documentIds,
+            List<String> chunkIds,
             int sampleSize
     ) {
         StringBuilder sql = new StringBuilder("""
@@ -659,6 +661,14 @@ public class CorpusAdminRepository {
         if (sourceId != null && !sourceId.isBlank()) {
             sql.append(" AND d.source_id = :sourceId");
             params.addValue("sourceId", sourceId);
+        }
+        if (documentIds != null && !documentIds.isEmpty()) {
+            sql.append(" AND c.document_id = ANY(:documentIds)");
+            params.addValue("documentIds", documentIds.toArray(String[]::new));
+        }
+        if (chunkIds != null && !chunkIds.isEmpty()) {
+            sql.append(" AND c.chunk_id = ANY(:chunkIds)");
+            params.addValue("chunkIds", chunkIds.toArray(String[]::new));
         }
         sql.append(" ORDER BY c.updated_at DESC, c.chunk_id LIMIT :limit");
         params.addValue("limit", sampleSize);
