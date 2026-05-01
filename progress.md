@@ -3,6 +3,12 @@
 ## Overview
 High-level progress tracking for the project.
 
+## [2026-05-01] Session Summary (Anchor Eval Dropdown-first UX + Scoped Selection Flow)
+- What was done: Reworked Admin Pipeline `Anchor Eval` run-creation UI to minimize manual typing by introducing dropdown/multi-select flow (`source -> documents -> chunks`) and wired the create payload to submit `documentIds`/`chunkIds`. Added scope-loading states and selection summary chips so operators can see selected source/doc/chunk counts at a glance.
+- Key decisions: Kept existing backend/API contracts for anchor eval runs and only extended the frontend selection workflow to consume existing document/chunk listing APIs (`/api/admin/corpus/documents`, `/api/admin/corpus/chunks`) without changing corpus data semantics.
+- Issues encountered: Existing frontend build still prints pre-existing JSX warnings in `GatingPage.jsx` for literal `->` text, but production build output is generated successfully.
+- Next steps: Add optional search/filter inside document/chunk multi-select lists for very large sources and evaluate whether virtualized list rendering is needed for scale.
+
 ## [2026-05-01] Session Summary (Anchor Re-extraction Pipeline + Synthetic Query Active-Anchor Mapping)
 - What was done: Added Flyway `V25` to introduce `synthetic_query_anchor_link` and backfill links from existing query-source chunks to active glossary evidence. Implemented backend anchor re-extraction API (`POST /api/admin/corpus/anchors/extract`) that re-extracts anchors for selected document/chunk scope, replaces chunk-level glossary evidence safely, refreshes glossary term activity/evidence counts, and remaps affected synthetic queries to valid active anchors.
 - Key decisions: Kept existing corpus documents/chunks untouched and scoped destructive operations only to `corpus_glossary_evidence` rows of explicitly selected chunks. Query detail now exposes active mapped anchors via `synthetic_query_anchor_link` + `corpus_glossary_terms.is_active` instead of relying only on raw snapshot glossary arrays.
