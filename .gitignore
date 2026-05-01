@@ -86,3 +86,6 @@ configs/experiments/admin_gen_*.yml
 # Frontend
 frontend/node_modules/
 frontend/dist/
+
+# Local assistant workspace
+backend/.claude/
