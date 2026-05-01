@@ -8,9 +8,13 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.HashMap;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
@@ -43,6 +47,14 @@ public class AnchorExtractionService {
             "\\b(?:[A-Z][A-Za-z0-9]+(?:[A-Z][A-Za-z0-9]+)+|[a-z][a-z0-9]+(?:[-_][a-z0-9]+){1,4}|[A-Za-z][A-Za-z0-9]*\\.[A-Za-z0-9._-]+)\\b"
     );
     private static final Pattern CODE_FENCE_RE = Pattern.compile("```([\\s\\S]*?)```");
+    private static final Pattern WORD_RE = Pattern.compile("[A-Za-z][A-Za-z0-9._+-]{1,120}");
+    private static final Set<String> STOPWORDS = Set.of(
+            "the", "and", "for", "with", "that", "this", "from", "into", "over", "when", "where", "which",
+            "while", "using", "used", "use", "your", "their", "they", "them", "then", "than", "also", "can",
+            "could", "should", "would", "about", "after", "before", "have", "has", "had", "will", "may",
+            "might", "must", "not", "are", "was", "were", "been", "being", "api", "http", "https", "www",
+            "docs", "doc", "guide", "reference", "section", "page"
+    );
 
     private final NamedParameterJdbcTemplate jdbcTemplate;
 
@@ -160,6 +172,9 @@ public class AnchorExtractionService {
             addCandidates(dedup, chunk, "class_interface", TYPE_DECLARATION_RE);
             addCandidates(dedup, chunk, "class_interface", INLINE_TYPE_RE);
             addCandidates(dedup, chunk, "concept", GENERIC_TECH_TERM_RE);
+            for (String phrase : extractKeyphrases(chunk.chunkText())) {
+                putCandidate(dedup, chunk, "concept", phrase, phrase);
+            }
             extractCodeSymbols(dedup, chunk);
         }
         return new ArrayList<>(dedup.values());
@@ -466,6 +481,69 @@ public class AnchorExtractionService {
                         matchedText
                 )
         );
+    }
+
+    private List<String> extractKeyphrases(String text) {
+        if (text == null || text.isBlank()) {
+            return List.of();
+        }
+        List<String> words = new ArrayList<>();
+        Matcher matcher = WORD_RE.matcher(text);
+        while (matcher.find()) {
+            String token = matcher.group().trim();
+            if (token.length() < 3 || STOPWORDS.contains(token.toLowerCase(Locale.ROOT))) {
+                continue;
+            }
+            words.add(token);
+        }
+        if (words.isEmpty()) {
+            return List.of();
+        }
+
+        Map<String, Double> scoreByPhrase = new HashMap<>();
+        for (int i = 0; i < words.size(); i++) {
+            for (int n = 1; n <= 3; n++) {
+                int end = i + n;
+                if (end > words.size()) {
+                    break;
+                }
+                String phrase = String.join(" ", words.subList(i, end));
+                phrase = phrase.replaceAll("^(?i)(a|an|the|this|that)\\s+", "");
+                phrase = phrase.replaceAll("(?i)\\s+(guide|section|page)$", "");
+                if (phrase.isBlank()) {
+                    continue;
+                }
+                String normalized = phrase.toLowerCase(Locale.ROOT);
+                if (normalized.length() < 4 || normalized.length() > 120) {
+                    continue;
+                }
+                if (phrase.contains("{") || phrase.contains("}") || phrase.contains("[") || phrase.contains("]")
+                        || phrase.contains(";") || phrase.contains("\"")) {
+                    continue;
+                }
+                int stopwordCount = 0;
+                for (String part : normalized.split("\\s+")) {
+                    if (STOPWORDS.contains(part)) {
+                        stopwordCount += 1;
+                    }
+                }
+                if (stopwordCount == normalized.split("\\s+").length) {
+                    continue;
+                }
+                double titleBonus = Character.isUpperCase(phrase.charAt(0)) ? 0.4 : 0.0;
+                double dotBonus = normalized.contains(".") ? 0.5 : 0.0;
+                double lenBonus = Math.min(0.7, normalized.length() / 80.0);
+                scoreByPhrase.merge(phrase, 1.0 + titleBonus + dotBonus + lenBonus, Double::sum);
+            }
+        }
+
+        HashSet<String> seen = new HashSet<>();
+        return scoreByPhrase.entrySet().stream()
+                .sorted(Map.Entry.<String, Double>comparingByValue(Comparator.reverseOrder()))
+                .map(Map.Entry::getKey)
+                .filter(term -> seen.add(term.toLowerCase(Locale.ROOT)))
+                .limit(24)
+                .toList();
     }
 
     private record AnchorChunkRow(

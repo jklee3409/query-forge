@@ -229,6 +229,39 @@ public class CorpusAdminController {
         return service.extractAnchors(request);
     }
 
+    @PostMapping("/anchors/eval/runs")
+    public CorpusAdminDtos.AnchorEvalRunSummary createAnchorEvalRun(
+            @RequestBody CorpusAdminDtos.AnchorEvalRunCreateRequest request
+    ) {
+        return service.createAnchorEvalRun(request);
+    }
+
+    @GetMapping("/anchors/eval/runs")
+    public List<CorpusAdminDtos.AnchorEvalRunSummary> listAnchorEvalRuns(
+            @RequestParam(name = "limit", required = false) Integer limit,
+            @RequestParam(name = "offset", required = false) Integer offset
+    ) {
+        return service.listAnchorEvalRuns(limit, offset);
+    }
+
+    @GetMapping("/anchors/eval/runs/{runId}")
+    public CorpusAdminDtos.AnchorEvalRunDetail getAnchorEvalRun(@PathVariable UUID runId) {
+        return service.getAnchorEvalRun(runId);
+    }
+
+    @PostMapping("/anchors/eval/runs/{runId}/labels")
+    public CorpusAdminDtos.AnchorEvalRunSummary upsertAnchorEvalLabel(
+            @PathVariable UUID runId,
+            @RequestBody CorpusAdminDtos.AnchorEvalLabelRequest request
+    ) {
+        return service.upsertAnchorEvalLabel(runId, request);
+    }
+
+    @PostMapping("/anchors/eval/runs/{runId}/recompute")
+    public CorpusAdminDtos.AnchorEvalRunSummary recomputeAnchorEvalSummary(@PathVariable UUID runId) {
+        return service.recomputeAnchorEvalSummary(runId);
+    }
+
     @GetMapping("/documents/{documentId}/preview/raw-vs-cleaned")
     public CorpusAdminDtos.RawVsCleanedPreview previewRawVsCleaned(@PathVariable String documentId) {
         return service.previewRawVsCleaned(documentId);

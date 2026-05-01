@@ -20,6 +20,16 @@ export function PipelinePage({ notify }) {
   const [filters, setFilters] = useState({ source_id: '', version_label: '', document_id: '', search: '' })
   const [modal, setModal] = useState(null)
   const [busyRunType, setBusyRunType] = useState('')
+  const [anchorEvalRuns, setAnchorEvalRuns] = useState([])
+  const [anchorEvalBusy, setAnchorEvalBusy] = useState(false)
+  const [anchorEvalDetailBusy, setAnchorEvalDetailBusy] = useState(false)
+  const [anchorEvalForm, setAnchorEvalForm] = useState({
+    runName: '',
+    productName: '',
+    sourceId: '',
+    sampleSize: 20,
+    candidateLimit: 10,
+  })
   const [sourceForm, setSourceForm] = useState({
     sourceId: '',
     productName: '',
@@ -62,6 +72,11 @@ export function PipelinePage({ notify }) {
     setDocuments(normalized.slice(0, documentPageSize))
   }
 
+  const loadAnchorEvalRuns = async () => {
+    const payload = await requestJson('/api/admin/corpus/anchors/eval/runs?limit=20&offset=0')
+    setAnchorEvalRuns(Array.isArray(payload) ? payload : [])
+  }
+
   const applyDocumentFilters = async (nextFilters = filters) => {
     const initialPage = 0
     setDocumentPage(initialPage)
@@ -69,7 +84,7 @@ export function PipelinePage({ notify }) {
   }
 
   useEffect(() => {
-    Promise.all([loadSummary(), loadRuns(0), loadSources(), loadDocuments(filters, 0)]).catch((error) => notify(error.message, 'error'))
+    Promise.all([loadSummary(), loadRuns(0), loadSources(), loadDocuments(filters, 0), loadAnchorEvalRuns()]).catch((error) => notify(error.message, 'error'))
   }, [])
 
   const parseLines = (value) =>
@@ -200,6 +215,83 @@ export function PipelinePage({ notify }) {
       })
     } catch (error) {
       notify(error.message, 'error')
+    }
+  }
+
+  const createAnchorEvalRun = async (event) => {
+    event.preventDefault()
+    setAnchorEvalBusy(true)
+    try {
+      await requestJson('/api/admin/corpus/anchors/eval/runs', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          runName: anchorEvalForm.runName || null,
+          productName: anchorEvalForm.productName || null,
+          sourceId: anchorEvalForm.sourceId || null,
+          sampleSize: Number(anchorEvalForm.sampleSize),
+          candidateLimit: Number(anchorEvalForm.candidateLimit),
+        }),
+      })
+      await loadAnchorEvalRuns()
+      notify('Anchor Eval run created.')
+    } catch (error) {
+      notify(error.message, 'error')
+    } finally {
+      setAnchorEvalBusy(false)
+    }
+  }
+
+  const openAnchorEvalRunDetail = async (runId) => {
+    setAnchorEvalDetailBusy(true)
+    try {
+      const detail = await requestJson(`/api/admin/corpus/anchors/eval/runs/${runId}`)
+      setModal({
+        title: `Anchor Eval · ${detail.run.runName}`,
+        body: (
+          <div className="detail-grid detail-grid--single">
+            <DetailCard label="Summary" value={JSON.stringify(detail.run.summaryJson || {}, null, 2)} />
+            {(detail.samples || []).slice(0, 20).map((sample) => (
+              <div key={sample.sampleId} className="detail-card">
+                <div className="detail-item__label">{sample.chunkId}</div>
+                <pre className="detail-item__value">{sample.chunkText?.slice(0, 500) || ''}</pre>
+                <div className="token-badge-list">
+                  {(sample.candidates || []).map((candidate) => (
+                    <button
+                      key={candidate.candidateId}
+                      type="button"
+                      className="button button--ghost"
+                      onClick={async () => {
+                        try {
+                          await requestJson(`/api/admin/corpus/anchors/eval/runs/${runId}/labels`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                              candidateId: candidate.candidateId,
+                              labelValue: 'valid',
+                              confidence: 0.9,
+                              note: 'quick-label',
+                            }),
+                          })
+                          notify('Labeled as valid.')
+                        } catch (error) {
+                          notify(error.message, 'error')
+                        }
+                      }}
+                    >
+                      {candidate.canonicalForm} ({candidate.labelValue || 'unlabeled'})
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        ),
+      })
+    } catch (error) {
+      notify(error.message, 'error')
+    } finally {
+      setAnchorEvalDetailBusy(false)
     }
   }
 
@@ -470,6 +562,52 @@ export function PipelinePage({ notify }) {
               loadDocuments(filters, nextPage).catch((error) => notify(error.message, 'error'))
             }}
           >다음</button>
+        </div>
+      </section>
+
+      <section className="table-shell">
+        <div className="table-header">
+          <div className="table-title">Anchor Eval</div>
+          <button type="button" className="button" onClick={() => loadAnchorEvalRuns().catch((error) => notify(error.message, 'error'))}>새로고침</button>
+        </div>
+        <form className="filter-bar" onSubmit={createAnchorEvalRun}>
+          <label className="filter-field">runName
+            <input value={anchorEvalForm.runName} onChange={(event) => setAnchorEvalForm((prev) => ({ ...prev, runName: event.target.value }))} placeholder="optional" />
+          </label>
+          <label className="filter-field">productName
+            <input value={anchorEvalForm.productName} onChange={(event) => setAnchorEvalForm((prev) => ({ ...prev, productName: event.target.value }))} placeholder="optional" />
+          </label>
+          <label className="filter-field">sourceId
+            <input value={anchorEvalForm.sourceId} onChange={(event) => setAnchorEvalForm((prev) => ({ ...prev, sourceId: event.target.value }))} placeholder="optional" />
+          </label>
+          <label className="filter-field">sampleSize
+            <input type="number" min="1" max="200" value={anchorEvalForm.sampleSize} onChange={(event) => setAnchorEvalForm((prev) => ({ ...prev, sampleSize: event.target.value }))} />
+          </label>
+          <label className="filter-field">candidateLimit
+            <input type="number" min="1" max="50" value={anchorEvalForm.candidateLimit} onChange={(event) => setAnchorEvalForm((prev) => ({ ...prev, candidateLimit: event.target.value }))} />
+          </label>
+          <div className="filter-field filter-field--small">
+            <button type="submit" className="button button--primary" disabled={anchorEvalBusy}>평가 Run 생성</button>
+          </div>
+        </form>
+        <div className="table-wrap">
+          <table className="data-table">
+            <thead>
+              <tr><th>run</th><th>scope</th><th>samples</th><th>metrics</th><th>created</th><th>detail</th></tr>
+            </thead>
+            <tbody>
+              {anchorEvalRuns.map((run) => (
+                <tr key={run.runId}>
+                  <td>{run.runName}</td>
+                  <td>{run.productName || '-'} / {run.sourceId || '-'}</td>
+                  <td>{run.sampleSize} x {run.candidateLimit}</td>
+                  <td>{typeof run.summaryJson === 'object' ? JSON.stringify(run.summaryJson) : '-'}</td>
+                  <td>{fmtTime(run.createdAt)}</td>
+                  <td><button type="button" className="button button--ghost" disabled={anchorEvalDetailBusy} onClick={() => openAnchorEvalRunDetail(run.runId)}>열기</button></td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
         </div>
       </section>
       <Modal data={modal} onClose={() => setModal(null)} />

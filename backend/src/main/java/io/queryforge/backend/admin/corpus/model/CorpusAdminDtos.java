@@ -306,6 +306,70 @@ public final class CorpusAdminDtos {
     }
 
     @Builder
+    public record AnchorEvalRunCreateRequest(
+            String runName,
+            String productName,
+            String sourceId,
+            Integer sampleSize,
+            Integer candidateLimit,
+            String createdBy
+    ) {
+    }
+
+    public record AnchorEvalRunSummary(
+            UUID runId,
+            String runName,
+            String status,
+            String productName,
+            String sourceId,
+            int sampleSize,
+            int candidateLimit,
+            String createdBy,
+            JsonNode summaryJson,
+            Instant createdAt,
+            Instant updatedAt
+    ) {
+    }
+
+    public record AnchorEvalCandidateDto(
+            UUID candidateId,
+            UUID termId,
+            String canonicalForm,
+            String termType,
+            double score,
+            int rankIndex,
+            String labelValue,
+            Double labelConfidence,
+            String labelNote
+    ) {
+    }
+
+    public record AnchorEvalSampleDto(
+            UUID sampleId,
+            String documentId,
+            String chunkId,
+            String chunkText,
+            List<AnchorEvalCandidateDto> candidates
+    ) {
+    }
+
+    public record AnchorEvalRunDetail(
+            AnchorEvalRunSummary run,
+            List<AnchorEvalSampleDto> samples
+    ) {
+    }
+
+    @Builder
+    public record AnchorEvalLabelRequest(
+            UUID candidateId,
+            String labelValue,
+            Double confidence,
+            String note,
+            String labeledBy
+    ) {
+    }
+
+    @Builder
     public record SourceUpdateRequest(
             Boolean enabled
     ) {

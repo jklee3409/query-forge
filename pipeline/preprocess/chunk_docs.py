@@ -4,8 +4,10 @@ import argparse
 import hashlib
 import json
 import logging
+import math
 import re
 import time
+from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -38,6 +40,27 @@ INLINE_TYPE_RE = re.compile(
 GENERIC_TECH_TERM_RE = re.compile(
     r"\b(?:[A-Z][A-Za-z0-9]+(?:[A-Z][A-Za-z0-9]+)+|[a-z][a-z0-9]+(?:[-_][a-z0-9]+){1,4}|[A-Za-z][A-Za-z0-9]*\.[A-Za-z0-9._-]+)\b"
 )
+NOUN_TOKEN_RE = re.compile(r"[A-Za-z][A-Za-z0-9._+-]{1,120}")
+STOPWORD_SET = {
+    "the", "and", "for", "with", "that", "this", "from", "into", "over", "when", "where", "which", "while", "using",
+    "used", "use", "your", "their", "they", "them", "then", "than", "also", "can", "could", "should", "would",
+    "about", "after", "before", "have", "has", "had", "will", "may", "might", "must", "not", "are", "was", "were",
+    "been", "being", "you", "our", "its", "it's", "any", "all", "each", "other", "more", "most", "some", "such",
+    "api", "http", "https", "www", "docs", "doc", "guide", "reference", "section", "page"
+}
+
+try:
+    import spacy
+except Exception:  # pragma: no cover - optional dependency runtime guard
+    spacy = None
+
+try:
+    import yake
+except Exception:  # pragma: no cover - optional dependency runtime guard
+    yake = None
+
+_SPACY_NLP = None
+_YAKE_EXTRACTOR = None
 
 
 @dataclass(slots=True)
@@ -877,6 +900,103 @@ def generic_anchor_candidates(text: str) -> list[str]:
     return list(seen.keys())
 
 
+def get_spacy_nlp():
+    global _SPACY_NLP
+    if _SPACY_NLP is not None:
+        return _SPACY_NLP
+    if spacy is None:
+        return None
+    try:
+        _SPACY_NLP = spacy.load("en_core_web_sm", disable=["textcat"])
+    except Exception:
+        LOGGER.warning("[glossary] spaCy model en_core_web_sm not available, fallback to regex-only generic anchors.")
+        _SPACY_NLP = None
+    return _SPACY_NLP
+
+
+def get_yake_extractor():
+    global _YAKE_EXTRACTOR
+    if _YAKE_EXTRACTOR is not None:
+        return _YAKE_EXTRACTOR
+    if yake is None:
+        return None
+    _YAKE_EXTRACTOR = yake.KeywordExtractor(
+        lan="en",
+        n=3,
+        dedupLim=0.9,
+        dedupFunc="seqm",
+        windowsSize=2,
+        top=20,
+    )
+    return _YAKE_EXTRACTOR
+
+
+def normalize_anchor_phrase(text: str) -> str:
+    phrase = normalize_whitespace(text).strip("`'\"()[]{}.,:;")
+    phrase = re.sub(r"^(?:a|an|the|this|that)\s+", "", phrase, flags=re.IGNORECASE)
+    phrase = re.sub(r"\s+(?:guide|section|page)$", "", phrase, flags=re.IGNORECASE)
+    if any(ch in phrase for ch in "{}[];\""):
+        return ""
+    if len(phrase) < 3 or len(phrase) > 120:
+        return ""
+    lower = phrase.casefold()
+    if lower in STOPWORD_SET:
+        return ""
+    token_parts = [part for part in re.split(r"[\s/]+", phrase) if part]
+    if not token_parts:
+        return ""
+    if len(token_parts) <= 4:
+        stopword_count = sum(1 for part in token_parts if part.casefold() in STOPWORD_SET)
+        if stopword_count == len(token_parts):
+            return ""
+    return phrase
+
+
+def extract_anchor_keyphrases(text: str) -> list[str]:
+    if not text:
+        return []
+    scored: dict[str, float] = {}
+    frequency = Counter(NOUN_TOKEN_RE.findall(text))
+    doc_len = max(1, len(text))
+
+    for term in generic_anchor_candidates(text):
+        norm = normalize_anchor_phrase(term)
+        if norm:
+            scored[norm] = scored.get(norm, 0.0) + 1.0
+
+    nlp = get_spacy_nlp()
+    if nlp is not None:
+        doc = nlp(text[:20000])
+        for chunk in doc.noun_chunks:
+            norm = normalize_anchor_phrase(chunk.text)
+            if not norm:
+                continue
+            rarity_bonus = 0.0
+            for token in norm.split():
+                freq = frequency.get(token, 1)
+                rarity_bonus += 1.0 / math.sqrt(freq)
+            scored[norm] = scored.get(norm, 0.0) + 2.0 + rarity_bonus
+
+    extractor = get_yake_extractor()
+    if extractor is not None:
+        try:
+            for keyword, score in extractor.extract_keywords(text[:20000]):
+                norm = normalize_anchor_phrase(keyword)
+                if not norm:
+                    continue
+                quality = max(0.0, 1.2 - float(score))
+                scored[norm] = scored.get(norm, 0.0) + quality
+        except Exception:
+            LOGGER.warning("[glossary] YAKE extraction failed, fallback to spaCy/regex candidates.")
+
+    ranked = sorted(
+        scored.items(),
+        key=lambda item: (item[1], len(item[0]) / doc_len),
+        reverse=True,
+    )
+    return [term for term, _ in ranked[:24]]
+
+
 def extract_glossary_terms(
     documents: dict[str, list[dict[str, Any]]],
     settings: GlossarySettings,
@@ -998,7 +1118,7 @@ def extract_glossary_terms(
                         keep_in_english=True,
                     )
 
-                for generic_term in generic_anchor_candidates(text):
+                for generic_term in extract_anchor_keyphrases(text):
                     add_glossary_candidate(
                         candidates,
                         term_type="concept",
