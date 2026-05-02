@@ -173,6 +173,17 @@ public class CorpusAdminService {
         );
     }
 
+    public List<CorpusAdminDtos.AnchorSummary> listAnchors(
+            String documentId,
+            String chunkId,
+            String keyword,
+            boolean activeOnly,
+            Integer limit,
+            Integer offset
+    ) {
+        return repository.findAnchors(documentId, chunkId, keyword, activeOnly, limit, offset);
+    }
+
     public List<CorpusAdminDtos.GlossaryEvidenceDto> listGlossaryEvidence(UUID termId) {
         return repository.findGlossaryEvidence(termId);
     }

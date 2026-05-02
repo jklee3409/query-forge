@@ -249,6 +249,20 @@ public final class CorpusAdminDtos {
     ) {
     }
 
+    public record AnchorSummary(
+            UUID termId,
+            String canonicalForm,
+            String termType,
+            boolean keepInEnglish,
+            double sourceConfidence,
+            int evidenceCount,
+            int scopedEvidenceCount,
+            String firstSeenDocumentId,
+            String firstSeenChunkId,
+            Instant updatedAt
+    ) {
+    }
+
     public record RawVsCleanedPreview(
             String documentId,
             String rawText,

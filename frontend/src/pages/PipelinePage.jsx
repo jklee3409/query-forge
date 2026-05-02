@@ -1,11 +1,13 @@
 import { useEffect, useMemo, useState } from 'react'
 import { DetailCard, IdBadge, Modal, StatusBadge } from '../components/Common.jsx'
+import { SelectDropdown } from '../components/SelectDropdown.jsx'
 import { fmtTime, shortId } from '../lib/format.js'
 import { queryString, requestJson } from '../lib/api.js'
 
 export function PipelinePage({ notify }) {
   const runPageSize = 3
   const documentPageSize = 10
+  const anchorPageSize = 10
 
   const [summary, setSummary] = useState(null)
   const [runs, setRuns] = useState([])
@@ -26,6 +28,17 @@ export function PipelinePage({ notify }) {
   const [anchorEvalScopeDocuments, setAnchorEvalScopeDocuments] = useState([])
   const [anchorEvalScopeChunks, setAnchorEvalScopeChunks] = useState([])
   const [anchorEvalLoadingScope, setAnchorEvalLoadingScope] = useState(false)
+  const [anchors, setAnchors] = useState([])
+  const [anchorPage, setAnchorPage] = useState(0)
+  const [anchorHasNextPage, setAnchorHasNextPage] = useState(false)
+  const [anchorFilterDocuments, setAnchorFilterDocuments] = useState([])
+  const [anchorFilterChunks, setAnchorFilterChunks] = useState([])
+  const [anchorFilterLoading, setAnchorFilterLoading] = useState(false)
+  const [anchorFilters, setAnchorFilters] = useState({
+    documentId: '',
+    chunkId: '',
+    keyword: '',
+  })
   const [anchorEvalForm, setAnchorEvalForm] = useState({
     runName: '',
     productName: '',
@@ -50,6 +63,26 @@ export function PipelinePage({ notify }) {
   const selectedSourceForEval = useMemo(
     () => sources.find((source) => source.sourceId === anchorEvalForm.sourceId) || null,
     [sources, anchorEvalForm.sourceId]
+  )
+
+  const anchorDocumentOptions = useMemo(
+    () =>
+      anchorFilterDocuments.map((document) => ({
+        value: document.documentId,
+        label: document.title || document.documentId,
+        meta: shortId(document.documentId),
+      })),
+    [anchorFilterDocuments]
+  )
+
+  const anchorChunkOptions = useMemo(
+    () =>
+      anchorFilterChunks.map((chunk) => ({
+        value: chunk.chunkId,
+        label: `${chunk.chunkId} · #${chunk.chunkIndexInDocument}`,
+        meta: (chunk.sectionPathText || '').slice(0, 120),
+      })),
+    [anchorFilterChunks]
   )
 
   const loadSummary = async () => {
@@ -118,6 +151,79 @@ export function PipelinePage({ notify }) {
     setAnchorEvalScopeChunks(merged)
   }
 
+  const loadAnchorFilterDocuments = async () => {
+    const query = queryString({
+      active_only: true,
+      limit: 500,
+      offset: 0,
+    })
+    const payload = await requestJson(`/api/admin/corpus/documents?${query}`)
+    setAnchorFilterDocuments(Array.isArray(payload) ? payload : [])
+  }
+
+  const loadAnchorFilterChunks = async (documentId) => {
+    if (!documentId) {
+      setAnchorFilterChunks([])
+      return
+    }
+    const query = queryString({
+      document_id: documentId,
+      active_only: true,
+      limit: 500,
+      offset: 0,
+    })
+    const payload = await requestJson(`/api/admin/corpus/chunks?${query}`)
+    setAnchorFilterChunks(Array.isArray(payload) ? payload : [])
+  }
+
+  const loadAnchors = async (nextFilters = anchorFilters, page = anchorPage) => {
+    const query = queryString({
+      document_id: nextFilters.documentId || undefined,
+      chunk_id: nextFilters.chunkId || undefined,
+      keyword: nextFilters.keyword || undefined,
+      active_only: true,
+      limit: anchorPageSize + 1,
+      offset: page * anchorPageSize,
+    })
+    const payload = await requestJson(`/api/admin/corpus/anchors${query ? `?${query}` : ''}`)
+    const normalized = Array.isArray(payload) ? payload : []
+    setAnchorHasNextPage(normalized.length > anchorPageSize)
+    setAnchors(normalized.slice(0, anchorPageSize))
+  }
+
+  const handleAnchorFilterDocumentChange = async (documentId) => {
+    setAnchorFilters((prev) => ({
+      ...prev,
+      documentId,
+      chunkId: '',
+    }))
+    setAnchorFilterLoading(true)
+    try {
+      await loadAnchorFilterChunks(documentId)
+    } finally {
+      setAnchorFilterLoading(false)
+    }
+  }
+
+  const applyAnchorFilters = async (nextFilters = anchorFilters) => {
+    const initialPage = 0
+    setAnchorPage(initialPage)
+    await loadAnchors(nextFilters, initialPage)
+  }
+
+  const resetAnchorFilters = async () => {
+    const cleared = {
+      documentId: '',
+      chunkId: '',
+      keyword: '',
+    }
+    setAnchorFilters(cleared)
+    setAnchorFilterChunks([])
+    const initialPage = 0
+    setAnchorPage(initialPage)
+    await loadAnchors(cleared, initialPage)
+  }
+
   const handleAnchorEvalSourceChange = async (nextSourceId) => {
     const source = sources.find((item) => item.sourceId === nextSourceId)
     setAnchorEvalForm((prev) => ({
@@ -169,7 +275,15 @@ export function PipelinePage({ notify }) {
   }
 
   useEffect(() => {
-    Promise.all([loadSummary(), loadRuns(0), loadSources(), loadDocuments(filters, 0), loadAnchorEvalRuns()]).catch((error) => notify(error.message, 'error'))
+    Promise.all([
+      loadSummary(),
+      loadRuns(0),
+      loadSources(),
+      loadDocuments(filters, 0),
+      loadAnchorEvalRuns(),
+      loadAnchorFilterDocuments(),
+      loadAnchors({ documentId: '', chunkId: '', keyword: '' }, 0),
+    ]).catch((error) => notify(error.message, 'error'))
   }, [])
 
   const parseLines = (value) =>
@@ -647,6 +761,123 @@ export function PipelinePage({ notify }) {
               const nextPage = documentPage + 1
               setDocumentPage(nextPage)
               loadDocuments(filters, nextPage).catch((error) => notify(error.message, 'error'))
+            }}
+          >다음</button>
+        </div>
+      </section>
+
+      <section className="table-shell">
+        <div className="table-header">
+          <div className="table-title">Anchors</div>
+          <button
+            type="button"
+            className="button"
+            onClick={() => loadAnchors(anchorFilters, anchorPage).catch((error) => notify(error.message, 'error'))}
+          >
+            새로고침
+          </button>
+        </div>
+        <form
+          className="filter-bar filter-bar--stack"
+          onSubmit={(event) => {
+            event.preventDefault()
+            applyAnchorFilters(anchorFilters).catch((error) => notify(error.message, 'error'))
+          }}
+        >
+          <div className="form-grid form-grid--3">
+            <label className="filter-field">
+              Document Filter
+              <SelectDropdown
+                value={anchorFilters.documentId}
+                options={anchorDocumentOptions}
+                onChange={(nextDocumentId) => {
+                  handleAnchorFilterDocumentChange(nextDocumentId).catch((error) => notify(error.message, 'error'))
+                }}
+                placeholder="전체 문서"
+                clearLabel="전체 문서"
+                searchPlaceholder="문서 제목/ID 검색"
+                emptyLabel="선택 가능한 문서가 없습니다."
+              />
+            </label>
+            <label className="filter-field">
+              Chunk Filter
+              <SelectDropdown
+                value={anchorFilters.chunkId}
+                options={anchorChunkOptions}
+                onChange={(nextChunkId) => setAnchorFilters((prev) => ({ ...prev, chunkId: nextChunkId }))}
+                placeholder={anchorFilters.documentId ? '전체 청크' : '문서를 먼저 선택하세요'}
+                clearLabel="전체 청크"
+                searchPlaceholder="chunk id / section path 검색"
+                emptyLabel="선택 가능한 청크가 없습니다."
+                disabled={anchorFilterLoading || !anchorFilters.documentId}
+              />
+            </label>
+            <label className="filter-field">
+              Anchor Keyword
+              <input
+                value={anchorFilters.keyword}
+                onChange={(event) => setAnchorFilters((prev) => ({ ...prev, keyword: event.target.value }))}
+                placeholder="canonical anchor 검색"
+              />
+            </label>
+          </div>
+          <div className="form-actions">
+            <button type="submit" className="button button--primary">조회</button>
+            <button type="button" className="button" onClick={() => resetAnchorFilters().catch((error) => notify(error.message, 'error'))}>
+              초기화
+            </button>
+          </div>
+        </form>
+        <div className="table-wrap">
+          <table className="data-table">
+            <thead>
+              <tr><th>Anchor</th><th>Type</th><th>Confidence</th><th>Evidence</th><th>First Seen</th><th>Updated</th></tr>
+            </thead>
+            <tbody>
+              {anchors.map((anchor) => (
+                <tr key={anchor.termId}>
+                  <td>
+                    <div>{anchor.canonicalForm}</div>
+                    <div className="line-clamp mono-text">{shortId(anchor.termId)}</div>
+                  </td>
+                  <td>{anchor.termType || '-'}</td>
+                  <td>{Number(anchor.sourceConfidence || 0).toFixed(2)}</td>
+                  <td>{anchor.scopedEvidenceCount ?? 0} / {anchor.evidenceCount ?? 0}</td>
+                  <td>
+                    <div className="mono-text">{anchor.firstSeenDocumentId || '-'}</div>
+                    <div className="mono-text">{anchor.firstSeenChunkId || '-'}</div>
+                  </td>
+                  <td>{fmtTime(anchor.updatedAt)}</td>
+                </tr>
+              ))}
+              {anchors.length === 0 && (
+                <tr>
+                  <td colSpan={6}>조회 결과가 없습니다.</td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+        <div className="pagination">
+          <button
+            type="button"
+            className="button"
+            disabled={anchorPage === 0}
+            onClick={() => {
+              const nextPage = Math.max(0, anchorPage - 1)
+              setAnchorPage(nextPage)
+              loadAnchors(anchorFilters, nextPage).catch((error) => notify(error.message, 'error'))
+            }}
+          >이전</button>
+          <div className="pagination__label">페이지 {anchorPage + 1}</div>
+          <button
+            type="button"
+            className="button"
+            disabled={!anchorHasNextPage}
+            onClick={() => {
+              const nextPage = anchorPage + 1
+              setAnchorPage(nextPage)
+              loadAnchors(anchorFilters, nextPage).catch((error) => notify(error.message, 'error'))
             }}
           >다음</button>
         </div>
