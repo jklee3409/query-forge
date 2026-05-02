@@ -3,6 +3,12 @@
 ## Overview
 High-level progress tracking for the project.
 
+## [2026-05-02] Session Summary (Admin Source Preset Additions)
+- What was done: Added source preset files under `configs/app/sources/` for `arahansa-github-io-docs-spring` and `docs-python-org-ko-3-14` to support admin pipeline collect targets with explicit allow-prefix and deny-pattern defaults.
+- Key decisions: Kept the same schema/field conventions as existing source presets (`start_urls`, `allow_prefixes`, `deny_url_patterns`, delay/depth metadata) for compatibility with source catalog sync.
+- Issues encountered: None.
+- Next steps: Verify each preset through one scoped collect run and refine depth/pattern bounds based on crawl noise.
+
 ## [2026-04-28] Session Summary (English Query Generation Prompt + Language-Aware Rewrite/Gating Prompts)
 - What was done: Added `configs/prompts/query_generation/gen_e_v1.md` for English-native synthetic query generation, rewrote `selective_rewrite_v2.md` to accept `query_language`, and generalized `quality_gate_v1.md` scoring from `korean_naturalness` to `naturalness`.
 - Key decisions: Reused existing prompt families and versions where possible to keep runtime lookup simple; English support was added by prompt contract expansion rather than a second rewrite prompt family.

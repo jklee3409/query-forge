@@ -3,6 +3,18 @@
 ## Overview
 High-level progress tracking for the project.
 
+## [2026-05-02] Session Summary (Collector Resilience + Source Preset Additions)
+- What was done: Hardened `pipeline/collectors/spring_docs_collector.py` to skip placeholder `{...}` URLs and continue on per-URL fetch failures while recording `fetch_failures` metrics. Added source presets `arahansa-github-io-docs-spring` and `docs-python-org-ko-3-14` under `configs/app/sources/`.
+- Key decisions: Shifted collector failure behavior from fail-fast to skip-with-visibility for URL-level network/HTTP noise, preserving overall batch progress.
+- Issues encountered: None.
+- Next steps: Run scoped collects on both presets and tune crawl depth/deny patterns if failure counts remain elevated.
+
+## [2026-05-02] Session Summary (Pipeline Anchor Pagination + Document/Chunk Dropdown Filters)
+- What was done: Added a new paginated Anchor list section to `/admin/pipeline` and introduced document/chunk filter controls using a custom dropdown UI (`frontend/src/components/SelectDropdown.jsx`). Added backend API `GET /api/admin/corpus/anchors` with server-side filtering (`document_id`, `chunk_id`, `keyword`) and pagination (`limit`, `offset`) to support the new view.
+- Key decisions: Implemented a dedicated anchor-list API instead of overloading existing glossary endpoints so document/chunk scoped filtering semantics stay explicit and UI queries remain lightweight.
+- Issues encountered: None.
+- Next steps: Validate with a high-cardinality corpus source and adjust option load limits/UX (virtualization or incremental search) if operator filtering latency appears.
+
 ## [2026-05-02] Session Summary (Normalize Fallback Parser + Pipeline Warning Status Backfill)
 - What was done: Implemented fallback content parsing in `pipeline/preprocess/normalize_docs.py` so normalization no longer hard-fails on pages without `article.doc` (legacy `div#content` and `body` fallback). Added pipeline warning-status support end-to-end with new migration `V27` (`run_status`/`step_status` include `warning`) and warning backfill for existing `corpus_runs/corpus_run_steps` history. Updated admin frontend status tone/style mapping to visualize `warning`.
 - Key decisions: Kept pipeline command exit semantics intact, but promoted partial/no-effective-output outcomes (skipped stages, normalize 0-section, collect fetch/persist anomalies) to `warning` status for operational visibility instead of silent `success`.

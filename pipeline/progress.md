@@ -3,6 +3,12 @@
 ## Overview
 High-level pipeline progress tracking.
 
+## [2026-05-02] Session Summary (Collector Fetch-Failure Skip + Placeholder URL Guard)
+- What was done: Updated `collectors/spring_docs_collector.py` to skip placeholder-templated paths containing `{...}` and continue collect runs on per-URL fetch failures (`requests` exceptions) instead of aborting the entire run. Added `fetch_failures` to collect summary metrics.
+- Key decisions: Kept successful-page ingestion path unchanged and treated failed fetches as warning-level operational signals to improve run resilience.
+- Issues encountered: None.
+- Next steps: Monitor source-level `fetch_failures` trends and tighten per-source deny/allow rules if noisy URL patterns persist.
+
 ## [2026-05-02] Session Summary (Normalize Legacy HTML Fallback Parsing)
 - What was done: Updated `preprocess/normalize_docs.py` so `extract_article` no longer depends only on `article.doc`; it now falls back to legacy `div#content` and finally `body`, with shared non-content node pruning.
 - Key decisions: Preserved existing section/block extraction logic and only widened the root container detection to support legacy Asciidoctor-style pages.

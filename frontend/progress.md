@@ -3,6 +3,12 @@
 ## Overview
 High-level progress tracking for the project.
 
+## [2026-05-02] Session Summary (Pipeline Anchor Pagination Section + Custom Dropdown Filters)
+- What was done: Added a new `Anchors` section to `/admin/pipeline` with server-driven pagination and filter form (`document`, `chunk`, `keyword`). Implemented custom dropdown UI component `src/components/SelectDropdown.jsx` and integrated it for document/chunk filtering instead of native select controls.
+- Key decisions: Kept filtering state local to `PipelinePage.jsx` and reused existing corpus document/chunk option APIs while delegating anchor filtering/pagination to the new backend endpoint.
+- Issues encountered: None.
+- Next steps: If document/chunk option counts increase, add incremental option loading or virtualization inside the custom dropdown menu.
+
 ## [2026-05-02] Session Summary (Pipeline Warning Status Badge Support)
 - What was done: Updated frontend status normalization and badge styling to support `warning` state for admin pipeline run/step statuses (`src/lib/format.js`, `src/styles.css`).
 - Key decisions: Kept existing status-badge component contract unchanged and mapped `warning` as an additive tone so all existing pages keep working without API shape changes.

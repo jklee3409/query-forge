@@ -3,6 +3,12 @@
 ## Overview
 High-level backend progress tracking.
 
+## [2026-05-02] Session Summary (Corpus Anchor List API for Pipeline UI)
+- What was done: Added `GET /api/admin/corpus/anchors` in `CorpusAdminController/Service/Repository`, with new DTO `AnchorSummary`. The API supports `document_id`, `chunk_id`, `keyword`, `active_only`, `limit`, `offset` and returns paginated anchor rows ordered by scoped evidence density.
+- Key decisions: Introduced a dedicated anchor listing path instead of extending existing glossary list responses, so document/chunk evidence scope can be handled as a first-class filter contract.
+- Issues encountered: None.
+- Next steps: If anchor volume grows significantly, consider adding index tuning around `corpus_glossary_evidence(term_id, document_id, chunk_id)` for scoped query acceleration.
+
 ## [2026-05-02] Session Summary (Pipeline Warning Status Model + History Backfill)
 - What was done: Added Flyway `V27__add_pipeline_warning_status_and_backfill.sql` to extend `corpus_runs.run_status` and `corpus_run_steps.step_status` with `warning`, then backfilled existing pipeline history to warning where steps were skipped or produced zero-effective outputs. Updated pipeline dashboard issue query to include warning steps in recent problematic-step list.
 - Key decisions: Warning was implemented as first-class status (not metadata-only flag) so admin run history and API consumers can distinguish partial-success from full-success consistently.
