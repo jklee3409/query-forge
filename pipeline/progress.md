@@ -3,6 +3,12 @@
 ## Overview
 High-level pipeline progress tracking.
 
+## [2026-05-02] Session Summary (Normalize Legacy HTML Fallback Parsing)
+- What was done: Updated `preprocess/normalize_docs.py` so `extract_article` no longer depends only on `article.doc`; it now falls back to legacy `div#content` and finally `body`, with shared non-content node pruning.
+- Key decisions: Preserved existing section/block extraction logic and only widened the root container detection to support legacy Asciidoctor-style pages.
+- Issues encountered: Existing source `arahansa-github-io-docs-spring` had no `article.doc`, causing prior normalize runs to output zero sections.
+- Next steps: Re-run ingest for affected sources and verify downstream chunk/glossary generation now receives non-empty section JSONL.
+
 ## [2026-04-28] Session Summary (BM25-Only Memory Build Dimension Fix)
 - What was done: Fixed `memory/build_memory.py` so BM25-only runs no longer generate 3072-dim hash vectors against 384-dim DB columns. Added explicit target-dimension normalization (`384`) in `_embed_memory_query` for fallback/hash paths.
 - Key decisions: Kept BM25-only behavior on retrieval mode (no dense backend), but aligned persisted vector dimensions to storage schema to avoid `expected 384 dimensions, not 3072` failures.

@@ -3,6 +3,18 @@
 ## Overview
 High-level backend progress tracking.
 
+## [2026-05-02] Session Summary (Pipeline Warning Status Model + History Backfill)
+- What was done: Added Flyway `V27__add_pipeline_warning_status_and_backfill.sql` to extend `corpus_runs.run_status` and `corpus_run_steps.step_status` with `warning`, then backfilled existing pipeline history to warning where steps were skipped or produced zero-effective outputs. Updated pipeline dashboard issue query to include warning steps in recent problematic-step list.
+- Key decisions: Warning was implemented as first-class status (not metadata-only flag) so admin run history and API consumers can distinguish partial-success from full-success consistently.
+- Issues encountered: Initial backfill cast failed on heterogeneous `metrics_json` shapes; migration predicates were rewritten with safe text checks/regex-gated numeric parsing.
+- Next steps: Restart backend process to activate updated `PipelineAdminService` runtime warning aggregation logic for newly generated runs.
+
+## [2026-05-02] Session Summary (Pipeline full_ingest Failure Debug + Retry)
+- What was done: Investigated failed Admin Pipeline run `e28f9bce-37a1-4569-96bb-12dbd62e83ec` (`full_ingest`) and confirmed collect-stage crash on `requests.exceptions.HTTPError` (`404`) for templated URL `https://arahansa.github.io/docs_spring/{spring-framework-docs}/beans.html`. Triggered backend retry API and verified rerun `7be03cad-094c-424c-8852-e164f269b17d` completed with `success`.
+- Key decisions: Applied operational recovery only, because collector-side invalid URL/fetch-failure handling was already present in the current workspace at debug time.
+- Issues encountered: Rerun succeeded but marked `normalize/chunk/glossary/import` as skipped (`no_documents_pending`) after collect persistence.
+- Next steps: If this source needs broader ingestion coverage, tighten source crawling scope configuration to avoid placeholder/template links and improve valid-page discovery.
+
 ## [2026-05-01] Session Summary (Anchor Re-extraction API + Active Anchor Mapping)
 - What was done: Added Flyway `V25__add_anchor_reextract_and_query_anchor_links.sql` to create `synthetic_query_anchor_link` and backfill link rows from synthetic query source chunks to active glossary evidence. Added corpus API `POST /api/admin/corpus/anchors/extract` and implemented `AnchorExtractionService` to: resolve selected document/chunk scope, replace chunk-level glossary evidence, refresh glossary term active/evidence state, and remap affected synthetic queries to valid active anchors.
 - Key decisions: Scoped replacement deletes to selected chunk evidence only, preserving all existing corpus document/chunk rows. Kept legacy raw `glossary_terms` snapshot unchanged for backward compatibility while adding `mappedAnchors` in synthetic query detail as the active-anchor source.

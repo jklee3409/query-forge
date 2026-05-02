@@ -3,6 +3,12 @@
 ## Overview
 High-level progress tracking for the project.
 
+## [2026-05-02] Session Summary (Pipeline Warning Status Badge Support)
+- What was done: Updated frontend status normalization and badge styling to support `warning` state for admin pipeline run/step statuses (`src/lib/format.js`, `src/styles.css`).
+- Key decisions: Kept existing status-badge component contract unchanged and mapped `warning` as an additive tone so all existing pages keep working without API shape changes.
+- Issues encountered: None.
+- Next steps: After backend restart, verify newly created warning-classified runs render amber warning badges in `/admin/pipeline`.
+
 ## [2026-05-02] Session Summary (Pipeline Anchor Eval Select-All + Help Text)
 - What was done: Updated `PipelinePage.jsx` Anchor Eval form to add quick scope actions (`전체 문서 선택`, `전체 청크 선택`) and wired them to existing selected document/chunk state. Added field hints clarifying `Sample Size` (평가할 chunk 샘플 수) and `Candidate Limit` (샘플당 anchor 후보 최대 수).
 - Key decisions: Reused current scope-loading flow (`handleAnchorEvalDocumentSelection` -> chunk reload) so selecting all documents still refreshes chunk options through the same path; no backend/API schema changes were introduced.

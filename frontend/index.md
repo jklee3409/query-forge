@@ -46,6 +46,7 @@
 - RAG 실험 비교 워크스페이스의 상단 run 카드, winner summary, metric 카드 UI를 판단 중심으로 재정렬하고, 성능 지표를 `ms`/`s` 자동 변환 + 해석형 delta(`x faster/slower`, `% change`)로 표시하도록 개선했다.
 - RAG 상세 비교 테이블을 섹션 인지형(`Retrieval/Answer/Performance`)으로 재구성하고, 해석형 Delta/Result 칩, KPI 강조 행, 가독성 높은 숫자 포맷(천 단위 + ms/s 병기)을 적용해 실험 간 판단 속도를 개선했다.
 - Gating result view supports `methodCode` filter and `limit/offset` pagination UI.
+- Admin status badges now support `warning` tone for pipeline runs/steps to distinguish partial-success executions from full-success.
 - Gating run Rule stage supports configurable Korean-ratio input (`ruleMinKoreanRatio`).
 - RAG run form supports snapshot-based evaluation through `sourceGatingBatchId`, listing all completed snapshots and validating source run/preset/method compatibility at run-time.
 - RAG run form now distinguishes `official` vs `exploratory` discipline, with official bundled comparison controls (`gating_effect` / `rewrite_effect`) and explicit snapshot identity payloads.

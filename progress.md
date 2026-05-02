@@ -3,6 +3,18 @@
 ## Overview
 High-level progress tracking for the project.
 
+## [2026-05-02] Session Summary (Normalize Fallback Parser + Pipeline Warning Status Backfill)
+- What was done: Implemented fallback content parsing in `pipeline/preprocess/normalize_docs.py` so normalization no longer hard-fails on pages without `article.doc` (legacy `div#content` and `body` fallback). Added pipeline warning-status support end-to-end with new migration `V27` (`run_status`/`step_status` include `warning`) and warning backfill for existing `corpus_runs/corpus_run_steps` history. Updated admin frontend status tone/style mapping to visualize `warning`.
+- Key decisions: Kept pipeline command exit semantics intact, but promoted partial/no-effective-output outcomes (skipped stages, normalize 0-section, collect fetch/persist anomalies) to `warning` status for operational visibility instead of silent `success`.
+- Issues encountered: Existing live records had heterogeneous `metrics_json` value shapes, so warning backfill SQL was hardened with safe boolean/numeric guards to avoid cast failures.
+- Next steps: Restart backend runtime so new Java warning-aggregation logic is loaded for newly created runs, then validate one fresh `/admin/pipeline` `full_ingest` execution shows real-time warning promotion without manual backfill.
+
+## [2026-05-02] Session Summary (Pipeline full_ingest Failure Debug + Retry)
+- What was done: Investigated Admin Pipeline failure at `/admin/pipeline` for run `e28f9bce-37a1-4569-96bb-12dbd62e83ec` (`full_ingest`). Confirmed the failure happened in `collect` due to `404` on templated URL `https://arahansa.github.io/docs_spring/{spring-framework-docs}/beans.html`. Re-ran the failed job through `POST /api/admin/pipeline/runs/{runId}/retry` and verified new run `7be03cad-094c-424c-8852-e164f269b17d` finished with `success`.
+- Key decisions: Treated this as an operational recovery run because collector-side hardening for invalid/fetch-failure URLs was already present in the current workspace; no additional code changes were introduced in this session.
+- Issues encountered: The successful rerun skipped `normalize/chunk/glossary/import` with `no_documents_pending`, indicating no newly pending documents after collect persistence.
+- Next steps: If deeper ingestion is required for this source, refine source URL scope (`start_urls`/`allow_prefixes`/`deny_url_patterns`) so valid in-scope pages are discoverable without template placeholders.
+
 ## [2026-05-02] Session Summary (Anchor Eval Scope Select-All + Parameter Help Copy)
 - What was done: Added Anchor Eval scope-selection UX improvements in Admin Pipeline (`/admin/pipeline`) by introducing `전체 문서 선택` and `전체 청크 선택` actions for the document/chunk multi-select fields. Added inline helper copy that explains `Sample Size` and `Candidate Limit` semantics and tradeoffs.
 - Key decisions: Kept existing backend request contract unchanged (`documentIds`, `chunkIds`, `sampleSize`, `candidateLimit`) and implemented the change as frontend-only behavior to preserve pipeline/orchestration flow.

@@ -46,3 +46,4 @@ Python pipeline for data processing, synthetic query generation, quality gating,
 - Eval runtime can load English eval samples (`user_query_en`) through `eval_query_language=en`, and selective rewrite receives the sample query language for English/Korean candidate generation.
 - Selective rewrite adoption now considers retrieval shift (`top-k` composition change + `top1` change) in addition to confidence, reducing zero-adoption lock when rerank scores are flat.
 - Langfuse LLM observability is integrated at `common/langfuse_observability.py` and wired only through `common/llm_client.py` with fail-open behavior.
+- Normalize preprocessing now supports legacy HTML containers by falling back from `article.doc` to `div#content` and `body` when extracting section records.
