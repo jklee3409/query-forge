@@ -1,0 +1,9 @@
+source_id: docs-python-org-ko-3-14
+product: ko
+start_urls: ['https://docs.python.org/ko/3.14/whatsnew/3.13.html']
+allow_prefixes: ['https://docs.python.org/ko/3.14/whatsnew/']
+deny_url_patterns: [.*#.*, .*/search.*, .*/login.*, '.*\?.*']
+request_delay_seconds: 0.75
+max_depth: 4
+enabled: true
+metadata: {doc_family: technical, provider: admin, collection_format: html}

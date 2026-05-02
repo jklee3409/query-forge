@@ -1,0 +1,9 @@
+source_id: arahansa-github-io-docs-spring
+product: docs_spring
+start_urls: ['https://arahansa.github.io/docs_spring/jpa.html']
+allow_prefixes: ['https://arahansa.github.io/docs_spring/']
+deny_url_patterns: [.*#.*, .*/search.*, .*/login.*, '.*\?.*']
+request_delay_seconds: 0.75
+max_depth: 4
+enabled: true
+metadata: {collection_format: html, provider: admin, doc_family: technical}
