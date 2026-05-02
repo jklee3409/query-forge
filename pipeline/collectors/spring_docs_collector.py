@@ -164,6 +164,9 @@ def is_allowed_url(url: str, config: SourceConfig) -> bool:
     if parsed.scheme not in {"http", "https"}:
         return False
 
+    if "{" in parsed.path or "}" in parsed.path:
+        return False
+
     if any(parsed.path.lower().endswith(suffix) for suffix in SKIP_SUFFIXES):
         return False
 
@@ -266,6 +269,7 @@ def collect_documents(
     visited_urls: set[str] = set()
     seen_content_hashes: set[str] = set()
     seen_document_ids: set[str] = set()
+    fetch_failures = 0
     records_written = 0
     started_at = time.monotonic()
     example_record: dict[str, Any] | None = None
@@ -286,8 +290,20 @@ def collect_documents(
                 records_written,
                 url,
             )
-            response = session.get(url, timeout=(10, 30))
-            response.raise_for_status()
+            try:
+                response = session.get(url, timeout=(10, 30))
+                response.raise_for_status()
+            except requests.RequestException as exception:
+                fetch_failures += 1
+                LOGGER.warning(
+                    "[collect] skipping fetch failure source=%s depth=%s url=%s error=%s",
+                    config.source_id,
+                    depth,
+                    url,
+                    exception,
+                )
+                time.sleep(config.request_delay_seconds)
+                continue
 
             content_type = response.headers.get("content-type", "")
             if "html" not in content_type:
@@ -344,6 +360,7 @@ def collect_documents(
     summary = {
         "output_path": str(output_path),
         "records_written": records_written,
+        "fetch_failures": fetch_failures,
         "urls_seen": len(visited_urls),
         "source_count": len(configs),
         "elapsed_seconds": round(total_elapsed_seconds, 2),
