@@ -520,7 +520,7 @@ public class PipelineAdminRepository {
                 SELECT rs.run_id, rs.step_id, rs.step_name, rs.error_message, rs.finished_at
                 FROM corpus_run_steps rs
                 JOIN corpus_runs r ON r.run_id = rs.run_id
-                WHERE rs.step_status = 'failed'
+                WHERE rs.step_status IN ('failed', 'warning')
                 ORDER BY COALESCE(rs.finished_at, r.updated_at) DESC
                 LIMIT 10
                 """

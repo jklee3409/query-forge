@@ -4,6 +4,7 @@ const STATUS_CLASS = {
   running: 'running',
   completed: 'success',
   success: 'success',
+  warning: 'warning',
   failed: 'failed',
   cancelled: 'cancelled',
   paused: 'cancelled',

@@ -836,6 +836,11 @@ textarea {
   color: #0b63ca;
 }
 
+.status-badge[data-status="warning"] {
+  background: #fff4db;
+  color: #915c00;
+}
+
 .status-badge[data-status="failed"] {
   background: var(--danger-soft);
   color: var(--danger);

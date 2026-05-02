@@ -207,7 +207,8 @@ public class PipelineAdminService {
                 summary.put("source_scope", scope.toSourceScope());
                 summary.put("document_count", 0);
                 summary.put("message", shortCircuitMessage(runType));
-                repository.finishRun(runId, "success", summary, null);
+                summary.put("warning", true);
+                repository.finishRun(runId, "warning", summary, "Completed with warnings.");
                 return;
             }
 
@@ -226,7 +227,7 @@ public class PipelineAdminService {
             return new PipelineAdminDtos.PipelineRunActionResponse(
                     runId,
                     runType,
-                    "success",
+                    "warning",
                     shortCircuitMessage(runType)
             );
         }
@@ -251,6 +252,7 @@ public class PipelineAdminService {
         runSummary.put("source_scope", scope.toSourceScope());
         runSummary.put("document_scope_count", context.currentDocumentIds.size());
         runSummary.put("document_scope", context.currentDocumentIds);
+        List<String> warningSteps = new ArrayList<>();
         StepPlan activeStep = null;
 
         try {
@@ -264,16 +266,18 @@ public class PipelineAdminService {
 
                 if (shouldSkipStep(step.stepName(), context.currentDocumentIds)) {
                     Map<String, Object> metrics = skippedMetrics(step.stepName(), context.currentDocumentIds);
+                    String warningMessage = skippedStepWarningMessage(metrics);
                     repository.finishStep(
                             step.stepId(),
-                            "success",
+                            "warning",
                             metrics,
-                            null,
+                            warningMessage,
                             "",
                             "",
                             step.outputArtifactPath()
                     );
                     runSummary.put(step.stepName(), metrics);
+                    warningSteps.add(step.stepName());
                     activeStep = null;
                     continue;
                 }
@@ -341,21 +345,35 @@ public class PipelineAdminService {
                 metrics.put("documents_discovered", persistResult.discoveredDocumentCount());
                 metrics.put("documents_persisted", persistResult.persistedDocumentCount());
                 metrics.put("document_ids", persistResult.documentIds());
+                StepWarningDecision warningDecision = evaluateStepWarning(step.stepName(), metrics);
                 repository.finishStep(
                         step.stepId(),
-                        "success",
+                        warningDecision.warning() ? "warning" : "success",
                         metrics,
-                        null,
+                        warningDecision.message(),
                         excerpt(result.stdout()),
                         excerpt(result.stderr()),
                         step.outputArtifactPath()
                 );
                 runSummary.put(step.stepName(), metrics);
+                if (warningDecision.warning()) {
+                    warningSteps.add(step.stepName());
+                }
                 runSummary.put("current_document_ids", context.currentDocumentIds);
                 activeStep = null;
             }
 
-            repository.finishRun(context.runId, "success", runSummary, null);
+            if (!warningSteps.isEmpty()) {
+                runSummary.put("warning", true);
+                runSummary.put("warning_step_count", warningSteps.size());
+                runSummary.put("warning_steps", warningSteps);
+            }
+            repository.finishRun(
+                    context.runId,
+                    warningSteps.isEmpty() ? "success" : "warning",
+                    runSummary,
+                    warningSteps.isEmpty() ? null : "Completed with warnings."
+            );
         } catch (Exception exception) {
             if (activeStep != null) {
                 repository.finishStep(
@@ -471,6 +489,66 @@ public class PipelineAdminService {
         metrics.put("document_count", currentDocumentIds.size());
         metrics.put("step", stepName);
         return metrics;
+    }
+
+    private String skippedStepWarningMessage(Map<String, Object> metrics) {
+        String reason = String.valueOf(metrics.getOrDefault("reason", "skipped"));
+        return "Step skipped: " + reason;
+    }
+
+    private StepWarningDecision evaluateStepWarning(String stepName, Map<String, Object> metrics) {
+        if ("collect".equals(stepName)) {
+            int fetchFailures = intMetric(metrics, "fetch_failures");
+            if (fetchFailures > 0) {
+                return new StepWarningDecision(true, "Collect completed with fetch failures: " + fetchFailures);
+            }
+            int discovered = intMetric(metrics, "documents_discovered");
+            int persisted = intMetric(metrics, "documents_persisted");
+            if (discovered > 0 && persisted == 0) {
+                return new StepWarningDecision(true, "Collect discovered documents but persisted none.");
+            }
+            return StepWarningDecision.none();
+        }
+        if ("normalize".equals(stepName)) {
+            int processed = intMetric(metrics, "documents_processed");
+            int sectionsWritten = intMetric(metrics, "sections_written");
+            if (processed > 0 && sectionsWritten == 0) {
+                return new StepWarningDecision(true, "Normalize processed documents but produced 0 sections.");
+            }
+            return StepWarningDecision.none();
+        }
+        if ("chunk".equals(stepName)) {
+            int processed = intMetric(metrics, "documents_processed");
+            int chunksWritten = intMetric(metrics, "chunks_written");
+            if (processed > 0 && chunksWritten == 0) {
+                return new StepWarningDecision(true, "Chunk processed documents but produced 0 chunks.");
+            }
+            return StepWarningDecision.none();
+        }
+        if ("glossary".equals(stepName)) {
+            int processed = intMetric(metrics, "documents_processed");
+            int glossaryTermsWritten = intMetric(metrics, "glossary_terms_written");
+            if (processed > 0 && glossaryTermsWritten == 0) {
+                return new StepWarningDecision(true, "Glossary processed documents but produced 0 terms.");
+            }
+            return StepWarningDecision.none();
+        }
+        return StepWarningDecision.none();
+    }
+
+    private int intMetric(Map<String, Object> metrics, String key) {
+        Object value = metrics.get(key);
+        if (value == null) {
+            return 0;
+        }
+        if (value instanceof Number number) {
+            return number.intValue();
+        }
+        try {
+            return Integer.parseInt(String.valueOf(value));
+        } catch (NumberFormatException ignored) {
+            return 0;
+        }
     }
 
     private DocumentArtifactStoreService.PersistResult applyStepOutputs(
@@ -841,6 +919,15 @@ public class PipelineAdminService {
 
     private Path resolveRepoRelative(String relative) {
         return sourceCatalogService.resolveWithinRepo(relative, "repo-relative path");
+    }
+
+    private record StepWarningDecision(
+            boolean warning,
+            String message
+    ) {
+        private static StepWarningDecision none() {
+            return new StepWarningDecision(false, null);
+        }
     }
 
     private record Scope(
