@@ -277,12 +277,7 @@ def heading_text_and_id(section_node: Tag) -> tuple[str, str | None, int]:
     return fallback_title or "Untitled Section", None, 0
 
 
-def extract_article(html: str) -> Tag | None:
-    soup = BeautifulSoup(html, "html.parser")
-    article = soup.select_one("article.doc")
-    if not article:
-        return None
-
+def prune_non_content_nodes(container: Tag) -> None:
     for selector in (
         ".breadcrumbs-container",
         ".page-pagination",
@@ -291,16 +286,34 @@ def extract_article(html: str) -> Tag | None:
         "nav.toc",
         "aside",
     ):
-        for node in article.select(selector):
+        for node in container.select(selector):
             node.decompose()
+    for node in container.find_all(["script", "style", "noscript"]):
+        node.decompose()
 
-    return article
+
+def extract_article(html: str) -> Tag | None:
+    soup = BeautifulSoup(html, "html.parser")
+    article = soup.select_one("article.doc")
+    if article is not None:
+        prune_non_content_nodes(article)
+        return article
+
+    legacy_content = soup.select_one("div#content")
+    if legacy_content is not None:
+        prune_non_content_nodes(legacy_content)
+        return legacy_content
+
+    if soup.body is not None:
+        prune_non_content_nodes(soup.body)
+        return soup.body
+    return None
 
 
 def normalize_document(raw_record: dict[str, Any]) -> list[dict[str, Any]]:
     article = extract_article(raw_record["html"])
     if article is None:
-        LOGGER.warning("No article.doc found for %s", raw_record["source_url"])
+        LOGGER.warning("No parseable content container found for %s", raw_record["source_url"])
         return []
 
     document_title_node = article.select_one("h1.page")
