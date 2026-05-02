@@ -150,6 +150,18 @@ export function PipelinePage({ notify }) {
     }
   }
 
+  const selectAllAnchorEvalDocuments = async () => {
+    const allDocumentIds = anchorEvalScopeDocuments.map((doc) => doc.documentId)
+    await handleAnchorEvalDocumentSelection(allDocumentIds)
+  }
+
+  const selectAllAnchorEvalChunks = () => {
+    setAnchorEvalForm((prev) => ({
+      ...prev,
+      selectedChunkIds: anchorEvalScopeChunks.map((chunk) => chunk.chunkId),
+    }))
+  }
+
   const applyDocumentFilters = async (nextFilters = filters) => {
     const initialPage = 0
     setDocumentPage(initialPage)
@@ -664,15 +676,20 @@ export function PipelinePage({ notify }) {
             </label>
             <label className="filter-field">Sample Size
               <input type="number" min="1" max="200" value={anchorEvalForm.sampleSize} onChange={(event) => setAnchorEvalForm((prev) => ({ ...prev, sampleSize: event.target.value }))} />
+              <span className="field-hint">평가 샘플로 뽑을 chunk 개수입니다. 값이 커질수록 평가 범위는 넓어지지만 실행 시간이 늘어납니다.</span>
             </label>
             <label className="filter-field">Candidate Limit
               <input type="number" min="1" max="50" value={anchorEvalForm.candidateLimit} onChange={(event) => setAnchorEvalForm((prev) => ({ ...prev, candidateLimit: event.target.value }))} />
+              <span className="field-hint">각 샘플 chunk마다 검토할 anchor 후보 최대 개수입니다. 값이 커질수록 후보 다양성은 증가하지만 라벨링 비용이 커집니다.</span>
             </label>
           </div>
           <div className="anchor-eval-panel">
             <div className="anchor-eval-panel__title">문서/청크 범위 선택</div>
             <div className="form-grid form-grid--2">
               <label className="filter-field">Documents (multi-select)
+                <div className="form-actions">
+                  <button type="button" className="button button--ghost" disabled={anchorEvalLoadingScope || !anchorEvalForm.sourceId || anchorEvalScopeDocuments.length === 0} onClick={() => selectAllAnchorEvalDocuments().catch((error) => notify(error.message, 'error'))}>전체 문서 선택</button>
+                </div>
                 <select
                   multiple
                   size={8}
@@ -689,6 +706,9 @@ export function PipelinePage({ notify }) {
                 </select>
               </label>
               <label className="filter-field">Chunks (multi-select)
+                <div className="form-actions">
+                  <button type="button" className="button button--ghost" disabled={anchorEvalLoadingScope || anchorEvalScopeChunks.length === 0} onClick={selectAllAnchorEvalChunks}>전체 청크 선택</button>
+                </div>
                 <select
                   multiple
                   size={8}
