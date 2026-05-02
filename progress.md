@@ -3,6 +3,12 @@
 ## Overview
 High-level progress tracking for the project.
 
+## [2026-05-02] Session Summary (Anchor Eval Scope Select-All + Parameter Help Copy)
+- What was done: Added Anchor Eval scope-selection UX improvements in Admin Pipeline (`/admin/pipeline`) by introducing `전체 문서 선택` and `전체 청크 선택` actions for the document/chunk multi-select fields. Added inline helper copy that explains `Sample Size` and `Candidate Limit` semantics and tradeoffs.
+- Key decisions: Kept existing backend request contract unchanged (`documentIds`, `chunkIds`, `sampleSize`, `candidateLimit`) and implemented the change as frontend-only behavior to preserve pipeline/orchestration flow.
+- Issues encountered: None.
+- Next steps: Consider adding scoped “전체 해제” and search/filter for large document/chunk lists if operator usage indicates selection friction.
+
 ## [2026-05-01] Session Summary (Anchor Eval Dropdown-first UX + Scoped Selection Flow)
 - What was done: Reworked Admin Pipeline `Anchor Eval` run-creation UI to minimize manual typing by introducing dropdown/multi-select flow (`source -> documents -> chunks`) and wired the create payload to submit `documentIds`/`chunkIds`. Added scope-loading states and selection summary chips so operators can see selected source/doc/chunk counts at a glance.
 - Key decisions: Kept existing backend/API contracts for anchor eval runs and only extended the frontend selection workflow to consume existing document/chunk listing APIs (`/api/admin/corpus/documents`, `/api/admin/corpus/chunks`) without changing corpus data semantics.

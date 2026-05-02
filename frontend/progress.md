@@ -3,6 +3,12 @@
 ## Overview
 High-level progress tracking for the project.
 
+## [2026-05-02] Session Summary (Pipeline Anchor Eval Select-All + Help Text)
+- What was done: Updated `PipelinePage.jsx` Anchor Eval form to add quick scope actions (`전체 문서 선택`, `전체 청크 선택`) and wired them to existing selected document/chunk state. Added field hints clarifying `Sample Size` (평가할 chunk 샘플 수) and `Candidate Limit` (샘플당 anchor 후보 최대 수).
+- Key decisions: Reused current scope-loading flow (`handleAnchorEvalDocumentSelection` -> chunk reload) so selecting all documents still refreshes chunk options through the same path; no backend/API schema changes were introduced.
+- Issues encountered: None.
+- Next steps: If operator feedback requires it, add a complementary “전체 해제” action and list filtering for very large scopes.
+
 ## [2026-05-01] Session Summary (Synthetic Detail: Active Anchor Mapping Exposure)
 - What was done: Updated `/admin/synthetic-queries` detail modal (`SyntheticPage.jsx`) to display `mapped_anchors` returned from backend active anchor mapping (`synthetic_query_anchor_link`).
 - Key decisions: Kept existing raw snapshot fields (`source_chunk`, `source_links`, `raw_output`) unchanged and added mapped-anchor visibility as additive debug information for anchor re-extraction validation.
