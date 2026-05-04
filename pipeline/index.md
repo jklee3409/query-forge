@@ -50,3 +50,4 @@ Python pipeline for data processing, synthetic query generation, quality gating,
 - Normalize preprocessing now supports legacy HTML containers by falling back from `article.doc` to `div#content` and `body` when extracting section records.
 - Spring docs collector now skips placeholder-templated URLs (`{...}`) and treats per-URL fetch failures as skip-with-metrics (`fetch_failures`) instead of whole-run aborts.
 - `extract-anchor-candidates` CLI command reuses glossary extraction logic for arbitrary chunk scopes so backend anchor re-extraction can share the same extractor path instead of maintaining a separate implementation.
+- Concept-anchor extraction now applies shared technical-quality gates and multilingual candidate filtering (Stanza langid + Kiwi noun candidates + YAKE + multilingual E5 rerank fallback) to suppress non-technical helper phrases while preserving technical anchors.

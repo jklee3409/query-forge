@@ -3,6 +3,12 @@
 ## Overview
 High-level pipeline progress tracking.
 
+## [2026-05-04] Session Summary (Anchor Extraction Quality Gate Upgrade)
+- What was done: Strengthened `preprocess/chunk_docs.py` concept-anchor extraction with high-confidence filtering (technical-marker/hint 기반), Korean Kiwi candidate narrowing (`NNG/NNP`, up to bigram), and stricter generic/helper token rejection. Added shared anchor quality tests in `tests/test_anchor_quality.py` and expanded rewrite payload test coverage for Korean functional phrase exclusion.
+- Key decisions: Kept extractor entrypoint unchanged (`extract_glossary_terms`) so chunk ingest extraction and backend re-extraction (`extract-anchor-candidates`) continue to share the exact same logic path.
+- Issues encountered: Smoke extraction initially emitted noisy candidates (`spring`, `required`, `사용 부탁`, `ilter.order`) from weak concept filtering and mixed-language Kiwi token sequences.
+- Next steps: Validate precision/coverage on larger real corpora and adjust only compact stop-token lists/thresholds if domain-specific false positives remain.
+
 ## [2026-05-04] Session Summary (Pipeline README Current-State Sync)
 - What was done: Rewrote `pipeline/README.md` from early-stage scaffold description to current implementation state, including full CLI command set (`extract-anchor-candidates`, generation/gating/memory/eval stages), strategy `A/B/C/D/E`, and runtime behavior notes.
 - Key decisions: Documented only existing code paths and command interfaces in `pipeline/cli.py` without introducing new operational assumptions.

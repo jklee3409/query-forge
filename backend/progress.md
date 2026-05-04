@@ -3,6 +3,18 @@
 ## Overview
 High-level backend progress tracking.
 
+## [2026-05-04] Session Summary (Anchor Re-extraction Scope Precedence Fix)
+- What was done: Updated `AnchorExtractionService.findTargetChunks(...)` so `documentIds` takes precedence over `chunkIds` in `POST /api/admin/corpus/anchors/extract`. Added integration test `anchorReExtractionWithDocumentScopeRemovesDocumentAnchorsFirst` to verify document-wide evidence deletion even when a chunk filter is also present.
+- Key decisions: Preserved existing chunk-only scoped re-extraction (`chunkIds` only) and changed only mixed-scope behavior to prevent stale document anchors after re-extraction.
+- Issues encountered: Previous mixed-scope behavior used `documentIds AND chunkIds` intersection, which could leave old anchors in non-selected chunks of the same document.
+- Next steps: Keep API usage explicit: use `documentIds` for document-level reset/re-extract and `chunkIds` for chunk-only re-extract.
+
+## [2026-05-04] Session Summary (Backend Index: Anchor Injection Purpose Documentation)
+- What was done: Updated `backend/index.md` Key Notes to explicitly document that anchor extraction/injection is a rewrite-grounding control for preserving technical intent when Korean rewrite over English technical-doc memory drops anchor terms.
+- Key decisions: Kept this as documentation-only clarification tied to existing `rewrite_anchor_injection_enabled` runtime/config path.
+- Issues encountered: None.
+- Next steps: Apply extraction-quality hardening in pipeline glossary path so injected anchors stay technical (exclude polite/functional phrases).
+
 ## [2026-05-04] Session Summary (Backend Documentation Realignment)
 - What was done: Updated `backend/README.md` and `backend/index.md` to reflect current backend scope: Admin Console APIs, corpus/pipeline orchestration APIs, online RAG APIs, React admin static serving, warning status model, and anchor extraction delegation to `pipeline/cli.py extract-anchor-candidates`.
 - Key decisions: Removed legacy wording that implied Thymeleaf-admin 중심/미구현 RAG 상태, and aligned docs with current controllers/services/migrations already in repository.

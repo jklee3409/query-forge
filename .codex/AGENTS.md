@@ -318,6 +318,14 @@ Agents MUST:
 
 Selective rewrite MUST be treated as the final strategy.
 
+Anchor extraction + injection policy (MANDATORY for rewrite-effect analysis):
+
+- In English technical-doc domains, Korean synthetic rewrites may omit critical technical anchors from the original Korean user query.
+- Anchor extraction/injection exists to preserve technical intent tokens during rewrite candidate generation (for example: annotations, class/interface names, config keys, artifact/module/version terms).
+- Agents MUST treat anchor injection as retrieval-grounding control, not writing-style optimization.
+- Agents SHOULD compare `rewrite_anchor_injection_enabled=true/false` under the same dataset and snapshot when analyzing rewrite impact.
+- Non-technical polite/functional phrases (for example: `부탁드립니다`, `수 있습니다`, `지원합니다`, `됩니다`, or equivalent generic English helper phrases) MUST NOT be treated as valid anchors.
+
 ---
 
 ### 3.6.6 Final RAG Evaluation (END-TO-END)

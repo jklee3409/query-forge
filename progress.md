@@ -3,6 +3,24 @@
 ## Overview
 High-level progress tracking for the project.
 
+## [2026-05-04] Session Summary (Anchor Re-extraction Document Scope Deletion Guarantee)
+- What was done: Reviewed backend anchor re-extraction delete scope and updated `AnchorExtractionService` so `documentIds` takes precedence over `chunkIds` when selecting re-extraction targets. This guarantees existing anchor evidence for the selected document(s) is removed before re-extraction. Added integration coverage for mixed request (`documentIds + chunkIds`) to verify document-wide delete behavior.
+- Key decisions: Kept chunk-scoped re-extraction behavior unchanged for chunk-only requests; changed only mixed-scope precedence to satisfy document re-extraction consistency.
+- Issues encountered: Existing implementation used intersection semantics when both `documentIds` and `chunkIds` were provided, which could leave stale anchors in unselected chunks of the same document.
+- Next steps: Keep client-side request construction aligned with the clarified precedence (`documentIds` => document-wide reset/re-extract).
+
+## [2026-05-04] Session Summary (Anchor Precision Hardening + Local Model Provisioning)
+- What was done: Hardened pipeline concept-anchor extraction to filter non-technical/helper phrases while preserving technical terms, and kept backend re-extraction on the same pipeline extractor path (`extract-anchor-candidates` -> `extract_glossary_terms`). Added shared anchor-quality filtering usage in rewrite anchor payload injection and added anchor-quality tests.
+- Key decisions: Kept existing business/data flow unchanged (same glossary/evidence/remap pipeline) and improved only candidate quality gates (technical-marker/hint based acceptance, Korean noun extraction tightening, generic helper-token rejection).
+- Issues encountered: Initial smoke run still produced noisy anchors (`spring`, `required`, `사용 부탁`, `ilter.order`); resolved by tightening concept acceptance rules and Kiwi candidate generation scope.
+- Next steps: Run same-snapshot anchor injection on/off retrieval comparisons and tune only threshold/token lists if source-specific noise appears.
+
+## [2026-05-04] Session Summary (Anchor Extraction/Injection Purpose Clarification + Risk Review Documentation)
+- What was done: Reviewed current anchor extraction and rewrite-injection paths (`pipeline/preprocess/chunk_docs.py`, `pipeline/preprocess/extract_anchor_candidates.py`, `pipeline/eval/runtime.py`, backend anchor orchestration) and documented the intended anchor objective in both `.codex/AGENTS.md` and `backend/index.md`.
+- Key decisions: Clarified anchor role as retrieval-grounding control for Korean query rewrite over English technical-doc corpora; added explicit guidance that non-technical polite/functional phrases must not be treated as anchors.
+- Issues encountered: None.
+- Next steps: Implement extractor precision guards for Korean/English generic phrases and verify impact through same-snapshot anchor-injection on/off retrieval evaluation.
+
 ## [2026-05-04] Session Summary (Project-wide Markdown Sync with Current Implementation)
 - What was done: Audited root/backend/pipeline/frontend/configs/docs markdowns against current codebase and updated stale documents (React admin route structure, strategy `E`, language-aware eval fields, anchor APIs, pipeline warning status, and current orchestration flow).
 - Key decisions: Treated `.codex/AGENTS.md` as authoritative and aligned documentation to actual runtime entrypoints (`/admin/pipeline|synthetic-queries|quality-gating|rag-tests`, `pipeline/cli.py` command set, split raw tables `A/B/C/D/E`).
