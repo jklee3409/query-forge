@@ -1,5 +1,9 @@
 package io.queryforge.backend.admin.corpus.service;
 
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import io.queryforge.backend.admin.pipeline.config.AdminPipelineProperties;
+import io.queryforge.backend.admin.pipeline.service.SourceCatalogService;
 import io.queryforge.backend.admin.corpus.model.CorpusAdminDtos;
 import lombok.RequiredArgsConstructor;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
@@ -7,57 +11,33 @@ import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.io.BufferedReader;
+import java.io.BufferedWriter;
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
-import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
+import java.util.stream.Stream;
 
 @Service
 @RequiredArgsConstructor
 public class AnchorExtractionService {
 
-    private static final Pattern ANNOTATION_RE = Pattern.compile("@\\w+(?:\\.\\w+)*");
-    private static final Pattern CONFIG_KEY_RE = Pattern.compile(
-            "\\b(?:spring|management|server|logging|security|data|jpa|hibernate|jdbc|r2dbc|flyway|liquibase|web|webflux|mvc|main|test|actuator|application)"
-                    + "\\.[a-z0-9][a-z0-9-]*(?:\\.[a-z0-9][a-z0-9-]*)+\\b"
-    );
-    private static final Pattern MAVEN_COORD_RE = Pattern.compile(
-            "\\b(?:[a-z][a-z0-9_-]*\\.)+[a-z][a-z0-9_-]*:[A-Za-z0-9_.-]+(?::[A-Za-z0-9_.-]+)?\\b"
-    );
-    private static final Pattern STARTER_RE = Pattern.compile(
-            "\\bspring-(?:boot|cloud|data|security|session|ai|batch|integration)-[a-z0-9-]+\\b"
-    );
-    private static final Pattern FULLY_QUALIFIED_TYPE_RE = Pattern.compile("\\b(?:[a-z_][\\w$]*\\.)+[A-Z][A-Za-z0-9_$]*\\b");
-    private static final Pattern TYPE_DECLARATION_RE = Pattern.compile(
-            "\\b(?:class|interface|enum|record|extends|implements|new)\\s+([A-Z][A-Za-z0-9_$]*)\\b"
-    );
-    private static final Pattern INLINE_TYPE_RE = Pattern.compile(
-            "\\b[A-Z][A-Za-z0-9_$]*(?:Builder|Factory|Configurer|Template|Repository|Controller|Service|Configuration|Properties|Client|Manager|Resolver|Filter|Context|Bean|Application|Exception|Handler|Provider|Converter|Strategy|Endpoint|Details|Authentication|DataSource)\\b"
-    );
-    private static final Pattern GENERIC_TECH_TERM_RE = Pattern.compile(
-            "\\b(?:[A-Z][A-Za-z0-9]+(?:[A-Z][A-Za-z0-9]+)+|[a-z][a-z0-9]+(?:[-_][a-z0-9]+){1,4}|[A-Za-z][A-Za-z0-9]*\\.[A-Za-z0-9._-]+)\\b"
-    );
-    private static final Pattern CODE_FENCE_RE = Pattern.compile("```([\\s\\S]*?)```");
-    private static final Pattern WORD_RE = Pattern.compile("[A-Za-z][A-Za-z0-9._+-]{1,120}");
-    private static final Pattern LEADING_DETERMINER_RE = Pattern.compile("^(?:a|an|the|this|that)\\s+", Pattern.CASE_INSENSITIVE);
-    private static final Pattern TRAILING_GUIDE_RE = Pattern.compile("\\s+(?:guide|section|page)$", Pattern.CASE_INSENSITIVE);
-    private static final Set<String> STOPWORDS = Set.of(
-            "the", "and", "for", "with", "that", "this", "from", "into", "over", "when", "where", "which",
-            "while", "using", "used", "use", "your", "their", "they", "them", "then", "than", "also", "can",
-            "could", "should", "would", "about", "after", "before", "have", "has", "had", "will", "may",
-            "might", "must", "not", "are", "was", "were", "been", "being", "api", "http", "https", "www",
-            "docs", "doc", "guide", "reference", "section", "page", "you", "our", "its", "any", "all",
-            "each", "other", "more", "most", "some", "such"
-    );
+    private static final TypeReference<Map<String, Object>> MAP_TYPE = new TypeReference<>() {
+    };
+    private static final int OUTPUT_EXCERPT_MAX_CHARS = 1200;
 
     private final NamedParameterJdbcTemplate jdbcTemplate;
+    private final ObjectMapper objectMapper;
+    private final AdminPipelineProperties pipelineProperties;
+    private final SourceCatalogService sourceCatalogService;
 
     @Transactional
     public CorpusAdminDtos.AnchorExtractResponse extractAnchors(
@@ -163,40 +143,13 @@ public class AnchorExtractionService {
     }
 
     private List<AnchorCandidate> extractCandidates(List<AnchorChunkRow> chunks) {
-        LinkedHashMap<String, AnchorCandidate> dedup = new LinkedHashMap<>();
-        for (AnchorChunkRow chunk : chunks) {
-            addCandidates(dedup, chunk, "annotation", ANNOTATION_RE);
-            addCandidates(dedup, chunk, "config_key", CONFIG_KEY_RE);
-            addCandidates(dedup, chunk, "dependency_artifact", MAVEN_COORD_RE);
-            addCandidates(dedup, chunk, "dependency_artifact", STARTER_RE);
-            addCandidates(dedup, chunk, "class_interface", FULLY_QUALIFIED_TYPE_RE);
-            addCandidates(dedup, chunk, "class_interface", TYPE_DECLARATION_RE);
-            addCandidates(dedup, chunk, "class_interface", INLINE_TYPE_RE);
-            addCandidates(dedup, chunk, "concept", GENERIC_TECH_TERM_RE);
-            for (String phrase : extractKeyphrases(chunk.chunkText())) {
-                putCandidate(dedup, chunk, "concept", phrase, phrase);
-            }
-            extractCodeSymbols(dedup, chunk);
-        }
-        return new ArrayList<>(dedup.values());
-    }
-
-    private void addCandidates(
-            Map<String, AnchorCandidate> bucket,
-            AnchorChunkRow chunk,
-            String termType,
-            Pattern pattern
-    ) {
-        Matcher matcher = pattern.matcher(chunk.chunkText());
-        while (matcher.find()) {
-            String matched = matcher.groupCount() >= 1 && matcher.group(1) != null
-                    ? matcher.group(1)
-                    : matcher.group();
-            if (matched == null || matched.isBlank()) {
-                continue;
-            }
-            String canonical = matched.trim();
-            putCandidate(bucket, chunk, termType, canonical, canonical);
+        try {
+            return extractCandidatesViaPipelineGlossary(chunks);
+        } catch (IOException exception) {
+            throw new IllegalStateException("Failed to extract anchors via pipeline glossary logic.", exception);
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+            throw new IllegalStateException("Anchor extraction command was interrupted.", exception);
         }
     }
 
@@ -421,267 +374,174 @@ public class AnchorExtractionService {
             case "dependency_artifact" -> "artifact";
             case "config_key" -> "config_key";
             case "annotation" -> "annotation";
+            case "spring_product" -> "product";
+            case "cli_command" -> "cli";
             default -> "concept";
         };
     }
 
-    private void extractCodeSymbols(Map<String, AnchorCandidate> bucket, AnchorChunkRow chunk) {
-        Matcher matcher = CODE_FENCE_RE.matcher(chunk.chunkText());
-        while (matcher.find()) {
-            String codeBlock = matcher.group(1);
-            if (codeBlock == null || codeBlock.isBlank()) {
-                continue;
-            }
-            for (String line : codeBlock.split("\\R")) {
-                String trimmed = line.trim();
-                if (trimmed.isEmpty()) {
-                    continue;
-                }
-                if (trimmed.startsWith("import ")) {
-                    String symbol = trimmed
-                            .replace("import ", "")
-                            .replace(";", "")
-                            .trim();
-                    if (!symbol.isBlank()) {
-                        putCandidate(bucket, chunk, "class_interface", symbol, symbol);
-                    }
-                }
-                if (trimmed.contains("=") && !trimmed.startsWith("//")) {
-                    String lhs = trimmed.substring(0, trimmed.indexOf('=')).trim();
-                    if (lhs.matches("[A-Za-z_][A-Za-z0-9_\\-.]{2,80}")) {
-                        putCandidate(bucket, chunk, "config_key", lhs, lhs);
-                    }
-                }
+    private List<AnchorCandidate> extractCandidatesViaPipelineGlossary(List<AnchorChunkRow> chunks) throws IOException, InterruptedException {
+        Path tempDir = Files.createTempDirectory("anchor-reextract-");
+        Path inputChunksPath = tempDir.resolve("chunks.jsonl");
+        Path outputCandidatesPath = tempDir.resolve("anchor_candidates.jsonl");
+        try {
+            writeChunkRows(inputChunksPath, chunks);
+            runPipelineExtractionCommand(inputChunksPath, outputCandidatesPath);
+            return readCandidateRows(outputCandidatesPath);
+        } finally {
+            cleanupTempDirectory(tempDir);
+        }
+    }
+
+    private void writeChunkRows(Path outputPath, List<AnchorChunkRow> chunks) throws IOException {
+        Files.createDirectories(outputPath.getParent());
+        try (BufferedWriter writer = Files.newBufferedWriter(outputPath, StandardCharsets.UTF_8)) {
+            for (AnchorChunkRow chunk : chunks) {
+                Map<String, Object> row = new LinkedHashMap<>();
+                row.put("chunk_id", chunk.chunkId());
+                row.put("document_id", chunk.documentId());
+                row.put("chunk_text", chunk.chunkText());
+                row.put("product_name", chunk.productName());
+                writer.write(objectMapper.writeValueAsString(row));
+                writer.newLine();
             }
         }
     }
 
-    private void putCandidate(
+    private void runPipelineExtractionCommand(Path inputChunksPath, Path outputCandidatesPath) throws IOException, InterruptedException {
+        Path repoRoot = sourceCatalogService.repoRoot();
+        Path pipelineCliPath = sourceCatalogService.resolveWithinRepo("pipeline/cli.py", "pipeline CLI entrypoint");
+        Path chunkingConfigPath = sourceCatalogService.resolveWithinRepo(pipelineProperties.chunkingConfig(), "chunking config");
+
+        List<String> command = new ArrayList<>();
+        command.add(pipelineProperties.pythonCommand());
+        command.add(pipelineCliPath.toString());
+        command.add("extract-anchor-candidates");
+        command.add("--input-chunks");
+        command.add(inputChunksPath.toString());
+        command.add("--output-candidates");
+        command.add(outputCandidatesPath.toString());
+        command.add("--config");
+        command.add(chunkingConfigPath.toString());
+        command.add("--log-level");
+        command.add("WARNING");
+
+        ProcessBuilder processBuilder = new ProcessBuilder(command)
+                .directory(repoRoot.toFile())
+                .redirectErrorStream(true);
+        Process process = processBuilder.start();
+        String output;
+        try (BufferedReader reader = new BufferedReader(new java.io.InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8))) {
+            StringBuilder buffer = new StringBuilder();
+            String line;
+            while ((line = reader.readLine()) != null) {
+                buffer.append(line).append('\n');
+            }
+            output = buffer.toString();
+        }
+        int exitCode = process.waitFor();
+        if (exitCode != 0) {
+            throw new IllegalStateException(
+                    "Pipeline anchor extraction failed. exitCode=" + exitCode + ", output=" + excerpt(output)
+            );
+        }
+    }
+
+    private List<AnchorCandidate> readCandidateRows(Path inputPath) throws IOException {
+        if (!Files.exists(inputPath)) {
+            return List.of();
+        }
+        LinkedHashMap<String, AnchorCandidate> dedup = new LinkedHashMap<>();
+        try (Stream<String> lines = Files.lines(inputPath, StandardCharsets.UTF_8)) {
+            lines.filter(line -> line != null && !line.isBlank()).forEach(line -> {
+                try {
+                    Map<String, Object> payload = objectMapper.readValue(line, MAP_TYPE);
+                    String documentId = readRequiredText(payload, "document_id");
+                    String chunkId = readRequiredText(payload, "chunk_id");
+                    String termType = readRequiredText(payload, "term_type");
+                    String canonicalForm = readRequiredText(payload, "canonical_form");
+                    String matchedText = readOptionalText(payload, "matched_text");
+                    addPipelineCandidate(dedup, documentId, chunkId, termType, canonicalForm, matchedText);
+                } catch (IOException exception) {
+                    throw new IllegalStateException("Failed to parse pipeline candidate row.", exception);
+                }
+            });
+        }
+        return new ArrayList<>(dedup.values());
+    }
+
+    private void addPipelineCandidate(
             Map<String, AnchorCandidate> bucket,
-            AnchorChunkRow chunk,
+            String documentId,
+            String chunkId,
             String termType,
             String canonical,
             String matchedText
     ) {
-        String normalized = canonical.toLowerCase().trim();
+        String canonicalNormalized = canonical == null ? "" : canonical.trim();
+        String normalized = canonicalNormalized.toLowerCase().trim();
         if (normalized.isEmpty() || normalized.length() < 3 || normalized.length() > 120) {
             return;
         }
         if (normalized.chars().filter(ch -> ch == '.').count() > 6) {
             return;
         }
-        String key = chunk.chunkId() + "|" + termType + "|" + normalized;
+        String key = chunkId + "|" + termType + "|" + normalized;
+        String matched = (matchedText == null || matchedText.isBlank()) ? canonicalNormalized : matchedText.trim();
         bucket.putIfAbsent(
                 key,
                 new AnchorCandidate(
-                        chunk.documentId(),
-                        chunk.chunkId(),
+                        documentId,
+                        chunkId,
                         termType,
-                        canonical,
+                        canonicalNormalized,
                         normalized,
-                        matchedText
+                        matched
                 )
         );
     }
 
-    private List<String> extractKeyphrases(String text) {
-        if (text == null || text.isBlank()) {
-            return List.of();
+    private String readRequiredText(Map<String, Object> payload, String key) {
+        Object value = payload.get(key);
+        if (value == null) {
+            throw new IllegalStateException("Missing required field from pipeline candidate: " + key);
         }
-        List<String> words = new ArrayList<>();
-        Map<String, Integer> tokenFrequency = new HashMap<>();
-        Matcher matcher = WORD_RE.matcher(text);
-        while (matcher.find()) {
-            String token = matcher.group().trim();
-            if (token.length() < 3) {
-                continue;
-            }
-            words.add(token);
-            tokenFrequency.merge(token.toLowerCase(Locale.ROOT), 1, Integer::sum);
+        String text = String.valueOf(value).trim();
+        if (text.isBlank()) {
+            throw new IllegalStateException("Blank required field from pipeline candidate: " + key);
         }
-        if (words.isEmpty()) {
-            return List.of();
-        }
-
-        Map<String, Double> scoreByKey = new HashMap<>();
-        Map<String, String> displayByKey = new HashMap<>();
-
-        for (String candidate : genericAnchorCandidates(text)) {
-            String normalized = normalizeAnchorPhrase(candidate);
-            if (normalized.isBlank()) {
-                continue;
-            }
-            String key = normalized.toLowerCase(Locale.ROOT);
-            scoreByKey.merge(key, 1.2, Double::sum);
-            displayByKey.putIfAbsent(key, normalized);
-        }
-
-        for (int i = 0; i < words.size(); i++) {
-            for (int n = 1; n <= 3; n++) {
-                int end = i + n;
-                if (end > words.size()) {
-                    break;
-                }
-                String phrase = normalizeAnchorPhrase(String.join(" ", words.subList(i, end)));
-                if (phrase.isBlank()) {
-                    continue;
-                }
-                String key = phrase.toLowerCase(Locale.ROOT);
-                double rarityBonus = 0.0;
-                int informativeParts = 0;
-                boolean technicalMarker = looksTechnicalAnchor(phrase);
-                for (String rawPart : key.split("\\s+")) {
-                    if (rawPart.isBlank() || STOPWORDS.contains(rawPart)) {
-                        continue;
-                    }
-                    informativeParts += 1;
-                    int freq = Math.max(1, tokenFrequency.getOrDefault(rawPart, 1));
-                    rarityBonus += 1.0 / Math.sqrt(freq);
-                    if (!technicalMarker && looksTechnicalAnchor(rawPart)) {
-                        technicalMarker = true;
-                    }
-                }
-                if (informativeParts == 0) {
-                    continue;
-                }
-                double technicalBonus = technicalMarker ? 0.9 : 0.0;
-                double dotBonus = phrase.contains(".") ? 0.4 : 0.0;
-                double lengthBonus = Math.min(0.6, phrase.length() / 90.0);
-                double score = 0.6 + rarityBonus + technicalBonus + dotBonus + lengthBonus;
-                scoreByKey.merge(key, score, Double::sum);
-                String existing = displayByKey.get(key);
-                if (existing == null || phrase.length() > existing.length()) {
-                    displayByKey.put(key, phrase);
-                }
-            }
-        }
-
-        return scoreByKey.entrySet().stream()
-                .sorted((left, right) -> {
-                    int scoreCompare = Double.compare(right.getValue(), left.getValue());
-                    if (scoreCompare != 0) {
-                        return scoreCompare;
-                    }
-                    String leftPhrase = displayByKey.getOrDefault(left.getKey(), left.getKey());
-                    String rightPhrase = displayByKey.getOrDefault(right.getKey(), right.getKey());
-                    return Integer.compare(rightPhrase.length(), leftPhrase.length());
-                })
-                .map(entry -> displayByKey.getOrDefault(entry.getKey(), entry.getKey()))
-                .limit(24)
-                .toList();
+        return text;
     }
 
-    private List<String> genericAnchorCandidates(String text) {
-        if (text == null || text.isBlank()) {
-            return List.of();
-        }
-        LinkedHashSet<String> seen = new LinkedHashSet<>();
-        Matcher matcher = GENERIC_TECH_TERM_RE.matcher(text);
-        while (matcher.find()) {
-            String token = matcher.group().trim();
-            if (token.length() < 3 || token.length() > 120) {
-                continue;
-            }
-            String lowered = token.toLowerCase(Locale.ROOT);
-            if (lowered.contains("://") || lowered.endsWith(".html")) {
-                continue;
-            }
-            if (STOPWORDS.contains(lowered)) {
-                continue;
-            }
-            if (token.chars().filter(ch -> ch == '.').count() > 6) {
-                continue;
-            }
-            seen.add(token);
-        }
-        return new ArrayList<>(seen);
+    private String readOptionalText(Map<String, Object> payload, String key) {
+        Object value = payload.get(key);
+        return value == null ? "" : String.valueOf(value).trim();
     }
 
-    private String normalizeAnchorPhrase(String text) {
+    private void cleanupTempDirectory(Path tempDir) {
+        if (tempDir == null || !Files.exists(tempDir)) {
+            return;
+        }
+        try (Stream<Path> pathStream = Files.walk(tempDir)) {
+            pathStream.sorted((left, right) -> right.compareTo(left)).forEach(path -> {
+                try {
+                    Files.deleteIfExists(path);
+                } catch (IOException ignored) {
+                }
+            });
+        } catch (IOException ignored) {
+        }
+    }
+
+    private String excerpt(String text) {
         if (text == null || text.isBlank()) {
             return "";
         }
-        String phrase = text.trim().replaceAll("\\s+", " ");
-        phrase = phrase.replaceAll("^[`'\"()\\[\\]{}.,:;]+", "");
-        phrase = phrase.replaceAll("[`'\"()\\[\\]{}.,:;]+$", "");
-        phrase = LEADING_DETERMINER_RE.matcher(phrase).replaceFirst("");
-        phrase = TRAILING_GUIDE_RE.matcher(phrase).replaceFirst("");
-        if (phrase.isBlank()) {
-            return "";
+        String normalized = text.replace("\r", "").replace('\n', ' ').trim();
+        if (normalized.length() <= OUTPUT_EXCERPT_MAX_CHARS) {
+            return normalized;
         }
-        if (phrase.length() < 3 || phrase.length() > 120) {
-            return "";
-        }
-        if (phrase.contains("{") || phrase.contains("}") || phrase.contains("[") || phrase.contains("]")
-                || phrase.contains(";") || phrase.contains("\"")) {
-            return "";
-        }
-        String lowered = phrase.toLowerCase(Locale.ROOT);
-        if (STOPWORDS.contains(lowered)) {
-            return "";
-        }
-        String[] parts = lowered.split("[\\s/]+");
-        int partCount = 0;
-        int stopwordCount = 0;
-        for (String part : parts) {
-            if (part.isBlank()) {
-                continue;
-            }
-            partCount += 1;
-            if (STOPWORDS.contains(part)) {
-                stopwordCount += 1;
-            }
-        }
-        if (partCount == 0 || stopwordCount == partCount) {
-            return "";
-        }
-        return phrase;
-    }
-
-    private boolean looksTechnicalAnchor(String token) {
-        if (token == null) {
-            return false;
-        }
-        String normalized = token.trim();
-        if (normalized.length() < 3) {
-            return false;
-        }
-        if (normalized.startsWith("@")) {
-            return true;
-        }
-        if (normalized.contains(".") || normalized.contains("_") || normalized.contains("-")
-                || normalized.contains("/") || normalized.contains(":")) {
-            return true;
-        }
-        boolean hasAlpha = false;
-        boolean hasDigit = false;
-        boolean hasUpper = false;
-        boolean hasLower = false;
-        for (int index = 0; index < normalized.length(); index++) {
-            char current = normalized.charAt(index);
-            if (Character.isLetter(current)) {
-                hasAlpha = true;
-                if (Character.isUpperCase(current)) {
-                    hasUpper = true;
-                }
-                if (Character.isLowerCase(current)) {
-                    hasLower = true;
-                }
-            }
-            if (Character.isDigit(current)) {
-                hasDigit = true;
-            }
-        }
-        if (hasAlpha && hasDigit) {
-            return true;
-        }
-        if (hasUpper && hasLower) {
-            return true;
-        }
-        if (normalized.length() <= 4 && normalized.equals(normalized.toUpperCase(Locale.ROOT)) && hasAlpha) {
-            return true;
-        }
-        return false;
+        return normalized.substring(0, OUTPUT_EXCERPT_MAX_CHARS) + "...";
     }
 
     private record AnchorChunkRow(

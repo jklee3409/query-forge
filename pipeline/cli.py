@@ -15,6 +15,7 @@ from gating.quality_gating import run_quality_gating_from_env
 from generation.synthetic_query_generator import run_generation_from_env
 from loaders.import_corpus_to_postgres import run_import
 from preprocess.chunk_docs import build_chunks_and_glossary
+from preprocess.extract_anchor_candidates import extract_anchor_candidates_from_chunks
 from preprocess.extract_glossary import build_glossary_only
 from preprocess.normalize_docs import normalize_documents
 from loaders.common import build_options
@@ -26,6 +27,7 @@ COMMANDS = (
     "preprocess",
     "chunk-docs",
     "glossary-docs",
+    "extract-anchor-candidates",
     "import-corpus",
     "generate-queries",
     "gate-queries",
@@ -96,6 +98,13 @@ def build_parser() -> argparse.ArgumentParser:
     glossary_docs.add_argument("--show-examples", action="store_true")
     glossary_docs.add_argument("--log-level", default="INFO")
     glossary_docs.add_argument("--run-id", default=None)
+
+    anchor_candidates = subparsers.add_parser("extract-anchor-candidates")
+    anchor_candidates.add_argument("--input-chunks", required=True)
+    anchor_candidates.add_argument("--output-candidates", required=True)
+    anchor_candidates.add_argument("--config", default="configs/app/chunking.yml")
+    anchor_candidates.add_argument("--log-level", default="INFO")
+    anchor_candidates.add_argument("--run-id", default=None)
 
     import_corpus = subparsers.add_parser("import-corpus")
     import_corpus.add_argument("--experiment", default="scaffold")
@@ -204,6 +213,18 @@ def main() -> int:
             config_path=Path(args.config),
             limit_documents=args.limit_documents,
             show_examples=args.show_examples,
+        )
+        if args.run_id:
+            summary["run_id"] = args.run_id
+        LOGGER.info("[pipeline] command=%s finished summary=%s", args.command, summary)
+        print(json.dumps(summary, ensure_ascii=False, indent=2))
+        return 0
+
+    if args.command == "extract-anchor-candidates":
+        summary = extract_anchor_candidates_from_chunks(
+            input_chunks_path=Path(args.input_chunks),
+            output_candidates_path=Path(args.output_candidates),
+            config_path=Path(args.config),
         )
         if args.run_id:
             summary["run_id"] = args.run_id

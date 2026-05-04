@@ -31,7 +31,7 @@ Spring Boot backend for Admin Console APIs, RAG APIs, pipeline command orchestra
 - Admin gating config supports dynamic rule-level Korean ratio thresholds via request payload (`ruleMinKoreanRatio`).
 - Pipeline run/step status now supports `warning` in addition to `success/failed/cancelled`, and warning backfill is applied via migration `V27`.
 - Corpus admin exposes paginated anchor list API (`GET /api/admin/corpus/anchors`) with document/chunk scoped filters for pipeline-stage anchor monitoring.
-- Corpus anchor re-extraction (`POST /api/admin/corpus/anchors/extract`) keeps the same replacement/remap flow but now uses hybrid keyphrase scoring (regex technical anchors + normalized n-grams + rarity/technical bonuses) to reduce pattern-only extraction noise.
+- Corpus anchor re-extraction (`POST /api/admin/corpus/anchors/extract`) keeps the same evidence replacement/remap flow but now delegates candidate extraction to pipeline glossary logic via `pipeline/cli.py extract-anchor-candidates`, reducing duplicate extraction implementations across backend/pipeline.
 - Admin synthetic supports English-native strategy `E`; backend defaults mark it as `query_language=en` and avoid Korean-ratio rule defaults in subsequent gating configs.
 - Eval sample storage now supports `user_query_en` plus `query_language`, and Admin RAG run requests persist `evalQueryLanguage` into experiment config for language-specific runtime loading.
 - Admin RAG test run API supports optional snapshot binding via `sourceGatingBatchId` and validates it into fixed `source_gating_run_id`.

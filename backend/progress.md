@@ -3,6 +3,12 @@
 ## Overview
 High-level backend progress tracking.
 
+## [2026-05-04] Session Summary (Anchor Re-extraction -> Pipeline Glossary Delegation)
+- What was done: Refactored `AnchorExtractionService` so `POST /api/admin/corpus/anchors/extract` no longer runs backend-local anchor heuristics; it now writes scoped chunk JSONL, calls `python pipeline/cli.py extract-anchor-candidates`, reads returned candidate JSONL, then continues existing glossary evidence replace/term refresh/synthetic remap flow.
+- Key decisions: Chose pipeline-logic delegation as the primary path to remove duplicate anchor extraction implementations and keep glossary/anchor candidate semantics aligned between ingest pipeline and backend re-extraction API.
+- Issues encountered: The new pipeline command initially failed on UTF-8 BOM JSONL inputs; fixed by reading input with `utf-8-sig` in `pipeline/preprocess/extract_anchor_candidates.py`.
+- Next steps: Evaluate extraction precision/coverage deltas on non-Spring sources through existing Anchor Eval runs and tune only in pipeline extractor path when needed.
+
 ## [2026-05-04] Session Summary (Anchor Re-extraction Hybrid Candidate Scoring)
 - What was done: Upgraded `AnchorExtractionService` keyphrase extraction for `POST /api/admin/corpus/anchors/extract` from simple n-gram accumulation to a hybrid scorer that combines regex-derived technical candidates, phrase normalization, stopword/all-stopword rejection, token rarity bonus (`1/sqrt(freq)`), and technical-marker bonuses (camelCase, symbol separators, alpha+digit patterns). Added integration coverage in `CorpusAdminMutationIntegrationTest` for scoped chunk re-extraction.
 - Key decisions: Kept existing extraction pipeline contract and DB flow intact (target chunk resolution -> evidence replacement -> glossary refresh -> synthetic anchor remap) and only strengthened candidate ranking/filtering inside the existing service to minimize churn.

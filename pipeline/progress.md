@@ -3,6 +3,12 @@
 ## Overview
 High-level pipeline progress tracking.
 
+## [2026-05-04] Session Summary (Anchor Candidate Bridge Command for Backend Re-extraction)
+- What was done: Added `preprocess/extract_anchor_candidates.py` and wired new CLI subcommand `extract-anchor-candidates` in `pipeline/cli.py`. The command reads chunk JSONL, converts chunks to pseudo-section inputs, reuses `extract_glossary_terms(...)`, and emits per-chunk anchor candidate JSONL (`document_id/chunk_id/term_type/canonical_form`).
+- Key decisions: Reused the existing glossary extractor as single source of truth instead of adding another anchor-only algorithm, so backend re-extraction can follow the same extraction semantics as pipeline glossary processing.
+- Issues encountered: JSONL with UTF-8 BOM caused parse failures; input reader was switched to `utf-8-sig` for robust ingestion.
+- Next steps: Monitor candidate noise for generic `concept` terms and tune ranking/normalization only inside pipeline extractor flow if needed.
+
 ## [2026-05-02] Session Summary (Collector Fetch-Failure Skip + Placeholder URL Guard)
 - What was done: Updated `collectors/spring_docs_collector.py` to skip placeholder-templated paths containing `{...}` and continue collect runs on per-URL fetch failures (`requests` exceptions) instead of aborting the entire run. Added `fetch_failures` to collect summary metrics.
 - Key decisions: Kept successful-page ingestion path unchanged and treated failed fetches as warning-level operational signals to improve run resilience.

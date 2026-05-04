@@ -13,6 +13,7 @@ Python pipeline for data processing, synthetic query generation, quality gating,
 - `eval/*`: retrieval/answer evaluation stages
 - `common/*`: shared config, experiment run, llm, embedding, and utility modules
 - `cli.py`: pipeline command entrypoint
+- `preprocess/extract_anchor_candidates.py`: chunk JSONL -> glossary-logic anchor candidate JSONL bridge for backend re-extraction reuse
 
 ---
 
@@ -48,3 +49,4 @@ Python pipeline for data processing, synthetic query generation, quality gating,
 - Langfuse LLM observability is integrated at `common/langfuse_observability.py` and wired only through `common/llm_client.py` with fail-open behavior.
 - Normalize preprocessing now supports legacy HTML containers by falling back from `article.doc` to `div#content` and `body` when extracting section records.
 - Spring docs collector now skips placeholder-templated URLs (`{...}`) and treats per-URL fetch failures as skip-with-metrics (`fetch_failures`) instead of whole-run aborts.
+- `extract-anchor-candidates` CLI command reuses glossary extraction logic for arbitrary chunk scopes so backend anchor re-extraction can share the same extractor path instead of maintaining a separate implementation.

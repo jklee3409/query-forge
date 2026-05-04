@@ -3,6 +3,12 @@
 ## Overview
 High-level progress tracking for the project.
 
+## [2026-05-04] Session Summary (Anchor Re-extraction Pipeline Logic Unification)
+- What was done: Unified backend anchor re-extraction with pipeline glossary extraction path by introducing pipeline command `extract-anchor-candidates` and switching backend `AnchorExtractionService` to call it for scoped chunk candidate generation before existing evidence/term/remap updates.
+- Key decisions: Adopted the user's proposal (single extractor path) over continued backend-local extraction logic to reduce implementation duplication and keep extraction behavior consistent across ingest and admin re-extraction flows.
+- Issues encountered: New command initially failed on BOM-encoded JSONL; fixed with `utf-8-sig` reader in pipeline bridge script.
+- Next steps: Validate quality impact with Anchor Eval runs on mixed sources and tune only pipeline extraction path to preserve one-source-of-truth behavior.
+
 ## [2026-05-04] Session Summary (Backend Anchor Re-extraction Partial Upgrade)
 - What was done: Enhanced backend anchor re-extraction (`POST /api/admin/corpus/anchors/extract`) with a hybrid candidate extractor in `AnchorExtractionService` that keeps existing regex channels but adds phrase normalization, stopword dominance filtering, rarity-aware scoring, and technical-marker weighting for concept anchors. Added/ran corpus mutation integration test coverage for scoped re-extraction.
 - Key decisions: Reused current backend extraction architecture and data update flow without schema or API contract changes, to keep the upgrade minimal and compatible with existing admin/pipeline paths.
