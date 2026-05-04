@@ -3,6 +3,12 @@
 ## Overview
 High-level progress tracking for the project.
 
+## [2026-05-04] Session Summary (AGENTS Rule Sync: Strategy E + Language-aware Eval)
+- What was done: Updated `.codex/AGENTS.md` to expand strategy scope from `A/B/C/D` to `A/B/C/D/E`, add language-aware eval item constraints (`query_language`, `user_query_ko/user_query_en`), and refresh repository map prompt references (`gen_e_v1`, `selective_rewrite_v2`) plus pipeline anchor-candidate command note.
+- Key decisions: Preserved existing research flow/order constraints and extended only fields/rules that were already implemented in code.
+- Issues encountered: None.
+- Next steps: Keep AGENTS strategy/eval constraints synchronized whenever schema or runtime query-language handling changes.
+
 ## [2026-04-19] Session Summary (Session Start Checklist Rule Added)
 - What was done: Added Section `4.5 Session Start Checklist (MANDATORY)` to `.codex/AGENTS.md` so implementation turns begin with a fixed checklist in the first working update.
 - Key decisions: Checklist requires AGENTS re-check, root/directory progress review, and explicit plan to update `progress.md` after edits.

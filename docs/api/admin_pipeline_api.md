@@ -43,6 +43,8 @@ collect -> normalize -> chunk -> glossary -> import 전체 실행
 }
 ```
 
+run/step 상태는 `queued`, `running`, `success`, `failed`, `cancelled`, `warning`을 사용한다.
+
 ## Run Control API
 
 ### `POST /api/admin/pipeline/runs/{runId}/retry`

@@ -3,6 +3,12 @@
 ## Overview
 High-level progress tracking for the project.
 
+## [2026-05-04] Session Summary (Project-wide Markdown Sync with Current Implementation)
+- What was done: Audited root/backend/pipeline/frontend/configs/docs markdowns against current codebase and updated stale documents (React admin route structure, strategy `E`, language-aware eval fields, anchor APIs, pipeline warning status, and current orchestration flow).
+- Key decisions: Treated `.codex/AGENTS.md` as authoritative and aligned documentation to actual runtime entrypoints (`/admin/pipeline|synthetic-queries|quality-gating|rag-tests`, `pipeline/cli.py` command set, split raw tables `A/B/C/D/E`).
+- Issues encountered: Multiple docs still described legacy UI routes and pre-E strategy assumptions; these were normalized without changing code/runtime behavior.
+- Next steps: Keep `index.md`/`README.md`/`progress.md` updates coupled with feature changes to prevent route/schema drift.
+
 ## [2026-05-04] Session Summary (Anchor Re-extraction Pipeline Logic Unification)
 - What was done: Unified backend anchor re-extraction with pipeline glossary extraction path by introducing pipeline command `extract-anchor-candidates` and switching backend `AnchorExtractionService` to call it for scoped chunk candidate generation before existing evidence/term/remap updates.
 - Key decisions: Adopted the user's proposal (single extractor path) over continued backend-local extraction logic to reduce implementation duplication and keep extraction behavior consistent across ingest and admin re-extraction flows.

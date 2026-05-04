@@ -30,7 +30,7 @@ Root directory for the Query Forge project, which manages a research-oriented RA
 
 ## Key Flows
 - Prepare data and configs, then run pipeline stages in fixed order: collect -> preprocess -> chunk -> glossary -> import -> generate-queries -> gate-queries -> build-memory -> build-eval-dataset -> eval-retrieval -> eval-answer
-- Keep synthetic query strategies (A/B/C/D) separated and apply strategy-aware quality gating
+- Keep synthetic query strategies (A/B/C/D/E) separated and apply strategy-aware quality gating
 - Track major work decisions in root `progress.md`
 
 ---

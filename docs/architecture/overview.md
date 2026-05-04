@@ -1,20 +1,21 @@
 # Architecture Overview
 
-Query Forge는 "영문 Spring 문서 + 한국어 질의 부족" 상황을 재현하고, 합성 질의 생성/게이팅/메모리 리라이트를 end-to-end로 검증하는 구조로 구현되어 있다.
+Query Forge는 "영문 기술 문서 + 한국어/영어 질의 혼합" 상황에서 synthetic generation, quality gating, memory/rewrite, RAG 평가를 end-to-end로 검증하는 구조로 구현되어 있다.
 
 ## 1. 모듈 구성
 
 - `backend` (Spring Boot)
   - Flyway 마이그레이션
-  - 관리자 API + 관리자 UI(Thymeleaf)
-  - 사용자 채팅 UI + RAG API
-  - 파이프라인 명령 실행 오케스트레이션(`POST /api/admin/experiments/run`)
+  - 관리자 API(`corpus`, `pipeline`, `console`)
+  - 사용자 채팅/RAG API
+  - 파이프라인 명령 실행 오케스트레이션(`POST /api/admin/pipeline/*`)
+  - React Admin 정적 번들 서빙(`/admin/*`)
 - `pipeline` (Python CLI)
   - 문서 수집/정제/chunk/glossary/import
-  - 합성 질의 생성(A/B/C + D 옵션)
+  - 합성 질의 생성(A/B/C/D/E)
   - quality gating 프리셋 실행
   - memory build
-  - eval dataset 빌드(Dev/Test 70/70)
+  - eval dataset 빌드 및 DB import
   - retrieval/answer 평가 및 리포트 생성
 - `configs`
   - `configs/experiments/*.yaml`: 실험 옵션/프리셋
@@ -29,8 +30,8 @@ Query Forge는 "영문 Spring 문서 + 한국어 질의 부족" 상황을 재현
 - 코퍼스 계층: `corpus_*` + shadow 테이블(`documents/sections/chunks/glossary_terms`)
 - 실험 계층: `experiments`, `experiment_runs`, `prompt_assets`
 - 합성 질의 계층:
-  - `synthetic_queries_raw`
-  - 전략별 분리 저장 `synthetic_queries_raw_a/b/c/d`
+  - 전략별 분리 저장 `synthetic_queries_raw_a/b/c/d/e`
+  - 조회용 union view `synthetic_queries_raw_all`
   - `synthetic_queries_gated`
   - `memory_entries`
   - `query_embeddings`
@@ -53,19 +54,18 @@ Query Forge는 "영문 Spring 문서 + 한국어 질의 부족" 상황을 재현
 
 ## 4. 오프라인 실험 흐름
 
-1. `generate-queries`: A/B/C(+D) 합성 질의 생성, 프롬프트 hash/version DB 기록
+1. `generate-queries`: A/B/C/D/E 합성 질의 생성, 프롬프트 hash/version DB 기록
 2. `gate-queries`: rule/llm/utility/diversity/final-score
 3. `build-memory`: 승인 질의 memory table 구축 + 임베딩 저장
-4. `build-eval-dataset`: 한국어 human eval Dev/Test 70/70 생성
+4. `build-eval-dataset`: retrieval-aware eval 샘플 생성(`query_language`, grounding 필드 포함)
 5. `eval-retrieval`, `eval-answer`: 비교군/카테고리별 지표 계산
 6. `docs/experiments/latest_report.md`, `latest_answer_report.md` 자동 갱신
 
 ## 5. GUI 제어 원칙
 
-- 코퍼스 수집/정제/import: 기존 관리자 화면(`/admin/*`)
-- 실험 실행/평가 확인: `/admin/experiments`
-  - 단계별 명령 버튼(생성/게이팅/메모리/데이터셋/평가)
-  - 최근 run 목록
-  - retrieval/answer report JSON 조회
+- 파이프라인 운영: `/admin/pipeline`
+- 합성 생성: `/admin/synthetic-queries`
+- 게이팅 운영: `/admin/quality-gating`
+- RAG 테스트/비교: `/admin/rag-tests`
 
 즉, 실험 실행과 성능 확인은 관리자 GUI에서 통제 가능하도록 구성된다.

@@ -4,7 +4,7 @@
 
 ## 핵심 구조
 
-1. 관리자가 `/admin` 또는 `/admin/ingest-wizard`에서 collect/normalize/chunk/glossary/import/full-ingest를 시작한다.
+1. 관리자가 `/admin/pipeline`에서 collect/normalize/chunk/glossary/import/full-ingest를 시작한다.
 2. Spring Boot `PipelineAdminService`가 `corpus_runs`에 run을 만들고 `corpus_run_steps`를 `queued` 상태로 생성한다.
 3. 단일 worker executor가 run을 순차 실행한다.
 4. 각 step은 `ProcessBuilder` 기반 `SubprocessPipelineCommandRunner`로 `python pipeline/cli.py ...`를 호출한다.
@@ -14,8 +14,8 @@
 
 ## run / step 상태 모델
 
-- run status: `queued`, `running`, `success`, `failed`, `cancelled`
-- step status: `queued`, `running`, `success`, `failed`, `cancelled`
+- run status: `queued`, `running`, `success`, `failed`, `cancelled`, `warning`
+- step status: `queued`, `running`, `success`, `failed`, `cancelled`, `warning`
 - `cancel_requested_at`으로 cancel 요청 시점을 기록
 - `command_line`, `stdout_log_path`, `stderr_log_path`, `stdout_excerpt`, `stderr_excerpt`로 UI 로그 뷰어를 지원
 
@@ -33,14 +33,15 @@
 
 ## partial / scoped 실행
 
-- 문서 상세의 `Re-normalize`, `Re-chunk`는 document scope 기반 temp workspace를 사용한다.
+- 문서/청크 scope 기반 재실행은 temp workspace를 사용한다.
 - temp artifact는 `data/tmp/admin-runs/{runId}/` 아래에 생성된다.
-- full ingest는 canonical artifact 경로(`data/raw`, `data/processed`)를 사용한다.
+- full ingest/단계 실행의 CLI 입력은 artifact store 스냅샷 기준으로 재구성된다.
 
 ## glossary 단독 실행
 
 - 기존 `chunk_docs.py`의 glossary extractor를 재사용하는 `pipeline/preprocess/extract_glossary.py`를 추가했다.
-- `/api/admin/pipeline/glossary`와 wizard step 5는 이 wrapper를 호출한다.
+- `/api/admin/pipeline/glossary`는 이 wrapper를 호출한다.
+
 ## document artifact store
 
 - 관리자 GUI pipeline 은 canonical JSONL 을 직접 source of truth 로 쓰지 않고 `data/artifacts/corpus-docs/{sourceId}/{versionLabel}/{documentId}/` 를 기준 저장소로 사용한다.

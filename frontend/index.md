@@ -57,7 +57,7 @@
 - RAG compare area now includes an integrated quality + performance table (delta view) using run-level metrics (`metrics_json.performance`).
 - RAG run form supports `Synthetic-free baseline` mode that disables snapshot/method/gating/rewrite controls and sends baseline-only payload fields to backend.
 - Global admin theme/layout has been refreshed to a modern production-style dashboard aesthetic via `App.jsx` + `styles.css`.
-- Gating funnel summary cards support method-based filtering (`전체/A/B/C/D`).
+- Gating funnel summary cards support method-based filtering (`전체 + DB 등록 전략 코드`).
 
 ---
 

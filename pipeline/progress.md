@@ -3,6 +3,12 @@
 ## Overview
 High-level pipeline progress tracking.
 
+## [2026-05-04] Session Summary (Pipeline README Current-State Sync)
+- What was done: Rewrote `pipeline/README.md` from early-stage scaffold description to current implementation state, including full CLI command set (`extract-anchor-candidates`, generation/gating/memory/eval stages), strategy `A/B/C/D/E`, and runtime behavior notes.
+- Key decisions: Documented only existing code paths and command interfaces in `pipeline/cli.py` without introducing new operational assumptions.
+- Issues encountered: None.
+- Next steps: Keep README command examples aligned when CLI arguments or default paths change.
+
 ## [2026-05-04] Session Summary (Anchor Candidate Bridge Command for Backend Re-extraction)
 - What was done: Added `preprocess/extract_anchor_candidates.py` and wired new CLI subcommand `extract-anchor-candidates` in `pipeline/cli.py`. The command reads chunk JSONL, converts chunks to pseudo-section inputs, reuses `extract_glossary_terms(...)`, and emits per-chunk anchor candidate JSONL (`document_id/chunk_id/term_type/canonical_form`).
 - Key decisions: Reused the existing glossary extractor as single source of truth instead of adding another anchor-only algorithm, so backend re-extraction can follow the same extraction semantics as pipeline glossary processing.

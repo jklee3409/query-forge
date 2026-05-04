@@ -41,10 +41,10 @@
 
 ## 4. 운영 점검 루틴
 
-1. `/admin/experiments`에서 최신 run과 평가 요약 확인
+1. `/admin/rag-tests`에서 최신 run과 비교 지표를 확인
 2. 사용자 UI에서 질문 실행 후 `online_query_id` 확보
 3. `/api/queries/{id}/trace`로 상세 trace 확인
-4. `bad_rewrite_cases.md`와 raw 대비 delta를 함께 검토
+4. `bad_rewrite_cases.md` 및 run detail의 mode별 지표와 함께 raw 대비 delta를 검토
 
 ## 5. 핵심 모니터링 지표
 

@@ -3,6 +3,12 @@
 ## Overview
 High-level progress tracking for the `docs` directory.
 
+## [2026-05-04] Session Summary (Docs Structure/API/UI Sync with Current Runtime)
+- What was done: Updated docs across `docs/ui`, `docs/architecture`, `docs/api`, and `docs/experiments` to replace legacy route/structure assumptions with current runtime behavior (React admin routes, strategy `E`, anchor admin APIs, warning-aware orchestration model).
+- Key decisions: Prioritized implementation-aligned corrections over broad editorial rewrites so the docs can be used as operational references immediately.
+- Issues encountered: None.
+- Next steps: Keep `docs/api/*` and `docs/ui/*` aligned whenever controller endpoints or admin routes change.
+
 ## [2026-04-18] Session Summary (Langfuse Dashboard Template + RAG Performance Guidance)
 - What was done: Added `docs/experiments/langfuse_dashboard_template.md` and linked it from experiment/docs indexes for practical quality+performance monitoring setup.
 - Key decisions: Focused the template on Query Forge field conventions (`purpose/stage/status` tags and metadata usage) plus rewrite-overhead watch.

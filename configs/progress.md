@@ -3,6 +3,12 @@
 ## Overview
 High-level progress tracking for the project.
 
+## [2026-05-04] Session Summary (Configs README Current-State Sync)
+- What was done: Updated `configs/README.md` to reflect active experiment/prompt usage (admin batch presets, `gen_e_v1`, `selective_rewrite_v2` priority, source presets) instead of scaffold-stage wording.
+- Key decisions: Preserved existing configuration principles (no hardcoding, reproducibility-first) while aligning examples to currently tracked files.
+- Issues encountered: None.
+- Next steps: Keep README synchronized when prompt families or experiment preset conventions are added/retired.
+
 ## [2026-05-02] Session Summary (Admin Source Preset Additions)
 - What was done: Added source preset files under `configs/app/sources/` for `arahansa-github-io-docs-spring` and `docs-python-org-ko-3-14` to support admin pipeline collect targets with explicit allow-prefix and deny-pattern defaults.
 - Key decisions: Kept the same schema/field conventions as existing source presets (`start_urls`, `allow_prefixes`, `deny_url_patterns`, delay/depth metadata) for compatibility with source catalog sync.

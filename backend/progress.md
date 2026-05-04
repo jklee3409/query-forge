@@ -3,6 +3,12 @@
 ## Overview
 High-level backend progress tracking.
 
+## [2026-05-04] Session Summary (Backend Documentation Realignment)
+- What was done: Updated `backend/README.md` and `backend/index.md` to reflect current backend scope: Admin Console APIs, corpus/pipeline orchestration APIs, online RAG APIs, React admin static serving, warning status model, and anchor extraction delegation to `pipeline/cli.py extract-anchor-candidates`.
+- Key decisions: Removed legacy wording that implied Thymeleaf-admin 중심/미구현 RAG 상태, and aligned docs with current controllers/services/migrations already in repository.
+- Issues encountered: None.
+- Next steps: Keep backend docs synchronized with future API surface changes (`admin/console`, `admin/corpus`, `admin/pipeline`, `rag`).
+
 ## [2026-05-04] Session Summary (Anchor Re-extraction -> Pipeline Glossary Delegation)
 - What was done: Refactored `AnchorExtractionService` so `POST /api/admin/corpus/anchors/extract` no longer runs backend-local anchor heuristics; it now writes scoped chunk JSONL, calls `python pipeline/cli.py extract-anchor-candidates`, reads returned candidate JSONL, then continues existing glossary evidence replace/term refresh/synthetic remap flow.
 - Key decisions: Chose pipeline-logic delegation as the primary path to remove duplicate anchor extraction implementations and keep glossary/anchor candidate semantics aligned between ingest pipeline and backend re-extraction API.

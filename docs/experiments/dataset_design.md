@@ -38,8 +38,13 @@
 
 - Synthetic training dataset:
   - 대규모 ablation/파라미터 튜닝에 적합
-  - A/B/C/D 생성 전략, ungated/gated 비교를 빠르게 반복 가능
+  - A/B/C/D/E 생성 전략, ungated/gated 비교를 빠르게 반복 가능
 - Human eval dataset:
   - 실제 사용자 질의형 문장 품질을 기준으로 안정적인 비교 척도 제공
   - 모델/전략 변경 시 회귀(regression) 감지에 유리
 
+## 6) 언어 축 확장(ko/en)
+
+- eval 샘플은 retrieval-aware 구조를 유지하면서 `query_language` 축을 함께 기록한다.
+- 한국어 평가는 `user_query_ko`, 영어 평가는 `user_query_en`을 사용한다.
+- 같은 도메인 코퍼스에서 KO/EN 비교를 위해 short-user 영어 companion 셋(`human_eval_short_user_test_80_en`)을 별도로 운용한다.

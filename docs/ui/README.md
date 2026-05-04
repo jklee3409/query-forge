@@ -5,8 +5,8 @@
 ## 문서 목록
 
 - `admin_backoffice.md`
-  - `/admin` 백오피스의 화면 구조, UX 원칙, 주요 동선 설명
+  - React Admin 백오피스의 화면 구조, UX 원칙, 주요 동선 설명
 
 ## 참고
 
-실제 화면 템플릿은 `backend/src/main/resources/templates/admin/` 아래에 있다.
+실제 화면 구현은 `frontend/src/`에 있고, 빌드 산출물은 `backend/src/main/resources/static/react/`로 배포되어 `/admin/*` 경로에서 서빙된다.

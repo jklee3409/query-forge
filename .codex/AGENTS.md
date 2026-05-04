@@ -12,7 +12,7 @@ Agents must follow these rules to ensure:
 ## 1. Project Goal
 
 The project is a research-driven RAG system with:
-- synthetic query generation (A/B/C/D strategies)
+- synthetic query generation (A/B/C/D/E strategies)
 - quality gating pipeline
 - memory construction
 - evaluation dataset generation
@@ -37,6 +37,7 @@ Synthetic queries must be stored in separate tables for each strategy:
 - synthetic_queries_raw_b
 - synthetic_queries_raw_c
 - synthetic_queries_raw_d
+- synthetic_queries_raw_e
 
 Agents must not merge these tables into a single structure.
 
@@ -103,7 +104,9 @@ They MUST be retrieval-aware datasets that include document and chunk grounding.
 
 Each evaluation item MUST include:
 
-- user_query_ko
+- query_language (`ko` or `en`)
+- user_query_ko (required when `query_language=ko`)
+- user_query_en (required when `query_language=en`)
 - expected_doc_ids
 - expected_chunk_ids
 - expected_answer_key_points
@@ -119,7 +122,9 @@ Each item MUST follow JSONL structure:
 {
 "sample_id": "...",
 "split": "test",
+"query_language": "ko",
 "user_query_ko": "...",
+"user_query_en": null,
 "dialog_context": {},
 "expected_doc_ids": ["..."],
 "expected_chunk_ids": ["..."],
@@ -133,14 +138,14 @@ Each item MUST follow JSONL structure:
 
 ---
 
-### A/B/C/D Method-Aware Dataset (MANDATORY)
+### A/B/C/D/E Method-Aware Dataset (MANDATORY)
 
-The dataset MUST support evaluation of A/B/C/D synthetic query generation methods.
+The dataset MUST support evaluation of A/B/C/D/E synthetic query generation methods.
 
 This means:
 
 - Same document/chunk MUST be used to generate DIFFERENT query styles
-- Queries MUST vary depending on A/B/C/D strategy
+- Queries MUST vary depending on A/B/C/D/E strategy
 
 ---
 
@@ -159,13 +164,17 @@ C:
 D:
 - code-mixed queries (Korean + English + technical terms)
 
+E:
+- English-native developer queries
+- must preserve technical intent and grounding to corpus chunks
+
 ---
 
 ### Additional Required Field
 
 Each dataset item MUST include:
 
-- "target_method": "A | B | C | D"
+- "target_method": "A | B | C | D | E"
 
 Optional:
 - "evaluation_focus": ["translation", "grounding", "naturalness", ...]
@@ -200,7 +209,7 @@ Agents MUST NOT:
 
 - generate QA-only datasets
 - ignore chunk grounding
-- ignore A/B/C/D differences
+- ignore A/B/C/D/E differences
 
 ---
 
@@ -280,7 +289,7 @@ Agents MUST treat each snapshot as an independent experimental condition.
 Each snapshot MUST:
 
 - have a unique identifier
-- record generation strategy (A/B/C/D)
+- record generation strategy (A/B/C/D/E)
 - record gating configuration
 - record creation timestamp or batch id
 
@@ -374,7 +383,7 @@ Agents MUST ensure:
 Each evaluation run MUST record:
 
 - snapshot_id
-- generation_strategy (A/B/C/D)
+- generation_strategy (A/B/C/D/E)
 - gating_config
 - memory_size
 - retrieval_config
@@ -521,6 +530,7 @@ For each directory, it lists core features, key methods (or entry points), and r
   - `preprocess/normalize_docs.py::normalize_documents`
   - `preprocess/chunk_docs.py::build_chunks_and_glossary`
   - `preprocess/extract_glossary.py::build_glossary_only`
+  - `preprocess/extract_anchor_candidates.py::extract_anchor_candidates_from_chunks`
   - `loaders/import_corpus_to_postgres.py::run_import`
   - `generation/synthetic_query_generator.py::run_generation`, `run_generation_from_env`
   - `gating/quality_gating.py::run_quality_gating`, `run_quality_gating_from_env`
@@ -564,6 +574,8 @@ For each directory, it lists core features, key methods (or entry points), and r
   - `configs/prompts/query_generation/gen_b_v1.md`
   - `configs/prompts/query_generation/gen_c_v1.md`
   - `configs/prompts/query_generation/gen_d_v1.md`
+  - `configs/prompts/query_generation/gen_e_v1.md`
+  - `configs/prompts/rewrite/selective_rewrite_v2.md`
   - `configs/prompts/rewrite/selective_rewrite_v1.md`
   - `configs/prompts/self_eval/quality_gate_v1.md`
   - `configs/prompts/summary_extraction/extractive_summary_v1.md`

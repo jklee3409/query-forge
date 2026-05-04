@@ -30,6 +30,14 @@
 
 - `admin_pipeline_api.md`
 
+### Admin Console API
+
+- synthetic batch 실행/조회, query 상세 조회
+- quality gating batch 실행/퍼널/결과 조회
+- RAG test 실행/상세/비교, llm job 상태 제어
+
+현재는 `backend/index.md`와 `backend/src/main/java/io/queryforge/backend/admin/console/controller/AdminConsoleController.java`를 기준으로 운영하며, 별도 상세 문서는 순차 확장한다.
+
 ### RAG / Experiments API
 
 - `POST /api/chat/ask`

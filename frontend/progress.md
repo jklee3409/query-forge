@@ -3,6 +3,12 @@
 ## Overview
 High-level progress tracking for the project.
 
+## [2026-05-04] Session Summary (Frontend Documentation Realignment)
+- What was done: Replaced template-style `frontend/README.md` with project-specific 운영 문서 and updated `frontend/index.md` wording for strategy/method filtering to match DB-driven method handling.
+- Key decisions: Kept docs focused on current route structure (`/admin/pipeline|synthetic-queries|quality-gating|rag-tests`) and existing UI responsibilities/API integration.
+- Issues encountered: None.
+- Next steps: When page contracts or route keys change, update README/index in the same PR to avoid operator confusion.
+
 ## [2026-05-02] Session Summary (Pipeline Anchor Pagination Section + Custom Dropdown Filters)
 - What was done: Added a new `Anchors` section to `/admin/pipeline` with server-driven pagination and filter form (`document`, `chunk`, `keyword`). Implemented custom dropdown UI component `src/components/SelectDropdown.jsx` and integrated it for document/chunk filtering instead of native select controls.
 - Key decisions: Kept filtering state local to `PipelinePage.jsx` and reused existing corpus document/chunk option APIs while delegating anchor filtering/pagination to the new backend endpoint.
