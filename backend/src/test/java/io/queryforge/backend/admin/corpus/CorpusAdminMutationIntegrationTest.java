@@ -14,6 +14,7 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.utility.DockerImageName;
 
+import static org.hamcrest.Matchers.greaterThanOrEqualTo;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -101,6 +102,22 @@ class CorpusAdminMutationIntegrationTest {
                                 """))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.enabled").value(false));
+    }
+
+    @Test
+    void anchorReExtractionEndpointWorksForScopedChunk() throws Exception {
+        mockMvc.perform(post("/api/admin/corpus/anchors/extract")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "chunkIds": ["chk_fixture_2"]
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.targetChunkCount").value(1))
+                .andExpect(jsonPath("$.deletedEvidenceCount").value(2))
+                .andExpect(jsonPath("$.insertedEvidenceCount").value(greaterThanOrEqualTo(1)))
+                .andExpect(jsonPath("$.updatedTermCount").value(greaterThanOrEqualTo(1)));
     }
 
     @Test

@@ -3,6 +3,12 @@
 ## Overview
 High-level backend progress tracking.
 
+## [2026-05-04] Session Summary (Anchor Re-extraction Hybrid Candidate Scoring)
+- What was done: Upgraded `AnchorExtractionService` keyphrase extraction for `POST /api/admin/corpus/anchors/extract` from simple n-gram accumulation to a hybrid scorer that combines regex-derived technical candidates, phrase normalization, stopword/all-stopword rejection, token rarity bonus (`1/sqrt(freq)`), and technical-marker bonuses (camelCase, symbol separators, alpha+digit patterns). Added integration coverage in `CorpusAdminMutationIntegrationTest` for scoped chunk re-extraction.
+- Key decisions: Kept existing extraction pipeline contract and DB flow intact (target chunk resolution -> evidence replacement -> glossary refresh -> synthetic anchor remap) and only strengthened candidate ranking/filtering inside the existing service to minimize churn.
+- Issues encountered: None.
+- Next steps: Compare anchor precision/coverage on non-Spring technical sources via existing Anchor Eval run flow and tune score weights only if false positives remain high.
+
 ## [2026-05-02] Session Summary (Corpus Anchor List API for Pipeline UI)
 - What was done: Added `GET /api/admin/corpus/anchors` in `CorpusAdminController/Service/Repository`, with new DTO `AnchorSummary`. The API supports `document_id`, `chunk_id`, `keyword`, `active_only`, `limit`, `offset` and returns paginated anchor rows ordered by scoped evidence density.
 - Key decisions: Introduced a dedicated anchor listing path instead of extending existing glossary list responses, so document/chunk evidence scope can be handled as a first-class filter contract.

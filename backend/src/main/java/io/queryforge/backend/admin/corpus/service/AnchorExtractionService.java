@@ -8,9 +8,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.HashMap;
-import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -48,12 +46,15 @@ public class AnchorExtractionService {
     );
     private static final Pattern CODE_FENCE_RE = Pattern.compile("```([\\s\\S]*?)```");
     private static final Pattern WORD_RE = Pattern.compile("[A-Za-z][A-Za-z0-9._+-]{1,120}");
+    private static final Pattern LEADING_DETERMINER_RE = Pattern.compile("^(?:a|an|the|this|that)\\s+", Pattern.CASE_INSENSITIVE);
+    private static final Pattern TRAILING_GUIDE_RE = Pattern.compile("\\s+(?:guide|section|page)$", Pattern.CASE_INSENSITIVE);
     private static final Set<String> STOPWORDS = Set.of(
             "the", "and", "for", "with", "that", "this", "from", "into", "over", "when", "where", "which",
             "while", "using", "used", "use", "your", "their", "they", "them", "then", "than", "also", "can",
             "could", "should", "would", "about", "after", "before", "have", "has", "had", "will", "may",
             "might", "must", "not", "are", "was", "were", "been", "being", "api", "http", "https", "www",
-            "docs", "doc", "guide", "reference", "section", "page"
+            "docs", "doc", "guide", "reference", "section", "page", "you", "our", "its", "any", "all",
+            "each", "other", "more", "most", "some", "such"
     );
 
     private final NamedParameterJdbcTemplate jdbcTemplate;
@@ -488,62 +489,199 @@ public class AnchorExtractionService {
             return List.of();
         }
         List<String> words = new ArrayList<>();
+        Map<String, Integer> tokenFrequency = new HashMap<>();
         Matcher matcher = WORD_RE.matcher(text);
         while (matcher.find()) {
             String token = matcher.group().trim();
-            if (token.length() < 3 || STOPWORDS.contains(token.toLowerCase(Locale.ROOT))) {
+            if (token.length() < 3) {
                 continue;
             }
             words.add(token);
+            tokenFrequency.merge(token.toLowerCase(Locale.ROOT), 1, Integer::sum);
         }
         if (words.isEmpty()) {
             return List.of();
         }
 
-        Map<String, Double> scoreByPhrase = new HashMap<>();
+        Map<String, Double> scoreByKey = new HashMap<>();
+        Map<String, String> displayByKey = new HashMap<>();
+
+        for (String candidate : genericAnchorCandidates(text)) {
+            String normalized = normalizeAnchorPhrase(candidate);
+            if (normalized.isBlank()) {
+                continue;
+            }
+            String key = normalized.toLowerCase(Locale.ROOT);
+            scoreByKey.merge(key, 1.2, Double::sum);
+            displayByKey.putIfAbsent(key, normalized);
+        }
+
         for (int i = 0; i < words.size(); i++) {
             for (int n = 1; n <= 3; n++) {
                 int end = i + n;
                 if (end > words.size()) {
                     break;
                 }
-                String phrase = String.join(" ", words.subList(i, end));
-                phrase = phrase.replaceAll("^(?i)(a|an|the|this|that)\\s+", "");
-                phrase = phrase.replaceAll("(?i)\\s+(guide|section|page)$", "");
+                String phrase = normalizeAnchorPhrase(String.join(" ", words.subList(i, end)));
                 if (phrase.isBlank()) {
                     continue;
                 }
-                String normalized = phrase.toLowerCase(Locale.ROOT);
-                if (normalized.length() < 4 || normalized.length() > 120) {
-                    continue;
-                }
-                if (phrase.contains("{") || phrase.contains("}") || phrase.contains("[") || phrase.contains("]")
-                        || phrase.contains(";") || phrase.contains("\"")) {
-                    continue;
-                }
-                int stopwordCount = 0;
-                for (String part : normalized.split("\\s+")) {
-                    if (STOPWORDS.contains(part)) {
-                        stopwordCount += 1;
+                String key = phrase.toLowerCase(Locale.ROOT);
+                double rarityBonus = 0.0;
+                int informativeParts = 0;
+                boolean technicalMarker = looksTechnicalAnchor(phrase);
+                for (String rawPart : key.split("\\s+")) {
+                    if (rawPart.isBlank() || STOPWORDS.contains(rawPart)) {
+                        continue;
+                    }
+                    informativeParts += 1;
+                    int freq = Math.max(1, tokenFrequency.getOrDefault(rawPart, 1));
+                    rarityBonus += 1.0 / Math.sqrt(freq);
+                    if (!technicalMarker && looksTechnicalAnchor(rawPart)) {
+                        technicalMarker = true;
                     }
                 }
-                if (stopwordCount == normalized.split("\\s+").length) {
+                if (informativeParts == 0) {
                     continue;
                 }
-                double titleBonus = Character.isUpperCase(phrase.charAt(0)) ? 0.4 : 0.0;
-                double dotBonus = normalized.contains(".") ? 0.5 : 0.0;
-                double lenBonus = Math.min(0.7, normalized.length() / 80.0);
-                scoreByPhrase.merge(phrase, 1.0 + titleBonus + dotBonus + lenBonus, Double::sum);
+                double technicalBonus = technicalMarker ? 0.9 : 0.0;
+                double dotBonus = phrase.contains(".") ? 0.4 : 0.0;
+                double lengthBonus = Math.min(0.6, phrase.length() / 90.0);
+                double score = 0.6 + rarityBonus + technicalBonus + dotBonus + lengthBonus;
+                scoreByKey.merge(key, score, Double::sum);
+                String existing = displayByKey.get(key);
+                if (existing == null || phrase.length() > existing.length()) {
+                    displayByKey.put(key, phrase);
+                }
             }
         }
 
-        HashSet<String> seen = new HashSet<>();
-        return scoreByPhrase.entrySet().stream()
-                .sorted(Map.Entry.<String, Double>comparingByValue(Comparator.reverseOrder()))
-                .map(Map.Entry::getKey)
-                .filter(term -> seen.add(term.toLowerCase(Locale.ROOT)))
+        return scoreByKey.entrySet().stream()
+                .sorted((left, right) -> {
+                    int scoreCompare = Double.compare(right.getValue(), left.getValue());
+                    if (scoreCompare != 0) {
+                        return scoreCompare;
+                    }
+                    String leftPhrase = displayByKey.getOrDefault(left.getKey(), left.getKey());
+                    String rightPhrase = displayByKey.getOrDefault(right.getKey(), right.getKey());
+                    return Integer.compare(rightPhrase.length(), leftPhrase.length());
+                })
+                .map(entry -> displayByKey.getOrDefault(entry.getKey(), entry.getKey()))
                 .limit(24)
                 .toList();
+    }
+
+    private List<String> genericAnchorCandidates(String text) {
+        if (text == null || text.isBlank()) {
+            return List.of();
+        }
+        LinkedHashSet<String> seen = new LinkedHashSet<>();
+        Matcher matcher = GENERIC_TECH_TERM_RE.matcher(text);
+        while (matcher.find()) {
+            String token = matcher.group().trim();
+            if (token.length() < 3 || token.length() > 120) {
+                continue;
+            }
+            String lowered = token.toLowerCase(Locale.ROOT);
+            if (lowered.contains("://") || lowered.endsWith(".html")) {
+                continue;
+            }
+            if (STOPWORDS.contains(lowered)) {
+                continue;
+            }
+            if (token.chars().filter(ch -> ch == '.').count() > 6) {
+                continue;
+            }
+            seen.add(token);
+        }
+        return new ArrayList<>(seen);
+    }
+
+    private String normalizeAnchorPhrase(String text) {
+        if (text == null || text.isBlank()) {
+            return "";
+        }
+        String phrase = text.trim().replaceAll("\\s+", " ");
+        phrase = phrase.replaceAll("^[`'\"()\\[\\]{}.,:;]+", "");
+        phrase = phrase.replaceAll("[`'\"()\\[\\]{}.,:;]+$", "");
+        phrase = LEADING_DETERMINER_RE.matcher(phrase).replaceFirst("");
+        phrase = TRAILING_GUIDE_RE.matcher(phrase).replaceFirst("");
+        if (phrase.isBlank()) {
+            return "";
+        }
+        if (phrase.length() < 3 || phrase.length() > 120) {
+            return "";
+        }
+        if (phrase.contains("{") || phrase.contains("}") || phrase.contains("[") || phrase.contains("]")
+                || phrase.contains(";") || phrase.contains("\"")) {
+            return "";
+        }
+        String lowered = phrase.toLowerCase(Locale.ROOT);
+        if (STOPWORDS.contains(lowered)) {
+            return "";
+        }
+        String[] parts = lowered.split("[\\s/]+");
+        int partCount = 0;
+        int stopwordCount = 0;
+        for (String part : parts) {
+            if (part.isBlank()) {
+                continue;
+            }
+            partCount += 1;
+            if (STOPWORDS.contains(part)) {
+                stopwordCount += 1;
+            }
+        }
+        if (partCount == 0 || stopwordCount == partCount) {
+            return "";
+        }
+        return phrase;
+    }
+
+    private boolean looksTechnicalAnchor(String token) {
+        if (token == null) {
+            return false;
+        }
+        String normalized = token.trim();
+        if (normalized.length() < 3) {
+            return false;
+        }
+        if (normalized.startsWith("@")) {
+            return true;
+        }
+        if (normalized.contains(".") || normalized.contains("_") || normalized.contains("-")
+                || normalized.contains("/") || normalized.contains(":")) {
+            return true;
+        }
+        boolean hasAlpha = false;
+        boolean hasDigit = false;
+        boolean hasUpper = false;
+        boolean hasLower = false;
+        for (int index = 0; index < normalized.length(); index++) {
+            char current = normalized.charAt(index);
+            if (Character.isLetter(current)) {
+                hasAlpha = true;
+                if (Character.isUpperCase(current)) {
+                    hasUpper = true;
+                }
+                if (Character.isLowerCase(current)) {
+                    hasLower = true;
+                }
+            }
+            if (Character.isDigit(current)) {
+                hasDigit = true;
+            }
+        }
+        if (hasAlpha && hasDigit) {
+            return true;
+        }
+        if (hasUpper && hasLower) {
+            return true;
+        }
+        if (normalized.length() <= 4 && normalized.equals(normalized.toUpperCase(Locale.ROOT)) && hasAlpha) {
+            return true;
+        }
+        return false;
     }
 
     private record AnchorChunkRow(

@@ -3,6 +3,12 @@
 ## Overview
 High-level progress tracking for the project.
 
+## [2026-05-04] Session Summary (Backend Anchor Re-extraction Partial Upgrade)
+- What was done: Enhanced backend anchor re-extraction (`POST /api/admin/corpus/anchors/extract`) with a hybrid candidate extractor in `AnchorExtractionService` that keeps existing regex channels but adds phrase normalization, stopword dominance filtering, rarity-aware scoring, and technical-marker weighting for concept anchors. Added/ran corpus mutation integration test coverage for scoped re-extraction.
+- Key decisions: Reused current backend extraction architecture and data update flow without schema or API contract changes, to keep the upgrade minimal and compatible with existing admin/pipeline paths.
+- Issues encountered: None.
+- Next steps: Use Anchor Eval runs to measure precision/recall shifts on non-Spring technical docs and tune scoring weights if needed.
+
 ## [2026-05-02] Session Summary (Collector Resilience + Source Preset Additions)
 - What was done: Hardened `pipeline/collectors/spring_docs_collector.py` to skip placeholder `{...}` URLs and continue on per-URL fetch failures while recording `fetch_failures` metrics. Added source presets `arahansa-github-io-docs-spring` and `docs-python-org-ko-3-14` under `configs/app/sources/`.
 - Key decisions: Shifted collector failure behavior from fail-fast to skip-with-visibility for URL-level network/HTTP noise, preserving overall batch progress.
