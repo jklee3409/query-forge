@@ -170,7 +170,12 @@ class EvalRuntimeRewriteTests(unittest.TestCase):
                 "target_chunk_ids": ["chk-1"],
                 "generation_strategy": "A",
                 "product": "spring-security",
-                "glossary_terms": ["DigestAuthenticationFilter", "spring.security.filter.order"],
+                "glossary_terms": [
+                    "DigestAuthenticationFilter",
+                    "spring.security.filter.order",
+                    "수 있습니다",
+                    "지원합니다",
+                ],
                 "similarity": 0.9,
             }
         ]
@@ -194,6 +199,8 @@ class EvalRuntimeRewriteTests(unittest.TestCase):
         anchor_terms = payload.get("anchor_terms") or []
         self.assertGreaterEqual(len(anchor_candidates), 1)
         self.assertIn("DigestAuthenticationFilter", anchor_terms)
+        self.assertNotIn("수 있습니다", anchor_terms)
+        self.assertNotIn("지원합니다", anchor_terms)
         self.assertTrue(any(item.get("source") == "memory_glossary" for item in anchor_candidates))
 
     def test_rewrite_payload_skips_anchor_when_disabled(self) -> None:

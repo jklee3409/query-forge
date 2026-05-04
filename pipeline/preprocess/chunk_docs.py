@@ -5,6 +5,7 @@ import hashlib
 import json
 import logging
 import math
+import os
 import re
 import time
 from collections import Counter
@@ -13,6 +14,23 @@ from pathlib import Path
 from typing import Any
 
 import yaml
+
+try:
+    from common.anchor_quality import (
+        extract_technical_tokens,
+        guess_language,
+        has_technical_marker,
+        is_valid_anchor_phrase,
+    )
+    from common.embeddings import cosine_similarity, embed_text
+except ModuleNotFoundError:  # pragma: no cover
+    from pipeline.common.anchor_quality import (
+        extract_technical_tokens,
+        guess_language,
+        has_technical_marker,
+        is_valid_anchor_phrase,
+    )
+    from pipeline.common.embeddings import cosine_similarity, embed_text
 
 
 LOGGER = logging.getLogger(__name__)
@@ -48,6 +66,72 @@ STOPWORD_SET = {
     "been", "being", "you", "our", "its", "it's", "any", "all", "each", "other", "more", "most", "some", "such",
     "api", "http", "https", "www", "docs", "doc", "guide", "reference", "section", "page"
 }
+ANCHOR_TOKEN_SPLIT_RE = re.compile(r"[\s/]+")
+EN_GENERIC_ANCHOR_TOKENS = {
+    "use",
+    "used",
+    "using",
+    "support",
+    "supported",
+    "supports",
+    "available",
+    "required",
+    "option",
+    "options",
+    "value",
+    "values",
+    "setting",
+    "settings",
+    "example",
+    "examples",
+    "guide",
+    "section",
+    "page",
+    "document",
+    "documents",
+    "feature",
+    "features",
+    "request",
+    "response",
+}
+KO_GENERIC_ANCHOR_TOKENS = {
+    "사용",
+    "지원",
+    "설정",
+    "추가",
+    "제거",
+    "변경",
+    "가능",
+    "제공",
+    "필요",
+    "방법",
+    "예시",
+    "관련",
+    "요청",
+    "응답",
+    "안내",
+    "문서",
+    "도움",
+    "부탁",
+}
+ANCHOR_SUFFIX_HINTS = (
+    "filter",
+    "configurer",
+    "configuration",
+    "controller",
+    "repository",
+    "service",
+    "template",
+    "provider",
+    "manager",
+    "client",
+    "builder",
+    "resolver",
+    "adapter",
+    "endpoint",
+    "datasource",
+    "autoconfiguration",
+)
 
 try:
     import spacy
@@ -55,12 +139,30 @@ except Exception:  # pragma: no cover - optional dependency runtime guard
     spacy = None
 
 try:
+    import stanza
+except Exception:  # pragma: no cover - optional dependency runtime guard
+    stanza = None
+
+try:
     import yake
 except Exception:  # pragma: no cover - optional dependency runtime guard
     yake = None
 
+try:
+    from kiwipiepy import Kiwi
+except Exception:  # pragma: no cover - optional dependency runtime guard
+    Kiwi = None
+
+try:
+    from sentence_transformers import SentenceTransformer
+except Exception:  # pragma: no cover - optional dependency runtime guard
+    SentenceTransformer = None
+
 _SPACY_NLP = None
-_YAKE_EXTRACTOR = None
+_YAKE_EXTRACTORS: dict[str, Any] = {}
+_STANZA_LANG_ID = None
+_KIWI_ANALYZER = None
+_ANCHOR_EMBED_MODEL = None
 
 
 @dataclass(slots=True)
@@ -896,6 +998,8 @@ def generic_anchor_candidates(text: str) -> list[str]:
             continue
         if token.count(".") > 6:
             continue
+        if not has_technical_marker(token):
+            continue
         seen.setdefault(token, None)
     return list(seen.keys())
 
@@ -914,39 +1018,243 @@ def get_spacy_nlp():
     return _SPACY_NLP
 
 
-def get_yake_extractor():
-    global _YAKE_EXTRACTOR
-    if _YAKE_EXTRACTOR is not None:
-        return _YAKE_EXTRACTOR
+def get_yake_extractor(language: str):
+    normalized_lang = "ko" if str(language or "").lower().startswith("ko") else "en"
+    cached = _YAKE_EXTRACTORS.get(normalized_lang)
+    if cached is not None:
+        return cached
     if yake is None:
         return None
-    _YAKE_EXTRACTOR = yake.KeywordExtractor(
-        lan="en",
-        n=3,
-        dedupLim=0.9,
-        dedupFunc="seqm",
-        windowsSize=2,
-        top=20,
-    )
-    return _YAKE_EXTRACTOR
+    try:
+        extractor = yake.KeywordExtractor(
+            lan=normalized_lang,
+            n=3,
+            dedupLim=0.9,
+            dedupFunc="seqm",
+            windowsSize=2,
+            top=24,
+        )
+    except Exception:
+        LOGGER.warning("[glossary] YAKE extractor init failed for language=%s", normalized_lang)
+        extractor = None
+    _YAKE_EXTRACTORS[normalized_lang] = extractor
+    return extractor
 
 
-def normalize_anchor_phrase(text: str) -> str:
+def get_stanza_langid():
+    global _STANZA_LANG_ID
+    if _STANZA_LANG_ID is not None:
+        return _STANZA_LANG_ID
+    if stanza is None:
+        return None
+    try:
+        _STANZA_LANG_ID = stanza.Pipeline(
+            lang="multilingual",
+            processors="langid",
+            use_gpu=False,
+            verbose=False,
+        )
+    except Exception:
+        LOGGER.warning("[glossary] stanza langid unavailable, fallback to heuristic language detection.")
+        _STANZA_LANG_ID = None
+    return _STANZA_LANG_ID
+
+
+def detect_anchor_language(text: str) -> str:
+    sample = str(text or "").strip()
+    if not sample:
+        return "en"
+    detector = get_stanza_langid()
+    if detector is not None:
+        try:
+            document = detector(sample[:4000])
+            detected = str(getattr(document, "lang", "") or "").lower()
+            if detected.startswith("ko"):
+                return "ko"
+            if detected:
+                return "en"
+        except Exception:
+            LOGGER.debug("[glossary] stanza langid failed for sample text, fallback to heuristic.", exc_info=True)
+    return guess_language(sample)
+
+
+def get_kiwi_analyzer():
+    global _KIWI_ANALYZER
+    if _KIWI_ANALYZER is not None:
+        return _KIWI_ANALYZER
+    if Kiwi is None:
+        return None
+    try:
+        _KIWI_ANALYZER = Kiwi()
+    except Exception:
+        LOGGER.warning("[glossary] kiwipiepy unavailable, fallback to YAKE/regex Korean extraction.")
+        _KIWI_ANALYZER = None
+    return _KIWI_ANALYZER
+
+
+def korean_anchor_candidates(text: str) -> list[str]:
+    analyzer = get_kiwi_analyzer()
+    if analyzer is None:
+        return []
+    try:
+        tokens = analyzer.tokenize(text[:20000], normalize_coda=True)
+    except Exception:
+        LOGGER.debug("[glossary] Kiwi tokenization failed.", exc_info=True)
+        return []
+
+    noun_tags = {"NNG", "NNP"}
+    noun_forms = [str(token.form).strip() for token in tokens if str(getattr(token, "tag", "")) in noun_tags]
+    noun_forms = [form for form in noun_forms if form and len(form) > 1]
+    if not noun_forms:
+        return []
+
+    candidates: list[str] = []
+    seen: set[str] = set()
+    for index, form in enumerate(noun_forms):
+        key = form.casefold()
+        if key not in seen:
+            seen.add(key)
+            candidates.append(form)
+        if index + 1 < len(noun_forms):
+            bigram = f"{form} {noun_forms[index + 1]}".strip()
+            bigram_key = bigram.casefold()
+            if bigram_key not in seen:
+                seen.add(bigram_key)
+                candidates.append(bigram)
+    return candidates
+
+
+def _candidate_embeddings(text: str, candidates: list[str]) -> tuple[list[float], list[list[float]]]:
+    if not candidates:
+        return [], []
+    model_name = os.getenv("QUERY_FORGE_ANCHOR_EMBEDDING_MODEL", "intfloat/multilingual-e5-small")
+    global _ANCHOR_EMBED_MODEL
+    if SentenceTransformer is not None:
+        try:
+            if _ANCHOR_EMBED_MODEL is None:
+                _ANCHOR_EMBED_MODEL = SentenceTransformer(model_name)
+            encoded = _ANCHOR_EMBED_MODEL.encode(
+                [f"passage: {text}", *[f"passage: {item}" for item in candidates]],
+                normalize_embeddings=True,
+            )
+            if len(encoded) >= 2:
+                query = [float(value) for value in encoded[0]]
+                items = [[float(value) for value in row] for row in encoded[1:]]
+                return query, items
+        except Exception:
+            LOGGER.warning("[glossary] anchor embedding rerank model unavailable, fallback to hash embeddings.")
+    query_vector = embed_text(text)
+    item_vectors = [embed_text(item) for item in candidates]
+    return query_vector, item_vectors
+
+
+def _rank_with_mmr(
+    candidates: list[str],
+    base_scores: dict[str, float],
+    query_embedding: list[float],
+    candidate_embeddings: list[list[float]],
+    *,
+    top_n: int,
+    diversity_penalty: float = 0.32,
+) -> list[str]:
+    if not candidates:
+        return []
+    relevance = [
+        max(0.0, cosine_similarity(query_embedding, embedding))
+        for embedding in candidate_embeddings
+    ]
+    combined = [float(base_scores.get(candidate, 0.0)) + (1.6 * relevance[idx]) for idx, candidate in enumerate(candidates)]
+    remaining = set(range(len(candidates)))
+    selected_indices: list[int] = []
+
+    while remaining and len(selected_indices) < top_n:
+        best_idx = None
+        best_score = float("-inf")
+        for idx in remaining:
+            if not selected_indices:
+                mmr_score = combined[idx]
+            else:
+                redundancy = max(
+                    cosine_similarity(candidate_embeddings[idx], candidate_embeddings[selected_idx])
+                    for selected_idx in selected_indices
+                )
+                mmr_score = (0.72 * combined[idx]) - (diversity_penalty * max(0.0, redundancy))
+            if mmr_score > best_score:
+                best_score = mmr_score
+                best_idx = idx
+        if best_idx is None:
+            break
+        selected_indices.append(best_idx)
+        remaining.remove(best_idx)
+
+    return [candidates[idx] for idx in selected_indices]
+
+
+def _anchor_phrase_tokens(phrase: str) -> list[str]:
+    return [token.strip("`'\"()[]{}.,:;") for token in ANCHOR_TOKEN_SPLIT_RE.split(phrase) if token.strip("`'\"()[]{}.,:;")]
+
+
+def _has_anchor_suffix_hint(phrase: str) -> bool:
+    lowered = phrase.casefold()
+    return any(lowered.endswith(suffix) for suffix in ANCHOR_SUFFIX_HINTS)
+
+
+def _contains_generic_anchor_noise(tokens: list[str], *, language: str) -> bool:
+    if not tokens:
+        return True
+    generic_tokens = KO_GENERIC_ANCHOR_TOKENS if language == "ko" else EN_GENERIC_ANCHOR_TOKENS
+    normalized = [token.casefold() for token in tokens if token]
+    if not normalized:
+        return True
+    generic_count = sum(1 for token in normalized if token in generic_tokens or token in STOPWORD_SET)
+    return generic_count == len(normalized)
+
+
+def _is_high_confidence_concept_anchor(
+    phrase: str,
+    *,
+    language: str,
+    technical_hint_tokens: set[str],
+) -> bool:
+    tokens = _anchor_phrase_tokens(phrase)
+    if not tokens:
+        return False
+    token_lower = [token.casefold() for token in tokens]
+    has_hint = any(token in technical_hint_tokens for token in token_lower)
+    technical = has_technical_marker(phrase) or _has_anchor_suffix_hint(phrase)
+
+    if _contains_generic_anchor_noise(tokens, language=language):
+        return False
+    if technical or has_hint:
+        if len(tokens) > 1 and language == "ko":
+            # Avoid mixed helper phrases like "지원 OAuth".
+            if any(token.casefold() in KO_GENERIC_ANCHOR_TOKENS for token in tokens):
+                return False
+        return True
+
+    if language == "ko":
+        hangul_tokens = [token for token in tokens if re.search(r"[가-힣]", token)]
+        content_tokens = [token for token in hangul_tokens if token.casefold() not in KO_GENERIC_ANCHOR_TOKENS]
+        if len(content_tokens) >= 2:
+            return True
+        if len(content_tokens) == 1 and len(content_tokens[0]) >= 4:
+            return True
+    return False
+
+
+def normalize_anchor_phrase(text: str, *, language_hint: str | None = None) -> str:
     phrase = normalize_whitespace(text).strip("`'\"()[]{}.,:;")
     phrase = re.sub(r"^(?:a|an|the|this|that)\s+", "", phrase, flags=re.IGNORECASE)
     phrase = re.sub(r"\s+(?:guide|section|page)$", "", phrase, flags=re.IGNORECASE)
     if any(ch in phrase for ch in "{}[];\""):
         return ""
-    if len(phrase) < 3 or len(phrase) > 120:
+    language = (language_hint or detect_anchor_language(phrase)).lower()
+    if not is_valid_anchor_phrase(phrase, language_hint=language):
         return ""
     lower = phrase.casefold()
-    if lower in STOPWORD_SET:
-        return ""
-    token_parts = [part for part in re.split(r"[\s/]+", phrase) if part]
-    if not token_parts:
-        return ""
-    if len(token_parts) <= 4:
-        stopword_count = sum(1 for part in token_parts if part.casefold() in STOPWORD_SET)
+    token_parts = [part for part in re.split(r"[\s/]+", lower) if part]
+    if token_parts and len(token_parts) <= 4:
+        stopword_count = sum(1 for part in token_parts if part in STOPWORD_SET)
         if stopword_count == len(token_parts):
             return ""
     return phrase
@@ -955,45 +1263,87 @@ def normalize_anchor_phrase(text: str) -> str:
 def extract_anchor_keyphrases(text: str) -> list[str]:
     if not text:
         return []
+    language = detect_anchor_language(text)
     scored: dict[str, float] = {}
     frequency = Counter(NOUN_TOKEN_RE.findall(text))
-    doc_len = max(1, len(text))
+    technical_hint_tokens = {
+        token.casefold()
+        for token in extract_technical_tokens(text, language_hint=language, max_items=64)
+    }
+
+    def register_candidate(term: str, score: float) -> None:
+        norm = normalize_anchor_phrase(term, language_hint=language)
+        if not norm:
+            return
+        if not _is_high_confidence_concept_anchor(
+            norm,
+            language=language,
+            technical_hint_tokens=technical_hint_tokens,
+        ):
+            return
+        scored[norm] = scored.get(norm, 0.0) + score
 
     for term in generic_anchor_candidates(text):
-        norm = normalize_anchor_phrase(term)
-        if norm:
-            scored[norm] = scored.get(norm, 0.0) + 1.0
+        register_candidate(term, 1.8)
 
-    nlp = get_spacy_nlp()
-    if nlp is not None:
-        doc = nlp(text[:20000])
-        for chunk in doc.noun_chunks:
-            norm = normalize_anchor_phrase(chunk.text)
+    if language == "ko":
+        for term in korean_anchor_candidates(text):
+            norm = normalize_anchor_phrase(term, language_hint=language)
             if not norm:
+                continue
+            if not _is_high_confidence_concept_anchor(
+                norm,
+                language=language,
+                technical_hint_tokens=technical_hint_tokens,
+            ):
                 continue
             rarity_bonus = 0.0
             for token in norm.split():
                 freq = frequency.get(token, 1)
                 rarity_bonus += 1.0 / math.sqrt(freq)
             scored[norm] = scored.get(norm, 0.0) + 2.0 + rarity_bonus
+    else:
+        nlp = get_spacy_nlp()
+        if nlp is not None:
+            doc = nlp(text[:20000])
+            for chunk in doc.noun_chunks:
+                norm = normalize_anchor_phrase(chunk.text, language_hint=language)
+                if not norm:
+                    continue
+                if not _is_high_confidence_concept_anchor(
+                    norm,
+                    language=language,
+                    technical_hint_tokens=technical_hint_tokens,
+                ):
+                    continue
+                rarity_bonus = 0.0
+                for token in norm.split():
+                    freq = frequency.get(token, 1)
+                    rarity_bonus += 1.0 / math.sqrt(freq)
+                scored[norm] = scored.get(norm, 0.0) + 2.0 + rarity_bonus
 
-    extractor = get_yake_extractor()
+    extractor = get_yake_extractor(language)
     if extractor is not None:
         try:
             for keyword, score in extractor.extract_keywords(text[:20000]):
-                norm = normalize_anchor_phrase(keyword)
-                if not norm:
-                    continue
                 quality = max(0.0, 1.2 - float(score))
-                scored[norm] = scored.get(norm, 0.0) + quality
+                register_candidate(keyword, quality)
         except Exception:
-            LOGGER.warning("[glossary] YAKE extraction failed, fallback to spaCy/regex candidates.")
+            LOGGER.warning("[glossary] YAKE extraction failed for language=%s, fallback to non-YAKE candidates.", language)
 
-    ranked = sorted(
-        scored.items(),
-        key=lambda item: (item[1], len(item[0]) / doc_len),
-        reverse=True,
-    )
+    if not scored:
+        return []
+    candidate_terms = list(scored.keys())
+    query_embedding, candidate_embeddings = _candidate_embeddings(text[:20000], candidate_terms)
+    if query_embedding and candidate_embeddings:
+        return _rank_with_mmr(
+            candidate_terms,
+            scored,
+            query_embedding,
+            candidate_embeddings,
+            top_n=24,
+        )
+    ranked = sorted(scored.items(), key=lambda item: item[1], reverse=True)
     return [term for term, _ in ranked[:24]]
 
 

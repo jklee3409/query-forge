@@ -4,7 +4,6 @@ import hashlib
 import json
 import math
 import os
-import re
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -12,11 +11,23 @@ from typing import Any
 import psycopg
 
 try:
+    from common.anchor_quality import (
+        extract_technical_tokens,
+        has_technical_marker,
+        is_valid_anchor_phrase,
+        normalize_anchor_text,
+    )
     from common.cohere_reranker import CohereReranker, load_cohere_rerank_config
     from common.embeddings import embed_text
     from common.local_retriever import RetrieverConfig, build_retriever_config, get_local_text_retriever, local_retriever_name
     from common.llm_client import LlmClient, load_stage_config
 except ModuleNotFoundError:  # pragma: no cover
+    from pipeline.common.anchor_quality import (
+        extract_technical_tokens,
+        has_technical_marker,
+        is_valid_anchor_phrase,
+        normalize_anchor_text,
+    )
     from pipeline.common.cohere_reranker import CohereReranker, load_cohere_rerank_config
     from pipeline.common.embeddings import embed_text
     from pipeline.common.local_retriever import RetrieverConfig, build_retriever_config, get_local_text_retriever, local_retriever_name
@@ -104,61 +115,20 @@ REWRITE_RESPONSE_SCHEMA: dict[str, Any] = {
     "additionalProperties": True,
 }
 
-ANCHOR_TOKEN_PATTERN = re.compile(r"[@A-Za-z0-9_./:$-]+")
-ANCHOR_STOPWORDS = {
-    "spring",
-    "security",
-    "framework",
-    "example",
-    "examples",
-    "config",
-    "configuration",
-}
-
-
 def _normalize_anchor_token(token: str) -> str:
-    normalized = str(token or "").strip().strip(".,;:!?()[]{}<>\"'`")
-    return normalized
+    return normalize_anchor_text(token)
 
 
 def _looks_technical_anchor(token: str) -> bool:
-    if len(token) < 3:
-        return False
-    if token.startswith("@"):
-        return True
-    if any(separator in token for separator in (".", "_", "-", "/", ":")):
-        return True
-    has_alpha = any(char.isalpha() for char in token)
-    has_digit = any(char.isdigit() for char in token)
-    if has_alpha and has_digit:
-        return True
-    if any(char.isupper() for char in token) and any(char.islower() for char in token):
-        return True
-    return False
+    return has_technical_marker(token)
 
 
-def _extract_anchor_tokens(text: str, *, max_items: int) -> list[str]:
-    if not text:
-        return []
-    collected: list[str] = []
-    seen: set[str] = set()
-    for raw_token in ANCHOR_TOKEN_PATTERN.findall(text):
-        token = _normalize_anchor_token(raw_token)
-        if not token:
-            continue
-        lowered = token.lower()
-        if lowered in ANCHOR_STOPWORDS:
-            continue
-        if not _looks_technical_anchor(token):
-            continue
-        key = lowered
-        if key in seen:
-            continue
-        seen.add(key)
-        collected.append(token)
-        if len(collected) >= max_items:
-            break
-    return collected
+def _extract_anchor_tokens(text: str, *, language_hint: str, max_items: int) -> list[str]:
+    return extract_technical_tokens(
+        text,
+        language_hint=language_hint,
+        max_items=max_items,
+    )
 
 
 def _build_rewrite_anchor_candidates(
@@ -175,6 +145,8 @@ def _build_rewrite_anchor_candidates(
         normalized = _normalize_anchor_token(anchor)
         if not normalized:
             return
+        if not is_valid_anchor_phrase(normalized, language_hint=query_language):
+            return
         key = normalized.lower()
         if key in seen:
             return
@@ -186,7 +158,7 @@ def _build_rewrite_anchor_candidates(
             payload["product"] = memory_row.get("product")
         anchors.append(payload)
 
-    for token in _extract_anchor_tokens(raw_query, max_items=4):
+    for token in _extract_anchor_tokens(raw_query, language_hint=query_language, max_items=4):
         add_anchor(token, "raw_query")
         if len(anchors) >= max_anchors:
             break
@@ -197,12 +169,18 @@ def _build_rewrite_anchor_candidates(
             for term in glossary_terms:
                 if not isinstance(term, str):
                     continue
+                if not _looks_technical_anchor(term):
+                    continue
                 add_anchor(term, "memory_glossary", memory_row)
                 if len(anchors) >= max_anchors:
                     break
         if len(anchors) >= max_anchors:
             break
-        for token in _extract_anchor_tokens(str(memory_row.get("query_text") or ""), max_items=3):
+        for token in _extract_anchor_tokens(
+            str(memory_row.get("query_text") or ""),
+            language_hint=query_language,
+            max_items=3,
+        ):
             add_anchor(token, "memory_query", memory_row)
             if len(anchors) >= max_anchors:
                 break
