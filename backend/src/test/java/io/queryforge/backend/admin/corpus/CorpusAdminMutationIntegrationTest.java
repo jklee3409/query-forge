@@ -5,6 +5,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.http.MediaType;
+import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
 import org.springframework.test.context.jdbc.Sql;
@@ -46,6 +47,9 @@ class CorpusAdminMutationIntegrationTest {
 
     @Autowired
     private MockMvc mockMvc;
+
+    @Autowired
+    private JdbcTemplate jdbcTemplate;
 
     @Test
     void glossaryPatchAndAliasCrudWork() throws Exception {
@@ -118,6 +122,36 @@ class CorpusAdminMutationIntegrationTest {
                 .andExpect(jsonPath("$.deletedEvidenceCount").value(2))
                 .andExpect(jsonPath("$.insertedEvidenceCount").value(greaterThanOrEqualTo(1)))
                 .andExpect(jsonPath("$.updatedTermCount").value(greaterThanOrEqualTo(1)));
+    }
+
+    @Test
+    void anchorReExtractionWithDocumentScopeRemovesDocumentAnchorsFirst() throws Exception {
+        jdbcTemplate.update("""
+                INSERT INTO corpus_glossary_evidence (
+                    evidence_id, term_id, document_id, chunk_id, matched_text, line_or_offset_info, import_run_id
+                ) VALUES (
+                    '55555555-5555-5555-5555-555555555553',
+                    '22222222-2222-2222-2222-222222222222',
+                    'doc_fixture_1',
+                    'chk_fixture_1',
+                    '@Value',
+                    '{"manual":true}'::jsonb,
+                    '11111111-1111-1111-1111-111111111111'
+                )
+                """);
+
+        mockMvc.perform(post("/api/admin/corpus/anchors/extract")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "documentIds": ["doc_fixture_1"],
+                                  "chunkIds": ["chk_fixture_2"]
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.targetChunkCount").value(2))
+                .andExpect(jsonPath("$.deletedEvidenceCount").value(3))
+                .andExpect(jsonPath("$.insertedEvidenceCount").value(greaterThanOrEqualTo(1)));
     }
 
     @Test

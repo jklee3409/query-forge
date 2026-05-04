@@ -103,8 +103,7 @@ public class AnchorExtractionService {
         if (!documentIds.isEmpty()) {
             sql.append(" AND c.document_id = ANY(:documentIds)");
             params.addValue("documentIds", documentIds.toArray(String[]::new));
-        }
-        if (!chunkIds.isEmpty()) {
+        } else if (!chunkIds.isEmpty()) {
             sql.append(" AND c.chunk_id = ANY(:chunkIds)");
             params.addValue("chunkIds", chunkIds.toArray(String[]::new));
         }
