@@ -34,6 +34,7 @@
 ---
 
 ## Recent Update
+- Admin pages now use section-scoped lazy loading for secondary data areas: `/admin/pipeline` Anchors + Anchor Eval history, `/admin/synthetic-queries` LLM jobs, `/admin/quality-gating` LLM jobs, and `/admin/rag-tests` rewrite logs + LLM jobs are fetched on demand instead of at initial mount.
 - `/admin/pipeline` now includes a paginated `Anchors` section with document/chunk/keyword filtering, and document/chunk filters use a custom searchable dropdown UI (`SelectDropdown`) instead of native select boxes.
 - `/admin/rag-tests` now has a `Test Name` input wired to backend `runName`, defaults `Retrieval Top-K` to `10`, and shows configured/legacy-stable names in run history and comparison UI instead of relying on generic Run A/Run B labels.
 - `/admin/rag-tests` retriever controls now use fixed mode presets: dense model is read-only (`intfloat/multilingual-e5-small`), Dense Required/Hash Fallback/Cohere Rerank checkboxes are removed, candidate pool is fixed at `50`, and mode weights are BM25 `0/1/0`, Dense `1/0/0`, Hybrid `0.60/0.32/0.08`.

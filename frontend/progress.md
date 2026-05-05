@@ -3,6 +3,12 @@
 ## Overview
 High-level progress tracking for the project.
 
+## [2026-05-05] Session Summary (Admin Sections Lazy/On-Demand Loading)
+- What was done: Refactored admin pages to reduce eager data loading on initial mount. `PipelinePage.jsx` now lazy-loads Anchors and Anchor Eval run history; Anchor filter document options are fetched when the document dropdown is opened (`SelectDropdown` `onOpen`). `SyntheticPage.jsx`, `GatingPage.jsx`, and `RagPage.jsx` now defer LLM job fetches until the user explicitly loads that section.
+- Key decisions: Kept API compatibility and existing behavior patterns by reusing current endpoints and query params; introduced only UI-layer `loaded/loading` states and section-scoped refresh logic.
+- Issues encountered: Existing `GatingPage.jsx` Vite/esbuild warnings for literal `->` option labels remain pre-existing and unrelated; production build still succeeds.
+- Next steps: Validate real operator workflows for lazy-loaded sections and adjust default auto-refresh scope if more immediate visibility is needed.
+
 ## [2026-05-04] Session Summary (Frontend Documentation Realignment)
 - What was done: Replaced template-style `frontend/README.md` with project-specific 운영 문서 and updated `frontend/index.md` wording for strategy/method filtering to match DB-driven method handling.
 - Key decisions: Kept docs focused on current route structure (`/admin/pipeline|synthetic-queries|quality-gating|rag-tests`) and existing UI responsibilities/API integration.

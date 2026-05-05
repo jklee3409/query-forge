@@ -3,6 +3,12 @@
 ## Overview
 High-level progress tracking for the project.
 
+## [2026-05-05] Session Summary (Admin GUI Lazy Loading Refactor)
+- What was done: Reviewed admin frontend data-fetch patterns and refactored `/admin/pipeline`, `/admin/synthetic-queries`, `/admin/quality-gating`, and `/admin/rag-tests` to reduce eager initial fetches. Implemented on-demand loading for heavy secondary sections while keeping existing API contracts unchanged.
+- Key decisions: Prioritized minimal frontend-only changes and preserved endpoint/query compatibility (`limit/offset`, existing filters, existing request bodies). Added lazy section states (`loaded/loading`) and explicit user-triggered fetch paths rather than backend/API redesign.
+- Issues encountered: Existing JSX text warnings in `GatingPage.jsx` (`->` inside option labels) remain pre-existing and unchanged; frontend build completes successfully.
+- Next steps: Validate operator UX in live admin flow and tune which sections auto-refresh post-run based on usage feedback.
+
 ## [2026-05-04] Session Summary (Anchor Re-extraction Document Scope Deletion Guarantee)
 - What was done: Reviewed backend anchor re-extraction delete scope and updated `AnchorExtractionService` so `documentIds` takes precedence over `chunkIds` when selecting re-extraction targets. This guarantees existing anchor evidence for the selected document(s) is removed before re-extraction. Added integration coverage for mixed request (`documentIds + chunkIds`) to verify document-wide delete behavior.
 - Key decisions: Kept chunk-scoped re-extraction behavior unchanged for chunk-only requests; changed only mixed-scope precedence to satisfy document re-extraction consistency.
