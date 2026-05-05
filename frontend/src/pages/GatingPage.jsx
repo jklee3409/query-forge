@@ -15,6 +15,8 @@ export function GatingPage({ notify }) {
   const [results, setResults] = useState([])
   const [funnel, setFunnel] = useState(null)
   const [llmJobs, setLlmJobs] = useState([])
+  const [llmJobsLoaded, setLlmJobsLoaded] = useState(false)
+  const [llmJobsLoading, setLlmJobsLoading] = useState(false)
   const [selectedBatchId, setSelectedBatchId] = useState('')
   const [resultFilter, setResultFilter] = useState({ methodCode: '', generationBatchId: '', gatingBatchId: '', passStage: '' })
   const [funnelFilter, setFunnelFilter] = useState({ methodCode: '', generationBatchId: '', gatingBatchId: '' })
@@ -156,13 +158,19 @@ export function GatingPage({ notify }) {
   }
 
   const loadLlmJobs = async () => {
-    const rows = await requestJson('/api/admin/console/llm-jobs?limit=120')
-    const filtered = (Array.isArray(rows) ? rows : []).filter((job) => job.jobType === 'RUN_LLM_SELF_EVAL' || job.gatingBatchId)
-    setLlmJobs(filtered)
+    setLlmJobsLoading(true)
+    try {
+      const rows = await requestJson('/api/admin/console/llm-jobs?limit=120')
+      const filtered = (Array.isArray(rows) ? rows : []).filter((job) => job.jobType === 'RUN_LLM_SELF_EVAL' || job.gatingBatchId)
+      setLlmJobs(filtered)
+      setLlmJobsLoaded(true)
+    } finally {
+      setLlmJobsLoading(false)
+    }
   }
 
   useEffect(() => {
-    Promise.all([loadSelectors(), loadGatingBatches(), loadLlmJobs()]).catch((error) => notify(error.message, 'error'))
+    Promise.all([loadSelectors(), loadGatingBatches()]).catch((error) => notify(error.message, 'error'))
   }, [])
 
   useEffect(() => {
@@ -269,7 +277,11 @@ export function GatingPage({ notify }) {
           },
         }),
       })
-      await Promise.all([loadGatingBatches(), loadLlmJobs()])
+      const refreshTasks = [loadGatingBatches()]
+      if (llmJobsLoaded) {
+        refreshTasks.push(loadLlmJobs())
+      }
+      await Promise.all(refreshTasks)
       notify('Quality Gating 배치를 등록했습니다.')
     } catch (error) {
       notify(error.message, 'error')
@@ -575,7 +587,7 @@ export function GatingPage({ notify }) {
       </section>
 
       <section className="table-shell">
-        <div className="table-header"><div className="table-title">게이팅 배치 이력</div><button type="button" className="button" onClick={() => Promise.all([loadGatingBatches(), loadLlmJobs()]).catch((error) => notify(error.message, 'error'))}>새로고침</button></div>
+        <div className="table-header"><div className="table-title">게이팅 배치 이력</div><button type="button" className="button" onClick={() => loadGatingBatches().catch((error) => notify(error.message, 'error'))}>새로고침</button></div>
         <div className="table-wrap">
           <table className="data-table">
             <thead><tr><th>게이팅 배치 ID</th><th>프리셋</th><th>방식</th><th>상태</th><th>처리 수</th><th>승인 수</th><th>승인률</th><th>상세</th></tr></thead>
@@ -610,7 +622,14 @@ export function GatingPage({ notify }) {
         </div>
       </section>
 
-      <LlmJobsTable jobs={llmJobs} onAction={executeLlmAction} onDetail={openJobDetail} />
+      <LlmJobsTable
+        jobs={llmJobs}
+        onAction={executeLlmAction}
+        onDetail={openJobDetail}
+        loaded={llmJobsLoaded}
+        loading={llmJobsLoading}
+        onLoad={() => loadLlmJobs().catch((error) => notify(error.message, 'error'))}
+      />
 
       <section className="table-shell">
         <div className="table-header"><div className="table-title">게이팅 퍼널</div></div>

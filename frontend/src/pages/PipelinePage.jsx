@@ -23,15 +23,20 @@ export function PipelinePage({ notify }) {
   const [modal, setModal] = useState(null)
   const [busyRunType, setBusyRunType] = useState('')
   const [anchorEvalRuns, setAnchorEvalRuns] = useState([])
+  const [anchorEvalRunsLoaded, setAnchorEvalRunsLoaded] = useState(false)
+  const [anchorEvalRunsLoading, setAnchorEvalRunsLoading] = useState(false)
   const [anchorEvalBusy, setAnchorEvalBusy] = useState(false)
   const [anchorEvalDetailBusy, setAnchorEvalDetailBusy] = useState(false)
   const [anchorEvalScopeDocuments, setAnchorEvalScopeDocuments] = useState([])
   const [anchorEvalScopeChunks, setAnchorEvalScopeChunks] = useState([])
   const [anchorEvalLoadingScope, setAnchorEvalLoadingScope] = useState(false)
   const [anchors, setAnchors] = useState([])
+  const [anchorListLoaded, setAnchorListLoaded] = useState(false)
+  const [anchorListLoading, setAnchorListLoading] = useState(false)
   const [anchorPage, setAnchorPage] = useState(0)
   const [anchorHasNextPage, setAnchorHasNextPage] = useState(false)
   const [anchorFilterDocuments, setAnchorFilterDocuments] = useState([])
+  const [anchorFilterDocumentsLoaded, setAnchorFilterDocumentsLoaded] = useState(false)
   const [anchorFilterChunks, setAnchorFilterChunks] = useState([])
   const [anchorFilterLoading, setAnchorFilterLoading] = useState(false)
   const [anchorFilters, setAnchorFilters] = useState({
@@ -116,8 +121,14 @@ export function PipelinePage({ notify }) {
   }
 
   const loadAnchorEvalRuns = async () => {
-    const payload = await requestJson('/api/admin/corpus/anchors/eval/runs?limit=20&offset=0')
-    setAnchorEvalRuns(Array.isArray(payload) ? payload : [])
+    setAnchorEvalRunsLoading(true)
+    try {
+      const payload = await requestJson('/api/admin/corpus/anchors/eval/runs?limit=20&offset=0')
+      setAnchorEvalRuns(Array.isArray(payload) ? payload : [])
+      setAnchorEvalRunsLoaded(true)
+    } finally {
+      setAnchorEvalRunsLoading(false)
+    }
   }
 
   const loadAnchorEvalScopeDocuments = async (sourceId, productName) => {
@@ -161,6 +172,17 @@ export function PipelinePage({ notify }) {
     setAnchorFilterDocuments(Array.isArray(payload) ? payload : [])
   }
 
+  const ensureAnchorFilterDocumentsLoaded = async () => {
+    if (anchorFilterDocumentsLoaded) return
+    setAnchorFilterLoading(true)
+    try {
+      await loadAnchorFilterDocuments()
+      setAnchorFilterDocumentsLoaded(true)
+    } finally {
+      setAnchorFilterLoading(false)
+    }
+  }
+
   const loadAnchorFilterChunks = async (documentId) => {
     if (!documentId) {
       setAnchorFilterChunks([])
@@ -177,18 +199,24 @@ export function PipelinePage({ notify }) {
   }
 
   const loadAnchors = async (nextFilters = anchorFilters, page = anchorPage) => {
-    const query = queryString({
-      document_id: nextFilters.documentId || undefined,
-      chunk_id: nextFilters.chunkId || undefined,
-      keyword: nextFilters.keyword || undefined,
-      active_only: true,
-      limit: anchorPageSize + 1,
-      offset: page * anchorPageSize,
-    })
-    const payload = await requestJson(`/api/admin/corpus/anchors${query ? `?${query}` : ''}`)
-    const normalized = Array.isArray(payload) ? payload : []
-    setAnchorHasNextPage(normalized.length > anchorPageSize)
-    setAnchors(normalized.slice(0, anchorPageSize))
+    setAnchorListLoading(true)
+    try {
+      const query = queryString({
+        document_id: nextFilters.documentId || undefined,
+        chunk_id: nextFilters.chunkId || undefined,
+        keyword: nextFilters.keyword || undefined,
+        active_only: true,
+        limit: anchorPageSize + 1,
+        offset: page * anchorPageSize,
+      })
+      const payload = await requestJson(`/api/admin/corpus/anchors${query ? `?${query}` : ''}`)
+      const normalized = Array.isArray(payload) ? payload : []
+      setAnchorHasNextPage(normalized.length > anchorPageSize)
+      setAnchors(normalized.slice(0, anchorPageSize))
+      setAnchorListLoaded(true)
+    } finally {
+      setAnchorListLoading(false)
+    }
   }
 
   const handleAnchorFilterDocumentChange = async (documentId) => {
@@ -280,9 +308,6 @@ export function PipelinePage({ notify }) {
       loadRuns(0),
       loadSources(),
       loadDocuments(filters, 0),
-      loadAnchorEvalRuns(),
-      loadAnchorFilterDocuments(),
-      loadAnchors({ documentId: '', chunkId: '', keyword: '' }, 0),
     ]).catch((error) => notify(error.message, 'error'))
   }, [])
 
@@ -772,6 +797,7 @@ export function PipelinePage({ notify }) {
           <button
             type="button"
             className="button"
+            disabled={anchorListLoading}
             onClick={() => loadAnchors(anchorFilters, anchorPage).catch((error) => notify(error.message, 'error'))}
           >
             새로고침
@@ -790,6 +816,9 @@ export function PipelinePage({ notify }) {
               <SelectDropdown
                 value={anchorFilters.documentId}
                 options={anchorDocumentOptions}
+                onOpen={() => {
+                  ensureAnchorFilterDocumentsLoaded().catch((error) => notify(error.message, 'error'))
+                }}
                 onChange={(nextDocumentId) => {
                   handleAnchorFilterDocumentChange(nextDocumentId).catch((error) => notify(error.message, 'error'))
                 }}
@@ -822,7 +851,7 @@ export function PipelinePage({ notify }) {
             </label>
           </div>
           <div className="form-actions">
-            <button type="submit" className="button button--primary">조회</button>
+            <button type="submit" className="button button--primary" disabled={anchorListLoading}>조회</button>
             <button type="button" className="button" onClick={() => resetAnchorFilters().catch((error) => notify(error.message, 'error'))}>
               초기화
             </button>
@@ -834,7 +863,12 @@ export function PipelinePage({ notify }) {
               <tr><th>Anchor</th><th>Type</th><th>Confidence</th><th>Evidence</th><th>First Seen</th><th>Updated</th></tr>
             </thead>
             <tbody>
-              {anchors.map((anchor) => (
+              {!anchorListLoaded && (
+                <tr>
+                  <td colSpan={6}>Anchor list is lazy-loaded. Click refresh or run a filter search.</td>
+                </tr>
+              )}
+              {anchorListLoaded && anchors.map((anchor) => (
                 <tr key={anchor.termId}>
                   <td>
                     <div>{anchor.canonicalForm}</div>
@@ -850,7 +884,7 @@ export function PipelinePage({ notify }) {
                   <td>{fmtTime(anchor.updatedAt)}</td>
                 </tr>
               ))}
-              {anchors.length === 0 && (
+              {anchorListLoaded && anchors.length === 0 && (
                 <tr>
                   <td colSpan={6}>조회 결과가 없습니다.</td>
                 </tr>
@@ -862,7 +896,7 @@ export function PipelinePage({ notify }) {
           <button
             type="button"
             className="button"
-            disabled={anchorPage === 0}
+            disabled={!anchorListLoaded || anchorPage === 0}
             onClick={() => {
               const nextPage = Math.max(0, anchorPage - 1)
               setAnchorPage(nextPage)
@@ -873,7 +907,7 @@ export function PipelinePage({ notify }) {
           <button
             type="button"
             className="button"
-            disabled={!anchorHasNextPage}
+            disabled={!anchorListLoaded || !anchorHasNextPage}
             onClick={() => {
               const nextPage = anchorPage + 1
               setAnchorPage(nextPage)
@@ -973,7 +1007,12 @@ export function PipelinePage({ notify }) {
               <tr><th>run</th><th>scope</th><th>samples</th><th>metrics</th><th>created</th><th>detail</th></tr>
             </thead>
             <tbody>
-              {anchorEvalRuns.map((run) => (
+              {!anchorEvalRunsLoaded && (
+                <tr>
+                  <td colSpan={6}>{anchorEvalRunsLoading ? 'Loading Anchor Eval runs...' : 'Anchor Eval history is lazy-loaded. Click refresh to load runs.'}</td>
+                </tr>
+              )}
+              {anchorEvalRunsLoaded && anchorEvalRuns.map((run) => (
                 <tr key={run.runId}>
                   <td>{run.runName}</td>
                   <td>{run.productName || '-'} / {run.sourceId || '-'}</td>
@@ -983,6 +1022,11 @@ export function PipelinePage({ notify }) {
                   <td><button type="button" className="button button--ghost" disabled={anchorEvalDetailBusy} onClick={() => openAnchorEvalRunDetail(run.runId)}>열기</button></td>
                 </tr>
               ))}
+              {anchorEvalRunsLoaded && anchorEvalRuns.length === 0 && (
+                <tr>
+                  <td colSpan={6}>No Anchor Eval runs found.</td>
+                </tr>
+              )}
             </tbody>
           </table>
         </div>

@@ -885,7 +885,11 @@ export function RagPage({ notify }) {
   const [tests, setTests] = useState([])
   const [gatingBatches, setGatingBatches] = useState([])
   const [rewriteLogs, setRewriteLogs] = useState([])
+  const [rewriteLogsLoaded, setRewriteLogsLoaded] = useState(false)
+  const [rewriteLogsLoading, setRewriteLogsLoading] = useState(false)
   const [llmJobs, setLlmJobs] = useState([])
+  const [llmJobsLoaded, setLlmJobsLoaded] = useState(false)
+  const [llmJobsLoading, setLlmJobsLoading] = useState(false)
   const [historyPage, setHistoryPage] = useState(0)
   const [modal, setModal] = useState(null)
   const [selectedMethods, setSelectedMethods] = useState([])
@@ -946,18 +950,30 @@ export function RagPage({ notify }) {
   }
 
   const loadRewriteLogs = async () => {
-    const rows = await requestJson('/api/admin/console/rewrite/logs?limit=100')
-    setRewriteLogs(Array.isArray(rows) ? rows : [])
+    setRewriteLogsLoading(true)
+    try {
+      const rows = await requestJson('/api/admin/console/rewrite/logs?limit=100')
+      setRewriteLogs(Array.isArray(rows) ? rows : [])
+      setRewriteLogsLoaded(true)
+    } finally {
+      setRewriteLogsLoading(false)
+    }
   }
 
   const loadLlmJobs = async () => {
-    const rows = await requestJson('/api/admin/console/llm-jobs?limit=120')
-    const filtered = (Array.isArray(rows) ? rows : []).filter((job) => job.jobType === 'RUN_RAG_TEST' || job.ragTestRunId)
-    setLlmJobs(filtered)
+    setLlmJobsLoading(true)
+    try {
+      const rows = await requestJson('/api/admin/console/llm-jobs?limit=120')
+      const filtered = (Array.isArray(rows) ? rows : []).filter((job) => job.jobType === 'RUN_RAG_TEST' || job.ragTestRunId)
+      setLlmJobs(filtered)
+      setLlmJobsLoaded(true)
+    } finally {
+      setLlmJobsLoading(false)
+    }
   }
 
   useEffect(() => {
-    Promise.all([loadMethods(), loadDatasets(), loadTests(), loadGatingBatches(), loadRewriteLogs(), loadLlmJobs()]).catch((error) => notify(error.message, 'error'))
+    Promise.all([loadMethods(), loadDatasets(), loadTests(), loadGatingBatches()]).catch((error) => notify(error.message, 'error'))
   }, [])
 
   useEffect(() => {
@@ -1263,7 +1279,14 @@ export function RagPage({ notify }) {
           },
         }),
       })
-      await Promise.all([loadTests(), loadRewriteLogs(), loadLlmJobs(), loadGatingBatches()])
+      const refreshTasks = [loadTests(), loadGatingBatches()]
+      if (rewriteLogsLoaded) {
+        refreshTasks.push(loadRewriteLogs())
+      }
+      if (llmJobsLoaded) {
+        refreshTasks.push(loadLlmJobs())
+      }
+      await Promise.all(refreshTasks)
       notify('RAG 테스트를 실행했습니다.')
       openRunDetail(created.ragTestRunId)
     } catch (error) {
@@ -1382,7 +1405,14 @@ export function RagPage({ notify }) {
     try {
       await requestJson(`/api/admin/console/rag/tests/${runId}`, { method: 'DELETE' })
       setCompareRunIds((prev) => prev.filter((id) => id !== runId))
-      await Promise.all([loadTests(), loadRewriteLogs(), loadLlmJobs()])
+      const refreshTasks = [loadTests()]
+      if (rewriteLogsLoaded) {
+        refreshTasks.push(loadRewriteLogs())
+      }
+      if (llmJobsLoaded) {
+        refreshTasks.push(loadLlmJobs())
+      }
+      await Promise.all(refreshTasks)
       notify('RAG 테스트 이력 및 결과를 삭제했습니다.')
     } catch (error) {
       notify(error.message, 'error')
@@ -1874,7 +1904,7 @@ export function RagPage({ notify }) {
 
           <div className="form-actions">
             <button type="submit" className="button button--primary">테스트 실행</button>
-            <button type="button" className="button" onClick={() => Promise.all([loadTests(), loadRewriteLogs(), loadLlmJobs(), loadGatingBatches()]).catch((error) => notify(error.message, 'error'))}>목록 새로고침</button>
+            <button type="button" className="button" onClick={() => Promise.all([loadTests(), loadGatingBatches()]).catch((error) => notify(error.message, 'error'))}>목록 새로고침</button>
           </div>
         </form>
       </section>
@@ -2129,7 +2159,7 @@ export function RagPage({ notify }) {
       <section className="table-shell">
         <div className="table-header">
           <div className="table-title">RAG 테스트 실행 이력</div>
-          <button type="button" className="button" onClick={() => Promise.all([loadTests(), loadRewriteLogs(), loadLlmJobs(), loadGatingBatches()]).catch((error) => notify(error.message, 'error'))}>새로고침</button>
+          <button type="button" className="button" onClick={() => Promise.all([loadTests(), loadGatingBatches()]).catch((error) => notify(error.message, 'error'))}>새로고침</button>
         </div>
         <div className="table-wrap">
           <table className="data-table rag-history-table">
@@ -2265,29 +2295,55 @@ export function RagPage({ notify }) {
         </div>
       </section>
 
-      <LlmJobsTable jobs={llmJobs} onAction={executeLlmAction} onDetail={openJobDetail} />
+      <LlmJobsTable
+        jobs={llmJobs}
+        onAction={executeLlmAction}
+        onDetail={openJobDetail}
+        loaded={llmJobsLoaded}
+        loading={llmJobsLoading}
+        onLoad={() => loadLlmJobs().catch((error) => notify(error.message, 'error'))}
+      />
 
       <section className="table-shell">
-        <div className="table-header"><div className="table-title">Rewrite 디버그 로그</div></div>
-        <div className="table-wrap">
-          <table className="data-table">
-            <thead><tr><th>rewrite_log_id</th><th>raw_query</th><th>final_query</th><th>전략</th><th>적용</th><th>delta</th><th>결정 사유</th><th>상세</th></tr></thead>
-            <tbody>
-              {rewriteLogs.map((row) => (
-                <tr key={row.rewriteLogId}>
-                  <td><IdBadge value={row.rewriteLogId} /></td>
-                  <td>{row.rawQuery || '-'}</td>
-                  <td>{row.finalQuery || '-'}</td>
-                  <td>{row.rewriteStrategy || '-'}</td>
-                  <td>{row.rewriteApplied ? <StatusBadge value="success" label="적용" /> : <StatusBadge value="failed" label="미적용" />}</td>
-                  <td>{row.confidenceDelta == null ? '-' : Number(row.confidenceDelta).toFixed(4)}</td>
-                  <td>{row.decisionReason || row.rejectionReason || '-'}</td>
-                  <td><button type="button" className="button button--ghost" onClick={() => openRewriteDetail(row.rewriteLogId)}>상세 조회</button></td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        <div className="table-header">
+          <div className="table-title">Rewrite 디버그 로그</div>
+          <button
+            type="button"
+            className="button"
+            disabled={rewriteLogsLoading}
+            onClick={() => loadRewriteLogs().catch((error) => notify(error.message, 'error'))}
+          >
+            {rewriteLogsLoading ? 'Loading...' : (rewriteLogsLoaded ? '새로고침' : '불러오기')}
+          </button>
         </div>
+        {!rewriteLogsLoaded && !rewriteLogsLoading ? (
+          <div className="empty-state">Rewrite logs are lazy-loaded. Click &quot;불러오기&quot; when needed.</div>
+        ) : (
+          <div className="table-wrap">
+            <table className="data-table">
+              <thead><tr><th>rewrite_log_id</th><th>raw_query</th><th>final_query</th><th>전략</th><th>적용</th><th>delta</th><th>결정 사유</th><th>상세</th></tr></thead>
+              <tbody>
+                {rewriteLogs.map((row) => (
+                  <tr key={row.rewriteLogId}>
+                    <td><IdBadge value={row.rewriteLogId} /></td>
+                    <td>{row.rawQuery || '-'}</td>
+                    <td>{row.finalQuery || '-'}</td>
+                    <td>{row.rewriteStrategy || '-'}</td>
+                    <td>{row.rewriteApplied ? <StatusBadge value="success" label="적용" /> : <StatusBadge value="failed" label="미적용" />}</td>
+                    <td>{row.confidenceDelta == null ? '-' : Number(row.confidenceDelta).toFixed(4)}</td>
+                    <td>{row.decisionReason || row.rejectionReason || '-'}</td>
+                    <td><button type="button" className="button button--ghost" onClick={() => openRewriteDetail(row.rewriteLogId)}>상세 조회</button></td>
+                  </tr>
+                ))}
+                {rewriteLogsLoaded && rewriteLogs.length === 0 && (
+                  <tr>
+                    <td colSpan={8}>No rewrite logs found.</td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        )}
       </section>
 
       <Modal data={modal} onClose={() => setModal(null)} />

@@ -17,6 +17,8 @@ export function SyntheticPage({ notify }) {
   const [queries, setQueries] = useState([])
   const [stats, setStats] = useState({ byMethod: [], byQueryType: [] })
   const [llmJobs, setLlmJobs] = useState([])
+  const [llmJobsLoaded, setLlmJobsLoaded] = useState(false)
+  const [llmJobsLoading, setLlmJobsLoading] = useState(false)
   const [historyPage, setHistoryPage] = useState(0)
   const [queryPage, setQueryPage] = useState(0)
   const [hasNextPage, setHasNextPage] = useState(false)
@@ -102,13 +104,19 @@ export function SyntheticPage({ notify }) {
   }
 
   const loadLlmJobs = async () => {
-    const rows = await requestJson('/api/admin/console/llm-jobs?limit=120')
-    const filtered = (Array.isArray(rows) ? rows : []).filter((job) => job.jobType === 'GENERATE_SYNTHETIC_QUERY' || job.generationBatchId)
-    setLlmJobs(filtered)
+    setLlmJobsLoading(true)
+    try {
+      const rows = await requestJson('/api/admin/console/llm-jobs?limit=120')
+      const filtered = (Array.isArray(rows) ? rows : []).filter((job) => job.jobType === 'GENERATE_SYNTHETIC_QUERY' || job.generationBatchId)
+      setLlmJobs(filtered)
+      setLlmJobsLoaded(true)
+    } finally {
+      setLlmJobsLoading(false)
+    }
   }
 
   useEffect(() => {
-    Promise.all([loadMethods(), loadBatches(), loadSources(), loadLlmJobs()])
+    Promise.all([loadMethods(), loadBatches(), loadSources()])
       .then(() => Promise.all([loadQueries(0), loadStats()]))
       .catch((error) => notify(error.message, 'error'))
   }, [])
@@ -156,7 +164,11 @@ export function SyntheticPage({ notify }) {
           llmRpm: toNumber(runForm.llmRpm),
         }),
       })
-      await Promise.all([loadBatches(), loadStats(), loadQueries(queryPage), loadLlmJobs()])
+      const refreshTasks = [loadBatches(), loadStats(), loadQueries(queryPage)]
+      if (llmJobsLoaded) {
+        refreshTasks.push(loadLlmJobs())
+      }
+      await Promise.all(refreshTasks)
       notify('합성 질의 생성 배치를 등록했습니다.')
     } catch (error) {
       notify(error.message, 'error')
@@ -327,7 +339,14 @@ export function SyntheticPage({ notify }) {
         </div>
       </section>
 
-      <LlmJobsTable jobs={llmJobs} onAction={executeLlmAction} onDetail={openJobDetail} />
+      <LlmJobsTable
+        jobs={llmJobs}
+        onAction={executeLlmAction}
+        onDetail={openJobDetail}
+        loaded={llmJobsLoaded}
+        loading={llmJobsLoading}
+        onLoad={() => loadLlmJobs().catch((error) => notify(error.message, 'error'))}
+      />
 
       <section className="table-shell">
         <div className="table-header"><div className="table-title">합성 질의 조회</div></div>

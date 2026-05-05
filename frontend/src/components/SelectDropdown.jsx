@@ -9,6 +9,7 @@ export function SelectDropdown({
   emptyLabel = '선택 가능한 항목이 없습니다.',
   searchPlaceholder = '검색어 입력...',
   disabled = false,
+  onOpen = null,
 }) {
   const shellRef = useRef(null)
   const [open, setOpen] = useState(false)
@@ -60,12 +61,23 @@ export function SelectDropdown({
     close()
   }
 
+  const toggleOpen = () => {
+    const nextOpen = !open
+    if (nextOpen && typeof onOpen === 'function') {
+      onOpen()
+    }
+    if (!nextOpen) {
+      setQuery('')
+    }
+    setOpen(nextOpen)
+  }
+
   return (
     <div className={`custom-dropdown ${open ? 'is-open' : ''}`} ref={shellRef}>
       <button
         type="button"
         className="custom-dropdown__trigger"
-        onClick={() => setOpen((prev) => !prev)}
+        onClick={toggleOpen}
         disabled={disabled}
       >
         <span className="custom-dropdown__trigger-label">{selected?.label || placeholder}</span>

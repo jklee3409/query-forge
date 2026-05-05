@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { IdBadge, StatusBadge } from './Common.jsx'
 
-export function LlmJobsTable({ jobs, onAction, onDetail }) {
+export function LlmJobsTable({ jobs, onAction, onDetail, loaded = true, loading = false, onLoad = null }) {
   const pageSize = 3
   const [page, setPage] = useState(0)
   const normalizedJobs = Array.isArray(jobs) ? jobs : []
@@ -16,10 +16,31 @@ export function LlmJobsTable({ jobs, onAction, onDetail }) {
     if (page !== currentPage) setPage(currentPage)
   }, [page, currentPage])
 
+  if (!loaded && !loading) {
+    return (
+      <section className="table-shell">
+        <div className="table-header">
+          <div className="table-title">LLM Async Job Status</div>
+          {onLoad && (
+            <button type="button" className="button" onClick={onLoad}>
+              불러오기
+            </button>
+          )}
+        </div>
+        <div className="empty-state">LLM jobs are lazy-loaded. Click &quot;불러오기&quot; when needed.</div>
+      </section>
+    )
+  }
+
   return (
     <section className="table-shell">
       <div className="table-header">
         <div className="table-title">LLM 비동기 JOB 상태</div>
+        {onLoad && (
+          <button type="button" className="button" disabled={loading} onClick={onLoad}>
+            {loading ? 'Loading...' : (loaded ? '새로고침' : '불러오기')}
+          </button>
+        )}
       </div>
       <div className="table-wrap">
         <table className="data-table">
