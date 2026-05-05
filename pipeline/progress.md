@@ -3,6 +3,12 @@
 ## Overview
 High-level pipeline progress tracking.
 
+## [2026-05-06] Session Summary (Selective Rewrite Terminology Hints Phase-1)
+- What was done: Extended `eval/runtime.py::build_rewrite_candidates_v2` to include a compact `terminology_hints` payload (when anchor injection is enabled) built from raw-query technical tokens, top memory glossary terms, and top memory query technical tokens.
+- Key decisions: Preserved existing `anchor_candidates` and `anchor_terms`; added bounded + deduplicated + technical/noise-filtered hint collection with safe default cap (`12`) and optional runtime override (`rewrite_terminology_hints_max_count`).
+- Issues encountered: None.
+- Next steps: Validate retrieval impact with same-snapshot experiments while holding retriever/threshold constant; monitor rewrite adoption and latency overhead.
+
 ## [2026-05-04] Session Summary (Anchor Extraction Quality Gate Upgrade)
 - What was done: Strengthened `preprocess/chunk_docs.py` concept-anchor extraction with high-confidence filtering (technical-marker/hint 기반), Korean Kiwi candidate narrowing (`NNG/NNP`, up to bigram), and stricter generic/helper token rejection. Added shared anchor quality tests in `tests/test_anchor_quality.py` and expanded rewrite payload test coverage for Korean functional phrase exclusion.
 - Key decisions: Kept extractor entrypoint unchanged (`extract_glossary_terms`) so chunk ingest extraction and backend re-extraction (`extract-anchor-candidates`) continue to share the exact same logic path.

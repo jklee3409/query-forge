@@ -3,6 +3,12 @@
 ## Overview
 High-level progress tracking for the project.
 
+## [2026-05-06] Session Summary (Proposal 1 Phase-1: Terminology-aware Selective Rewrite Strengthening)
+- What was done: Implemented phase-1 terminology-aware selective rewrite strengthening without changing pipeline order or A/B/C/D/E separation. Added bounded `terminology_hints` payload generation in `pipeline/eval/runtime.py` from raw query technical tokens + top memory glossary terms + top memory query technical tokens, with aggressive dedup/filtering and optional max-count control (`rewrite_terminology_hints_max_count`).
+- Key decisions: Kept existing `anchor_candidates`/`anchor_terms` behavior and injected `terminology_hints` only when `rewrite_anchor_injection_enabled=true` so Admin workflows and rewrite-off controls remain unchanged. Wired the max-count option through retrieval/answer eval runtime config as optional.
+- Issues encountered: None.
+- Next steps: Run same snapshot/dataset A/B retrieval comparisons with only terminology-aware rewrite payload toggles and inspect adoption-rate / bad-rewrite-rate / latency delta.
+
 ## [2026-05-05] Session Summary (Admin GUI Lazy Loading Refactor)
 - What was done: Reviewed admin frontend data-fetch patterns and refactored `/admin/pipeline`, `/admin/synthetic-queries`, `/admin/quality-gating`, and `/admin/rag-tests` to reduce eager initial fetches. Implemented on-demand loading for heavy secondary sections while keeping existing API contracts unchanged.
 - Key decisions: Prioritized minimal frontend-only changes and preserved endpoint/query compatibility (`limit/offset`, existing filters, existing request bodies). Added lazy section states (`loaded/loading`) and explicit user-triggered fetch paths rather than backend/API redesign.

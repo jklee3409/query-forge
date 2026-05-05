@@ -33,5 +33,8 @@
 
 ---
 
+## Recent Notes
+- selective rewrite v2 prompt now consumes `terminology_hints` and enforces verbatim preservation for intent-compatible technical tokens.
+
 ## Notes
 - Update this file when structure or responsibilities change

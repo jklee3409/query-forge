@@ -3,6 +3,12 @@
 ## Overview
 High-level progress tracking for the project.
 
+## [2026-05-06] Session Summary (Selective Rewrite Prompt v2 Terminology-Hint Policy)
+- What was done: Updated `prompts/rewrite/selective_rewrite_v2.md` to accept `terminology_hints` input and explicitly preserve hint tokens verbatim when intent-compatible.
+- Key decisions: Kept existing concise retrieval-query style constraints and added explicit prohibition against long pseudo-document final queries.
+- Issues encountered: None.
+- Next steps: Compare prompt-only effect with fixed snapshot/retriever/threshold to verify bad rewrite reduction and adoption quality.
+
 ## [2026-05-04] Session Summary (Configs README Current-State Sync)
 - What was done: Updated `configs/README.md` to reflect active experiment/prompt usage (admin batch presets, `gen_e_v1`, `selective_rewrite_v2` priority, source presets) instead of scaffold-stage wording.
 - Key decisions: Preserved existing configuration principles (no hardcoding, reproducibility-first) while aligning examples to currently tracked files.
