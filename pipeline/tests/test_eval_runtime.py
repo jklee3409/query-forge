@@ -191,17 +191,24 @@ class EvalRuntimeRewriteTests(unittest.TestCase):
                 session_context={},
                 candidate_count=1,
                 query_language="ko",
+                rewrite_terminology_hints_max_count=3,
             )
 
         self.assertEqual(len(candidates), 1)
         payload = json.loads(fake_client.last_user_prompt)
         anchor_candidates = payload.get("anchor_candidates") or []
         anchor_terms = payload.get("anchor_terms") or []
+        terminology_hints = payload.get("terminology_hints") or {}
+        terminology_terms = terminology_hints.get("terms") or []
         self.assertGreaterEqual(len(anchor_candidates), 1)
         self.assertIn("DigestAuthenticationFilter", anchor_terms)
         self.assertNotIn("수 있습니다", anchor_terms)
         self.assertNotIn("지원합니다", anchor_terms)
         self.assertTrue(any(item.get("source") == "memory_glossary" for item in anchor_candidates))
+        self.assertIn("DigestAuthenticationFilter", terminology_terms)
+        self.assertNotIn("수 있습니다", terminology_terms)
+        self.assertNotIn("지원합니다", terminology_terms)
+        self.assertLessEqual(len(terminology_terms), 3)
 
     def test_rewrite_payload_skips_anchor_when_disabled(self) -> None:
         class _FakeRewriteClient:
@@ -244,6 +251,7 @@ class EvalRuntimeRewriteTests(unittest.TestCase):
         payload = json.loads(fake_client.last_user_prompt)
         self.assertNotIn("anchor_candidates", payload)
         self.assertNotIn("anchor_terms", payload)
+        self.assertNotIn("terminology_hints", payload)
 
 
 if __name__ == "__main__":

@@ -133,6 +133,7 @@ def _evaluate_answer_sample(
             force_rewrite=not selective_rewrite,
             rewrite_retrieval_strategy=str(config.raw.get("rewrite_retrieval_strategy") or "replace"),
             rewrite_anchor_injection_enabled=_is_rewrite_anchor_injection_enabled(config.raw),
+            rewrite_terminology_hints_max_count=config.raw.get("rewrite_terminology_hints_max_count", 12),
             retriever_config=config.retriever_config,
         )
     else:

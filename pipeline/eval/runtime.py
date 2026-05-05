@@ -93,6 +93,7 @@ _REWRITE_CLIENT: LlmClient | None = None
 _REWRITE_PROMPT_TEXT: str | None = None
 _RERANKER: CohereReranker | None = None
 REWRITE_RETRIEVAL_STRATEGIES = {"replace", "interleave", "max_score"}
+DEFAULT_REWRITE_TERMINOLOGY_HINTS_MAX = 12
 
 REWRITE_RESPONSE_SCHEMA: dict[str, Any] = {
     "type": "object",
@@ -129,6 +130,14 @@ def _extract_anchor_tokens(text: str, *, language_hint: str, max_items: int) -> 
         language_hint=language_hint,
         max_items=max_items,
     )
+
+
+def _clamp_count(value: Any, *, default: int, max_value: int) -> int:
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        parsed = default
+    return max(1, min(parsed, max_value))
 
 
 def _build_rewrite_anchor_candidates(
@@ -191,6 +200,80 @@ def _build_rewrite_anchor_candidates(
         "query_language": query_language,
         "anchors": anchors,
         "anchor_terms": [item["anchor"] for item in anchors],
+    }
+
+
+def _build_rewrite_terminology_hints(
+    *,
+    raw_query: str,
+    query_language: str,
+    memory_items: list[dict[str, Any]],
+    max_terms: int = DEFAULT_REWRITE_TERMINOLOGY_HINTS_MAX,
+) -> dict[str, Any]:
+    bounded_max_terms = _clamp_count(
+        max_terms,
+        default=DEFAULT_REWRITE_TERMINOLOGY_HINTS_MAX,
+        max_value=24,
+    )
+    terms: list[str] = []
+    source_terms: dict[str, list[str]] = {
+        "raw_query": [],
+        "memory_glossary": [],
+        "memory_query": [],
+    }
+    seen: set[str] = set()
+
+    def add_term(term: str, source: str) -> bool:
+        if len(terms) >= bounded_max_terms:
+            return False
+        normalized = _normalize_anchor_token(term)
+        if not normalized:
+            return True
+        if not _looks_technical_anchor(normalized):
+            return True
+        if not is_valid_anchor_phrase(normalized, language_hint=query_language):
+            return True
+        dedup_key = normalized.casefold()
+        if dedup_key in seen:
+            return True
+        seen.add(dedup_key)
+        terms.append(normalized)
+        source_terms[source].append(normalized)
+        return True
+
+    for token in _extract_anchor_tokens(
+        raw_query,
+        language_hint=query_language,
+        max_items=min(6, bounded_max_terms),
+    ):
+        if not add_term(token, "raw_query"):
+            break
+
+    for memory_row in memory_items[:5]:
+        glossary_terms = memory_row.get("glossary_terms")
+        if isinstance(glossary_terms, list):
+            for term in glossary_terms:
+                if not isinstance(term, str):
+                    continue
+                if not add_term(term, "memory_glossary"):
+                    break
+        if len(terms) >= bounded_max_terms:
+            break
+
+        for token in _extract_anchor_tokens(
+            str(memory_row.get("query_text") or ""),
+            language_hint=query_language,
+            max_items=4,
+        ):
+            if not add_term(token, "memory_query"):
+                break
+        if len(terms) >= bounded_max_terms:
+            break
+
+    compact_source_terms = {key: value for key, value in source_terms.items() if value}
+    return {
+        "terms": terms,
+        "source_terms": compact_source_terms,
     }
 
 
@@ -664,6 +747,7 @@ def build_rewrite_candidates_v2(
     candidate_count: int,
     query_language: str,
     rewrite_anchor_injection_enabled: bool = True,
+    rewrite_terminology_hints_max_count: int = DEFAULT_REWRITE_TERMINOLOGY_HINTS_MAX,
 ) -> list[dict[str, str]]:
     trace_id = f"rewrite:{hashlib.sha1(raw_query.encode('utf-8')).hexdigest()[:12]}"
     fallback_allowed = str(os.getenv("QUERY_FORGE_ALLOW_HEURISTIC_REWRITE_FALLBACK") or "true").lower() == "true"
@@ -682,6 +766,12 @@ def build_rewrite_candidates_v2(
         )
         payload["anchor_candidates"] = anchor_context["anchors"]
         payload["anchor_terms"] = anchor_context["anchor_terms"]
+        payload["terminology_hints"] = _build_rewrite_terminology_hints(
+            raw_query=raw_query,
+            query_language=query_language,
+            memory_items=memory_items,
+            max_terms=rewrite_terminology_hints_max_count,
+        )
     try:
         response = _rewrite_client().chat_json(
             system_prompt=_rewrite_prompt_text(),
@@ -847,6 +937,7 @@ def run_selective_rewrite(
     force_rewrite: bool = False,
     rewrite_retrieval_strategy: str = "replace",
     rewrite_anchor_injection_enabled: bool = True,
+    rewrite_terminology_hints_max_count: int = DEFAULT_REWRITE_TERMINOLOGY_HINTS_MAX,
     retriever_config: RetrieverConfig | None = None,
 ) -> tuple[RewriteOutcome, list[RetrievalCandidate]]:
     config = retriever_config or build_retriever_config({})
@@ -871,6 +962,7 @@ def run_selective_rewrite(
         candidate_count=candidate_count,
         query_language=query_language,
         rewrite_anchor_injection_enabled=rewrite_anchor_injection_enabled,
+        rewrite_terminology_hints_max_count=rewrite_terminology_hints_max_count,
     )
     candidates: list[dict[str, Any]] = []
     best_candidate = None

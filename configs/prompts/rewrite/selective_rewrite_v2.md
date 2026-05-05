@@ -18,6 +18,7 @@ Inputs:
 - top_memory_candidates (top similar memory queries)
 - anchor_candidates (technical anchors extracted from raw_query + memory metadata)
 - anchor_terms (flattened anchor string list)
+- terminology_hints (`terms` + `source_terms` for high-priority technical token preservation)
 - candidate_count (1~3)
 
 Output (JSON only):
@@ -32,8 +33,9 @@ Output (JSON only):
 Hard rules:
 1) Keep user intent unchanged. Never change task goal.
 2) Do not use gold document or gold answer.
-3) Preserve technical tokens exactly when present in raw_query or memory:
+3) Preserve technical tokens exactly when present in raw_query/memory/terminology_hints:
    - @Annotations, class/method names, property keys, config paths, version strings, error codes.
+   - If a `terminology_hints.terms` token is intent-compatible, keep it verbatim (do not paraphrase or translate the token form).
 4) Prefer lexical overlap for retrieval:
    - keep core tokens from raw_query (do not drop decisive intent words)
    - optionally add 1~3 relevant anchor terms from `anchor_terms` or `top_memory_candidates` only when clearly intent-compatible.
@@ -52,6 +54,7 @@ Hard rules:
 10) Keep rewrite query short and search-oriented:
    - avoid connective narrative style
    - prefer compact noun/verb anchor phrases useful for embedding+BM25 retrieval.
+   - never output pseudo-document style long passages as the final query.
 11) Candidate-specific intent consistency:
    - all candidates must ask for the same user need as raw_query.
    - variation is allowed only in retrieval framing, not in task objective.
