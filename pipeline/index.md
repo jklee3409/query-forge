@@ -38,6 +38,8 @@ Python pipeline for data processing, synthetic query generation, quality gating,
 - Retriever diagnostics include dense similarity, BM25 score, and technical-token overlap so short Korean developer prompts and code-mixed terms can be inspected per memory candidate.
 - Selective rewrite scoring recomputes memory affinity for each candidate query and treats retrieval-shift only as a small tie-breaker, preventing threshold decisions from being driven by rank movement alone.
 - Selective rewrite payload now supports bounded `terminology_hints` injection (raw-query technical tokens + top memory glossary/query technical tokens) when `rewrite_anchor_injection_enabled=true`, with optional cap `rewrite_terminology_hints_max_count`.
+- Selective rewrite adoption now uses staged decomposition (`retrieval_gain_score`, `terminology_preservation_score`, `memory_alignment_score`, `verbosity_penalty`, `final_candidate_score`) with explicit rejection reasons for traceability.
+- Rewrite adoption thresholds are now config-driven via `rewrite_adoption_policy` and support category-aware stricter gating (`short_user`, `code_mixed`) plus low-memory similarity extra guard.
 - Cohere rerank fallback returns no artificial relevance scores; callers preserve local hybrid ranking when external rerank is unavailable.
 - Synthetic-free baseline config (`synthetic_free_baseline=true`) is supported with `build-memory` no-op and eval-time memory loading bypass for raw-only baseline execution.
 - Retrieval eval supports official bundled comparison modes with per-preset snapshot mapping (`comparison_snapshots`) and preserves per-mode summaries/latencies.

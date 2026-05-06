@@ -3,6 +3,12 @@
 ## Overview
 High-level pipeline progress tracking.
 
+## [2026-05-06] Session Summary (Selective Rewrite Scoring/Adoption Stabilization Phase-2)
+- What was done: Refactored selective rewrite candidate evaluation into staged scoring in `eval/runtime.py` and added configurable adoption policy handling via `common/experiment_config.py::resolve_rewrite_adoption_policy`.
+- Key decisions: Adoption now combines retrieval gain + terminology preservation + memory alignment, then applies verbosity/preservation penalties and category-aware thresholds (`short_user`, `code_mixed`, `troubleshooting`) without changing pipeline stage order.
+- Issues encountered: Existing rewrite-memory-affinity unit case required explicit relaxed policy override because stricter default preservation/threshold gates can reject marginal candidates.
+- Next steps: Tune policy keys (`rewrite_adoption_policy`) per dataset category and validate bad rewrite reduction under fixed retriever/snapshot settings.
+
 ## [2026-05-06] Session Summary (Selective Rewrite Terminology Hints Phase-1)
 - What was done: Extended `eval/runtime.py::build_rewrite_candidates_v2` to include a compact `terminology_hints` payload (when anchor injection is enabled) built from raw-query technical tokens, top memory glossary terms, and top memory query technical tokens.
 - Key decisions: Preserved existing `anchor_candidates` and `anchor_terms`; added bounded + deduplicated + technical/noise-filtered hint collection with safe default cap (`12`) and optional runtime override (`rewrite_terminology_hints_max_count`).

@@ -3,6 +3,12 @@
 ## Overview
 High-level progress tracking for the project.
 
+## [2026-05-06] Session Summary (Proposal 1 Phase-2: Rewrite Candidate Scoring/Adoption Stabilization)
+- What was done: Implemented selective rewrite adoption stabilization with staged candidate scoring in `pipeline/eval/runtime.py`: retrieval gain, terminology preservation, memory alignment, verbosity/preservation penalties, and category-aware threshold gating. Added config-driven rewrite adoption policy loading in `pipeline/common/experiment_config.py` and wired policy + query category through retrieval/answer eval runtime calls.
+- Key decisions: Preserved pipeline order and A/B/C/D/E separation; kept existing rewrite candidate prompt contract and report schema compatibility while extending candidate trace fields (`rejection_reason`, sub-scores, thresholds, margins) for bad-rewrite analysis.
+- Issues encountered: Existing memory-affinity rewrite test assumptions required policy override in unit tests after stricter preservation/threshold guards were added.
+- Next steps: Run same snapshot/dataset controlled A/B with only rewrite adoption policy toggles and inspect bad_rewrite_rate/adoption_rate/MRR@10/nDCG@10 plus latency delta.
+
 ## [2026-05-06] Session Summary (Proposal 1 Phase-1: Terminology-aware Selective Rewrite Strengthening)
 - What was done: Implemented phase-1 terminology-aware selective rewrite strengthening without changing pipeline order or A/B/C/D/E separation. Added bounded `terminology_hints` payload generation in `pipeline/eval/runtime.py` from raw query technical tokens + top memory glossary terms + top memory query technical tokens, with aggressive dedup/filtering and optional max-count control (`rewrite_terminology_hints_max_count`).
 - Key decisions: Kept existing `anchor_candidates`/`anchor_terms` behavior and injected `terminology_hints` only when `rewrite_anchor_injection_enabled=true` so Admin workflows and rewrite-off controls remain unchanged. Wired the max-count option through retrieval/answer eval runtime config as optional.
