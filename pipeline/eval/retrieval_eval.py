@@ -256,6 +256,7 @@ def _evaluate_mode(
     rewrite_outcome, retrieval = run_selective_rewrite(
         raw_query=sample.query_text,
         query_language=sample.query_language,
+        query_category=sample.query_category,
         session_context=sample.dialog_context if use_context else {},
         chunks=chunks,
         memories=memories,
@@ -270,6 +271,7 @@ def _evaluate_mode(
         rewrite_retrieval_strategy=str(config.raw.get("rewrite_retrieval_strategy") or "replace"),
         rewrite_anchor_injection_enabled=_is_rewrite_anchor_injection_enabled(config.raw),
         rewrite_terminology_hints_max_count=config.raw.get("rewrite_terminology_hints_max_count", 12),
+        rewrite_adoption_policy=config.rewrite_adoption_policy,
         retriever_config=config.retriever_config,
     )
     metrics = retrieval_metrics(

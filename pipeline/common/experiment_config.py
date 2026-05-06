@@ -48,6 +48,55 @@ DEFAULT_GATING_WEIGHTS: dict[str, float] = {
     "novelty": 0.15,
 }
 
+DEFAULT_REWRITE_ADOPTION_POLICY: dict[str, Any] = {
+    "weights": {
+        "retrieval_gain": 0.60,
+        "terminology_preservation": 0.28,
+        "memory_alignment": 0.12,
+    },
+    "thresholds": {
+        "min_improvement": 0.03,
+        "preservation_floor": 0.72,
+        "max_length_ratio": 1.85,
+        "low_memory_similarity_cutoff": 0.45,
+        "low_memory_extra_threshold": 0.02,
+        "min_retrieval_gain_score": 0.0,
+    },
+    "penalties": {
+        "verbosity_per_extra_ratio": 0.08,
+        "critical_token_drop": 0.22,
+        "anchor_overlap_drop": 0.12,
+    },
+    "shift_bonus_weight": 0.03,
+    "category_overrides": {
+        "short_user": {
+            "thresholds": {
+                "min_improvement": 0.05,
+                "preservation_floor": 0.82,
+                "max_length_ratio": 1.45,
+            }
+        },
+        "code_mixed": {
+            "thresholds": {
+                "min_improvement": 0.05,
+                "preservation_floor": 0.86,
+                "max_length_ratio": 1.60,
+            },
+            "weights": {
+                "retrieval_gain": 0.56,
+                "terminology_preservation": 0.34,
+                "memory_alignment": 0.10,
+            },
+        },
+        "troubleshooting": {
+            "thresholds": {
+                "min_improvement": 0.03,
+                "max_length_ratio": 2.20,
+            }
+        },
+    },
+}
+
 
 @dataclass(slots=True)
 class ExperimentConfig:
@@ -80,6 +129,7 @@ class ExperimentConfig:
     diversity_threshold_same_doc: float
     limit_chunks: int | None
     retriever_config: RetrieverConfig
+    rewrite_adoption_policy: dict[str, Any]
     config_path: Path
     raw: dict[str, Any]
 
@@ -119,6 +169,145 @@ def _derive_gating_preset(config: dict[str, Any]) -> str:
     return "full_gating"
 
 
+def _deep_merge_dict(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
+    merged: dict[str, Any] = {}
+    for key, value in base.items():
+        if isinstance(value, dict):
+            merged[key] = _deep_merge_dict(value, {})
+        elif isinstance(value, list):
+            merged[key] = list(value)
+        else:
+            merged[key] = value
+    for key, value in override.items():
+        if isinstance(value, dict) and isinstance(merged.get(key), dict):
+            merged[key] = _deep_merge_dict(dict(merged[key]), value)
+        elif isinstance(value, list):
+            merged[key] = list(value)
+        else:
+            merged[key] = value
+    return merged
+
+
+def _float_value(value: Any, default: float) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return float(default)
+
+
+def _clamp_float(value: Any, *, default: float, min_value: float, max_value: float) -> float:
+    parsed = _float_value(value, default)
+    return max(min_value, min(max_value, parsed))
+
+
+def resolve_rewrite_adoption_policy(raw_config: dict[str, Any] | None) -> dict[str, Any]:
+    source = raw_config or {}
+    override = source.get("rewrite_adoption_policy")
+    merged = _deep_merge_dict(
+        DEFAULT_REWRITE_ADOPTION_POLICY,
+        override if isinstance(override, dict) else {},
+    )
+
+    thresholds = merged.get("thresholds")
+    if isinstance(thresholds, dict):
+        thresholds["min_improvement"] = _clamp_float(
+            thresholds.get("min_improvement"),
+            default=0.03,
+            min_value=0.0,
+            max_value=0.5,
+        )
+        thresholds["preservation_floor"] = _clamp_float(
+            thresholds.get("preservation_floor"),
+            default=0.72,
+            min_value=0.0,
+            max_value=1.0,
+        )
+        thresholds["max_length_ratio"] = _clamp_float(
+            thresholds.get("max_length_ratio"),
+            default=1.85,
+            min_value=1.0,
+            max_value=4.0,
+        )
+        thresholds["low_memory_similarity_cutoff"] = _clamp_float(
+            thresholds.get("low_memory_similarity_cutoff"),
+            default=0.45,
+            min_value=0.0,
+            max_value=1.0,
+        )
+        thresholds["low_memory_extra_threshold"] = _clamp_float(
+            thresholds.get("low_memory_extra_threshold"),
+            default=0.02,
+            min_value=0.0,
+            max_value=0.5,
+        )
+        thresholds["min_retrieval_gain_score"] = _clamp_float(
+            thresholds.get("min_retrieval_gain_score"),
+            default=0.0,
+            min_value=0.0,
+            max_value=1.0,
+        )
+
+    penalties = merged.get("penalties")
+    if isinstance(penalties, dict):
+        penalties["verbosity_per_extra_ratio"] = _clamp_float(
+            penalties.get("verbosity_per_extra_ratio"),
+            default=0.08,
+            min_value=0.0,
+            max_value=0.8,
+        )
+        penalties["critical_token_drop"] = _clamp_float(
+            penalties.get("critical_token_drop"),
+            default=0.22,
+            min_value=0.0,
+            max_value=1.0,
+        )
+        penalties["anchor_overlap_drop"] = _clamp_float(
+            penalties.get("anchor_overlap_drop"),
+            default=0.12,
+            min_value=0.0,
+            max_value=1.0,
+        )
+
+    weights = merged.get("weights")
+    if isinstance(weights, dict):
+        weights["retrieval_gain"] = _clamp_float(
+            weights.get("retrieval_gain"),
+            default=0.60,
+            min_value=0.0,
+            max_value=1.0,
+        )
+        weights["terminology_preservation"] = _clamp_float(
+            weights.get("terminology_preservation"),
+            default=0.28,
+            min_value=0.0,
+            max_value=1.0,
+        )
+        weights["memory_alignment"] = _clamp_float(
+            weights.get("memory_alignment"),
+            default=0.12,
+            min_value=0.0,
+            max_value=1.0,
+        )
+
+    merged["shift_bonus_weight"] = _clamp_float(
+        merged.get("shift_bonus_weight"),
+        default=0.03,
+        min_value=0.0,
+        max_value=0.5,
+    )
+
+    category_overrides = merged.get("category_overrides")
+    if isinstance(category_overrides, dict):
+        sanitized_overrides: dict[str, Any] = {}
+        for key, value in category_overrides.items():
+            if not isinstance(key, str) or not isinstance(value, dict):
+                continue
+            sanitized_overrides[key.strip().lower()] = value
+        merged["category_overrides"] = sanitized_overrides
+
+    return merged
+
+
 def load_experiment_config(
     experiment: str,
     *,
@@ -141,6 +330,7 @@ def load_experiment_config(
     utility_weights.update(raw.get("retrieval_utility_weights") or {})
     gating_weights = dict(DEFAULT_GATING_WEIGHTS)
     gating_weights.update(raw.get("gating_weights") or {})
+    rewrite_adoption_policy = resolve_rewrite_adoption_policy(raw)
 
     return ExperimentConfig(
         experiment_key=str(raw.get("experiment_key") or experiment),
@@ -174,6 +364,7 @@ def load_experiment_config(
         diversity_threshold_same_doc=float(raw.get("diversity_threshold_same_doc", 0.96)),
         limit_chunks=int(raw["limit_chunks"]) if raw.get("limit_chunks") else None,
         retriever_config=build_retriever_config(raw),
+        rewrite_adoption_policy=rewrite_adoption_policy,
         config_path=config_path,
         raw=raw,
     )

@@ -19,6 +19,7 @@ try:
     )
     from common.cohere_reranker import CohereReranker, load_cohere_rerank_config
     from common.embeddings import embed_text
+    from common.experiment_config import resolve_rewrite_adoption_policy
     from common.local_retriever import RetrieverConfig, build_retriever_config, get_local_text_retriever, local_retriever_name
     from common.llm_client import LlmClient, load_stage_config
 except ModuleNotFoundError:  # pragma: no cover
@@ -30,6 +31,7 @@ except ModuleNotFoundError:  # pragma: no cover
     )
     from pipeline.common.cohere_reranker import CohereReranker, load_cohere_rerank_config
     from pipeline.common.embeddings import embed_text
+    from pipeline.common.experiment_config import resolve_rewrite_adoption_policy
     from pipeline.common.local_retriever import RetrieverConfig, build_retriever_config, get_local_text_retriever, local_retriever_name
     from pipeline.common.llm_client import LlmClient, load_stage_config
 
@@ -94,6 +96,17 @@ _REWRITE_PROMPT_TEXT: str | None = None
 _RERANKER: CohereReranker | None = None
 REWRITE_RETRIEVAL_STRATEGIES = {"replace", "interleave", "max_score"}
 DEFAULT_REWRITE_TERMINOLOGY_HINTS_MAX = 12
+TROUBLESHOOTING_HINT_TOKENS = (
+    "error",
+    "exception",
+    "fail",
+    "failure",
+    "trace",
+    "debug",
+    "오류",
+    "에러",
+    "실패",
+)
 
 REWRITE_RESPONSE_SCHEMA: dict[str, Any] = {
     "type": "object",
@@ -845,6 +858,199 @@ def confidence_score(
     return (0.45 * top1) + (0.20 * top3) + (0.35 * memory_affinity)
 
 
+def _clamp01(value: float) -> float:
+    return max(0.0, min(1.0, float(value)))
+
+
+def _safe_ratio(numerator: float, denominator: float, *, default: float = 0.0) -> float:
+    if denominator <= 0:
+        return default
+    return numerator / denominator
+
+
+def _deep_merge_dict(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
+    merged: dict[str, Any] = {}
+    for key, value in base.items():
+        if isinstance(value, dict):
+            merged[key] = _deep_merge_dict(value, {})
+        elif isinstance(value, list):
+            merged[key] = list(value)
+        else:
+            merged[key] = value
+    for key, value in override.items():
+        if isinstance(value, dict) and isinstance(merged.get(key), dict):
+            merged[key] = _deep_merge_dict(dict(merged[key]), value)
+        elif isinstance(value, list):
+            merged[key] = list(value)
+        else:
+            merged[key] = value
+    return merged
+
+
+def _float_value(value: Any, default: float) -> float:
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return float(default)
+
+
+def _normalize_query_profile(
+    query_category: str | None,
+    *,
+    raw_query: str,
+) -> str | None:
+    category = str(query_category or "").strip().lower()
+    if "short_user" in category:
+        return "short_user"
+    if "code_mixed" in category:
+        return "code_mixed"
+    if any(token in category for token in ("troubleshooting", "error", "debug")):
+        return "troubleshooting"
+    query_lower = str(raw_query or "").strip().lower()
+    if any(token in query_lower for token in TROUBLESHOOTING_HINT_TOKENS):
+        return "troubleshooting"
+    return None
+
+
+def _resolve_rewrite_adoption_policy(
+    policy: dict[str, Any] | None,
+    *,
+    query_category: str | None,
+    raw_query: str,
+) -> dict[str, Any]:
+    source_policy = policy if isinstance(policy, dict) else {}
+    looks_like_policy = any(
+        key in source_policy
+        for key in (
+            "weights",
+            "thresholds",
+            "penalties",
+            "shift_bonus_weight",
+            "category_overrides",
+        )
+    )
+    resolved_input = (
+        {"rewrite_adoption_policy": source_policy}
+        if looks_like_policy
+        else source_policy
+    )
+    merged = _deep_merge_dict(
+        resolve_rewrite_adoption_policy(resolved_input),
+        {},
+    )
+    profile = _normalize_query_profile(
+        query_category,
+        raw_query=raw_query,
+    )
+    overrides = merged.get("category_overrides")
+    if profile and isinstance(overrides, dict):
+        profile_override = overrides.get(profile)
+        if isinstance(profile_override, dict):
+            merged = _deep_merge_dict(merged, profile_override)
+    merged["query_profile"] = profile
+    return merged
+
+
+def _technical_token_set(
+    text: str,
+    *,
+    query_language: str,
+    max_items: int = 24,
+) -> set[str]:
+    return {
+        token.casefold()
+        for token in _extract_anchor_tokens(
+            text,
+            language_hint=query_language,
+            max_items=max_items,
+        )
+    }
+
+
+def _terminology_preservation_metrics(
+    *,
+    raw_query: str,
+    candidate_query: str,
+    query_language: str,
+    raw_anchor_terms: list[str],
+) -> dict[str, float]:
+    raw_tokens = _technical_token_set(
+        raw_query,
+        query_language=query_language,
+    )
+    candidate_tokens = _technical_token_set(
+        candidate_query,
+        query_language=query_language,
+    )
+    preserved_count = len(raw_tokens & candidate_tokens)
+    raw_token_count = len(raw_tokens)
+    technical_preservation_ratio = (
+        _safe_ratio(preserved_count, raw_token_count, default=1.0)
+        if raw_token_count > 0
+        else 1.0
+    )
+
+    raw_anchor_set = {str(item).casefold() for item in raw_anchor_terms if str(item).strip()}
+    anchor_overlap_ratio = (
+        _safe_ratio(len(raw_anchor_set & candidate_tokens), len(raw_anchor_set), default=1.0)
+        if raw_anchor_set
+        else technical_preservation_ratio
+    )
+    terminology_preservation_score = _clamp01((0.70 * technical_preservation_ratio) + (0.30 * anchor_overlap_ratio))
+    return {
+        "raw_technical_token_count": float(raw_token_count),
+        "preserved_technical_token_count": float(preserved_count),
+        "technical_preservation_ratio": technical_preservation_ratio,
+        "anchor_overlap_ratio": anchor_overlap_ratio,
+        "terminology_preservation_score": terminology_preservation_score,
+    }
+
+
+def _length_ratio_without_spaces(raw_query: str, candidate_query: str) -> float:
+    raw_len = max(1, len("".join(str(raw_query or "").split())))
+    candidate_len = max(1, len("".join(str(candidate_query or "").split())))
+    return _safe_ratio(float(candidate_len), float(raw_len), default=1.0)
+
+
+def _memory_alignment_score(
+    *,
+    raw_memory_similarity: float,
+    candidate_memory_similarity: float,
+) -> dict[str, float]:
+    raw_norm = _clamp01((raw_memory_similarity + 1.0) / 2.0)
+    candidate_norm = _clamp01((candidate_memory_similarity + 1.0) / 2.0)
+    delta_norm = _clamp01(((candidate_memory_similarity - raw_memory_similarity) + 1.0) / 2.0)
+    score = _clamp01((0.70 * candidate_norm) + (0.30 * delta_norm))
+    return {
+        "raw_memory_norm": raw_norm,
+        "candidate_memory_norm": candidate_norm,
+        "memory_alignment_score": score,
+    }
+
+
+def _weighted_candidate_score(
+    *,
+    retrieval_gain_score: float,
+    terminology_preservation_score: float,
+    memory_alignment_score: float,
+    weights: dict[str, float],
+) -> float:
+    retrieval_weight = max(0.0, _float_value(weights.get("retrieval_gain"), 0.0))
+    terminology_weight = max(0.0, _float_value(weights.get("terminology_preservation"), 0.0))
+    memory_weight = max(0.0, _float_value(weights.get("memory_alignment"), 0.0))
+    denominator = retrieval_weight + terminology_weight + memory_weight
+    if denominator <= 0.0:
+        return _clamp01(retrieval_gain_score)
+    return _clamp01(
+        (
+            (retrieval_weight * retrieval_gain_score)
+            + (terminology_weight * terminology_preservation_score)
+            + (memory_weight * memory_alignment_score)
+        )
+        / denominator
+    )
+
+
 def _top_chunk_ids(retrieval: list[RetrievalCandidate], *, top_n: int = 5) -> list[str]:
     return [item.chunk_id for item in retrieval[:top_n] if item.chunk_id]
 
@@ -931,6 +1137,7 @@ def run_selective_rewrite(
     candidate_count: int,
     threshold: float,
     retrieval_top_k: int,
+    query_category: str | None = None,
     preset_filter: str | None = None,
     source_gate_run_id: str | None = None,
     strategy_filters: list[str] | None = None,
@@ -938,8 +1145,15 @@ def run_selective_rewrite(
     rewrite_retrieval_strategy: str = "replace",
     rewrite_anchor_injection_enabled: bool = True,
     rewrite_terminology_hints_max_count: int = DEFAULT_REWRITE_TERMINOLOGY_HINTS_MAX,
+    rewrite_adoption_policy: dict[str, Any] | None = None,
     retriever_config: RetrieverConfig | None = None,
 ) -> tuple[RewriteOutcome, list[RetrievalCandidate]]:
+    # Staged selective-rewrite scoring:
+    # 1) retrieval gain (confidence + shift)
+    # 2) terminology preservation / anchor overlap
+    # 3) memory alignment
+    # 4) verbosity + preservation penalties
+    # Final adoption is gated by configurable thresholds/floors (category-aware).
     config = retriever_config or build_retriever_config({})
     memory_items = memory_top_n(
         raw_query,
@@ -952,7 +1166,39 @@ def run_selective_rewrite(
     )
     raw_retrieval = retrieve_top_k(raw_query, chunks, top_k=retrieval_top_k, retriever_config=config)
     raw_memory_affinity = memory_items[0]["similarity"] if memory_items else 0.0
-    raw_confidence = confidence_score(raw_retrieval, raw_memory_affinity)
+    raw_confidence_base = confidence_score(raw_retrieval, raw_memory_affinity)
+
+    policy = _resolve_rewrite_adoption_policy(
+        rewrite_adoption_policy,
+        query_category=query_category,
+        raw_query=raw_query,
+    )
+    weights = policy.get("weights") if isinstance(policy.get("weights"), dict) else {}
+    thresholds = policy.get("thresholds") if isinstance(policy.get("thresholds"), dict) else {}
+    penalties = policy.get("penalties") if isinstance(policy.get("penalties"), dict) else {}
+    shift_bonus_weight = max(0.0, _float_value(policy.get("shift_bonus_weight"), 0.0))
+    min_improvement = max(0.0, _float_value(thresholds.get("min_improvement"), 0.0))
+    preservation_floor = _clamp01(_float_value(thresholds.get("preservation_floor"), 0.0))
+    max_length_ratio = max(1.0, _float_value(thresholds.get("max_length_ratio"), 1.0))
+    low_memory_similarity_cutoff = _clamp01(_float_value(thresholds.get("low_memory_similarity_cutoff"), 0.0))
+    low_memory_extra_threshold = max(0.0, _float_value(thresholds.get("low_memory_extra_threshold"), 0.0))
+    min_retrieval_gain_score = _clamp01(_float_value(thresholds.get("min_retrieval_gain_score"), 0.0))
+
+    verbosity_per_extra_ratio = max(0.0, _float_value(penalties.get("verbosity_per_extra_ratio"), 0.0))
+    critical_token_drop_weight = max(0.0, _float_value(penalties.get("critical_token_drop"), 0.0))
+    anchor_overlap_drop_weight = max(0.0, _float_value(penalties.get("anchor_overlap_drop"), 0.0))
+
+    raw_memory = _memory_alignment_score(
+        raw_memory_similarity=raw_memory_affinity,
+        candidate_memory_similarity=raw_memory_affinity,
+    )
+    raw_reference_score = _weighted_candidate_score(
+        retrieval_gain_score=raw_confidence_base,
+        terminology_preservation_score=1.0,
+        memory_alignment_score=raw_memory["memory_alignment_score"],
+        weights=weights,
+    )
+    raw_confidence = raw_reference_score
 
     normalized_strategy = _normalize_rewrite_retrieval_strategy(rewrite_retrieval_strategy)
     candidate_templates = build_rewrite_candidates_v2(
@@ -964,8 +1210,15 @@ def run_selective_rewrite(
         rewrite_anchor_injection_enabled=rewrite_anchor_injection_enabled,
         rewrite_terminology_hints_max_count=rewrite_terminology_hints_max_count,
     )
+    anchor_context = _build_rewrite_anchor_candidates(
+        raw_query=raw_query,
+        query_language=query_language,
+        memory_items=memory_items,
+    )
+    raw_anchor_terms = [str(item) for item in anchor_context.get("anchor_terms") or [] if str(item).strip()]
     candidates: list[dict[str, Any]] = []
-    best_candidate = None
+    best_candidate: dict[str, Any] | None = None
+    best_eligible_candidate: dict[str, Any] | None = None
     for template in candidate_templates:
         retrieved = retrieve_top_k(template["query"], chunks, top_k=retrieval_top_k, retriever_config=config)
         candidate_memory_items = memory_top_n(
@@ -984,8 +1237,63 @@ def run_selective_rewrite(
         )
         base_confidence = confidence_score(retrieved, candidate_memory_affinity)
         retrieval_shift = _retrieval_shift_score(raw_retrieval, retrieved)
-        shift_bonus = 0.03 * retrieval_shift if base_confidence >= raw_confidence else 0.0
-        score = base_confidence + shift_bonus
+        shift_bonus = shift_bonus_weight * retrieval_shift if base_confidence >= raw_confidence_base else 0.0
+        retrieval_gain_score = _clamp01(base_confidence + shift_bonus)
+
+        terminology_metrics = _terminology_preservation_metrics(
+            raw_query=raw_query,
+            candidate_query=template["query"],
+            query_language=query_language,
+            raw_anchor_terms=raw_anchor_terms,
+        )
+        terminology_preservation_score = terminology_metrics["terminology_preservation_score"]
+        technical_preservation_ratio = terminology_metrics["technical_preservation_ratio"]
+        anchor_overlap_ratio = terminology_metrics["anchor_overlap_ratio"]
+
+        memory_metrics = _memory_alignment_score(
+            raw_memory_similarity=raw_memory_affinity,
+            candidate_memory_similarity=candidate_memory_affinity,
+        )
+        memory_alignment_score = memory_metrics["memory_alignment_score"]
+
+        length_ratio = _length_ratio_without_spaces(raw_query, template["query"])
+        verbosity_penalty = max(0.0, length_ratio - 1.0) * verbosity_per_extra_ratio
+        critical_token_drop_penalty = max(0.0, 1.0 - technical_preservation_ratio) * critical_token_drop_weight
+        anchor_overlap_penalty = max(0.0, 1.0 - anchor_overlap_ratio) * anchor_overlap_drop_weight
+        preservation_penalty = critical_token_drop_penalty + anchor_overlap_penalty
+
+        weighted_score = _weighted_candidate_score(
+            retrieval_gain_score=retrieval_gain_score,
+            terminology_preservation_score=terminology_preservation_score,
+            memory_alignment_score=memory_alignment_score,
+            weights=weights,
+        )
+        final_candidate_score = _clamp01(weighted_score - verbosity_penalty - preservation_penalty)
+
+        low_memory_strict_threshold = (
+            low_memory_extra_threshold
+            if raw_memory["raw_memory_norm"] < low_memory_similarity_cutoff
+            else 0.0
+        )
+        effective_threshold = max(float(threshold), min_improvement) + low_memory_strict_threshold
+        adoption_margin = final_candidate_score - raw_reference_score
+        normalized_raw_query = " ".join(raw_query.split()).strip().lower()
+        normalized_candidate_query = " ".join(str(template["query"]).split()).strip().lower()
+        same_query = normalized_raw_query == normalized_candidate_query
+
+        rejection_reason = ""
+        if same_query:
+            rejection_reason = "candidate_same_as_raw"
+        elif length_ratio > max_length_ratio:
+            rejection_reason = "verbosity_exceeds_limit"
+        elif terminology_preservation_score < preservation_floor:
+            rejection_reason = "preservation_below_floor"
+        elif retrieval_gain_score < min_retrieval_gain_score:
+            rejection_reason = "retrieval_gain_below_floor"
+        elif adoption_margin < effective_threshold:
+            rejection_reason = "delta_below_threshold"
+
+        eligible = (not rejection_reason) or force_rewrite
         candidate = {
             "label": template["label"],
             "query": template["query"],
@@ -995,12 +1303,29 @@ def run_selective_rewrite(
             "memory_similarity_delta": candidate_memory_affinity - raw_memory_affinity,
             "retrieval_shift_score": retrieval_shift,
             "retrieval_shift_bonus": shift_bonus,
-            "confidence": score,
+            "retrieval_gain_score": retrieval_gain_score,
+            "terminology_preservation_score": terminology_preservation_score,
+            "memory_alignment_score": memory_alignment_score,
+            "technical_preservation_ratio": technical_preservation_ratio,
+            "anchor_overlap_ratio": anchor_overlap_ratio,
+            "verbosity_penalty": verbosity_penalty,
+            "preservation_penalty": preservation_penalty,
+            "final_candidate_score": final_candidate_score,
+            "adoption_margin": adoption_margin,
+            "effective_threshold": effective_threshold,
+            "preservation_floor": preservation_floor,
+            "max_length_ratio": max_length_ratio,
+            "length_ratio": length_ratio,
+            "eligible": eligible,
+            "rejection_reason": rejection_reason,
+            "confidence": final_candidate_score,
             "retrieval": retrieved,
         }
         candidates.append(candidate)
-        if best_candidate is None or score > best_candidate["confidence"]:
+        if best_candidate is None or final_candidate_score > float(best_candidate.get("confidence", 0.0)):
             best_candidate = candidate
+        if eligible and (best_eligible_candidate is None or final_candidate_score > float(best_eligible_candidate.get("confidence", 0.0))):
+            best_eligible_candidate = candidate
 
     if best_candidate is None:
         return (
@@ -1016,17 +1341,21 @@ def run_selective_rewrite(
             raw_retrieval,
         )
 
-    delta = best_candidate["confidence"] - raw_confidence
+    selected_candidate = best_candidate if force_rewrite else (best_eligible_candidate or best_candidate)
     normalized_raw_query = " ".join(raw_query.split()).strip().lower()
-    normalized_best_query = " ".join(str(best_candidate["query"]).split()).strip().lower()
+    normalized_best_query = " ".join(str(selected_candidate["query"]).split()).strip().lower()
     same_query = normalized_raw_query == normalized_best_query
-    should_apply = force_rewrite or (not same_query and delta >= threshold)
-    final_query = best_candidate["query"] if should_apply else raw_query
+    selected_rejection_reason = str(selected_candidate.get("rejection_reason") or "").strip()
+    should_apply = force_rewrite or bool(
+        selected_candidate.get("eligible")
+        and (not same_query)
+    )
+    final_query = selected_candidate["query"] if should_apply else raw_query
     if should_apply:
         final_retrieval = _merge_raw_and_rewrite_retrieval(
             strategy=normalized_strategy,
             raw_retrieval=raw_retrieval,
-            rewrite_retrieval=best_candidate["retrieval"],
+            rewrite_retrieval=selected_candidate["retrieval"],
             top_k=retrieval_top_k,
         )
     else:
@@ -1038,6 +1367,8 @@ def run_selective_rewrite(
         if should_apply
         else "candidate_same_as_raw"
         if same_query
+        else selected_rejection_reason
+        if selected_rejection_reason
         else "delta_below_threshold"
     )
 
@@ -1047,7 +1378,7 @@ def run_selective_rewrite(
             rewrite_applied=should_apply,
             rewrite_reason=reason,
             raw_confidence=raw_confidence,
-            best_candidate_confidence=best_candidate["confidence"],
+            best_candidate_confidence=float(selected_candidate.get("confidence", 0.0)),
             memory_top_n=memory_items,
             candidates=[
                 {
@@ -1059,6 +1390,21 @@ def run_selective_rewrite(
                     "memory_similarity_delta": candidate.get("memory_similarity_delta", 0.0),
                     "retrieval_shift_score": candidate.get("retrieval_shift_score", 0.0),
                     "retrieval_shift_bonus": candidate.get("retrieval_shift_bonus", 0.0),
+                    "retrieval_gain_score": candidate.get("retrieval_gain_score", 0.0),
+                    "terminology_preservation_score": candidate.get("terminology_preservation_score", 0.0),
+                    "memory_alignment_score": candidate.get("memory_alignment_score", 0.0),
+                    "technical_preservation_ratio": candidate.get("technical_preservation_ratio", 0.0),
+                    "anchor_overlap_ratio": candidate.get("anchor_overlap_ratio", 0.0),
+                    "verbosity_penalty": candidate.get("verbosity_penalty", 0.0),
+                    "preservation_penalty": candidate.get("preservation_penalty", 0.0),
+                    "final_candidate_score": candidate.get("final_candidate_score", candidate["confidence"]),
+                    "adoption_margin": candidate.get("adoption_margin", 0.0),
+                    "effective_threshold": candidate.get("effective_threshold", 0.0),
+                    "preservation_floor": candidate.get("preservation_floor", 0.0),
+                    "max_length_ratio": candidate.get("max_length_ratio", 0.0),
+                    "length_ratio": candidate.get("length_ratio", 0.0),
+                    "eligible": bool(candidate.get("eligible")),
+                    "rejection_reason": candidate.get("rejection_reason", ""),
                     "confidence": candidate["confidence"],
                 }
                 for candidate in candidates

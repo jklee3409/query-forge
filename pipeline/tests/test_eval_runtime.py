@@ -2,9 +2,12 @@ from __future__ import annotations
 
 import json
 import os
+import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
+from pipeline.common.experiment_config import load_experiment_config
 from pipeline.common.cohere_reranker import CohereRerankConfig, CohereReranker
 from pipeline.common.embeddings import embed_text
 from pipeline.common import local_retriever
@@ -17,6 +20,16 @@ class EvalRuntimeRewriteTests(unittest.TestCase):
     def tearDown(self) -> None:
         local_retriever._MODEL_BACKENDS.clear()
         local_retriever._RETRIEVER_CACHE.clear()
+
+    def _single_retrieval(self, query_text: str, *, score: float, chunk_id: str) -> list[runtime.RetrievalCandidate]:
+        return [
+            runtime.RetrievalCandidate(
+                chunk_id=chunk_id,
+                document_id=f"doc-{chunk_id}",
+                score=score,
+                text=query_text,
+            )
+        ]
 
     def test_unavailable_cohere_reranker_returns_no_synthetic_scores(self) -> None:
         reranker = CohereReranker(
@@ -111,6 +124,12 @@ class EvalRuntimeRewriteTests(unittest.TestCase):
                 preset_filter="full_gating",
                 source_gate_run_id="gate-run",
                 strategy_filters=["A"],
+                rewrite_adoption_policy={
+                    "thresholds": {
+                        "min_improvement": 0.0,
+                        "preservation_floor": 0.0,
+                    }
+                },
                 retriever_config=build_retriever_config({"dense_fallback_enabled": True}),
             )
 
@@ -252,6 +271,262 @@ class EvalRuntimeRewriteTests(unittest.TestCase):
         self.assertNotIn("anchor_candidates", payload)
         self.assertNotIn("anchor_terms", payload)
         self.assertNotIn("terminology_hints", payload)
+
+    def test_selective_rewrite_rejects_candidate_with_terminology_loss(self) -> None:
+        raw_query = "DigestAuthenticationFilter 설정 방법"
+        candidate_query = "security filter configuration guide"
+
+        def fake_retrieve(query_text: str, *args, **kwargs):
+            if query_text == raw_query:
+                return self._single_retrieval(query_text, score=0.20, chunk_id="raw")
+            return self._single_retrieval(query_text, score=0.85, chunk_id="cand")
+
+        def fake_memory(query_text: str, *args, **kwargs):
+            return [
+                {
+                    "memory_id": "m1",
+                    "query_text": query_text,
+                    "similarity": 0.0,
+                    "glossary_terms": ["DigestAuthenticationFilter"],
+                }
+            ]
+
+        with patch.object(runtime, "build_rewrite_candidates_v2", return_value=[{"label": "c1", "query": candidate_query}]), patch.object(
+            runtime,
+            "retrieve_top_k",
+            side_effect=fake_retrieve,
+        ), patch.object(runtime, "memory_top_n", side_effect=fake_memory):
+            outcome, _ = runtime.run_selective_rewrite(
+                raw_query=raw_query,
+                query_language="ko",
+                query_category="definition",
+                session_context={},
+                chunks=[],
+                memories=[],
+                memory_top_n_value=3,
+                candidate_count=1,
+                threshold=0.01,
+                retrieval_top_k=3,
+                retriever_config=build_retriever_config({"dense_fallback_enabled": True}),
+            )
+
+        self.assertFalse(outcome.rewrite_applied)
+        self.assertEqual(outcome.rewrite_reason, "preservation_below_floor")
+        self.assertEqual(outcome.candidates[0]["rejection_reason"], "preservation_below_floor")
+        self.assertLess(outcome.candidates[0]["terminology_preservation_score"], outcome.candidates[0]["preservation_floor"])
+
+    def test_selective_rewrite_rejects_candidate_with_insufficient_gain(self) -> None:
+        raw_query = "DigestAuthenticationFilter 설정 방법"
+        candidate_query = "DigestAuthenticationFilter 설정 포인트"
+
+        def fake_retrieve(query_text: str, *args, **kwargs):
+            if query_text == raw_query:
+                return self._single_retrieval(query_text, score=0.20, chunk_id="same")
+            return self._single_retrieval(query_text, score=0.24, chunk_id="same")
+
+        def fake_memory(query_text: str, *args, **kwargs):
+            return [
+                {
+                    "memory_id": "m1",
+                    "query_text": query_text,
+                    "similarity": 0.0,
+                    "glossary_terms": ["DigestAuthenticationFilter"],
+                }
+            ]
+
+        with patch.object(runtime, "build_rewrite_candidates_v2", return_value=[{"label": "c1", "query": candidate_query}]), patch.object(
+            runtime,
+            "retrieve_top_k",
+            side_effect=fake_retrieve,
+        ), patch.object(runtime, "memory_top_n", side_effect=fake_memory):
+            outcome, _ = runtime.run_selective_rewrite(
+                raw_query=raw_query,
+                query_language="ko",
+                query_category="definition",
+                session_context={},
+                chunks=[],
+                memories=[],
+                memory_top_n_value=3,
+                candidate_count=1,
+                threshold=0.08,
+                retrieval_top_k=3,
+                retriever_config=build_retriever_config({"dense_fallback_enabled": True}),
+            )
+
+        self.assertFalse(outcome.rewrite_applied)
+        self.assertEqual(outcome.rewrite_reason, "delta_below_threshold")
+        self.assertEqual(outcome.candidates[0]["rejection_reason"], "delta_below_threshold")
+        self.assertLess(outcome.best_candidate_confidence - outcome.raw_confidence, 0.08)
+
+    def test_selective_rewrite_accepts_candidate_with_gain_and_preserved_anchor(self) -> None:
+        raw_query = "DigestAuthenticationFilter 설정 방법"
+        candidate_query = "DigestAuthenticationFilter security config"
+
+        def fake_retrieve(query_text: str, *args, **kwargs):
+            if query_text == raw_query:
+                return self._single_retrieval(query_text, score=0.20, chunk_id="raw")
+            return self._single_retrieval(query_text, score=0.80, chunk_id="cand")
+
+        def fake_memory(query_text: str, *args, **kwargs):
+            return [
+                {
+                    "memory_id": "m1",
+                    "query_text": query_text,
+                    "similarity": 0.0,
+                    "glossary_terms": ["DigestAuthenticationFilter"],
+                }
+            ]
+
+        with patch.object(runtime, "build_rewrite_candidates_v2", return_value=[{"label": "c1", "query": candidate_query}]), patch.object(
+            runtime,
+            "retrieve_top_k",
+            side_effect=fake_retrieve,
+        ), patch.object(runtime, "memory_top_n", side_effect=fake_memory):
+            outcome, retrieval = runtime.run_selective_rewrite(
+                raw_query=raw_query,
+                query_language="ko",
+                query_category="definition",
+                session_context={},
+                chunks=[],
+                memories=[],
+                memory_top_n_value=3,
+                candidate_count=1,
+                threshold=0.01,
+                retrieval_top_k=3,
+                retriever_config=build_retriever_config({"dense_fallback_enabled": True}),
+            )
+
+        self.assertTrue(outcome.rewrite_applied)
+        self.assertEqual(outcome.rewrite_reason, "delta_above_threshold")
+        self.assertEqual(retrieval[0].chunk_id, "cand")
+        self.assertGreater(outcome.candidates[0]["retrieval_gain_score"], 0.0)
+        self.assertGreaterEqual(outcome.candidates[0]["terminology_preservation_score"], outcome.candidates[0]["preservation_floor"])
+
+    def test_selective_rewrite_applies_category_aware_threshold_for_short_user(self) -> None:
+        raw_query = "DigestAuthenticationFilter 설정 방법"
+        candidate_query = "DigestAuthenticationFilter security setup"
+        policy = {
+            "thresholds": {
+                "min_improvement": 0.01,
+                "preservation_floor": 0.70,
+            },
+            "category_overrides": {
+                "short_user": {
+                    "thresholds": {
+                        "min_improvement": 0.20,
+                    }
+                }
+            },
+        }
+
+        def fake_retrieve(query_text: str, *args, **kwargs):
+            if query_text == raw_query:
+                return self._single_retrieval(query_text, score=0.20, chunk_id="raw")
+            return self._single_retrieval(query_text, score=0.35, chunk_id="cand")
+
+        def fake_memory(query_text: str, *args, **kwargs):
+            return [
+                {
+                    "memory_id": "m1",
+                    "query_text": query_text,
+                    "similarity": 0.0,
+                    "glossary_terms": ["DigestAuthenticationFilter"],
+                }
+            ]
+
+        with patch.object(runtime, "build_rewrite_candidates_v2", return_value=[{"label": "c1", "query": candidate_query}]), patch.object(
+            runtime,
+            "retrieve_top_k",
+            side_effect=fake_retrieve,
+        ), patch.object(runtime, "memory_top_n", side_effect=fake_memory):
+            general_outcome, _ = runtime.run_selective_rewrite(
+                raw_query=raw_query,
+                query_language="ko",
+                query_category="definition",
+                session_context={},
+                chunks=[],
+                memories=[],
+                memory_top_n_value=3,
+                candidate_count=1,
+                threshold=0.01,
+                retrieval_top_k=3,
+                rewrite_adoption_policy=policy,
+                retriever_config=build_retriever_config({"dense_fallback_enabled": True}),
+            )
+            short_user_outcome, _ = runtime.run_selective_rewrite(
+                raw_query=raw_query,
+                query_language="ko",
+                query_category="short_user",
+                session_context={},
+                chunks=[],
+                memories=[],
+                memory_top_n_value=3,
+                candidate_count=1,
+                threshold=0.01,
+                retrieval_top_k=3,
+                rewrite_adoption_policy=policy,
+                retriever_config=build_retriever_config({"dense_fallback_enabled": True}),
+            )
+
+        self.assertTrue(general_outcome.rewrite_applied)
+        self.assertFalse(short_user_outcome.rewrite_applied)
+        self.assertEqual(short_user_outcome.rewrite_reason, "delta_below_threshold")
+
+    def test_yaml_rewrite_policy_override_controls_threshold(self) -> None:
+        raw_query = "DigestAuthenticationFilter 설정 방법"
+        candidate_query = "DigestAuthenticationFilter security setup"
+
+        config_text = """\
+experiment_key: phase2_policy_test
+rewrite_candidate_count: 1
+rewrite_threshold: 0.01
+rewrite_adoption_policy:
+  thresholds:
+    min_improvement: 0.20
+"""
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            (root / "phase2_policy_test.yaml").write_text(config_text, encoding="utf-8")
+            config = load_experiment_config("phase2_policy_test", experiment_root=root)
+
+        def fake_retrieve(query_text: str, *args, **kwargs):
+            if query_text == raw_query:
+                return self._single_retrieval(query_text, score=0.20, chunk_id="raw")
+            return self._single_retrieval(query_text, score=0.40, chunk_id="cand")
+
+        def fake_memory(query_text: str, *args, **kwargs):
+            return [
+                {
+                    "memory_id": "m1",
+                    "query_text": query_text,
+                    "similarity": 0.0,
+                    "glossary_terms": ["DigestAuthenticationFilter"],
+                }
+            ]
+
+        with patch.object(runtime, "build_rewrite_candidates_v2", return_value=[{"label": "c1", "query": candidate_query}]), patch.object(
+            runtime,
+            "retrieve_top_k",
+            side_effect=fake_retrieve,
+        ), patch.object(runtime, "memory_top_n", side_effect=fake_memory):
+            outcome, _ = runtime.run_selective_rewrite(
+                raw_query=raw_query,
+                query_language="ko",
+                query_category="definition",
+                session_context={},
+                chunks=[],
+                memories=[],
+                memory_top_n_value=3,
+                candidate_count=config.rewrite_candidate_count,
+                threshold=config.rewrite_threshold,
+                retrieval_top_k=3,
+                rewrite_adoption_policy=config.rewrite_adoption_policy,
+                retriever_config=build_retriever_config({"dense_fallback_enabled": True}),
+            )
+
+        self.assertEqual(config.rewrite_adoption_policy["thresholds"]["min_improvement"], 0.2)
+        self.assertFalse(outcome.rewrite_applied)
+        self.assertEqual(outcome.rewrite_reason, "delta_below_threshold")
 
 
 if __name__ == "__main__":
