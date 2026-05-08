@@ -19,6 +19,8 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.http.MediaType.APPLICATION_JSON;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -627,6 +629,166 @@ class AdminConsoleRagIntegrationTest {
         mockMvc.perform(delete("/api/admin/console/rag/tests/{runId}", missingRunId))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.detail").value("rag test run not found: " + missingRunId));
+    }
+
+    @Test
+    void runRagRejectsCatalogOutOfAllowlistLlmModel() throws Exception {
+        UUID datasetId = insertEvalDataset("rag-invalid-llm-model");
+        mockMvc.perform(post("/api/admin/console/rag/tests/run")
+                        .contentType(APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "datasetId": "%s",
+                                  "methodCodes": ["A"],
+                                  "llmModel": "not-allowed-model"
+                                }
+                                """.formatted(datasetId)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.detail").value("llm_model is not allowed by catalog: not-allowed-model"));
+    }
+
+    @Test
+    void runRagRejectsCatalogOutOfAllowlistDenseModel() throws Exception {
+        UUID datasetId = insertEvalDataset("rag-invalid-dense-model");
+        mockMvc.perform(post("/api/admin/console/rag/tests/run")
+                        .contentType(APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "datasetId": "%s",
+                                  "methodCodes": ["A"],
+                                  "retrieverConfig": {
+                                    "retrieverMode": "dense_only",
+                                    "denseEmbeddingModel": "not-allowed-dense-model"
+                                  }
+                                }
+                                """.formatted(datasetId)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.detail").value("dense_embedding_model is not allowed by catalog: not-allowed-dense-model"));
+    }
+
+    @Test
+    void runRagRewriteEnabledRequiresRewriteStageApiKey() throws Exception {
+        UUID datasetId = insertEvalDataset("rag-rewrite-preflight-api-key");
+        UUID sourceGatingBatchId = insertCompletedGatingBatch("A", "full_gating");
+
+        mockMvc.perform(post("/api/admin/console/rag/tests/run")
+                        .contentType(APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "datasetId": "%s",
+                                  "methodCodes": ["A"],
+                                  "gatingApplied": true,
+                                  "gatingPreset": "full_gating",
+                                  "sourceGatingBatchId": "%s",
+                                  "rewriteEnabled": true,
+                                  "selectiveRewrite": true,
+                                  "llmModel": "gemini-2.5-flash-lite"
+                                }
+                                """.formatted(datasetId, sourceGatingBatchId)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.detail").value(
+                        "rewrite_enabled=true requires rewrite-stage LLM API key "
+                                + "(llm_rewrite_api_key / QUERY_FORGE_LLM_REWRITE_API_KEY / provider API key env)"
+                ));
+    }
+
+    private UUID insertEvalDataset(String datasetKeySuffix) {
+        UUID datasetId = UUID.randomUUID();
+        jdbcTemplate.update(
+                """
+                INSERT INTO eval_dataset (
+                    dataset_id,
+                    dataset_key,
+                    dataset_name,
+                    description,
+                    version,
+                    total_items,
+                    category_distribution,
+                    single_multi_distribution,
+                    metadata
+                ) VALUES (
+                    :datasetId,
+                    :datasetKey,
+                    :datasetName,
+                    :description,
+                    'v1',
+                    0,
+                    '{}'::jsonb,
+                    '{}'::jsonb,
+                    '{}'::jsonb
+                )
+                """,
+                new MapSqlParameterSource()
+                        .addValue("datasetId", datasetId)
+                        .addValue("datasetKey", "test-" + datasetKeySuffix + "-" + datasetId)
+                        .addValue("datasetName", "Test Dataset " + datasetKeySuffix)
+                        .addValue("description", "integration test dataset")
+        );
+        return datasetId;
+    }
+
+    private UUID insertCompletedGatingBatch(String methodCode, String gatingPreset) {
+        UUID methodId = jdbcTemplate.getJdbcTemplate().queryForObject(
+                "SELECT generation_method_id FROM synthetic_query_generation_method WHERE method_code = ?",
+                UUID.class,
+                methodCode
+        );
+        assertThat(methodId).isNotNull();
+
+        UUID sourceGatingRunId = UUID.randomUUID();
+        jdbcTemplate.update(
+                """
+                INSERT INTO experiment_runs (
+                    experiment_run_id,
+                    run_label,
+                    status,
+                    parameters,
+                    metrics,
+                    started_at,
+                    finished_at
+                ) VALUES (
+                    :experimentRunId,
+                    :runLabel,
+                    'completed',
+                    '{}'::jsonb,
+                    '{}'::jsonb,
+                    NOW(),
+                    NOW()
+                )
+                """,
+                new MapSqlParameterSource()
+                        .addValue("experimentRunId", sourceGatingRunId)
+                        .addValue("runLabel", "source-gating-run-" + methodCode)
+        );
+
+        UUID gatingBatchId = UUID.randomUUID();
+        jdbcTemplate.update(
+                """
+                INSERT INTO quality_gating_batch (
+                    gating_batch_id,
+                    gating_preset,
+                    generation_method_id,
+                    source_gating_run_id,
+                    stage_config_json,
+                    status,
+                    created_by
+                ) VALUES (
+                    :gatingBatchId,
+                    :gatingPreset,
+                    :generationMethodId,
+                    :sourceGatingRunId,
+                    '{}'::jsonb,
+                    'completed',
+                    'test-admin'
+                )
+                """,
+                new MapSqlParameterSource()
+                        .addValue("gatingBatchId", gatingBatchId)
+                        .addValue("gatingPreset", gatingPreset)
+                        .addValue("generationMethodId", methodId)
+                        .addValue("sourceGatingRunId", sourceGatingRunId)
+        );
+        return gatingBatchId;
     }
 
     private long countRows(String sql, UUID runId) {
