@@ -3,6 +3,12 @@
 ## Overview
 High-level progress tracking for the project.
 
+## [2026-05-08] Session Summary (AGENTS Rule Added: Runtime Catalog + Source Identity Governance)
+- What was done: Updated `.codex/AGENTS.md` with new Section `3.8 Admin Runtime Catalog + Source Identity Governance (CRITICAL)`.
+- Key decisions: Declared `configs/app/model_catalog.yml` as mandatory allowlist source for Admin runtime-selectable options and formalized strict validation behavior (out-of-catalog selections => 400, no auto-latest snapshot/source inference for required identity fields).
+- Issues encountered: None.
+- Next steps: Keep `model_catalog.yml` and Admin runtime options API behavior synchronized whenever selectable models/modes/policies change.
+
 ## [2026-05-04] Session Summary (Anchor Rewrite Purpose + Quality Constraint Clarification)
 - What was done: Updated `.codex/AGENTS.md` Section `3.6.5 Query Rewrite Evaluation` with explicit anchor extraction/injection policy for rewrite-effect analysis (technical-intent preservation purpose, on/off comparison guidance, and exclusion of non-technical polite/functional phrases).
 - Key decisions: Positioned anchor injection as retrieval-grounding control rather than writing-style optimization, aligned with existing `rewrite_anchor_injection_enabled` runtime path.

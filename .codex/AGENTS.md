@@ -429,6 +429,47 @@ Agents MUST NOT:
 
 ---
 
+## 3.8 Admin Runtime Catalog + Source Identity Governance (CRITICAL)
+
+This section defines mandatory governance rules for Admin runtime-option selection and snapshot/source identity handling.
+
+---
+
+### 3.8.1 Runtime Option Allowlist (MANDATORY)
+
+Admin runtime-selectable options MUST be governed by `configs/app/model_catalog.yml`.
+
+This includes at least:
+- `llm_providers`
+- `llm_models`
+- `dense_embedding_models`
+- `retriever_modes`
+- `rewrite_failure_policies`
+- `default_parameter_ranges`
+
+Agents MUST:
+- register new runtime-selectable provider/model/mode/policy in the catalog first
+- keep frontend option lists server-driven through `GET /api/admin/console/runtime/options`
+- avoid hardcoding independent option constants in frontend when server options exist
+
+Backend MUST:
+- reject out-of-catalog selections with `400 Bad Request`
+- include option metadata/status in runtime options response when available
+
+---
+
+### 3.8.2 Snapshot/Source Identity Strictness (MANDATORY)
+
+To preserve reproducibility and deterministic comparisons:
+
+- Non-baseline synthetic-backed RAG runs MUST provide explicit `source_gating_batch_id`.
+- Auto-latest snapshot fallback MUST NOT be used for those runs.
+- Quality gating executions MUST be pinned to explicit source generation identities (batch/run), not inferred latest data.
+
+Agents MUST treat missing required source identity fields as validation errors, not as signals to auto-select latest.
+
+---
+
 ## 4. Execution and Documentation Rules
 
 ### 4.1 Root Progress Tracking
@@ -578,6 +619,7 @@ For each directory, it lists core features, key methods (or entry points), and r
   - `configs/README.md`
   - `configs/index.md`
   - `configs/progress.md`
+  - `configs/app/model_catalog.yml`
   - `configs/prompts/query_generation/gen_a_v1.md`
   - `configs/prompts/query_generation/gen_b_v1.md`
   - `configs/prompts/query_generation/gen_c_v1.md`

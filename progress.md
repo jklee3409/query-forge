@@ -3,6 +3,48 @@
 ## Overview
 High-level progress tracking for the project.
 
+## [2026-05-08] Session Summary (AGENTS Governance Update: Model Catalog + Source Identity)
+- What was done: Added `.codex/AGENTS.md` Section `3.8` to codify mandatory governance for Admin runtime option allowlists (`configs/app/model_catalog.yml`) and strict source identity requirements (`source_gating_batch_id` / explicit generation source identity; no auto-latest fallback for required cases).
+- Key decisions: Elevated these behaviors from implementation detail to explicit agent policy to prevent future regressions in reproducibility and validation strictness.
+- Issues encountered: None.
+- Next steps: Apply the same policy whenever runtime-option surface or snapshot/source selection contract expands.
+
+## [2026-05-08] Session Summary (Runtime Options Catalog + Allowlist Enforcement)
+- What was done: Added `configs/app/model_catalog.yml`, switched backend `/api/admin/console/runtime/options` to catalog-driven metadata/range response, and enforced allowlist validation for Admin run inputs (`llm_model`, `retriever_mode`, `dense_embedding_model`, `rewrite_failure_policy`). Updated frontend gating/RAG dropdowns to consume server runtime options without hardcoded option arrays.
+- Key decisions: Preserved existing API compatibility by keeping legacy flat list fields while adding richer option metadata and parameter-range payloads.
+- Issues encountered: None.
+- Next steps: Add broader integration assertions for catalog validation across RAG run creation paths.
+
+## [2026-05-08] Session Summary (Rewrite Strictness Hardening: Policy Tests + Preflight Validation)
+- What was done: Completed rewrite-failure strictness hardening by adding policy-specific runtime tests (`fail_run`, `skip_to_raw`, `heuristic_fallback`), exposing explicit rewrite LLM/fallback counters in retrieval/answer summaries, and adding backend preflight validation that blocks rewrite-enabled RAG runs when rewrite-stage provider/model/api-key resolution is missing.
+- Key decisions: Treated rewrite failures as configuration/runtime contract issues that should fail early and be observable with explicit counters.
+- Issues encountered: None.
+- Next steps: Add backend API integration assertions for rewrite preflight rejection cases in Docker-enabled test runs.
+
+## [2026-05-08] Session Summary (Gating Determinism: Explicit Source Run Required)
+- What was done: Enforced explicit source generation run selection for quality gating by removing pipeline-side auto-latest fallback in `pipeline/gating/quality_gating.py` and adding regression tests (`pipeline/tests/test_quality_gating.py`).
+- Key decisions: Deterministic snapshot provenance was treated as mandatory; missing source run IDs now fail immediately instead of silently selecting latest data.
+- Issues encountered: None.
+- Next steps: Keep admin and manual experiment configs pinned to explicit generation run IDs for all gating executions.
+
+## [2026-05-08] Session Summary (Compile/Test Guard: Dockerless Pipeline Test Skip)
+- What was done: Hardened pipeline test execution on non-Docker environments by updating `pipeline/tests/test_corpus_import.py` to skip Docker-backed integration setup when Docker daemon is unavailable.
+- Key decisions: Treated this as test-runtime robustness work only; no pipeline business logic, schema, or API behavior was changed.
+- Issues encountered: The Docker availability error occurs at `PostgresContainer` construction time, so skip handling must cover object creation as well as `start()`.
+- Next steps: Continue using `python -m unittest discover pipeline/tests` as a safe baseline verification command in local environments without Docker.
+
+## [2026-05-08] Session Summary (Admin Runtime Options + Snapshot-Pinned Flow Stabilization)
+- What was done: Completed Admin runtime-option wiring across backend/frontend/pipeline for LLM and dense-model dropdown driven runs, added rewrite-failure-policy propagation (`fail_run|skip_to_raw|heuristic_fallback`), enabled multi-batch/multi-strategy gating source pinning, and enforced explicit snapshot selection for non-baseline RAG paths. Recovered interrupted frontend merge state by fixing duplicated `GatingPage.jsx` blocks and undefined `selectedMethodCodes` usage.
+- Key decisions: Disabled exploratory auto-latest snapshot fallback and required explicit snapshot IDs to keep experiments deterministic and reproducible under AGENTS 3.6 snapshot rules.
+- Issues encountered: Prior interrupted patch introduced duplicated `loadLlmJobs` blocks and run payload variable inconsistency in `GatingPage.jsx`; cleaned to a single validated path and re-verified.
+- Next steps: Run full Admin GUI smoke (`generate -> gate -> rag`) with explicit snapshot selection and compare rewrite-failure-policy modes under same dataset/snapshot.
+
+## [2026-05-08] Session Summary (RAG Eval Retriever Reuse Cache Optimization)
+- What was done: Added runtime-level retriever reuse caches in `pipeline/eval/runtime.py` for chunk retrieval (`eval-chunks`) and filtered memory retrieval (`eval-memory`) keyed by in-process object identity + retriever config/signature.
+- Key decisions: Kept retrieval/rewrite business logic and scoring semantics unchanged; optimized only repeated retriever materialization/filter computation paths used heavily by `memory_top_n` and rewrite candidate evaluation loops.
+- Issues encountered: None.
+- Next steps: Re-run controlled same-dataset/same-snapshot latency comparisons to quantify end-to-end overhead reduction for memory lookup and rewrite-heavy modes.
+
 ## [2026-05-07] Session Summary (RAG Memory Lookup Intent-Preservation Guard)
 - What was done: Hardened retrieval eval memory modes to preserve raw user intent instead of directly substituting top synthetic memory query text. Added intent-guided query composition and raw/guided retrieval merge behavior for `memory_only_*` runs.
 - Key decisions: Chose product-level hint anchoring with raw-query-first composition to reduce semantic over-specification for short-user Korean queries while keeping synthetic-memory retrieval benefits.
