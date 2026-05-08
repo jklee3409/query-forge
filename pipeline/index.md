@@ -48,6 +48,8 @@ Python pipeline for data processing, synthetic query generation, quality gating,
 - Eval runtime chunk loading excludes orphan chunks by joining `corpus_documents`, and import skips chunk rows with missing corpus document references.
 - Selective rewrite prompt loading prefers `configs/prompts/rewrite/selective_rewrite_v2.md` with automatic fallback to `selective_rewrite_v1.md`.
 - Eval runtime can load English eval samples (`user_query_en`) through `eval_query_language=en`, and selective rewrite receives the sample query language for English/Korean candidate generation.
+- Eval runtime now enforces dataset-aware corpus scope in retrieval/answer evaluation by deriving allowed product scope from eval sample `source_product` (including alias normalization such as `*-reference -> *`) with expected-doc fallback, preventing unrelated corpus domains from polluting RAG eval metrics.
+- `memory_only_*` retrieval modes now support intent-preserving memory guidance: raw user query is kept as the base, product-level memory hints are appended, and raw/guided retrieval lists are merged (`memory_lookup_retrieval_strategy`, default `max_score`) to reduce semantic drift from direct synthetic-query substitution.
 - Selective rewrite adoption now considers retrieval shift (`top-k` composition change + `top1` change) in addition to confidence, reducing zero-adoption lock when rerank scores are flat.
 - Langfuse LLM observability is integrated at `common/langfuse_observability.py` and wired only through `common/llm_client.py` with fail-open behavior.
 - Normalize preprocessing now supports legacy HTML containers by falling back from `article.doc` to `div#content` and `body` when extracting section records.

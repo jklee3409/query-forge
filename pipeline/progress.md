@@ -3,6 +3,18 @@
 ## Overview
 High-level pipeline progress tracking.
 
+## [2026-05-07] Session Summary (Memory Lookup Intent-Preserving Retrieval)
+- What was done: Updated `eval/retrieval_eval.py` memory-mode path to stop direct top-memory-query replacement. Added intent-preserving memory guidance query construction in `eval/runtime.py::build_memory_guided_query` (raw query base + product-level memory hints) and merged raw/guided retrieval results (`max_score|interleave|replace`, default `max_score`).
+- Key decisions: Prioritized raw intent preservation for short Korean developer queries while still leveraging synthetic-memory shape; reduced aggressive glossary/class-token injection in guidance hints to avoid over-specific drift.
+- Issues encountered: Initial hint scoring over-weighted glossary anchors and produced unnatural expansions (e.g., class/config tokens); adjusted guidance to prefer product-level hints (`Spring Security`) first.
+- Next steps: Re-run `1f30b078-...` equivalent settings and compare per-sample `memory_only_gated` failures and aggregate `MRR@10 / nDCG@10` versus baseline.
+
+## [2026-05-07] Session Summary (Eval Dataset Scope-based Corpus Filtering)
+- What was done: Updated `eval/runtime.py`, `eval/retrieval_eval.py`, and `eval/answer_eval.py` to enforce dataset-aware retrieval scope. Eval sample loading now includes `source_product`/`source_version_if_available`, and chunk loading now filters by dataset product scope (with alias normalization like `*-reference -> *`) plus expected-doc fallback.
+- Key decisions: Kept backward compatibility for legacy datasets by allowing expected-doc-id fallback when `source_product` is missing, while defaulting dataset-bound runs away from full-corpus retrieval.
+- Issues encountered: Existing runs compared same dataset/snapshot under different corpus states, so absolute A/B metric deltas included corpus-scope drift noise.
+- Next steps: Re-run controlled A/B with the same snapshot + same corpus state and verify that off-domain chunk dominance no longer appears in top-1 retrieval distribution.
+
 ## [2026-05-06] Session Summary (Selective Rewrite Scoring/Adoption Stabilization Phase-2)
 - What was done: Refactored selective rewrite candidate evaluation into staged scoring in `eval/runtime.py` and added configurable adoption policy handling via `common/experiment_config.py::resolve_rewrite_adoption_policy`.
 - Key decisions: Adoption now combines retrieval gain + terminology preservation + memory alignment, then applies verbosity/preservation penalties and category-aware thresholds (`short_user`, `code_mixed`, `troubleshooting`) without changing pipeline stage order.

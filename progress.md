@@ -3,6 +3,18 @@
 ## Overview
 High-level progress tracking for the project.
 
+## [2026-05-07] Session Summary (RAG Memory Lookup Intent-Preservation Guard)
+- What was done: Hardened retrieval eval memory modes to preserve raw user intent instead of directly substituting top synthetic memory query text. Added intent-guided query composition and raw/guided retrieval merge behavior for `memory_only_*` runs.
+- Key decisions: Chose product-level hint anchoring with raw-query-first composition to reduce semantic over-specification for short-user Korean queries while keeping synthetic-memory retrieval benefits.
+- Issues encountered: Naive technical-anchor hint injection initially produced overly specific class/config expansions; guidance logic was tightened to prefer stable product hints.
+- Next steps: Run controlled regression on latest RAG run conditions and verify per-sample drift reduction in memory-mode query rewrites.
+
+## [2026-05-07] Session Summary (RAG Eval Dataset Scope Guard)
+- What was done: Hardened eval runtime so retrieval/answer evaluation uses dataset-aware corpus scope instead of unconditional full-corpus chunk loading. Added source-product-aware scope derivation and applied it to both retrieval and answer eval stages.
+- Key decisions: Prioritized experiment validity by binding evaluation candidates to dataset scope (`source_product` aliases + expected-doc fallback), preventing unrelated corpus additions from silently skewing run comparisons.
+- Issues encountered: Historical A/B runs with same dataset/snapshot showed metric regression caused by corpus-scope drift, not only rewrite/anchor logic.
+- Next steps: Re-run anchor/rewrite A/B under fixed corpus snapshot to isolate single-variable impact.
+
 ## [2026-05-06] Session Summary (Proposal 1 Phase-2: Rewrite Candidate Scoring/Adoption Stabilization)
 - What was done: Implemented selective rewrite adoption stabilization with staged candidate scoring in `pipeline/eval/runtime.py`: retrieval gain, terminology preservation, memory alignment, verbosity/preservation penalties, and category-aware threshold gating. Added config-driven rewrite adoption policy loading in `pipeline/common/experiment_config.py` and wired policy + query category through retrieval/answer eval runtime calls.
 - Key decisions: Preserved pipeline order and A/B/C/D/E separation; kept existing rewrite candidate prompt contract and report schema compatibility while extending candidate trace fields (`rejection_reason`, sub-scores, thresholds, margins) for bad-rewrite analysis.
