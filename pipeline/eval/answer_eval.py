@@ -20,6 +20,7 @@ try:
     from loaders.common import connect, default_database_args
     from eval.runtime import (
         RewriteOutcome,
+        derive_eval_corpus_scope,
         load_chunk_items,
         load_eval_samples,
         load_memory_items,
@@ -35,6 +36,7 @@ except ModuleNotFoundError:  # pragma: no cover
     from pipeline.loaders.common import connect, default_database_args
     from pipeline.eval.runtime import (
         RewriteOutcome,
+        derive_eval_corpus_scope,
         load_chunk_items,
         load_eval_samples,
         load_memory_items,
@@ -280,7 +282,39 @@ def run_answer_eval(
             len(samples),
             eval_concurrency,
         )
-        chunks = load_chunk_items(connection)
+        dataset_scope = derive_eval_corpus_scope(samples) if dataset_id else {
+            "source_products": set(),
+            "product_filters": set(),
+            "expected_doc_ids": set(),
+        }
+        allowed_products = dataset_scope["product_filters"]
+        expected_doc_ids = dataset_scope["expected_doc_ids"]
+        if dataset_id and not allowed_products and expected_doc_ids:
+            LOGGER.warning(
+                "answer_eval_dataset_scope_missing_source_products dataset_id=%s expected_doc_ids=%s; "
+                "falling back to expected_doc_ids-only chunk scope",
+                dataset_id,
+                len(expected_doc_ids),
+            )
+        elif dataset_id and not allowed_products and not expected_doc_ids:
+            LOGGER.warning(
+                "answer_eval_dataset_scope_empty dataset_id=%s; falling back to full corpus",
+                dataset_id,
+            )
+        chunks = load_chunk_items(
+            connection,
+            allowed_products=allowed_products if dataset_id else None,
+            include_document_ids=expected_doc_ids if dataset_id else None,
+        )
+        if dataset_id:
+            LOGGER.info(
+                "answer_eval_dataset_scope dataset_id=%s source_products=%s product_filters=%s expected_doc_ids=%s loaded_chunks=%s",
+                dataset_id,
+                len(dataset_scope["source_products"]),
+                len(allowed_products),
+                len(expected_doc_ids),
+                len(chunks),
+            )
         memories = (
             load_memory_items(connection, memory_experiment_key=config.experiment_key)
             if rewrite_enabled

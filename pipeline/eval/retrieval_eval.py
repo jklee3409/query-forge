@@ -20,6 +20,9 @@ try:
     from loaders.common import connect, default_database_args
     from eval.runtime import (
         EvalSample,
+        RetrievalCandidate,
+        build_memory_guided_query,
+        derive_eval_corpus_scope,
         load_chunk_items,
         load_eval_samples,
         load_memory_items,
@@ -35,6 +38,9 @@ except ModuleNotFoundError:  # pragma: no cover
     from pipeline.loaders.common import connect, default_database_args
     from pipeline.eval.runtime import (
         EvalSample,
+        RetrievalCandidate,
+        build_memory_guided_query,
+        derive_eval_corpus_scope,
         load_chunk_items,
         load_eval_samples,
         load_memory_items,
@@ -173,6 +179,56 @@ def _render_report(
     report_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
+def _dedup_candidates(
+    rows: list[RetrievalCandidate],
+    *,
+    top_k: int,
+) -> list[RetrievalCandidate]:
+    deduped: list[RetrievalCandidate] = []
+    seen_chunks: set[str] = set()
+    for row in rows:
+        chunk_id = str(row.chunk_id or "").strip()
+        if not chunk_id or chunk_id in seen_chunks:
+            continue
+        seen_chunks.add(chunk_id)
+        deduped.append(row)
+        if len(deduped) >= top_k:
+            break
+    return deduped
+
+
+def _merge_retrieval_results(
+    *,
+    strategy: str,
+    raw_retrieval: list[RetrievalCandidate],
+    guided_retrieval: list[RetrievalCandidate],
+    top_k: int,
+) -> list[RetrievalCandidate]:
+    normalized = str(strategy or "max_score").strip().lower()
+    if normalized == "replace":
+        return guided_retrieval[:top_k]
+    if normalized == "interleave":
+        interleaved: list[RetrievalCandidate] = []
+        max_len = max(len(raw_retrieval), len(guided_retrieval))
+        for index in range(max_len):
+            if index < len(raw_retrieval):
+                interleaved.append(raw_retrieval[index])
+            if index < len(guided_retrieval):
+                interleaved.append(guided_retrieval[index])
+        return _dedup_candidates(interleaved, top_k=top_k)
+
+    by_chunk: dict[str, RetrievalCandidate] = {}
+    for row in [*raw_retrieval, *guided_retrieval]:
+        chunk_id = str(row.chunk_id or "").strip()
+        if not chunk_id:
+            continue
+        existing = by_chunk.get(chunk_id)
+        if existing is None or row.score > existing.score:
+            by_chunk[chunk_id] = row
+    ranked = sorted(by_chunk.values(), key=lambda item: item.score, reverse=True)
+    return ranked[:top_k]
+
+
 def _evaluate_mode(
     *,
     mode: str,
@@ -225,13 +281,44 @@ def _evaluate_mode(
             strategy_filters=memory_strategy_filters,
             retriever_config=config.retriever_config,
         )
-        final_query = top_memory[0]["query_text"] if top_memory else sample.query_text
-        retrieval = retrieve_top_k(
-            final_query,
+        raw_retrieval = retrieve_top_k(
+            sample.query_text,
             chunks,
             top_k=config.retrieval_top_k,
             retriever_config=config.retriever_config,
         )
+        memory_lookup_intent_preserving_enabled = bool(
+            config.raw.get("memory_lookup_intent_preserving_enabled", True)
+        )
+        if top_memory and memory_lookup_intent_preserving_enabled:
+            final_query = build_memory_guided_query(
+                sample.query_text,
+                top_memory,
+                query_language=sample.query_language,
+                max_hint_tokens=config.raw.get("memory_lookup_hint_token_max", 2),
+            )
+            guided_retrieval = retrieve_top_k(
+                final_query,
+                chunks,
+                top_k=config.retrieval_top_k,
+                retriever_config=config.retriever_config,
+            )
+            retrieval = _merge_retrieval_results(
+                strategy=str(config.raw.get("memory_lookup_retrieval_strategy") or "max_score"),
+                raw_retrieval=raw_retrieval,
+                guided_retrieval=guided_retrieval,
+                top_k=config.retrieval_top_k,
+            )
+            reason = f"memory_lookup_intent_guided:{preset_filter}"
+        else:
+            final_query = top_memory[0]["query_text"] if top_memory else sample.query_text
+            retrieval = retrieve_top_k(
+                final_query,
+                chunks,
+                top_k=config.retrieval_top_k,
+                retriever_config=config.retriever_config,
+            )
+            reason = f"memory_lookup:{preset_filter}"
         metrics = retrieval_metrics(
             expected_chunk_ids=sample.expected_chunk_ids,
             expected_doc_ids=sample.expected_doc_ids,
@@ -244,7 +331,7 @@ def _evaluate_mode(
                 "raw_confidence": 0.0,
                 "best_candidate_confidence": 0.0,
                 "final_query": final_query,
-                "rewrite_reason": f"memory_lookup:{preset_filter}",
+                "rewrite_reason": reason,
                 "memory_top_n": top_memory,
                 "candidates": [],
             },
@@ -408,7 +495,39 @@ def run_retrieval_eval(
             len(active_modes),
             eval_concurrency,
         )
-        chunks = load_chunk_items(connection)
+        dataset_scope = derive_eval_corpus_scope(samples) if dataset_id else {
+            "source_products": set(),
+            "product_filters": set(),
+            "expected_doc_ids": set(),
+        }
+        allowed_products = dataset_scope["product_filters"]
+        expected_doc_ids = dataset_scope["expected_doc_ids"]
+        if dataset_id and not allowed_products and expected_doc_ids:
+            LOGGER.warning(
+                "retrieval_eval_dataset_scope_missing_source_products dataset_id=%s expected_doc_ids=%s; "
+                "falling back to expected_doc_ids-only chunk scope",
+                dataset_id,
+                len(expected_doc_ids),
+            )
+        elif dataset_id and not allowed_products and not expected_doc_ids:
+            LOGGER.warning(
+                "retrieval_eval_dataset_scope_empty dataset_id=%s; falling back to full corpus",
+                dataset_id,
+            )
+        chunks = load_chunk_items(
+            connection,
+            allowed_products=allowed_products if dataset_id else None,
+            include_document_ids=expected_doc_ids if dataset_id else None,
+        )
+        if dataset_id:
+            LOGGER.info(
+                "retrieval_eval_dataset_scope dataset_id=%s source_products=%s product_filters=%s expected_doc_ids=%s loaded_chunks=%s",
+                dataset_id,
+                len(dataset_scope["source_products"]),
+                len(allowed_products),
+                len(expected_doc_ids),
+                len(chunks),
+            )
         needs_memory = any(mode != "raw_only" for mode in active_modes)
         memories = (
             load_memory_items(connection, memory_experiment_key=config.experiment_key)

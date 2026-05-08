@@ -48,6 +48,8 @@ class EvalSample:
     expected_answer_key_points: list[str]
     query_category: str
     single_or_multi_chunk: str | None
+    source_product: str | None = None
+    source_version_if_available: str | None = None
 
 
 @dataclass(slots=True)
@@ -128,6 +130,15 @@ REWRITE_RESPONSE_SCHEMA: dict[str, Any] = {
     },
     "additionalProperties": True,
 }
+
+PRODUCT_SCOPE_SUFFIXES = (
+    "-reference",
+    "_reference",
+    "-docs",
+    "_docs",
+    "-doc",
+    "_doc",
+)
 
 def _normalize_anchor_token(token: str) -> str:
     return normalize_anchor_text(token)
@@ -290,6 +301,109 @@ def _build_rewrite_terminology_hints(
     }
 
 
+def build_memory_guided_query(
+    raw_query: str,
+    memory_items: list[dict[str, Any]],
+    *,
+    query_language: str = "ko",
+    max_hint_tokens: int = 2,
+) -> str:
+    normalized_raw_query = str(raw_query or "").strip()
+    if not normalized_raw_query:
+        return normalized_raw_query
+    if not memory_items:
+        return normalized_raw_query
+
+    bounded_hint_count = _clamp_count(max_hint_tokens, default=2, max_value=6)
+    raw_query_folded = normalized_raw_query.casefold()
+    raw_anchor_set = {
+        token.casefold()
+        for token in _extract_anchor_tokens(
+            normalized_raw_query,
+            language_hint=query_language,
+            max_items=16,
+        )
+        if token.strip()
+    }
+    product_scores: dict[str, float] = {}
+    hint_scores: dict[str, float] = {}
+
+    def _product_hint_phrase(product_value: str) -> str:
+        normalized = product_value.strip().replace("_", "-")
+        if not normalized:
+            return ""
+        tokens = [item for item in normalized.split("-") if item]
+        if not tokens:
+            return ""
+        if len(tokens) > 4:
+            tokens = tokens[:4]
+        return " ".join(token.capitalize() for token in tokens)
+
+    def _accept_hint(token: str) -> str | None:
+        normalized = _normalize_anchor_token(token)
+        if not normalized:
+            return None
+        if not _looks_technical_anchor(normalized):
+            return None
+        if not is_valid_anchor_phrase(normalized, language_hint=query_language):
+            return None
+        folded = normalized.casefold()
+        if folded in raw_anchor_set:
+            return None
+        if len(normalized) > 32:
+            return None
+        if any(marker in normalized for marker in ("{", "}", "(", ")", ";", "=", ".", "$", "/")):
+            return None
+        return normalized
+
+    for index, memory in enumerate(memory_items[:5]):
+        rank_weight = 1.0 / float(index + 1)
+        product_phrase = _product_hint_phrase(str(memory.get("product") or ""))
+        if product_phrase and product_phrase.casefold() not in raw_query_folded:
+            product_scores[product_phrase] = product_scores.get(product_phrase, 0.0) + (2.0 * rank_weight)
+
+        query_text = str(memory.get("query_text") or "")
+        for token in _extract_anchor_tokens(
+            query_text,
+            language_hint=query_language,
+            max_items=5,
+        ):
+            accepted = _accept_hint(token)
+            if not accepted:
+                continue
+            hint_scores[accepted] = hint_scores.get(accepted, 0.0) + rank_weight
+
+    if not hint_scores:
+        if product_scores:
+            ranked_products = sorted(
+                product_scores.items(),
+                key=lambda item: (-item[1], item[0].casefold()),
+            )
+            selected_products = [token for token, _score in ranked_products[:bounded_hint_count]]
+            if selected_products:
+                return f"{normalized_raw_query} {' '.join(selected_products)}".strip()
+        return normalized_raw_query
+
+    if product_scores:
+        ranked_products = sorted(
+            product_scores.items(),
+            key=lambda item: (-item[1], item[0].casefold()),
+        )
+        product_hints = [token for token, _score in ranked_products[:bounded_hint_count]]
+        if product_hints:
+            return f"{normalized_raw_query} {' '.join(product_hints)}".strip()
+
+    ranked_hints = sorted(
+        hint_scores.items(),
+        key=lambda item: (-item[1], len(item[0]), item[0].casefold()),
+    )
+    selected_hints = [token for token, _score in ranked_hints[:bounded_hint_count]]
+    if not selected_hints:
+        return normalized_raw_query
+
+    return f"{normalized_raw_query} {' '.join(selected_hints)}".strip()
+
+
 def load_eval_samples(
     connection: psycopg.Connection[Any],
     *,
@@ -311,7 +425,9 @@ def load_eval_samples(
                        es.expected_chunk_ids,
                        es.expected_answer_key_points,
                        es.query_category,
-                       es.single_or_multi_chunk
+                       es.single_or_multi_chunk,
+                       es.source_product,
+                       es.source_version_if_available
                 FROM eval_samples es
                 JOIN eval_dataset_item edi
                   ON edi.sample_id = es.sample_id
@@ -336,7 +452,9 @@ def load_eval_samples(
                        expected_chunk_ids,
                        expected_answer_key_points,
                        query_category,
-                       single_or_multi_chunk
+                       single_or_multi_chunk,
+                       source_product,
+                       source_version_if_available
                 FROM eval_samples
                 WHERE split IN ('dev', 'test')
                 ORDER BY split, sample_id
@@ -360,20 +478,99 @@ def load_eval_samples(
             expected_answer_key_points=list(row["expected_answer_key_points"] or []),
             query_category=str(row["query_category"]),
             single_or_multi_chunk=row["single_or_multi_chunk"],
+            source_product=str(row["source_product"]).strip() if row["source_product"] else None,
+            source_version_if_available=(
+                str(row["source_version_if_available"]).strip()
+                if row["source_version_if_available"]
+                else None
+            ),
         )
         for row in rows
     ]
 
 
-def load_chunk_items(connection: psycopg.Connection[Any]) -> list[ChunkItem]:
+def _normalize_product_scope_key(value: str) -> str:
+    return value.strip().lower().replace("_", "-")
+
+
+def _expand_source_product_aliases(source_product: str) -> set[str]:
+    normalized = _normalize_product_scope_key(source_product)
+    if not normalized:
+        return set()
+    aliases = {normalized}
+    for suffix in PRODUCT_SCOPE_SUFFIXES:
+        if normalized.endswith(suffix) and len(normalized) > len(suffix):
+            aliases.add(normalized[: -len(suffix)])
+    return {item for item in aliases if item}
+
+
+def derive_eval_corpus_scope(samples: list[EvalSample]) -> dict[str, set[str]]:
+    raw_source_products: set[str] = set()
+    product_filters: set[str] = set()
+    expected_doc_ids: set[str] = set()
+
+    for sample in samples:
+        for doc_id in sample.expected_doc_ids:
+            normalized_doc_id = str(doc_id).strip()
+            if normalized_doc_id:
+                expected_doc_ids.add(normalized_doc_id)
+        source_product = str(sample.source_product or "").strip()
+        if not source_product:
+            continue
+        raw_source_products.add(source_product)
+        product_filters.update(_expand_source_product_aliases(source_product))
+
+    return {
+        "source_products": raw_source_products,
+        "product_filters": product_filters,
+        "expected_doc_ids": expected_doc_ids,
+    }
+
+
+def load_chunk_items(
+    connection: psycopg.Connection[Any],
+    *,
+    allowed_products: set[str] | None = None,
+    include_document_ids: set[str] | None = None,
+) -> list[ChunkItem]:
+    normalized_products = sorted(
+        {
+            _normalize_product_scope_key(item)
+            for item in (allowed_products or set())
+            if str(item).strip()
+        }
+    )
+    normalized_doc_ids = sorted(
+        {
+            str(item).strip()
+            for item in (include_document_ids or set())
+            if str(item).strip()
+        }
+    )
+    where_clauses: list[str] = []
+    parameters: list[Any] = []
+    if normalized_products and normalized_doc_ids:
+        where_clauses.append(
+            "(LOWER(COALESCE(d.product_name, '')) = ANY(%s) OR c.document_id = ANY(%s))"
+        )
+        parameters.extend([normalized_products, normalized_doc_ids])
+    elif normalized_products:
+        where_clauses.append("LOWER(COALESCE(d.product_name, '')) = ANY(%s)")
+        parameters.append(normalized_products)
+    elif normalized_doc_ids:
+        where_clauses.append("c.document_id = ANY(%s)")
+        parameters.append(normalized_doc_ids)
+    where_sql = f"WHERE {' AND '.join(where_clauses)}" if where_clauses else ""
     with connection.cursor() as cursor:
         cursor.execute(
-            """
+            f"""
             SELECT c.chunk_id, c.document_id, c.chunk_text
             FROM corpus_chunks c
             JOIN corpus_documents d ON d.document_id = c.document_id
+            {where_sql}
             ORDER BY c.document_id, c.chunk_index_in_document
-            """
+            """,
+            parameters,
         )
         rows = cursor.fetchall()
     return [
