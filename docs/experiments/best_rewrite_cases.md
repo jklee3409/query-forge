@@ -22,10 +22,6 @@
 - sample=test-short-user-080 mode=memory_only_gated raw_mrr=0.1667 mode_mrr=1.0000 reason=memory_lookup:full_gating
 - sample=test-short-user-006 mode=rewrite_always raw_mrr=0.2000 mode_mrr=0.2500 reason=forced
 - sample=test-short-user-009 mode=rewrite_always raw_mrr=0.5000 mode_mrr=1.0000 reason=forced
-- sample=test-short-user-015 mode=rewrite_always raw_mrr=0.0000 mode_mrr=1.0000 reason=forced
-- sample=test-short-user-022 mode=rewrite_always raw_mrr=0.0000 mode_mrr=1.0000 reason=forced
 - sample=test-short-user-023 mode=rewrite_always raw_mrr=0.2500 mode_mrr=0.3333 reason=forced
-- sample=test-short-user-028 mode=rewrite_always raw_mrr=0.5000 mode_mrr=1.0000 reason=forced
-- sample=test-short-user-069 mode=rewrite_always raw_mrr=0.1667 mode_mrr=0.5000 reason=forced
-- sample=test-short-user-079 mode=rewrite_always raw_mrr=0.1111 mode_mrr=0.1250 reason=forced
-- sample=test-short-user-080 mode=rewrite_always raw_mrr=0.1667 mode_mrr=0.3333 reason=forced
+- sample=test-short-user-057 mode=rewrite_always raw_mrr=0.5000 mode_mrr=1.0000 reason=forced
+- sample=test-short-user-077 mode=rewrite_always raw_mrr=0.3333 mode_mrr=0.5000 reason=forced
