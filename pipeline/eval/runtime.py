@@ -4,6 +4,7 @@ import hashlib
 import json
 import math
 import os
+import threading
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -91,12 +92,26 @@ class RewriteOutcome:
     best_candidate_confidence: float
     memory_top_n: list[dict[str, Any]]
     candidates: list[dict[str, Any]]
+    rewrite_llm_attempted: bool = False
+    rewrite_llm_succeeded: bool = False
+    rewrite_heuristic_fallback_used: bool = False
 
 
 _REWRITE_CLIENT: LlmClient | None = None
 _REWRITE_PROMPT_TEXT: str | None = None
 _RERANKER: CohereReranker | None = None
+_RUNTIME_RETRIEVER_CACHE_LOCK = threading.Lock()
+_RUNTIME_CACHE_MAX_ENTRIES = 32
+_RUNTIME_CHUNK_RETRIEVER_CACHE: dict[
+    tuple[int, str],
+    tuple[list[ChunkItem], Any],
+] = {}
+_RUNTIME_MEMORY_RETRIEVER_CACHE: dict[
+    tuple[int, str, str, str, str],
+    tuple[list[MemoryItem], list[MemoryItem], Any],
+] = {}
 REWRITE_RETRIEVAL_STRATEGIES = {"replace", "interleave", "max_score"}
+REWRITE_FAILURE_POLICIES = {"fail_run", "skip_to_raw", "heuristic_fallback"}
 DEFAULT_REWRITE_TERMINOLOGY_HINTS_MAX = 12
 TROUBLESHOOTING_HINT_TOKENS = (
     "error",
@@ -631,6 +646,136 @@ def load_memory_items(
     ]
 
 
+def _trim_runtime_cache_if_needed(cache: dict[Any, Any]) -> None:
+    if len(cache) >= _RUNTIME_CACHE_MAX_ENTRIES:
+        cache.clear()
+
+
+def _chunk_retriever_cache_key(
+    *,
+    chunks: list[ChunkItem],
+    config: RetrieverConfig,
+) -> tuple[int, str]:
+    return (id(chunks), config.cache_signature())
+
+
+def _memory_retriever_cache_key(
+    *,
+    memories: list[MemoryItem],
+    preset_filter: str | None,
+    source_gate_run_id: str | None,
+    strategy_set: set[str],
+    config: RetrieverConfig,
+) -> tuple[int, str, str, str, str]:
+    strategy_signature = ",".join(sorted(strategy_set))
+    return (
+        id(memories),
+        str(preset_filter or ""),
+        str(source_gate_run_id or ""),
+        strategy_signature,
+        config.cache_signature(),
+    )
+
+
+def _select_eligible_memories(
+    *,
+    memories: list[MemoryItem],
+    preset_filter: str | None,
+    source_gate_run_id: str | None,
+    strategy_set: set[str],
+) -> list[MemoryItem]:
+    eligible: list[MemoryItem] = []
+    for memory in memories:
+        if preset_filter and memory.gating_preset != preset_filter:
+            continue
+        if source_gate_run_id and memory.source_gate_run_id != source_gate_run_id:
+            continue
+        if strategy_set and memory.generation_strategy.upper() not in strategy_set:
+            continue
+        eligible.append(memory)
+    return eligible
+
+
+def _build_chunk_retriever(
+    *,
+    chunks: list[ChunkItem],
+    config: RetrieverConfig,
+) -> Any:
+    return get_local_text_retriever(
+        namespace="eval-chunks",
+        item_ids=[chunk.chunk_id for chunk in chunks],
+        texts=[chunk.text for chunk in chunks],
+        fallback_embeddings=[chunk.embedding for chunk in chunks],
+        retriever_config=config,
+    )
+
+
+def _get_chunk_retriever(
+    *,
+    chunks: list[ChunkItem],
+    config: RetrieverConfig,
+) -> Any:
+    cache_key = _chunk_retriever_cache_key(chunks=chunks, config=config)
+    with _RUNTIME_RETRIEVER_CACHE_LOCK:
+        cached = _RUNTIME_CHUNK_RETRIEVER_CACHE.get(cache_key)
+        if cached is not None and cached[0] is chunks:
+            return cached[1]
+    retriever = _build_chunk_retriever(chunks=chunks, config=config)
+    with _RUNTIME_RETRIEVER_CACHE_LOCK:
+        _trim_runtime_cache_if_needed(_RUNTIME_CHUNK_RETRIEVER_CACHE)
+        _RUNTIME_CHUNK_RETRIEVER_CACHE[cache_key] = (chunks, retriever)
+    return retriever
+
+
+def _build_memory_retriever(
+    *,
+    eligible: list[MemoryItem],
+    config: RetrieverConfig,
+) -> Any:
+    return get_local_text_retriever(
+        namespace="eval-memory",
+        item_ids=[memory.memory_id for memory in eligible],
+        texts=[memory.query_text for memory in eligible],
+        fallback_embeddings=[memory.embedding for memory in eligible],
+        retriever_config=config,
+    )
+
+
+def _get_memory_eligible_and_retriever(
+    *,
+    memories: list[MemoryItem],
+    preset_filter: str | None,
+    source_gate_run_id: str | None,
+    strategy_set: set[str],
+    config: RetrieverConfig,
+) -> tuple[list[MemoryItem], Any] | tuple[list[MemoryItem], None]:
+    cache_key = _memory_retriever_cache_key(
+        memories=memories,
+        preset_filter=preset_filter,
+        source_gate_run_id=source_gate_run_id,
+        strategy_set=strategy_set,
+        config=config,
+    )
+    with _RUNTIME_RETRIEVER_CACHE_LOCK:
+        cached = _RUNTIME_MEMORY_RETRIEVER_CACHE.get(cache_key)
+        if cached is not None and cached[0] is memories:
+            return cached[1], cached[2]
+
+    eligible = _select_eligible_memories(
+        memories=memories,
+        preset_filter=preset_filter,
+        source_gate_run_id=source_gate_run_id,
+        strategy_set=strategy_set,
+    )
+    if not eligible:
+        return [], None
+    retriever = _build_memory_retriever(eligible=eligible, config=config)
+    with _RUNTIME_RETRIEVER_CACHE_LOCK:
+        _trim_runtime_cache_if_needed(_RUNTIME_MEMORY_RETRIEVER_CACHE)
+        _RUNTIME_MEMORY_RETRIEVER_CACHE[cache_key] = (memories, eligible, retriever)
+    return eligible, retriever
+
+
 def retrieve_top_k(
     query_text: str,
     chunks: list[ChunkItem],
@@ -642,13 +787,7 @@ def retrieve_top_k(
         return []
     config = retriever_config or build_retriever_config({})
     candidate_pool_k = max(top_k, min(config.candidate_pool_k, max(top_k, len(chunks))))
-    retriever = get_local_text_retriever(
-        namespace="eval-chunks",
-        item_ids=[chunk.chunk_id for chunk in chunks],
-        texts=[chunk.text for chunk in chunks],
-        fallback_embeddings=[chunk.embedding for chunk in chunks],
-        retriever_config=config,
-    )
+    retriever = _get_chunk_retriever(chunks=chunks, config=config)
     ranked_pool = retriever.rank(query_text, top_k=candidate_pool_k)
     reduced = [
         RetrievalCandidate(
@@ -745,25 +884,16 @@ def memory_top_n(
     retriever_config: RetrieverConfig | None = None,
 ) -> list[dict[str, Any]]:
     strategy_set = {item.upper() for item in strategy_filters or [] if str(item).strip()}
-    eligible: list[MemoryItem] = []
-    for memory in memories:
-        if preset_filter and memory.gating_preset != preset_filter:
-            continue
-        if source_gate_run_id and memory.source_gate_run_id != source_gate_run_id:
-            continue
-        if strategy_set and memory.generation_strategy.upper() not in strategy_set:
-            continue
-        eligible.append(memory)
-    if not eligible:
-        return []
     config = retriever_config or build_retriever_config({})
-    retriever = get_local_text_retriever(
-        namespace="eval-memory",
-        item_ids=[memory.memory_id for memory in eligible],
-        texts=[memory.query_text for memory in eligible],
-        fallback_embeddings=[memory.embedding for memory in eligible],
-        retriever_config=config,
+    eligible, retriever = _get_memory_eligible_and_retriever(
+        memories=memories,
+        preset_filter=preset_filter,
+        source_gate_run_id=source_gate_run_id,
+        strategy_set=strategy_set,
+        config=config,
     )
+    if not eligible or retriever is None:
+        return []
     scored = []
     for ranked in retriever.rank(query_text, top_k=top_n):
         memory = eligible[ranked.index]
@@ -949,6 +1079,21 @@ def _heuristic_rewrite_candidates_v2(
     )
 
 
+def _normalize_rewrite_failure_policy(value: str | None) -> str:
+    normalized = str(value or "").strip().lower().replace("-", "_")
+    if not normalized:
+        return "fail_run"
+    if normalized not in REWRITE_FAILURE_POLICIES:
+        return "fail_run"
+    return normalized
+
+
+def _bump_rewrite_runtime_stat(runtime_stats: dict[str, int] | None, key: str) -> None:
+    if runtime_stats is None:
+        return
+    runtime_stats[key] = int(runtime_stats.get(key, 0)) + 1
+
+
 def build_rewrite_candidates_v2(
     raw_query: str,
     memory_items: list[dict[str, Any]],
@@ -958,9 +1103,29 @@ def build_rewrite_candidates_v2(
     query_language: str,
     rewrite_anchor_injection_enabled: bool = True,
     rewrite_terminology_hints_max_count: int = DEFAULT_REWRITE_TERMINOLOGY_HINTS_MAX,
+    rewrite_failure_policy: str | None = None,
+    rewrite_runtime_stats: dict[str, int] | None = None,
 ) -> list[dict[str, str]]:
     trace_id = f"rewrite:{hashlib.sha1(raw_query.encode('utf-8')).hexdigest()[:12]}"
-    fallback_allowed = str(os.getenv("QUERY_FORGE_ALLOW_HEURISTIC_REWRITE_FALLBACK") or "true").lower() == "true"
+    failure_policy = _normalize_rewrite_failure_policy(rewrite_failure_policy)
+    fallback_allowed = failure_policy == "heuristic_fallback"
+    _bump_rewrite_runtime_stat(rewrite_runtime_stats, "llm_attempted_count")
+
+    def _handle_failure(error: Exception) -> list[dict[str, str]]:
+        _bump_rewrite_runtime_stat(rewrite_runtime_stats, "llm_failure_count")
+        if fallback_allowed:
+            _bump_rewrite_runtime_stat(rewrite_runtime_stats, "heuristic_fallback_count")
+            return _heuristic_rewrite_candidates_v2(
+                raw_query,
+                memory_items,
+                session_context=session_context,
+                candidate_count=candidate_count,
+                query_language=query_language,
+            )
+        if failure_policy == "skip_to_raw":
+            return []
+        raise error
+
     payload: dict[str, Any] = {
         "raw_query": raw_query,
         "query_language": query_language,
@@ -994,27 +1159,11 @@ def build_rewrite_candidates_v2(
             request_purpose="selective_rewrite",
             trace_id=trace_id,
         )
-    except Exception:
-        if fallback_allowed:
-            return _heuristic_rewrite_candidates_v2(
-                raw_query,
-                memory_items,
-                session_context=session_context,
-                candidate_count=candidate_count,
-                query_language=query_language,
-            )
-        raise
+    except Exception as exception:
+        return _handle_failure(exception)
     candidate_rows = response.get("candidates")
     if not isinstance(candidate_rows, list):
-        if fallback_allowed:
-            return _heuristic_rewrite_candidates_v2(
-                raw_query,
-                memory_items,
-                session_context=session_context,
-                candidate_count=candidate_count,
-                query_language=query_language,
-            )
-        raise RuntimeError("LLM rewrite response must contain `candidates` list.")
+        return _handle_failure(RuntimeError("LLM rewrite response must contain `candidates` list."))
     normalized: list[dict[str, str]] = []
     for item in candidate_rows:
         if not isinstance(item, dict):
@@ -1027,16 +1176,9 @@ def build_rewrite_candidates_v2(
         if len(normalized) >= candidate_count:
             break
     if normalized:
+        _bump_rewrite_runtime_stat(rewrite_runtime_stats, "llm_success_count")
         return normalized
-    if fallback_allowed:
-        return _heuristic_rewrite_candidates_v2(
-            raw_query,
-            memory_items,
-            session_context=session_context,
-            candidate_count=candidate_count,
-            query_language=query_language,
-        )
-    raise RuntimeError("LLM rewrite candidate response was empty.")
+    return _handle_failure(RuntimeError("LLM rewrite candidate response was empty."))
 
 
 def confidence_score(
@@ -1342,6 +1484,7 @@ def run_selective_rewrite(
     rewrite_retrieval_strategy: str = "replace",
     rewrite_anchor_injection_enabled: bool = True,
     rewrite_terminology_hints_max_count: int = DEFAULT_REWRITE_TERMINOLOGY_HINTS_MAX,
+    rewrite_failure_policy: str | None = None,
     rewrite_adoption_policy: dict[str, Any] | None = None,
     retriever_config: RetrieverConfig | None = None,
 ) -> tuple[RewriteOutcome, list[RetrievalCandidate]]:
@@ -1398,6 +1541,7 @@ def run_selective_rewrite(
     raw_confidence = raw_reference_score
 
     normalized_strategy = _normalize_rewrite_retrieval_strategy(rewrite_retrieval_strategy)
+    rewrite_runtime_stats: dict[str, int] = {}
     candidate_templates = build_rewrite_candidates_v2(
         raw_query,
         memory_items,
@@ -1406,7 +1550,12 @@ def run_selective_rewrite(
         query_language=query_language,
         rewrite_anchor_injection_enabled=rewrite_anchor_injection_enabled,
         rewrite_terminology_hints_max_count=rewrite_terminology_hints_max_count,
+        rewrite_failure_policy=rewrite_failure_policy,
+        rewrite_runtime_stats=rewrite_runtime_stats,
     )
+    rewrite_llm_attempted = rewrite_runtime_stats.get("llm_attempted_count", 0) > 0
+    rewrite_llm_succeeded = rewrite_runtime_stats.get("llm_success_count", 0) > 0
+    rewrite_heuristic_fallback_used = rewrite_runtime_stats.get("heuristic_fallback_count", 0) > 0
     anchor_context = _build_rewrite_anchor_candidates(
         raw_query=raw_query,
         query_language=query_language,
@@ -1534,6 +1683,9 @@ def run_selective_rewrite(
                 best_candidate_confidence=raw_confidence,
                 memory_top_n=memory_items,
                 candidates=[],
+                rewrite_llm_attempted=rewrite_llm_attempted,
+                rewrite_llm_succeeded=rewrite_llm_succeeded,
+                rewrite_heuristic_fallback_used=rewrite_heuristic_fallback_used,
             ),
             raw_retrieval,
         )
@@ -1606,6 +1758,9 @@ def run_selective_rewrite(
                 }
                 for candidate in candidates
             ],
+            rewrite_llm_attempted=rewrite_llm_attempted,
+            rewrite_llm_succeeded=rewrite_llm_succeeded,
+            rewrite_heuristic_fallback_used=rewrite_heuristic_fallback_used,
         ),
         final_retrieval,
     )

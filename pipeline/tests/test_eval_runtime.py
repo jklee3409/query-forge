@@ -272,6 +272,89 @@ class EvalRuntimeRewriteTests(unittest.TestCase):
         self.assertNotIn("anchor_terms", payload)
         self.assertNotIn("terminology_hints", payload)
 
+    def test_rewrite_failure_policy_fail_run_raises(self) -> None:
+        class _FailingRewriteClient:
+            def chat_json(self, **kwargs):
+                raise RuntimeError("rewrite llm failed")
+
+        runtime_stats: dict[str, int] = {}
+        with patch.object(runtime, "_REWRITE_PROMPT_TEXT", "rewrite prompt for test"), patch.object(
+            runtime,
+            "_rewrite_client",
+            return_value=_FailingRewriteClient(),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "rewrite llm failed"):
+                runtime.build_rewrite_candidates_v2(
+                    "DigestAuthenticationFilter ?ㅼ젙 諛⑸쾿",
+                    [],
+                    session_context={},
+                    candidate_count=2,
+                    query_language="ko",
+                    rewrite_failure_policy="fail_run",
+                    rewrite_runtime_stats=runtime_stats,
+                )
+
+        self.assertEqual(runtime_stats.get("llm_attempted_count"), 1)
+        self.assertEqual(runtime_stats.get("llm_failure_count"), 1)
+        self.assertEqual(runtime_stats.get("heuristic_fallback_count", 0), 0)
+
+    def test_rewrite_failure_policy_skip_to_raw_returns_empty_candidates(self) -> None:
+        class _FailingRewriteClient:
+            def chat_json(self, **kwargs):
+                raise RuntimeError("rewrite llm failed")
+
+        runtime_stats: dict[str, int] = {}
+        with patch.object(runtime, "_REWRITE_PROMPT_TEXT", "rewrite prompt for test"), patch.object(
+            runtime,
+            "_rewrite_client",
+            return_value=_FailingRewriteClient(),
+        ):
+            candidates = runtime.build_rewrite_candidates_v2(
+                "DigestAuthenticationFilter ?ㅼ젙 諛⑸쾿",
+                [],
+                session_context={},
+                candidate_count=2,
+                query_language="ko",
+                rewrite_failure_policy="skip_to_raw",
+                rewrite_runtime_stats=runtime_stats,
+            )
+
+        self.assertEqual(candidates, [])
+        self.assertEqual(runtime_stats.get("llm_attempted_count"), 1)
+        self.assertEqual(runtime_stats.get("llm_failure_count"), 1)
+        self.assertEqual(runtime_stats.get("heuristic_fallback_count", 0), 0)
+
+    def test_rewrite_failure_policy_heuristic_fallback_uses_heuristic_candidates(self) -> None:
+        class _FailingRewriteClient:
+            def chat_json(self, **kwargs):
+                raise RuntimeError("rewrite llm failed")
+
+        heuristic_rows = [{"label": "heuristic", "query": "DigestAuthenticationFilter troubleshooting"}]
+        runtime_stats: dict[str, int] = {}
+        with patch.object(runtime, "_REWRITE_PROMPT_TEXT", "rewrite prompt for test"), patch.object(
+            runtime,
+            "_rewrite_client",
+            return_value=_FailingRewriteClient(),
+        ), patch.object(
+            runtime,
+            "_heuristic_rewrite_candidates_v2",
+            return_value=heuristic_rows,
+        ):
+            candidates = runtime.build_rewrite_candidates_v2(
+                "DigestAuthenticationFilter ?ㅼ젙 諛⑸쾿",
+                [],
+                session_context={},
+                candidate_count=2,
+                query_language="ko",
+                rewrite_failure_policy="heuristic_fallback",
+                rewrite_runtime_stats=runtime_stats,
+            )
+
+        self.assertEqual(candidates, heuristic_rows)
+        self.assertEqual(runtime_stats.get("llm_attempted_count"), 1)
+        self.assertEqual(runtime_stats.get("llm_failure_count"), 1)
+        self.assertEqual(runtime_stats.get("heuristic_fallback_count"), 1)
+
     def test_selective_rewrite_rejects_candidate_with_terminology_loss(self) -> None:
         raw_query = "DigestAuthenticationFilter 설정 방법"
         candidate_query = "security filter configuration guide"

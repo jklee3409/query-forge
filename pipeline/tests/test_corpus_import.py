@@ -7,6 +7,7 @@ import unittest
 from pathlib import Path
 
 import psycopg
+from docker.errors import DockerException
 from testcontainers.postgres import PostgresContainer
 
 from pipeline.loaders.common import ImportOptions
@@ -21,13 +22,18 @@ MIGRATION_DIR = REPO_ROOT / "backend" / "src" / "main" / "resources" / "db" / "m
 class CorpusImportIntegrationTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
-        cls.container = PostgresContainer(
-            image="pgvector/pgvector:pg16",
-            dbname="query_forge_test",
-            username="query_forge",
-            password="query_forge",
-        )
-        cls.container.start()
+        cls.container = None
+        try:
+            cls.container = PostgresContainer(
+                image="pgvector/pgvector:pg16",
+                dbname="query_forge_test",
+                username="query_forge",
+                password="query_forge",
+            )
+            cls.container.start()
+        except DockerException as exc:
+            cls.container = None
+            raise unittest.SkipTest(f"Docker unavailable for integration test: {exc}") from exc
         cls.base_options = {
             "database_url": None,
             "host": cls.container.get_container_host_ip(),
@@ -40,7 +46,8 @@ class CorpusImportIntegrationTest(unittest.TestCase):
 
     @classmethod
     def tearDownClass(cls) -> None:
-        cls.container.stop()
+        if getattr(cls, "container", None) is not None:
+            cls.container.stop()
 
     @classmethod
     def _apply_migrations(cls) -> None:

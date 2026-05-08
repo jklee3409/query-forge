@@ -137,6 +137,7 @@ def _evaluate_answer_sample(
             rewrite_retrieval_strategy=str(config.raw.get("rewrite_retrieval_strategy") or "replace"),
             rewrite_anchor_injection_enabled=_is_rewrite_anchor_injection_enabled(config.raw),
             rewrite_terminology_hints_max_count=config.raw.get("rewrite_terminology_hints_max_count", 12),
+            rewrite_failure_policy=str(config.raw.get("rewrite_failure_policy") or "fail_run"),
             rewrite_adoption_policy=config.rewrite_adoption_policy,
             retriever_config=config.retriever_config,
         )
@@ -208,6 +209,9 @@ def _evaluate_answer_sample(
             "category": sample.query_category,
             "final_query": rewrite_outcome.final_query,
             "answer_text": answer_text,
+            "rewrite_llm_attempted": bool(rewrite_outcome.rewrite_llm_attempted),
+            "rewrite_llm_succeeded": bool(rewrite_outcome.rewrite_llm_succeeded),
+            "rewrite_heuristic_fallback_used": bool(rewrite_outcome.rewrite_heuristic_fallback_used),
             **metrics,
         },
         "reranked": reranked,
@@ -437,6 +441,21 @@ def run_answer_eval(
             "context_recall": _mean([row["context_recall"] for row in sample_rows]),
             "rewrite_adoption_rate": _mean([1.0 if row["rewrite_applied"] else 0.0 for row in sample_rows]),
         }
+        rewrite_generation_stats = {
+            "rewrite_llm_attempted_count": sum(1 for row in sample_rows if row.get("rewrite_llm_attempted")),
+            "rewrite_llm_success_count": sum(1 for row in sample_rows if row.get("rewrite_llm_succeeded")),
+            "rewrite_llm_failure_count": sum(
+                1 for row in sample_rows
+                if row.get("rewrite_llm_attempted") and not row.get("rewrite_llm_succeeded")
+            ),
+            "rewrite_heuristic_fallback_count": sum(
+                1 for row in sample_rows if row.get("rewrite_heuristic_fallback_used")
+            ),
+        }
+        rewrite_generation_stats["llm_attempted_count"] = rewrite_generation_stats["rewrite_llm_attempted_count"]
+        rewrite_generation_stats["llm_success_count"] = rewrite_generation_stats["rewrite_llm_success_count"]
+        rewrite_generation_stats["llm_failure_count"] = rewrite_generation_stats["rewrite_llm_failure_count"]
+        rewrite_generation_stats["heuristic_fallback_count"] = rewrite_generation_stats["rewrite_heuristic_fallback_count"]
 
         summary_payload = {
             "experiment_key": config.experiment_key,
@@ -451,6 +470,11 @@ def run_answer_eval(
             "memory_entry_count_loaded": len(memories),
             "retriever_config": config.retriever_config.to_metadata(),
             "retriever_name": local_retriever_label(config.retriever_config),
+            "rewrite_llm_attempted_count": int(rewrite_generation_stats["rewrite_llm_attempted_count"]),
+            "rewrite_llm_success_count": int(rewrite_generation_stats["rewrite_llm_success_count"]),
+            "rewrite_llm_failure_count": int(rewrite_generation_stats["rewrite_llm_failure_count"]),
+            "rewrite_heuristic_fallback_count": int(rewrite_generation_stats["rewrite_heuristic_fallback_count"]),
+            "rewrite_generation_stats": rewrite_generation_stats,
             "summary": summary,
             "sample_count": len(sample_rows),
         }

@@ -118,29 +118,32 @@ def _strategies_for_gating(config: ExperimentConfig) -> list[str]:
     return strategies
 
 
-def _latest_generation_run_id(
-    connection: psycopg.Connection[Any],
-    strategies: list[str],
-) -> str | None:
-    with connection.cursor() as cursor:
-        cursor.execute(
-            """
-            SELECT experiment_run_id
-            FROM synthetic_queries_raw_all
-            WHERE generation_strategy = ANY(%s)
-            ORDER BY created_at DESC
-            LIMIT 1
-            """,
-            (strategies,),
+def _resolve_generation_run_ids(raw_config: dict[str, Any]) -> list[str]:
+    configured_run_ids = raw_config.get("source_generation_run_ids")
+    generation_run_ids: list[str] = []
+    if isinstance(configured_run_ids, list):
+        generation_run_ids = [str(value).strip() for value in configured_run_ids if str(value).strip()]
+
+    configured_run_id = raw_config.get("source_generation_run_id")
+    if configured_run_id and not generation_run_ids:
+        configured_run_id_str = str(configured_run_id).strip()
+        if configured_run_id_str:
+            generation_run_ids = [configured_run_id_str]
+
+    if not generation_run_ids:
+        raise ValueError(
+            "source_generation_run_id (or source_generation_run_ids) is required for gate-queries "
+            "(auto-latest generation-run selection is disabled)"
         )
-        row = cursor.fetchone()
-    if row is None:
-        return None
-    if isinstance(row, dict):
-        value = row.get("experiment_run_id")
-    else:
-        value = row[0]
-    return str(value) if value is not None else None
+
+    deduped_run_ids: list[str] = []
+    seen: set[str] = set()
+    for run_id in generation_run_ids:
+        if run_id in seen:
+            continue
+        seen.add(run_id)
+        deduped_run_ids.append(run_id)
+    return deduped_run_ids
 
 
 def _gating_batch_exists(
@@ -163,13 +166,14 @@ def _load_raw_queries(
     connection: psycopg.Connection[Any],
     *,
     strategies: list[str],
-    generation_run_id: str | None,
+    generation_run_ids: list[str] | None,
 ) -> list[RawQueryRow]:
     where_run = ""
     parameters: list[Any] = [strategies]
-    if generation_run_id is not None:
-        where_run = " AND experiment_run_id = %s"
-        parameters.append(generation_run_id)
+    normalized_run_ids = [str(value).strip() for value in (generation_run_ids or []) if str(value).strip()]
+    if normalized_run_ids:
+        where_run = " AND experiment_run_id = ANY(%s)"
+        parameters.append(normalized_run_ids)
     with connection.cursor() as cursor:
         cursor.execute(
             f"""
@@ -710,14 +714,11 @@ def run_quality_gating(
                 gating_batch_id,
             )
             gating_batch_id = None
-        configured_run_id = config.raw.get("source_generation_run_id")
-        generation_run_id = str(configured_run_id).strip() if configured_run_id else None
-        if not generation_run_id:
-            generation_run_id = _latest_generation_run_id(connection, strategies)
+        generation_run_ids = _resolve_generation_run_ids(config.raw)
         raw_queries = _load_raw_queries(
             connection,
             strategies=strategies,
-            generation_run_id=generation_run_id,
+            generation_run_ids=generation_run_ids,
         )
         existing_state = _load_existing_gating_state(
             connection,
@@ -1205,7 +1206,8 @@ def run_quality_gating(
         summary = {
             "experiment_key": config.experiment_key,
             "experiment_run_id": run_context.experiment_run_id,
-            "source_generation_run_id": generation_run_id,
+            "source_generation_run_id": generation_run_ids[0] if generation_run_ids else None,
+            "source_generation_run_ids": generation_run_ids,
             "gating_preset": config.gating_preset,
             "strategies": strategies,
             "processed_queries": processed_total,

@@ -255,6 +255,9 @@ def _evaluate_mode(
             "rewrite_reason": "raw_only",
             "memory_top_n": [],
             "candidates": [],
+            "rewrite_llm_attempted": False,
+            "rewrite_llm_succeeded": False,
+            "rewrite_heuristic_fallback_used": False,
         }
         metrics = retrieval_metrics(
             expected_chunk_ids=sample.expected_chunk_ids,
@@ -334,6 +337,9 @@ def _evaluate_mode(
                 "rewrite_reason": reason,
                 "memory_top_n": top_memory,
                 "candidates": [],
+                "rewrite_llm_attempted": False,
+                "rewrite_llm_succeeded": False,
+                "rewrite_heuristic_fallback_used": False,
             },
             retrieval,
         )
@@ -358,6 +364,7 @@ def _evaluate_mode(
         rewrite_retrieval_strategy=str(config.raw.get("rewrite_retrieval_strategy") or "replace"),
         rewrite_anchor_injection_enabled=_is_rewrite_anchor_injection_enabled(config.raw),
         rewrite_terminology_hints_max_count=config.raw.get("rewrite_terminology_hints_max_count", 12),
+        rewrite_failure_policy=str(config.raw.get("rewrite_failure_policy") or "fail_run"),
         rewrite_adoption_policy=config.rewrite_adoption_policy,
         retriever_config=config.retriever_config,
     )
@@ -376,6 +383,9 @@ def _evaluate_mode(
             "rewrite_reason": rewrite_outcome.rewrite_reason,
             "memory_top_n": rewrite_outcome.memory_top_n,
             "candidates": rewrite_outcome.candidates,
+            "rewrite_llm_attempted": rewrite_outcome.rewrite_llm_attempted,
+            "rewrite_llm_succeeded": rewrite_outcome.rewrite_llm_succeeded,
+            "rewrite_heuristic_fallback_used": rewrite_outcome.rewrite_heuristic_fallback_used,
         },
         retrieval,
     )
@@ -538,6 +548,14 @@ def run_retrieval_eval(
         mode_scores: dict[str, list[dict[str, Any]]] = defaultdict(list)
         latency_by_mode: dict[str, list[float]] = defaultdict(list)
         rewrite_rows: dict[str, list[dict[str, Any]]] = defaultdict(list)
+        rewrite_generation_stats_by_mode: dict[str, dict[str, int]] = defaultdict(
+            lambda: {
+                "rewrite_llm_attempted_count": 0,
+                "rewrite_llm_success_count": 0,
+                "rewrite_llm_failure_count": 0,
+                "rewrite_heuristic_fallback_count": 0,
+            }
+        )
 
         with connection.cursor() as cursor:
             cursor.execute(
@@ -611,6 +629,21 @@ def run_retrieval_eval(
             elapsed_ms = float(row["elapsed_ms"])
 
             latency_by_mode[mode].append(elapsed_ms)
+            rewrite_generation_stats = rewrite_generation_stats_by_mode[mode]
+            rewrite_generation_stats["rewrite_llm_attempted_count"] += (
+                1 if rewrite_info.get("rewrite_llm_attempted") else 0
+            )
+            rewrite_generation_stats["rewrite_llm_success_count"] += (
+                1 if rewrite_info.get("rewrite_llm_succeeded") else 0
+            )
+            rewrite_generation_stats["rewrite_heuristic_fallback_count"] += (
+                1 if rewrite_info.get("rewrite_heuristic_fallback_used") else 0
+            )
+            rewrite_generation_stats["rewrite_llm_failure_count"] += (
+                1
+                if rewrite_info.get("rewrite_llm_attempted") and not rewrite_info.get("rewrite_llm_succeeded")
+                else 0
+            )
             mode_scores[mode].append(
                 {
                     "sample_id": sample.sample_id,
@@ -636,6 +669,9 @@ def run_retrieval_eval(
                     "confidence_delta": rewrite_info["best_candidate_confidence"] - rewrite_info["raw_confidence"],
                     "final_query": rewrite_info["final_query"],
                     "rewrite_reason": rewrite_info["rewrite_reason"],
+                    "rewrite_llm_attempted": bool(rewrite_info.get("rewrite_llm_attempted")),
+                    "rewrite_llm_succeeded": bool(rewrite_info.get("rewrite_llm_succeeded")),
+                    "rewrite_heuristic_fallback_used": bool(rewrite_info.get("rewrite_heuristic_fallback_used")),
                     "raw_mrr": raw_metrics_by_sample.get(sample.sample_id, {}).get("mrr@10", 0.0),
                     "mode_mrr": metrics["mrr@10"],
                     "raw_ndcg": raw_metrics_by_sample.get(sample.sample_id, {}).get("ndcg@10", 0.0),
@@ -765,6 +801,33 @@ def run_retrieval_eval(
         latency_csv_path = output_root / f"latency_{config.experiment_key}.csv"
         rewrite_case_path = output_root / f"rewrite_cases_{config.experiment_key}.json"
         summary_path.parent.mkdir(parents=True, exist_ok=True)
+        rewrite_stats_by_mode_payload = {
+            mode: {
+                "rewrite_llm_attempted_count": int(stats.get("rewrite_llm_attempted_count", 0)),
+                "rewrite_llm_success_count": int(stats.get("rewrite_llm_success_count", 0)),
+                "rewrite_llm_failure_count": int(stats.get("rewrite_llm_failure_count", 0)),
+                "rewrite_heuristic_fallback_count": int(stats.get("rewrite_heuristic_fallback_count", 0)),
+                # backward-compatible aliases
+                "llm_attempted_count": int(stats.get("rewrite_llm_attempted_count", 0)),
+                "llm_success_count": int(stats.get("rewrite_llm_success_count", 0)),
+                "llm_failure_count": int(stats.get("rewrite_llm_failure_count", 0)),
+                "heuristic_fallback_count": int(stats.get("rewrite_heuristic_fallback_count", 0)),
+            }
+            for mode, stats in rewrite_generation_stats_by_mode.items()
+        }
+        rewrite_llm_attempted_total = sum(
+            int(stats.get("rewrite_llm_attempted_count", 0)) for stats in rewrite_generation_stats_by_mode.values()
+        )
+        rewrite_llm_success_total = sum(
+            int(stats.get("rewrite_llm_success_count", 0)) for stats in rewrite_generation_stats_by_mode.values()
+        )
+        rewrite_llm_failure_total = sum(
+            int(stats.get("rewrite_llm_failure_count", 0)) for stats in rewrite_generation_stats_by_mode.values()
+        )
+        rewrite_heuristic_fallback_total = sum(
+            int(stats.get("rewrite_heuristic_fallback_count", 0)) for stats in rewrite_generation_stats_by_mode.values()
+        )
+
         summary_payload = {
             "experiment_key": config.experiment_key,
             "experiment_run_id": run_context.experiment_run_id,
@@ -778,6 +841,11 @@ def run_retrieval_eval(
             "retriever_config": config.retriever_config.to_metadata(),
             "retriever_name": local_retriever_label(config.retriever_config),
             "active_modes": active_modes,
+            "rewrite_llm_attempted_count": rewrite_llm_attempted_total,
+            "rewrite_llm_success_count": rewrite_llm_success_total,
+            "rewrite_llm_failure_count": rewrite_llm_failure_total,
+            "rewrite_heuristic_fallback_count": rewrite_heuristic_fallback_total,
+            "rewrite_generation_stats": rewrite_stats_by_mode_payload,
             "summary": summary_rows,
             "category_summary": category_rows,
             "latency_summary": latency_rows,

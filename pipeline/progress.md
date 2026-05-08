@@ -3,6 +3,36 @@
 ## Overview
 High-level pipeline progress tracking.
 
+## [2026-05-08] Session Summary (Rewrite Failure Policy Strictness + Rewrite Stats Keys)
+- What was done: Added explicit rewrite-failure-policy regression coverage in `tests/test_eval_runtime.py` for `fail_run`, `skip_to_raw`, and `heuristic_fallback`. Updated retrieval/answer summaries to emit explicit rewrite observability counters (`rewrite_llm_attempted_count`, `rewrite_llm_success_count`, `rewrite_llm_failure_count`, `rewrite_heuristic_fallback_count`) while keeping legacy alias keys for compatibility.
+- Key decisions: Kept runtime decision behavior unchanged and focused on strict policy verification plus report-schema observability completeness.
+- Issues encountered: None.
+- Next steps: Keep downstream dashboards/readers aligned to the new explicit rewrite counter names and retire alias keys after consumers migrate.
+
+## [2026-05-08] Session Summary (Gating Source Snapshot Strictness: No Auto-Latest)
+- What was done: Removed auto-latest generation-run fallback from `gating/quality_gating.py` and made `gate-queries` fail fast unless `source_generation_run_id` or `source_generation_run_ids` is explicitly provided. Added unit tests in `pipeline/tests/test_quality_gating.py` to lock this behavior.
+- Key decisions: Prioritized deterministic snapshot provenance over convenience fallback to align gating input selection with explicit run pinning.
+- Issues encountered: None.
+- Next steps: Keep Admin/CLI gating configs always writing explicit source generation run IDs for reproducible reruns.
+
+## [2026-05-08] Session Summary (Pipeline Test Stability Without Docker)
+- What was done: Updated `pipeline/tests/test_corpus_import.py` so Docker-dependent integration setup is skipped (`unittest.SkipTest`) when Docker daemon is unavailable, instead of failing the whole test run with an error.
+- Key decisions: Matched backend test behavior (`disabledWithoutDocker` equivalent intent) and kept the integration test fully active when Docker is available.
+- Issues encountered: `DockerException` was raised during `PostgresContainer(...)` construction (before `start()`), so the guard had to wrap constructor + startup together.
+- Next steps: Keep Docker-dependent tests discoverable but non-blocking on no-Docker local/dev environments.
+
+## [2026-05-08] Session Summary (Gating Multi-Source Runs + Rewrite Failure Policy Runtime Wiring)
+- What was done: Updated `gating/quality_gating.py` to accept and apply `source_generation_run_ids` (with backward-compatible single `source_generation_run_id` fallback), and emit selected source run IDs in summary. Wired rewrite failure handling policy through eval runtime/retrieval/answer paths so rewrite candidate generation now supports deterministic `fail_run`, `skip_to_raw`, and `heuristic_fallback` modes with per-run counters.
+- Key decisions: Kept backward compatibility for single-run config keys while preferring explicit multi-run source pinning in quality-gating and RAG evaluation.
+- Issues encountered: None.
+- Next steps: Validate policy-mode behavior on the same dataset/snapshot and compare rewrite adoption/latency deltas with fixed retrieval config.
+
+## [2026-05-08] Session Summary (Eval Runtime Retriever Reuse Cache)
+- What was done: Refactored `eval/runtime.py` retrieval hot path to reuse in-process retrievers via bounded caches for chunk ranking and memory ranking contexts. `retrieve_top_k` now reuses chunk retrievers, and `memory_top_n` reuses filtered eligible-memory retrievers for repeated queries under the same preset/run/strategy/config.
+- Key decisions: Preserved all retrieval/rewrite decision logic and outputs; optimization is limited to avoiding repeated construction/filtering work inside the same eval process.
+- Issues encountered: None.
+- Next steps: Measure controlled latency deltas on rewrite-heavy runs (`rewrite_always`, selective modes) and memory-only modes using the same dataset/snapshot.
+
 ## [2026-05-07] Session Summary (Memory Lookup Intent-Preserving Retrieval)
 - What was done: Updated `eval/retrieval_eval.py` memory-mode path to stop direct top-memory-query replacement. Added intent-preserving memory guidance query construction in `eval/runtime.py::build_memory_guided_query` (raw query base + product-level memory hints) and merged raw/guided retrieval results (`max_score|interleave|replace`, default `max_score`).
 - Key decisions: Prioritized raw intent preservation for short Korean developer queries while still leveraging synthetic-memory shape; reduced aggressive glossary/class-token injection in guidance hints to avoid over-specific drift.

@@ -53,46 +53,6 @@ class GatedRow:
     product_name: str | None
 
 
-def _latest_gating_snapshot(
-    connection: psycopg.Connection[Any],
-    preset: str,
-    strategies: list[str] | None = None,
-) -> tuple[str | None, str | None]:
-    where_strategy_exists = ""
-    parameters: list[Any] = [preset]
-    normalized = [str(item).upper() for item in (strategies or []) if str(item).strip()]
-    if normalized:
-        where_strategy_exists = """
-          AND EXISTS (
-                SELECT 1
-                FROM synthetic_query_gating_result gr
-                JOIN synthetic_queries_raw_all r
-                  ON r.synthetic_query_id = gr.synthetic_query_id
-                WHERE gr.gating_batch_id = qb.gating_batch_id
-                  AND r.generation_strategy = ANY(%s)
-          )
-        """
-        parameters.append(normalized)
-    with connection.cursor() as cursor:
-        cursor.execute(
-            f"""
-            SELECT qb.source_gating_run_id::text AS run_id,
-                   qb.gating_batch_id::text AS batch_id
-            FROM quality_gating_batch qb
-            WHERE qb.gating_preset = %s
-              AND qb.status = 'completed'
-              {where_strategy_exists}
-            ORDER BY qb.finished_at DESC NULLS LAST, qb.created_at DESC
-            LIMIT 1
-            """,
-            parameters,
-        )
-        row = cursor.fetchone()
-    if row is None:
-        return None, None
-    return (str(row["run_id"]) if row["run_id"] else None, str(row["batch_id"]) if row["batch_id"] else None)
-
-
 def _resolve_gating_batch_by_run(
     connection: psycopg.Connection[Any],
     *,
@@ -761,10 +721,9 @@ def run_memory_build(
                     strategies=strategy_filters,
                 )
             if not source_run_id and not source_batch_id:
-                source_run_id, source_batch_id = _latest_gating_snapshot(
-                    connection,
-                    config.gating_preset,
-                    strategy_filters,
+                raise RuntimeError(
+                    "source_gating_batch_id is required for deterministic snapshot loading "
+                    "(auto-latest snapshot selection is disabled)"
                 )
             snapshot_plan.append((config.gating_preset, source_run_id, source_batch_id))
 
