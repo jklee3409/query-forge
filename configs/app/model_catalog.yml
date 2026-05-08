@@ -1,0 +1,89 @@
+llm_providers:
+  - code: gemini
+    label: Google Gemini
+    status: active
+    availability: available
+    reason: ""
+    default: true
+  - code: openai
+    label: OpenAI
+    status: active
+    availability: available
+    reason: ""
+
+llm_models:
+  - code: gemini-2.5-flash-lite
+    provider: gemini
+    status: active
+    availability: available
+    reason: ""
+    default: true
+  - code: gemini-2.5-flash
+    provider: gemini
+    status: active
+    availability: available
+    reason: ""
+  - code: gpt-4.1-mini
+    provider: openai
+    status: active
+    availability: available
+    reason: ""
+
+dense_embedding_models:
+  - code: intfloat/multilingual-e5-small
+    label: multilingual-e5-small
+    status: active
+    availability: available
+    reason: ""
+    default: true
+
+retriever_modes:
+  - code: bm25_only
+    label: BM25 Only
+    status: active
+    availability: available
+    reason: ""
+  - code: dense_only
+    label: Dense Only
+    status: active
+    availability: available
+    reason: ""
+  - code: hybrid
+    label: Hybrid
+    status: active
+    availability: available
+    reason: ""
+    default: true
+
+rewrite_failure_policies:
+  - code: fail_run
+    status: active
+    availability: available
+    reason: ""
+    default: true
+  - code: skip_to_raw
+    status: active
+    availability: available
+    reason: ""
+  - code: heuristic_fallback
+    status: active
+    availability: available
+    reason: ""
+
+default_parameter_ranges:
+  retrieval_top_k:
+    min: 1
+    max: 100
+    default: 10
+  rerank_top_n:
+    min: 1
+    max: 100
+    default: 5
+  rewrite_threshold:
+    min: 0.0
+    max: 1.0
+    default: 0.10
+  retriever_candidate_pool_k:
+    min: 1
+    max: 500
+    default: 50

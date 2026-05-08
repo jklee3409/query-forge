@@ -17,6 +17,13 @@ export function GatingPage({ notify }) {
   const [llmJobs, setLlmJobs] = useState([])
   const [llmJobsLoaded, setLlmJobsLoaded] = useState(false)
   const [llmJobsLoading, setLlmJobsLoading] = useState(false)
+  const [runtimeOptions, setRuntimeOptions] = useState({
+    llmModels: [],
+    defaultLlmModel: '',
+    denseEmbeddingModels: [],
+    defaultDenseEmbeddingModel: '',
+    retrieverModes: [],
+  })
   const [selectedBatchId, setSelectedBatchId] = useState('')
   const [resultFilter, setResultFilter] = useState({ methodCode: '', generationBatchId: '', gatingBatchId: '', passStage: '' })
   const [funnelFilter, setFunnelFilter] = useState({ methodCode: '', generationBatchId: '', gatingBatchId: '' })
@@ -67,7 +74,9 @@ export function GatingPage({ notify }) {
   const [form, setForm] = useState({
     methodCode: '',
     generationBatchId: '',
+    generationBatchIds: [],
     gatingPreset: 'full_gating',
+    llmModel: '',
     enableRuleFilter: true,
     enableLlmSelfEval: true,
     enableRetrievalUtility: true,
@@ -96,7 +105,7 @@ export function GatingPage({ notify }) {
     diversityThresholdSameDoc: '0.96',
     finalScoreThreshold: '0.75',
     retrieverMode: 'hybrid',
-    denseEmbeddingModel: 'intfloat/multilingual-e5-small',
+    denseEmbeddingModel: '',
     denseEmbeddingRequired: true,
     denseFallbackEnabled: false,
     retrieverRerankEnabled: true,
@@ -106,15 +115,48 @@ export function GatingPage({ notify }) {
     retrieverTechnicalWeight: '0.08',
   })
 
+  const retrieverModeLabel = (mode) => {
+    if (mode === 'bm25_only') return 'BM25 Only'
+    if (mode === 'dense_only') return 'Dense Only'
+    if (mode === 'hybrid') return 'Hybrid'
+    return mode || '-'
+  }
+
   const loadSelectors = async () => {
-    const [methodRows, batchRows] = await Promise.all([
+    const [methodRows, batchRows, runtimePayload] = await Promise.all([
       requestJson('/api/admin/console/synthetic/methods'),
       requestJson('/api/admin/console/synthetic/batches?limit=100'),
+      requestJson('/api/admin/console/runtime/options'),
     ])
     const normalizedMethods = Array.isArray(methodRows) ? methodRows : []
     setMethods(normalizedMethods)
-    setForm((prev) => ({ ...prev, methodCode: prev.methodCode || normalizedMethods[0]?.methodCode || '' }))
-    setBatches(Array.isArray(batchRows) ? batchRows : [])
+    const normalizedBatches = Array.isArray(batchRows) ? batchRows : []
+    const llmModels = Array.isArray(runtimePayload.llmModels) ? runtimePayload.llmModels.filter(Boolean) : []
+    const denseEmbeddingModels = Array.isArray(runtimePayload.denseEmbeddingModels)
+      ? runtimePayload.denseEmbeddingModels.filter(Boolean)
+      : []
+    const retrieverModes = Array.isArray(runtimePayload.retrieverModes)
+      ? runtimePayload.retrieverModes.filter(Boolean)
+      : []
+    const defaultLlmModel = runtimePayload.defaultLlmModel || llmModels[0] || ''
+    const defaultDenseEmbeddingModel = runtimePayload.defaultDenseEmbeddingModel || denseEmbeddingModels[0] || ''
+    const defaultRetrieverMode = retrieverModes.includes(form.retrieverMode)
+      ? form.retrieverMode
+      : (retrieverModes[0] || form.retrieverMode || 'hybrid')
+    setRuntimeOptions({
+      llmModels,
+      defaultLlmModel,
+      denseEmbeddingModels,
+      defaultDenseEmbeddingModel,
+      retrieverModes,
+    })
+    setForm((prev) => ({
+      ...prev,
+      llmModel: prev.llmModel || defaultLlmModel,
+      denseEmbeddingModel: prev.denseEmbeddingModel || defaultDenseEmbeddingModel,
+      retrieverMode: retrieverModes.includes(prev.retrieverMode) ? prev.retrieverMode : defaultRetrieverMode,
+    }))
+    setBatches(normalizedBatches)
   }
 
   const loadGatingBatches = async () => {
@@ -161,7 +203,8 @@ export function GatingPage({ notify }) {
     setLlmJobsLoading(true)
     try {
       const rows = await requestJson('/api/admin/console/llm-jobs?limit=120')
-      const filtered = (Array.isArray(rows) ? rows : []).filter((job) => job.jobType === 'RUN_LLM_SELF_EVAL' || job.gatingBatchId)
+      const filtered = (Array.isArray(rows) ? rows : [])
+        .filter((job) => job.jobType === 'RUN_LLM_SELF_EVAL' || job.gatingBatchId)
       setLlmJobs(filtered)
       setLlmJobsLoaded(true)
     } finally {
@@ -211,10 +254,52 @@ export function GatingPage({ notify }) {
     }
   }, [gatingBatches, gatingBatchPage])
 
+  useEffect(() => {
+    setForm((prev) => {
+      const validBatchIds = new Set(formBatchOptions.map((batch) => batch.batchId))
+      const normalizedSelected = Array.isArray(prev.generationBatchIds)
+        ? prev.generationBatchIds.filter((batchId) => validBatchIds.has(batchId))
+        : []
+      const primaryBatchId = prev.generationBatchId && validBatchIds.has(prev.generationBatchId)
+        ? prev.generationBatchId
+        : ''
+      if (
+        normalizedSelected.length === (prev.generationBatchIds || []).length
+        && normalizedSelected.every((batchId, index) => batchId === prev.generationBatchIds[index])
+        && primaryBatchId === prev.generationBatchId
+      ) {
+        return prev
+      }
+      return {
+        ...prev,
+        generationBatchId: primaryBatchId,
+        generationBatchIds: normalizedSelected,
+      }
+    })
+  }, [batches, form.methodCode])
+
   const runGating = async (event) => {
     event.preventDefault()
-    if (!form.generationBatchId) {
+    const selectedBatchIds = Array.isArray(form.generationBatchIds) ? form.generationBatchIds.filter(Boolean) : []
+    const effectiveBatchIds = selectedBatchIds.length > 0
+      ? selectedBatchIds
+      : (form.generationBatchId ? [form.generationBatchId] : [])
+    const selectedMethodCodes = Array.from(new Set(
+      effectiveBatchIds
+        .map((batchId) => batches.find((batch) => batch.batchId === batchId)?.methodCode)
+        .filter(Boolean)
+        .map((value) => normalizeMethodCode(value)),
+    ))
+    if (effectiveBatchIds.length === 0) {
       notify('생성 배치를 선택하세요.', 'error')
+      return
+    }
+    if (!form.llmModel) {
+      notify('LLM 모델을 선택하세요.', 'error')
+      return
+    }
+    if (form.retrieverMode !== 'bm25_only' && !form.denseEmbeddingModel) {
+      notify('Dense embedding 모델을 선택하세요.', 'error')
       return
     }
     try {
@@ -222,9 +307,12 @@ export function GatingPage({ notify }) {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          methodCode: form.methodCode || null,
-          generationBatchId: form.generationBatchId || null,
+          methodCode: form.methodCode || selectedMethodCodes[0] || null,
+          methodCodes: selectedMethodCodes.length > 0 ? selectedMethodCodes : null,
+          generationBatchId: effectiveBatchIds[0] || null,
+          generationBatchIds: effectiveBatchIds,
           gatingPreset: form.gatingPreset,
+          llmModel: form.llmModel,
           config: {
             stageFlags: {
               enableRuleFilter: Boolean(form.enableRuleFilter),
@@ -506,7 +594,8 @@ export function GatingPage({ notify }) {
         <div className="table-title">게이팅 실행</div>
         <form className="filter-bar" onSubmit={runGating}>
           <label className="filter-field">생성 방식
-            <select value={form.methodCode} onChange={(event) => setForm((prev) => ({ ...prev, methodCode: event.target.value, generationBatchId: '' }))}>
+            <select value={form.methodCode} onChange={(event) => setForm((prev) => ({ ...prev, methodCode: event.target.value, generationBatchId: '', generationBatchIds: [] }))}>
+              <option value="">전체 방식</option>
               {methods.map((method) => <option key={method.methodCode} value={method.methodCode}>{method.methodCode} - {method.methodName}</option>)}
             </select>
           </label>
@@ -514,10 +603,36 @@ export function GatingPage({ notify }) {
             <select value={form.generationBatchId} onChange={(event) => setForm((prev) => ({ ...prev, generationBatchId: event.target.value }))}>
               <option value="" disabled>생성 배치를 선택하세요</option>{formBatchOptions.map((batch) => <option key={batch.batchId} value={batch.batchId}>{batch.versionName} ({batch.methodCode})</option>)}
             </select>
+            <div className="method-row">
+              {formBatchOptions.map((batch) => {
+                const checked = Array.isArray(form.generationBatchIds) && form.generationBatchIds.includes(batch.batchId)
+                return (
+                  <label key={batch.batchId} className={`check-pill ${checked ? 'is-active' : ''}`}>
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={(event) => setForm((prev) => {
+                        const prevIds = Array.isArray(prev.generationBatchIds) ? prev.generationBatchIds : []
+                        const nextIds = event.target.checked
+                          ? Array.from(new Set([...prevIds, batch.batchId]))
+                          : prevIds.filter((value) => value !== batch.batchId)
+                        return { ...prev, generationBatchIds: nextIds }
+                      })}
+                    />
+                    <span className="check-pill__box" aria-hidden="true">{checked ? 'v' : ''}</span>
+                    <span className="check-pill__text">{batch.methodCode}:{batch.versionName}</span>
+                  </label>
+                )
+              })}
+            </div>
           </label>
           <label className="filter-field">게이팅 프리셋
             <select value={form.gatingPreset} onChange={(event) => setForm((prev) => ({ ...prev, gatingPreset: event.target.value }))}>
               <option value="ungated">ungated</option><option value="rule_only">rule_only</option><option value="rule_plus_llm">rule_plus_llm</option><option value="full_gating">full_gating</option>
+            </select>
+            <select value={form.llmModel} onChange={(event) => setForm((prev) => ({ ...prev, llmModel: event.target.value }))}>
+              <option value="" disabled>LLM 모델 선택</option>
+              {runtimeOptions.llmModels.map((model) => <option key={model} value={model}>{model}</option>)}
             </select>
           </label>
           <div className="stage-config-grid">
@@ -554,13 +669,19 @@ export function GatingPage({ notify }) {
               <div className="stage-card__body">
                 <label className="filter-field">Retriever Mode
                   <select value={form.retrieverMode} onChange={(event) => setForm((prev) => ({ ...prev, retrieverMode: event.target.value, denseEmbeddingRequired: event.target.value === 'bm25_only' ? false : prev.denseEmbeddingRequired }))}>
-                    <option value="bm25_only">BM25 Only</option>
-                    <option value="dense_only">Dense Only</option>
-                    <option value="hybrid">Hybrid</option>
+                    {(runtimeOptions.retrieverModes.length > 0 ? runtimeOptions.retrieverModes : [form.retrieverMode]).filter(Boolean).map((mode) => (
+                      <option key={mode} value={mode}>{retrieverModeLabel(mode)}</option>
+                    ))}
                   </select>
                 </label>
                 <label className="filter-field">Dense Model
-                  <input value={form.denseEmbeddingModel} disabled={form.retrieverMode === 'bm25_only'} onChange={(event) => setForm((prev) => ({ ...prev, denseEmbeddingModel: event.target.value }))} />
+                  <select
+                    value={form.denseEmbeddingModel}
+                    disabled={form.retrieverMode === 'bm25_only'}
+                    onChange={(event) => setForm((prev) => ({ ...prev, denseEmbeddingModel: event.target.value }))}
+                  >
+                    {runtimeOptions.denseEmbeddingModels.map((model) => <option key={model} value={model}>{model}</option>)}
+                  </select>
                 </label>
                 <NumberInput label="Candidate Pool" value={form.retrieverCandidatePoolK} onChange={(value) => setForm((prev) => ({ ...prev, retrieverCandidatePoolK: value }))} />
                 <NumberInput label="Dense Weight" step="0.01" value={form.retrieverDenseWeight} onChange={(value) => setForm((prev) => ({ ...prev, retrieverDenseWeight: value }))} />
@@ -582,7 +703,7 @@ export function GatingPage({ notify }) {
           <label className="filter-field filter-field--small">최종 점수 임계치
             <input type="number" step="0.01" min="0" max="1" value={form.finalScoreThreshold} onChange={(event) => setForm((prev) => ({ ...prev, finalScoreThreshold: event.target.value }))} />
           </label>
-          <div className="filter-field filter-field--small"><button type="submit" className="button button--primary" disabled={!form.generationBatchId}>게이팅 실행</button></div>
+          <div className="filter-field filter-field--small"><button type="submit" className="button button--primary" disabled={((form.generationBatchIds || []).length === 0) && !form.generationBatchId}>게이팅 실행</button></div>
         </form>
       </section>
 
@@ -683,10 +804,10 @@ export function GatingPage({ notify }) {
             <select value={resultFilter.passStage} onChange={(event) => setResultFilter((prev) => ({ ...prev, passStage: event.target.value }))}>
               <option value="">전체</option>
               <option value="failed_rule">Rule 탈락</option>
-              <option value="passed_rule">Rule 통과 -> LLM 탈락</option>
-              <option value="passed_llm">LLM 통과 -> Utility 탈락</option>
-              <option value="passed_utility">Utility 통과 -> Diversity 탈락</option>
-              <option value="passed_diversity">Diversity 통과 -> Final 탈락</option>
+              <option value="passed_rule">Rule 통과 -&gt; LLM 탈락</option>
+              <option value="passed_llm">LLM 통과 -&gt; Utility 탈락</option>
+              <option value="passed_utility">Utility 통과 -&gt; Diversity 탈락</option>
+              <option value="passed_diversity">Diversity 통과 -&gt; Final 탈락</option>
               <option value="passed_all">전체 통과</option>
             </select>
           </label>

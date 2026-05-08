@@ -21,6 +21,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.UUID;
 
+import static org.hamcrest.Matchers.greaterThanOrEqualTo;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.springframework.http.MediaType.APPLICATION_JSON;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -80,6 +81,22 @@ class AdminConsoleGatingIntegrationTest {
 
     @Autowired
     private AdminConsoleRepository adminConsoleRepository;
+
+    @Test
+    void runtimeOptionsExposesModelAndPolicyChoices() throws Exception {
+        mockMvc.perform(get("/api/admin/console/runtime/options"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.llmModels.length()").value(greaterThanOrEqualTo(1)))
+                .andExpect(jsonPath("$.denseEmbeddingModels.length()").value(greaterThanOrEqualTo(1)))
+                .andExpect(jsonPath("$.retrieverModes.length()").value(3))
+                .andExpect(jsonPath("$.rewriteFailurePolicies.length()").value(greaterThanOrEqualTo(1)))
+                .andExpect(jsonPath("$.llmProviderOptions.length()").value(greaterThanOrEqualTo(1)))
+                .andExpect(jsonPath("$.llmModelOptions.length()").value(greaterThanOrEqualTo(1)))
+                .andExpect(jsonPath("$.denseEmbeddingModelOptions.length()").value(greaterThanOrEqualTo(1)))
+                .andExpect(jsonPath("$.retrieverModeOptions.length()").value(greaterThanOrEqualTo(1)))
+                .andExpect(jsonPath("$.rewriteFailurePolicyOptions.length()").value(greaterThanOrEqualTo(1)))
+                .andExpect(jsonPath("$.defaultParameterRanges.retrieval_top_k.defaultValue").exists());
+    }
 
     @Test
     void gatingFunnelReturnsZeroCountsWhenStageResultRowsAreMissing() throws Exception {
@@ -313,6 +330,57 @@ class AdminConsoleGatingIntegrationTest {
     }
 
     @Test
+    void runGatingRejectsCatalogOutOfAllowlistLlmModel() throws Exception {
+        UUID methodA = jdbcTemplate.getJdbcTemplate().queryForObject(
+                "SELECT generation_method_id FROM synthetic_query_generation_method WHERE method_code = 'A'",
+                UUID.class
+        );
+        assertThat(methodA).isNotNull();
+        UUID generationBatchId = insertGenerationBatch(methodA, "a-batch-invalid-llm-model", UUID.randomUUID());
+
+        mockMvc.perform(post("/api/admin/console/gating/batches/run")
+                        .contentType(APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "methodCode": "A",
+                                  "generationBatchId": "%s",
+                                  "gatingPreset": "full_gating",
+                                  "llmModel": "not-allowed-model"
+                                }
+                                """.formatted(generationBatchId)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.detail").value("llm_model is not allowed by catalog: not-allowed-model"));
+    }
+
+    @Test
+    void runGatingRejectsCatalogOutOfAllowlistDenseModel() throws Exception {
+        UUID methodA = jdbcTemplate.getJdbcTemplate().queryForObject(
+                "SELECT generation_method_id FROM synthetic_query_generation_method WHERE method_code = 'A'",
+                UUID.class
+        );
+        assertThat(methodA).isNotNull();
+        UUID generationBatchId = insertGenerationBatch(methodA, "a-batch-invalid-dense-model", UUID.randomUUID());
+
+        mockMvc.perform(post("/api/admin/console/gating/batches/run")
+                        .contentType(APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "methodCode": "A",
+                                  "generationBatchId": "%s",
+                                  "gatingPreset": "full_gating",
+                                  "config": {
+                                    "retrieverConfig": {
+                                      "retrieverMode": "dense_only",
+                                      "denseEmbeddingModel": "not-allowed-dense-model"
+                                    }
+                                  }
+                                }
+                                """.formatted(generationBatchId)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.detail").value("dense_embedding_model is not allowed by catalog: not-allowed-dense-model"));
+    }
+
+    @Test
     void runGatingAppliesNestedWeightsAndWritesExperimentConfig() throws Exception {
         UUID methodA = jdbcTemplate.getJdbcTemplate().queryForObject(
                 "SELECT generation_method_id FROM synthetic_query_generation_method WHERE method_code = 'A'",
@@ -397,6 +465,67 @@ class AdminConsoleGatingIntegrationTest {
         assertThat(yaml).contains("target_top10: 0.58");
         assertThat(yaml).contains("utility_threshold: 0.66");
         assertThat(yaml).contains("final_score_threshold: 0.74");
+
+        Files.deleteIfExists(configPath);
+    }
+
+    @Test
+    void runGatingSupportsMultiStrategySelectionAndPinnedSourceRuns() throws Exception {
+        UUID methodA = jdbcTemplate.getJdbcTemplate().queryForObject(
+                "SELECT generation_method_id FROM synthetic_query_generation_method WHERE method_code = 'A'",
+                UUID.class
+        );
+        UUID methodB = jdbcTemplate.getJdbcTemplate().queryForObject(
+                "SELECT generation_method_id FROM synthetic_query_generation_method WHERE method_code = 'B'",
+                UUID.class
+        );
+        assertThat(methodA).isNotNull();
+        assertThat(methodB).isNotNull();
+
+        UUID sourceRunA = UUID.randomUUID();
+        UUID sourceRunB = UUID.randomUUID();
+        UUID generationBatchA = insertGenerationBatch(methodA, "a-multi-gating-batch", sourceRunA);
+        UUID generationBatchB = insertGenerationBatch(methodB, "b-multi-gating-batch", sourceRunB);
+
+        String response = mockMvc.perform(post("/api/admin/console/gating/batches/run")
+                        .contentType(APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "methodCodes": ["A", "B"],
+                                  "generationBatchIds": ["%s", "%s"],
+                                  "gatingPreset": "full_gating",
+                                  "llmModel": "gemini-2.5-flash-lite"
+                                }
+                                """.formatted(generationBatchA, generationBatchB)))
+                .andExpect(status().isOk())
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+
+        UUID gatingBatchId = UUID.fromString(objectMapper().readTree(response).path("gatingBatchId").asText());
+        String experimentName = jdbcTemplate.queryForObject(
+                """
+                SELECT experiment_name
+                FROM llm_job
+                WHERE gating_batch_id = :gatingBatchId
+                ORDER BY created_at DESC
+                LIMIT 1
+                """,
+                new MapSqlParameterSource("gatingBatchId", gatingBatchId),
+                String.class
+        );
+        assertThat(experimentName).isNotBlank();
+
+        Path configPath = resolveExperimentConfigPath(experimentName);
+        assertThat(Files.exists(configPath)).isTrue();
+        String yaml = Files.readString(configPath, StandardCharsets.UTF_8);
+        assertThat(yaml).contains("source_generation_strategies:");
+        assertThat(yaml).contains("- A");
+        assertThat(yaml).contains("- B");
+        assertThat(yaml).contains("source_generation_run_ids:");
+        assertThat(yaml).contains(sourceRunA.toString());
+        assertThat(yaml).contains(sourceRunB.toString());
+        assertThat(yaml).contains("llm_model: gemini-2.5-flash-lite");
 
         Files.deleteIfExists(configPath);
     }

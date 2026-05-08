@@ -3,6 +3,12 @@
 ## Overview
 High-level progress tracking for the project.
 
+## [2026-05-08] Session Summary (Model Catalog Allowlist Added for Admin Runtime Options)
+- What was done: Added `configs/app/model_catalog.yml` to define allowlisted runtime options for Admin (`llm_providers`, `llm_models`, `dense_embedding_models`, `retriever_modes`, `rewrite_failure_policies`) and default parameter ranges (`retrieval_top_k`, `rerank_top_n`, `rewrite_threshold`, `retriever_candidate_pool_k`).
+- Key decisions: Kept catalog schema flat/simple YAML so backend can reject non-allowlisted runtime selections deterministically while returning metadata (`status/availability/reason`) through `/api/admin/console/runtime/options`.
+- Issues encountered: None.
+- Next steps: Extend catalog entries/status by environment policy (for example, temporarily disabled models with explicit reason) without frontend constant changes.
+
 ## [2026-05-06] Session Summary (Selective Rewrite Prompt v2 Terminology-Hint Policy)
 - What was done: Updated `prompts/rewrite/selective_rewrite_v2.md` to accept `terminology_hints` input and explicitly preserve hint tokens verbatim when intent-compatible.
 - Key decisions: Kept existing concise retrieval-query style constraints and added explicit prohibition against long pseudo-document final queries.

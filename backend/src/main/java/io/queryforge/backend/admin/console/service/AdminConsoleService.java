@@ -18,12 +18,14 @@ import java.nio.file.Path;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.regex.Pattern;
 
 @Service
 @RequiredArgsConstructor
@@ -38,6 +40,9 @@ public class AdminConsoleService {
     private static final String REWRITE_RETRIEVAL_STRATEGY_REPLACE = "replace";
     private static final String REWRITE_RETRIEVAL_STRATEGY_INTERLEAVE = "interleave";
     private static final String REWRITE_RETRIEVAL_STRATEGY_MAX_SCORE = "max_score";
+    private static final String REWRITE_FAILURE_POLICY_FAIL_RUN = "fail_run";
+    private static final String REWRITE_FAILURE_POLICY_SKIP_TO_RAW = "skip_to_raw";
+    private static final String REWRITE_FAILURE_POLICY_HEURISTIC_FALLBACK = "heuristic_fallback";
     private static final String SYNTHETIC_FREE_BASELINE_METHOD = "BASELINE";
     private static final String STAGE_CUTOFF_RULE_ONLY = "rule_only";
     private static final String STAGE_CUTOFF_RULE_PLUS_LLM = "rule_plus_llm";
@@ -56,7 +61,10 @@ public class AdminConsoleService {
     private static final String RETRIEVER_MODE_BM25_ONLY = "bm25_only";
     private static final String RETRIEVER_MODE_DENSE_ONLY = "dense_only";
     private static final String RETRIEVER_MODE_HYBRID = "hybrid";
+    private static final String DEFAULT_LLM_MODEL = "gemini-2.5-flash-lite";
+    private static final String DEFAULT_LLM_FALLBACK_MODEL = "gemini-2.5-flash";
     private static final String DEFAULT_DENSE_EMBEDDING_MODEL = "intfloat/multilingual-e5-small";
+    private static final String MODEL_CATALOG_RELATIVE_PATH = "configs/app/model_catalog.yml";
     private static final double DEFAULT_HYBRID_DENSE_WEIGHT = 0.58d;
     private static final double DEFAULT_HYBRID_BM25_WEIGHT = 0.34d;
     private static final double DEFAULT_HYBRID_TECHNICAL_WEIGHT = 0.08d;
@@ -66,6 +74,7 @@ public class AdminConsoleService {
     private static final double DEFAULT_RAG_HYBRID_BM25_WEIGHT = 0.32d;
     private static final double DEFAULT_RAG_HYBRID_TECHNICAL_WEIGHT = 0.08d;
     private static final int MAX_RAG_RUN_LABEL_LENGTH = 120;
+    private static final Pattern NON_ALNUM_PATTERN = Pattern.compile("[^A-Z0-9]");
     private static final ZoneId KOREA_ZONE_ID = ZoneId.of("Asia/Seoul");
     private static final DateTimeFormatter RUN_LABEL_TIME_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")
             .withZone(KOREA_ZONE_ID);
@@ -108,11 +117,83 @@ public class AdminConsoleService {
         return repository.findAdminDashboardStats();
     }
 
+    public AdminConsoleDtos.RuntimeOptionsResponse getRuntimeOptions() {
+        RuntimeCatalog catalog = loadRuntimeCatalog();
+        List<String> llmModels = fallbackIfEmpty(
+                catalog.availableLlmModels(),
+                collectRuntimeOptions(
+                        List.of(
+                                readEnv("QUERY_FORGE_ADMIN_LLM_MODELS"),
+                                readEnv("QUERY_FORGE_LLM_MODEL"),
+                                readEnv("QUERY_FORGE_LLM_SUMMARY_MODEL"),
+                                readEnv("QUERY_FORGE_LLM_QUERY_MODEL"),
+                                readEnv("QUERY_FORGE_LLM_SELF_EVAL_MODEL"),
+                                readEnv("QUERY_FORGE_LLM_REWRITE_MODEL"),
+                                readEnv("QUERY_FORGE_LLM_FALLBACK_MODELS")
+                        ),
+                        List.of(DEFAULT_LLM_MODEL, DEFAULT_LLM_FALLBACK_MODEL)
+                )
+        );
+        String envLlmModel = readEnv("QUERY_FORGE_LLM_MODEL");
+        String defaultLlmModel = firstNonBlank(
+                llmModels.contains(envLlmModel) ? envLlmModel : null,
+                llmModels.contains(catalog.defaultLlmModel()) ? catalog.defaultLlmModel() : null,
+                llmModels.isEmpty() ? null : llmModels.getFirst()
+        );
+
+        List<String> denseEmbeddingModels = fallbackIfEmpty(
+                catalog.availableDenseEmbeddingModels(),
+                collectRuntimeOptions(
+                        List.of(
+                                readEnv("QUERY_FORGE_ADMIN_DENSE_EMBEDDING_MODELS"),
+                                readEnv("QUERY_FORGE_LOCAL_EMBEDDING_MODEL"),
+                                readEnv("QUERY_FORGE_ANCHOR_EMBEDDING_MODEL")
+                        ),
+                        List.of(DEFAULT_DENSE_EMBEDDING_MODEL)
+                )
+        );
+        String envDenseModel = readEnv("QUERY_FORGE_LOCAL_EMBEDDING_MODEL");
+        String defaultDenseEmbeddingModel = firstNonBlank(
+                denseEmbeddingModels.contains(envDenseModel) ? envDenseModel : null,
+                denseEmbeddingModels.contains(catalog.defaultDenseEmbeddingModel()) ? catalog.defaultDenseEmbeddingModel() : null,
+                denseEmbeddingModels.isEmpty() ? null : denseEmbeddingModels.getFirst()
+        );
+
+        List<String> retrieverModes = fallbackIfEmpty(
+                catalog.availableRetrieverModes(),
+                List.of(RETRIEVER_MODE_BM25_ONLY, RETRIEVER_MODE_DENSE_ONLY, RETRIEVER_MODE_HYBRID)
+        );
+        List<String> rewriteFailurePolicies = fallbackIfEmpty(
+                catalog.availableRewriteFailurePolicies(),
+                List.of(
+                        REWRITE_FAILURE_POLICY_FAIL_RUN,
+                        REWRITE_FAILURE_POLICY_SKIP_TO_RAW,
+                        REWRITE_FAILURE_POLICY_HEURISTIC_FALLBACK
+                )
+        );
+        return new AdminConsoleDtos.RuntimeOptionsResponse(
+                llmModels,
+                defaultLlmModel,
+                denseEmbeddingModels,
+                defaultDenseEmbeddingModel,
+                retrieverModes,
+                rewriteFailurePolicies,
+                catalog.llmProviderOptions().stream().map(this::toRuntimeOptionDto).toList(),
+                catalog.llmModelOptions().stream().map(this::toRuntimeOptionDto).toList(),
+                catalog.denseEmbeddingModelOptions().stream().map(this::toRuntimeOptionDto).toList(),
+                catalog.retrieverModeOptions().stream().map(this::toRuntimeOptionDto).toList(),
+                catalog.rewriteFailurePolicyOptions().stream().map(this::toRuntimeOptionDto).toList(),
+                catalog.defaultParameterRanges()
+        );
+    }
+
     @Transactional
     public AdminConsoleDtos.SyntheticGenerationBatchRow runSyntheticGeneration(AdminConsoleDtos.SyntheticBatchRunRequest request) {
         String methodCode = normalizeMethodCode(request.methodCode());
         AdminConsoleDtos.SyntheticGenerationMethod method = repository.findGenerationMethodByCode(methodCode)
                 .orElseThrow(() -> new IllegalArgumentException("generation method not found: " + methodCode));
+        RuntimeCatalog runtimeCatalog = loadRuntimeCatalog();
+        validateLlmModelSelection(blankToNull(request.llmModel()), runtimeCatalog);
 
         String experimentName = "admin_gen_" + UUID.randomUUID().toString().replace("-", "").substring(0, 12);
         Map<String, Object> config = baseExperimentConfig(experimentName, methodCode);
@@ -137,14 +218,7 @@ public class AdminConsoleService {
         if (request.randomChunkSampling() != null) {
             config.put("random_chunk_sampling", request.randomChunkSampling());
         }
-        if (request.llmModel() != null && !request.llmModel().isBlank()) {
-            String model = request.llmModel().trim();
-            config.put("llm_model", model);
-            config.put("llm_summary_model", model);
-            config.put("llm_query_model", model);
-            config.put("llm_self_eval_model", model);
-            config.put("llm_rewrite_model", model);
-        }
+        applyLlmModelOverrides(config, request.llmModel());
         if (request.llmRpm() != null) {
             config.put("llm_rpm", clampRange(request.llmRpm(), 1, 1000, "llm_rpm"));
         }
@@ -191,27 +265,85 @@ public class AdminConsoleService {
 
     @Transactional
     public AdminConsoleDtos.GatingBatchRow runGating(AdminConsoleDtos.GatingBatchRunRequest request) {
-        String methodCode = normalizeMethodCode(request.methodCode());
-        if (request.generationBatchId() == null) {
+        RuntimeCatalog runtimeCatalog = loadRuntimeCatalog();
+        List<UUID> selectedBatchIds = normalizeGenerationBatchIds(request.generationBatchIds(), request.generationBatchId());
+        if (selectedBatchIds.isEmpty()) {
             throw new IllegalArgumentException("generation_batch_id is required");
         }
-        AdminConsoleDtos.SyntheticGenerationMethod method = repository.findGenerationMethodByCode(methodCode)
-                .orElseThrow(() -> new IllegalArgumentException("generation method not found: " + methodCode));
-        AdminConsoleDtos.SyntheticGenerationBatchRow generationBatch = repository.findGenerationBatch(request.generationBatchId())
-                .orElseThrow(() -> new IllegalArgumentException("generation batch not found: " + request.generationBatchId()));
-        if (generationBatch.methodCode() == null || !methodCode.equalsIgnoreCase(generationBatch.methodCode())) {
-            throw new IllegalArgumentException(
-                    "generation batch method mismatch: expected=" + methodCode + ", actual=" + generationBatch.methodCode()
+        List<AdminConsoleDtos.SyntheticGenerationBatchRow> selectedBatches = new ArrayList<>();
+        LinkedHashSet<String> derivedMethodCodes = new LinkedHashSet<>();
+        LinkedHashSet<UUID> sourceGenerationRunIds = new LinkedHashSet<>();
+        Map<String, AdminConsoleDtos.SyntheticGenerationMethod> methodByCode = new LinkedHashMap<>();
+        for (UUID generationBatchId : selectedBatchIds) {
+            AdminConsoleDtos.SyntheticGenerationBatchRow batch = repository.findGenerationBatch(generationBatchId)
+                    .orElseThrow(() -> new IllegalArgumentException("generation batch not found: " + generationBatchId));
+            if (!"completed".equalsIgnoreCase(batch.status())) {
+                throw new IllegalArgumentException("generation batch is not completed: " + generationBatchId);
+            }
+            if (batch.sourceGenerationRunId() == null) {
+                throw new IllegalArgumentException("generation batch has no source_generation_run_id: " + generationBatchId);
+            }
+            String batchMethodCode = normalizeMethodCode(batch.methodCode());
+            AdminConsoleDtos.SyntheticGenerationMethod method = methodByCode.computeIfAbsent(
+                    batchMethodCode,
+                    key -> repository.findGenerationMethodByCode(key)
+                            .orElseThrow(() -> new IllegalArgumentException("generation method not found: " + key))
             );
+            selectedBatches.add(batch);
+            derivedMethodCodes.add(method.methodCode().toUpperCase());
+            sourceGenerationRunIds.add(batch.sourceGenerationRunId());
         }
-        if (!"completed".equalsIgnoreCase(generationBatch.status())) {
-            throw new IllegalArgumentException("generation batch is not completed: " + request.generationBatchId());
-        }
-        if (generationBatch.sourceGenerationRunId() == null) {
-            throw new IllegalArgumentException("generation batch has no source_generation_run_id: " + request.generationBatchId());
+        List<String> selectedMethodCodes = List.copyOf(derivedMethodCodes);
+        if (selectedMethodCodes.isEmpty()) {
+            throw new IllegalArgumentException("at least one generation method is required");
         }
 
-        UUID sourceGenerationRunId = generationBatch.sourceGenerationRunId();
+        List<String> requestedMethodCodes = normalizeMethodCodes(request.methodCodes());
+        String requestedMethodCode = normalizeOptionalMethodCode(request.methodCode());
+        if (!requestedMethodCodes.isEmpty()) {
+            for (String requestedMethod : requestedMethodCodes) {
+                if (!derivedMethodCodes.contains(requestedMethod)) {
+                    throw new IllegalArgumentException(
+                            "generation batch method mismatch: expected one of=" + requestedMethodCodes + ", actual=" + selectedMethodCodes
+                    );
+                }
+            }
+            for (String actualMethod : selectedMethodCodes) {
+                if (!requestedMethodCodes.contains(actualMethod)) {
+                    throw new IllegalArgumentException(
+                            "generation batch method mismatch: expected one of=" + requestedMethodCodes + ", actual=" + selectedMethodCodes
+                    );
+                }
+            }
+        }
+        if (requestedMethodCode != null && !derivedMethodCodes.contains(requestedMethodCode)) {
+            throw new IllegalArgumentException(
+                    "generation batch method mismatch: expected=" + requestedMethodCode + ", actual=" + selectedMethodCodes
+            );
+        }
+
+        String primaryMethodCode = requestedMethodCode;
+        if (primaryMethodCode == null && !requestedMethodCodes.isEmpty()) {
+            primaryMethodCode = requestedMethodCodes.getFirst();
+        }
+        if (primaryMethodCode == null || !derivedMethodCodes.contains(primaryMethodCode)) {
+            primaryMethodCode = selectedMethodCodes.getFirst();
+        }
+        AdminConsoleDtos.SyntheticGenerationMethod primaryMethod = methodByCode.get(primaryMethodCode);
+        if (primaryMethod == null) {
+            String resolvedPrimaryMethodCode = primaryMethodCode;
+            primaryMethod = repository.findGenerationMethodByCode(resolvedPrimaryMethodCode)
+                    .orElseThrow(() -> new IllegalArgumentException("generation method not found: " + resolvedPrimaryMethodCode));
+            methodByCode.put(primaryMethodCode, primaryMethod);
+        }
+
+        UUID primaryGenerationBatchId = selectedBatches.getFirst().batchId();
+        UUID primarySourceGenerationRunId = selectedBatches.getFirst().sourceGenerationRunId();
+        List<String> sourceGenerationRunIdStrings = sourceGenerationRunIds.stream().map(UUID::toString).toList();
+        List<String> selectedBatchIdStrings = selectedBatchIds.stream().map(UUID::toString).toList();
+        boolean singleEnglishMethod = selectedMethodCodes.size() == 1
+                && "E".equalsIgnoreCase(selectedMethodCodes.getFirst());
+
         String gatingPreset = normalizeGatingPreset(request.gatingPreset());
         AdminConsoleDtos.GatingRunConfig requestConfig = request.config();
         AdminConsoleDtos.GatingStageFlags stageFlags = requestConfig == null ? null : requestConfig.stageFlags();
@@ -219,9 +351,11 @@ public class AdminConsoleService {
         Map<String, Object> retrieverConfig = resolveRetrieverConfig(
                 requestConfig == null ? null : requestConfig.retrieverConfig()
         );
-        if ("E".equalsIgnoreCase(methodCode) && requestConfig != null && requestConfig.retrieverConfig() == null) {
+        if (singleEnglishMethod && requestConfig != null && requestConfig.retrieverConfig() == null) {
             retrieverConfig = forceBm25RetrieverConfig(retrieverConfig);
         }
+        validateLlmModelSelection(blankToNull(request.llmModel()), runtimeCatalog);
+        validateRetrieverSelection(retrieverConfig, runtimeCatalog);
         Map<String, Object> stageConfig = new LinkedHashMap<>();
         stageConfig.put(
                 "enable_rule_filter",
@@ -239,7 +373,10 @@ public class AdminConsoleService {
                 "enable_diversity",
                 flagValue(stageFlags == null ? null : stageFlags.enableDiversity(), gatingPreset, "diversity")
         );
-        Map<String, Object> ruleConfig = resolveRuleConfig(methodCode, requestConfig == null ? null : requestConfig.ruleConfig());
+        Map<String, Object> ruleConfig = resolveRuleConfig(
+                singleEnglishMethod ? "E" : primaryMethodCode,
+                requestConfig == null ? null : requestConfig.ruleConfig()
+        );
         Map<String, Double> utilityScoreWeights = resolveUtilityScoreWeights(
                 requestConfig == null ? null : requestConfig.utilityScoreWeights()
         );
@@ -265,20 +402,40 @@ public class AdminConsoleService {
         stageConfig.put("final_score_threshold", finalScoreThreshold);
         stageConfig.put("llm_batch_size", 1);
         stageConfig.put("retriever_config", retrieverConfig);
+        stageConfig.put("source_generation_strategies", selectedMethodCodes);
+        stageConfig.put("source_generation_batch_ids", selectedBatchIdStrings);
+        stageConfig.put("source_generation_run_ids", sourceGenerationRunIdStrings);
+        if (sourceGenerationRunIdStrings.size() == 1) {
+            stageConfig.put("source_generation_run_id", sourceGenerationRunIdStrings.getFirst());
+        }
 
-        repository.clearCompletedGatingResults(method.generationMethodId(), request.generationBatchId());
+        for (AdminConsoleDtos.SyntheticGenerationBatchRow batch : selectedBatches) {
+            String batchMethodCode = normalizeMethodCode(batch.methodCode());
+            AdminConsoleDtos.SyntheticGenerationMethod batchMethod = methodByCode.get(batchMethodCode);
+            if (batchMethod == null) {
+                throw new IllegalStateException("generation method not loaded: " + batchMethodCode);
+            }
+            repository.clearCompletedGatingResults(batchMethod.generationMethodId(), batch.batchId());
+        }
 
         UUID gatingBatchId = repository.createGatingBatch(
                 gatingPreset,
-                method.generationMethodId(),
-                request.generationBatchId(),
-                sourceGenerationRunId,
+                primaryMethod.generationMethodId(),
+                primaryGenerationBatchId,
+                primarySourceGenerationRunId,
                 defaultCreatedBy(request.createdBy()),
                 objectMapper.valueToTree(stageConfig)
         );
 
         String experimentName = "admin_gate_" + UUID.randomUUID().toString().replace("-", "").substring(0, 12);
-        Map<String, Object> config = baseExperimentConfig(experimentName, methodCode);
+        Map<String, Object> config = baseExperimentConfig(experimentName, primaryMethodCode);
+        config.put("source_generation_strategies", selectedMethodCodes);
+        config.put("source_generation_batch_ids", selectedBatchIdStrings);
+        config.put("source_generation_run_ids", sourceGenerationRunIdStrings);
+        if (sourceGenerationRunIdStrings.size() == 1) {
+            config.put("source_generation_run_id", sourceGenerationRunIdStrings.getFirst());
+        }
+        config.put("enable_code_mixed", selectedMethodCodes.contains("D"));
         config.put("gating_preset", gatingPreset);
         config.put("enable_rule_filter", stageConfig.get("enable_rule_filter"));
         config.put("enable_llm_self_eval", stageConfig.get("enable_llm_self_eval"));
@@ -301,10 +458,8 @@ public class AdminConsoleService {
         config.put("llm_batch_size", 1);
         config.put("utility_candidate_pool_k", retrieverConfig.get("retriever_candidate_pool_k"));
         attachRetrieverConfig(config, retrieverConfig);
+        applyLlmModelOverrides(config, request.llmModel());
         config.put("gating_batch_id", gatingBatchId.toString());
-        if (sourceGenerationRunId != null) {
-            config.put("source_generation_run_id", sourceGenerationRunId.toString());
-        }
         writeExperimentConfig(experimentName, config);
         llmJobService.createGatingJob(gatingBatchId, experimentName, defaultCreatedBy(request.createdBy()));
         return repository.findGatingBatch(gatingBatchId)
@@ -448,12 +603,17 @@ public class AdminConsoleService {
                 : DEFAULT_RAG_RETRIEVAL_TOP_K;
         int rerankTopN = request.rerankTopN() != null && request.rerankTopN() > 0 ? request.rerankTopN() : 5;
         Map<String, Object> retrieverConfig = resolveRetrieverConfig(request.retrieverConfig(), true);
+        RuntimeCatalog runtimeCatalog = loadRuntimeCatalog();
+        validateLlmModelSelection(blankToNull(request.llmModel()), runtimeCatalog);
+        validateRetrieverSelection(retrieverConfig, runtimeCatalog);
         String runLabel = resolveRagRunLabel(
                 request.runName(),
                 String.valueOf(retrieverConfig.get("retriever_mode"))
         );
         double threshold = request.threshold() != null ? request.threshold() : 0.10d;
         String rewriteRetrievalStrategy = normalizeRewriteRetrievalStrategy(request.rewriteRetrievalStrategy());
+        String rewriteFailurePolicy = normalizeRewriteFailurePolicy(request.rewriteFailurePolicy());
+        validateRewriteFailurePolicySelection(rewriteFailurePolicy, runtimeCatalog);
         String stageCutoffLevel = normalizeStageCutoffLevel(request.stageCutoffLevel(), gatingPreset);
 
         if (stageCutoffEnabled) {
@@ -540,6 +700,15 @@ public class AdminConsoleService {
             useSessionContext = false;
         }
 
+        if (!syntheticFreeBaseline
+                && !(RUN_DISCIPLINE_OFFICIAL.equals(runDiscipline)
+                && COMPARISON_GATING_EFFECT.equals(officialComparisonType))
+                && sourceGatingBatchId == null) {
+            throw new IllegalArgumentException(
+                    "source_gating_batch_id is required (auto-latest snapshot selection is disabled)"
+            );
+        }
+
         if (syntheticFreeBaseline) {
             gatingApplied = false;
             gatingPreset = "ungated";
@@ -580,6 +749,7 @@ public class AdminConsoleService {
                 experimentName,
                 syntheticFreeBaseline ? SYNTHETIC_FREE_BASELINE_METHOD : methodCodes.getFirst()
         );
+        applyLlmModelOverrides(config, request.llmModel());
         config.put("run_name", runLabel);
         config.put("dataset_id", request.datasetId().toString());
         config.put("eval_query_language", evalQueryLanguage);
@@ -594,6 +764,7 @@ public class AdminConsoleService {
         config.put("rewrite_threshold", threshold);
         config.put("rewrite_retrieval_strategy", rewriteRetrievalStrategy);
         config.put("rewrite_anchor_injection_enabled", rewriteAnchorInjectionEnabled);
+        config.put("rewrite_failure_policy", rewriteFailurePolicy);
         config.put("retrieval_top_k", retrievalTopK);
         config.put("rerank_top_n", rerankTopN);
         attachRetrieverConfig(config, retrieverConfig);
@@ -608,16 +779,15 @@ public class AdminConsoleService {
             config.put("official_isolation_validated", true);
         }
 
-        boolean requireExplicitSnapshot = RUN_DISCIPLINE_OFFICIAL.equals(runDiscipline);
         if (syntheticFreeBaseline) {
             config.put("retrieval_modes", List.of("raw_only"));
         } else if (RUN_DISCIPLINE_OFFICIAL.equals(runDiscipline) && COMPARISON_GATING_EFFECT.equals(officialComparisonType)) {
             Map<String, Object> comparisonSnapshots = new LinkedHashMap<>();
-            UUID ungatedRunId = resolveSourceGatingRunId(methodCodes, "ungated", comparisonBatchIds.get("ungated"), true)
+            UUID ungatedRunId = resolveSourceGatingRunId(methodCodes, "ungated", comparisonBatchIds.get("ungated"))
                     .orElseThrow(() -> new IllegalStateException("ungated snapshot source run not found"));
-            UUID ruleOnlyRunId = resolveSourceGatingRunId(methodCodes, "rule_only", comparisonBatchIds.get("rule_only"), true)
+            UUID ruleOnlyRunId = resolveSourceGatingRunId(methodCodes, "rule_only", comparisonBatchIds.get("rule_only"))
                     .orElseThrow(() -> new IllegalStateException("rule_only snapshot source run not found"));
-            UUID fullGatingRunId = resolveSourceGatingRunId(methodCodes, "full_gating", comparisonBatchIds.get("full_gating"), true)
+            UUID fullGatingRunId = resolveSourceGatingRunId(methodCodes, "full_gating", comparisonBatchIds.get("full_gating"))
                     .orElseThrow(() -> new IllegalStateException("full_gating snapshot source run not found"));
 
             comparisonSnapshots.put(
@@ -653,8 +823,7 @@ public class AdminConsoleService {
             Optional<UUID> sourceGatingRunId = resolveSourceGatingRunId(
                     methodCodes,
                     gatingPreset,
-                    sourceGatingBatchId,
-                    true
+                    sourceGatingBatchId
             );
             config.put("retrieval_modes", List.of("raw_only", "memory_only_gated", "rewrite_always", "selective_rewrite"));
             config.put("source_gating_batch_id", sourceGatingBatchId.toString());
@@ -667,8 +836,7 @@ public class AdminConsoleService {
                     : resolveSourceGatingRunId(
                     methodCodes,
                     gatingPreset,
-                    sourceGatingBatchId,
-                    requireExplicitSnapshot
+                    sourceGatingBatchId
             );
             if (sourceGatingBatchId != null) {
                 config.put("source_gating_batch_id", sourceGatingBatchId.toString());
@@ -680,6 +848,7 @@ public class AdminConsoleService {
             sourceGatingRunId.ifPresent(uuid -> config.put("source_gating_run_id", uuid.toString()));
         }
 
+        validateRewriteStageLlmConfig(config, rewriteEnabled);
         writeExperimentConfig(experimentName, config);
         repository.upsertRagTestRunConfig(runId, objectMapper.valueToTree(config));
         String initialSnapshotId = firstNonBlank(
@@ -707,6 +876,7 @@ public class AdminConsoleService {
         initialRewriteConfig.put("rewrite_threshold", threshold);
         initialRewriteConfig.put("rewrite_retrieval_strategy", rewriteRetrievalStrategy);
         initialRewriteConfig.put("rewrite_anchor_injection_enabled", rewriteAnchorInjectionEnabled);
+        initialRewriteConfig.put("rewrite_failure_policy", rewriteFailurePolicy);
         repository.upsertRagExperimentRecord(
                 runId,
                 initialSnapshotId,
@@ -724,29 +894,15 @@ public class AdminConsoleService {
                 .orElseThrow(() -> new IllegalStateException("rag test run not found after enqueue: " + runId));
     }
 
-    private Optional<UUID> findLatestMatchingGatingRun(List<String> methodCodes, String gatingPreset) {
-        return repository.findGatingBatches(200).stream()
-                .filter(item -> "completed".equalsIgnoreCase(item.status()))
-                .filter(item -> item.sourceGatingRunId() != null)
-                .filter(item -> gatingPreset.equalsIgnoreCase(item.gatingPreset()))
-                .filter(item -> item.methodCode() == null || methodCodes.contains(item.methodCode().toUpperCase()))
-                .map(AdminConsoleDtos.GatingBatchRow::sourceGatingRunId)
-                .findFirst();
-    }
-
     private Optional<UUID> resolveSourceGatingRunId(
             List<String> methodCodes,
             String gatingPreset,
-            UUID sourceGatingBatchId,
-            boolean requireExplicit
+            UUID sourceGatingBatchId
     ) {
         if (sourceGatingBatchId == null) {
-            if (requireExplicit) {
-                throw new IllegalArgumentException(
-                        "official evaluation runs require explicit source_gating_batch_id (auto-latest disabled)"
-                );
-            }
-            return findLatestMatchingGatingRun(methodCodes, gatingPreset);
+            throw new IllegalArgumentException(
+                    "source_gating_batch_id is required (auto-latest snapshot selection is disabled)"
+            );
         }
         AdminConsoleDtos.GatingBatchRow batch = repository.findGatingBatch(sourceGatingBatchId)
                 .orElseThrow(() -> new IllegalArgumentException("gating batch not found: " + sourceGatingBatchId));
@@ -852,6 +1008,21 @@ public class AdminConsoleService {
         return normalized;
     }
 
+    private String normalizeRewriteFailurePolicy(String value) {
+        if (value == null || value.isBlank()) {
+            return REWRITE_FAILURE_POLICY_FAIL_RUN;
+        }
+        String normalized = value.trim().toLowerCase().replace("-", "_");
+        if (!List.of(
+                REWRITE_FAILURE_POLICY_FAIL_RUN,
+                REWRITE_FAILURE_POLICY_SKIP_TO_RAW,
+                REWRITE_FAILURE_POLICY_HEURISTIC_FALLBACK
+        ).contains(normalized)) {
+            throw new IllegalArgumentException("unsupported rewrite_failure_policy: " + value);
+        }
+        return normalized;
+    }
+
     private Map<String, UUID> normalizeComparisonBatchIds(Map<String, UUID> value) {
         if (value == null || value.isEmpty()) {
             return Map.of();
@@ -876,6 +1047,563 @@ public class AdminConsoleService {
             }
         }
         return "";
+    }
+
+    private String asTrimmedString(Object value) {
+        if (value == null) {
+            return null;
+        }
+        String normalized = String.valueOf(value).trim();
+        return normalized.isBlank() ? null : normalized;
+    }
+
+    private String readEnv(String key) {
+        String value = System.getenv(key);
+        if (value == null || value.isBlank()) {
+            return null;
+        }
+        return value.trim();
+    }
+
+    private String normalizeLlmProviderName(String provider) {
+        if (provider == null || provider.isBlank()) {
+            return "";
+        }
+        return provider.trim().toLowerCase().replace("_", "-");
+    }
+
+    private String providerEnvSuffix(String provider) {
+        String normalized = normalizeLlmProviderName(provider).toUpperCase();
+        return NON_ALNUM_PATTERN.matcher(normalized).replaceAll("_");
+    }
+
+    private String resolveApiKeyForProvider(String provider, String rewriteStageApiKey, String genericLlmApiKey) {
+        String envSuffix = providerEnvSuffix(provider);
+        String rewriteEnvApiKey = readEnv("QUERY_FORGE_LLM_REWRITE_API_KEY");
+        String sharedEnvApiKey = readEnv("QUERY_FORGE_LLM_API_KEY");
+        String providerScopedEnvApiKey = readEnv("QUERY_FORGE_LLM_" + envSuffix + "_API_KEY");
+        return switch (normalizeLlmProviderName(provider)) {
+            case "gemini", "gemini-native" -> firstNonBlank(
+                    rewriteStageApiKey,
+                    genericLlmApiKey,
+                    rewriteEnvApiKey,
+                    sharedEnvApiKey,
+                    providerScopedEnvApiKey,
+                    readEnv("QUERY_FORGE_LLM_GEMINI_API_KEY"),
+                    readEnv("GEMINI_API_KEY")
+            );
+            case "openai" -> firstNonBlank(
+                    rewriteStageApiKey,
+                    genericLlmApiKey,
+                    rewriteEnvApiKey,
+                    sharedEnvApiKey,
+                    providerScopedEnvApiKey,
+                    readEnv("OPENAI_API_KEY")
+            );
+            case "groq" -> firstNonBlank(
+                    rewriteStageApiKey,
+                    genericLlmApiKey,
+                    rewriteEnvApiKey,
+                    sharedEnvApiKey,
+                    providerScopedEnvApiKey,
+                    readEnv("GROQ_API_KEY")
+            );
+            default -> firstNonBlank(
+                    rewriteStageApiKey,
+                    genericLlmApiKey,
+                    rewriteEnvApiKey,
+                    sharedEnvApiKey,
+                    providerScopedEnvApiKey
+            );
+        };
+    }
+
+    private void validateRewriteStageLlmConfig(Map<String, Object> config, boolean rewriteEnabled) {
+        if (!rewriteEnabled) {
+            return;
+        }
+        String provider = normalizeLlmProviderName(
+                firstNonBlank(
+                        asTrimmedString(config.get("llm_rewrite_provider")),
+                        asTrimmedString(config.get("llm_provider")),
+                        readEnv("QUERY_FORGE_LLM_REWRITE_PROVIDER"),
+                        readEnv("QUERY_FORGE_LLM_PROVIDER"),
+                        "gemini-native"
+                )
+        );
+        if (provider.isBlank()) {
+            throw new IllegalArgumentException(
+                    "rewrite_enabled=true requires llm_rewrite_provider (or llm_provider) for stage=rewrite"
+            );
+        }
+        String model = firstNonBlank(
+                asTrimmedString(config.get("llm_rewrite_model")),
+                asTrimmedString(config.get("llm_model")),
+                readEnv("QUERY_FORGE_LLM_REWRITE_MODEL"),
+                readEnv("QUERY_FORGE_LLM_MODEL")
+        );
+        if (model.isBlank()) {
+            throw new IllegalArgumentException(
+                    "rewrite_enabled=true requires llm_rewrite_model (or llm_model) for stage=rewrite"
+            );
+        }
+        String apiKey = resolveApiKeyForProvider(
+                provider,
+                asTrimmedString(config.get("llm_rewrite_api_key")),
+                asTrimmedString(config.get("llm_api_key"))
+        );
+        if (apiKey.isBlank()) {
+            throw new IllegalArgumentException(
+                    "rewrite_enabled=true requires rewrite-stage LLM API key "
+                            + "(llm_rewrite_api_key / QUERY_FORGE_LLM_REWRITE_API_KEY / provider API key env)"
+            );
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private RuntimeCatalog loadRuntimeCatalog() {
+        Path catalogPath = resolveRepoRoot().resolve(MODEL_CATALOG_RELATIVE_PATH).normalize();
+        if (!Files.exists(catalogPath)) {
+            return buildFallbackRuntimeCatalog();
+        }
+        try {
+            Object loaded = yaml.load(Files.readString(catalogPath, StandardCharsets.UTF_8));
+            if (!(loaded instanceof Map<?, ?> root)) {
+                return buildFallbackRuntimeCatalog();
+            }
+            Map<String, Object> rootMap = (Map<String, Object>) root;
+            List<RuntimeOptionMetadata> llmProviders = parseRuntimeOptions(rootMap.get("llm_providers"), false);
+            List<RuntimeOptionMetadata> llmModels = parseRuntimeOptions(rootMap.get("llm_models"), false);
+            List<RuntimeOptionMetadata> denseModels = parseRuntimeOptions(rootMap.get("dense_embedding_models"), false);
+            List<RuntimeOptionMetadata> retrieverModes = parseRuntimeOptions(rootMap.get("retriever_modes"), true);
+            List<RuntimeOptionMetadata> rewritePolicies = parseRuntimeOptions(rootMap.get("rewrite_failure_policies"), true);
+            Map<String, AdminConsoleDtos.RuntimeParameterRange> parameterRanges = parseDefaultParameterRanges(
+                    rootMap.get("default_parameter_ranges")
+            );
+            return new RuntimeCatalog(
+                    llmProviders,
+                    llmModels,
+                    denseModels,
+                    retrieverModes,
+                    rewritePolicies,
+                    parameterRanges
+            );
+        } catch (IOException | RuntimeException exception) {
+            throw new IllegalStateException("failed to load model catalog: " + catalogPath, exception);
+        }
+    }
+
+    private RuntimeCatalog buildFallbackRuntimeCatalog() {
+        List<RuntimeOptionMetadata> llmModels = collectRuntimeOptions(
+                List.of(
+                        readEnv("QUERY_FORGE_ADMIN_LLM_MODELS"),
+                        readEnv("QUERY_FORGE_LLM_MODEL"),
+                        readEnv("QUERY_FORGE_LLM_SUMMARY_MODEL"),
+                        readEnv("QUERY_FORGE_LLM_QUERY_MODEL"),
+                        readEnv("QUERY_FORGE_LLM_SELF_EVAL_MODEL"),
+                        readEnv("QUERY_FORGE_LLM_REWRITE_MODEL"),
+                        readEnv("QUERY_FORGE_LLM_FALLBACK_MODELS")
+                ),
+                List.of(DEFAULT_LLM_MODEL, DEFAULT_LLM_FALLBACK_MODEL)
+        ).stream().map(model -> new RuntimeOptionMetadata(
+                model,
+                model,
+                null,
+                "active",
+                "available",
+                null,
+                DEFAULT_LLM_MODEL.equals(model)
+        )).toList();
+        List<RuntimeOptionMetadata> denseModels = collectRuntimeOptions(
+                List.of(
+                        readEnv("QUERY_FORGE_ADMIN_DENSE_EMBEDDING_MODELS"),
+                        readEnv("QUERY_FORGE_LOCAL_EMBEDDING_MODEL"),
+                        readEnv("QUERY_FORGE_ANCHOR_EMBEDDING_MODEL")
+                ),
+                List.of(DEFAULT_DENSE_EMBEDDING_MODEL)
+        ).stream().map(model -> new RuntimeOptionMetadata(
+                model,
+                model,
+                null,
+                "active",
+                "available",
+                null,
+                DEFAULT_DENSE_EMBEDDING_MODEL.equals(model)
+        )).toList();
+        List<RuntimeOptionMetadata> retrieverModes = List.of(
+                new RuntimeOptionMetadata(RETRIEVER_MODE_BM25_ONLY, "BM25 Only", null, "active", "available", null, false),
+                new RuntimeOptionMetadata(RETRIEVER_MODE_DENSE_ONLY, "Dense Only", null, "active", "available", null, false),
+                new RuntimeOptionMetadata(RETRIEVER_MODE_HYBRID, "Hybrid", null, "active", "available", null, true)
+        );
+        List<RuntimeOptionMetadata> rewritePolicies = List.of(
+                new RuntimeOptionMetadata(REWRITE_FAILURE_POLICY_FAIL_RUN, REWRITE_FAILURE_POLICY_FAIL_RUN, null, "active", "available", null, true),
+                new RuntimeOptionMetadata(REWRITE_FAILURE_POLICY_SKIP_TO_RAW, REWRITE_FAILURE_POLICY_SKIP_TO_RAW, null, "active", "available", null, false),
+                new RuntimeOptionMetadata(REWRITE_FAILURE_POLICY_HEURISTIC_FALLBACK, REWRITE_FAILURE_POLICY_HEURISTIC_FALLBACK, null, "active", "available", null, false)
+        );
+        Map<String, AdminConsoleDtos.RuntimeParameterRange> ranges = defaultRuntimeParameterRanges();
+        return new RuntimeCatalog(
+                List.of(),
+                llmModels,
+                denseModels,
+                retrieverModes,
+                rewritePolicies,
+                ranges
+        );
+    }
+
+    @SuppressWarnings("unchecked")
+    private List<RuntimeOptionMetadata> parseRuntimeOptions(Object raw, boolean normalizeLowerCaseCode) {
+        if (!(raw instanceof List<?> rows)) {
+            return List.of();
+        }
+        ArrayList<RuntimeOptionMetadata> parsed = new ArrayList<>();
+        for (Object row : rows) {
+            if (!(row instanceof Map<?, ?> map)) {
+                continue;
+            }
+            Map<String, Object> item = (Map<String, Object>) map;
+            String code = firstNonBlank(
+                    asTrimmedString(item.get("code")),
+                    asTrimmedString(item.get("id")),
+                    asTrimmedString(item.get("model")),
+                    asTrimmedString(item.get("mode")),
+                    asTrimmedString(item.get("policy"))
+            );
+            if (code.isBlank()) {
+                continue;
+            }
+            if (normalizeLowerCaseCode) {
+                code = code.toLowerCase().replace("-", "_");
+            }
+            String label = firstNonBlank(asTrimmedString(item.get("label")), code);
+            String provider = asTrimmedString(item.get("provider"));
+            String status = firstNonBlank(asTrimmedString(item.get("status")), "active");
+            String availability = firstNonBlank(asTrimmedString(item.get("availability")), "available");
+            String reason = asTrimmedString(item.get("reason"));
+            boolean defaultSelected = parseBoolean(item.get("default"))
+                    || parseBoolean(item.get("default_selected"))
+                    || parseBoolean(item.get("is_default"));
+            parsed.add(new RuntimeOptionMetadata(
+                    code,
+                    label,
+                    provider,
+                    status,
+                    availability,
+                    reason,
+                    defaultSelected
+            ));
+        }
+        return List.copyOf(parsed);
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, AdminConsoleDtos.RuntimeParameterRange> parseDefaultParameterRanges(Object raw) {
+        if (!(raw instanceof Map<?, ?> map)) {
+            return defaultRuntimeParameterRanges();
+        }
+        LinkedHashMap<String, AdminConsoleDtos.RuntimeParameterRange> ranges = new LinkedHashMap<>();
+        Map<String, Object> source = (Map<String, Object>) map;
+        for (Map.Entry<String, Object> entry : source.entrySet()) {
+            String key = entry.getKey();
+            if (key == null || key.isBlank() || !(entry.getValue() instanceof Map<?, ?> rangeMap)) {
+                continue;
+            }
+            Double min = parseNumber(((Map<?, ?>) rangeMap).get("min"));
+            Double max = parseNumber(((Map<?, ?>) rangeMap).get("max"));
+            Double defaultValue = parseNumber(((Map<?, ?>) rangeMap).get("default"));
+            if (defaultValue == null) {
+                defaultValue = parseNumber(((Map<?, ?>) rangeMap).get("default_value"));
+            }
+            ranges.put(key, new AdminConsoleDtos.RuntimeParameterRange(min, max, defaultValue));
+        }
+        if (ranges.isEmpty()) {
+            return defaultRuntimeParameterRanges();
+        }
+        return Map.copyOf(ranges);
+    }
+
+    private Map<String, AdminConsoleDtos.RuntimeParameterRange> defaultRuntimeParameterRanges() {
+        LinkedHashMap<String, AdminConsoleDtos.RuntimeParameterRange> ranges = new LinkedHashMap<>();
+        ranges.put("retrieval_top_k", new AdminConsoleDtos.RuntimeParameterRange(1.0d, 100.0d, (double) DEFAULT_RAG_RETRIEVAL_TOP_K));
+        ranges.put("rerank_top_n", new AdminConsoleDtos.RuntimeParameterRange(1.0d, 100.0d, 5.0d));
+        ranges.put("rewrite_threshold", new AdminConsoleDtos.RuntimeParameterRange(0.0d, 1.0d, 0.10d));
+        ranges.put("retriever_candidate_pool_k", new AdminConsoleDtos.RuntimeParameterRange(1.0d, 500.0d, (double) DEFAULT_RETRIEVER_CANDIDATE_POOL_K));
+        return Map.copyOf(ranges);
+    }
+
+    private boolean parseBoolean(Object value) {
+        if (value == null) {
+            return false;
+        }
+        if (value instanceof Boolean bool) {
+            return bool;
+        }
+        return "true".equalsIgnoreCase(String.valueOf(value).trim());
+    }
+
+    private Double parseNumber(Object value) {
+        if (value == null) {
+            return null;
+        }
+        if (value instanceof Number number) {
+            return number.doubleValue();
+        }
+        try {
+            return Double.parseDouble(String.valueOf(value).trim());
+        } catch (RuntimeException exception) {
+            return null;
+        }
+    }
+
+    private AdminConsoleDtos.RuntimeOption toRuntimeOptionDto(RuntimeOptionMetadata option) {
+        return new AdminConsoleDtos.RuntimeOption(
+                option.code(),
+                option.label(),
+                option.provider(),
+                option.status(),
+                option.availability(),
+                option.reason(),
+                option.defaultSelected()
+        );
+    }
+
+    private void validateLlmModelSelection(String llmModel, RuntimeCatalog catalog) {
+        if (llmModel == null) {
+            return;
+        }
+        RuntimeOptionMetadata option = catalog.findLlmModel(llmModel);
+        if (option == null) {
+            throw new IllegalArgumentException("llm_model is not allowed by catalog: " + llmModel);
+        }
+        if (!isSelectable(option)) {
+            throw new IllegalArgumentException(
+                    "llm_model is not selectable by catalog: " + llmModel + appendReason(option.reason())
+            );
+        }
+        String provider = blankToNull(option.provider());
+        if (provider != null) {
+            RuntimeOptionMetadata providerOption = catalog.findLlmProvider(provider);
+            if (providerOption != null && !isSelectable(providerOption)) {
+                throw new IllegalArgumentException(
+                        "llm provider is not selectable by catalog: " + provider + appendReason(providerOption.reason())
+                );
+            }
+        }
+    }
+
+    private void validateRetrieverSelection(Map<String, Object> retrieverConfig, RuntimeCatalog catalog) {
+        String retrieverMode = normalizeRetrieverMode(asTrimmedString(retrieverConfig.get("retriever_mode")));
+        RuntimeOptionMetadata retrieverModeOption = catalog.findRetrieverMode(retrieverMode);
+        if (retrieverModeOption == null) {
+            throw new IllegalArgumentException("retriever_mode is not allowed by catalog: " + retrieverMode);
+        }
+        if (!isSelectable(retrieverModeOption)) {
+            throw new IllegalArgumentException(
+                    "retriever_mode is not selectable by catalog: " + retrieverMode + appendReason(retrieverModeOption.reason())
+            );
+        }
+        if (RETRIEVER_MODE_BM25_ONLY.equals(retrieverMode)) {
+            return;
+        }
+        String denseModel = blankToNull(asTrimmedString(retrieverConfig.get("dense_embedding_model")));
+        if (denseModel == null) {
+            throw new IllegalArgumentException("dense_embedding_model is required for retriever_mode=" + retrieverMode);
+        }
+        RuntimeOptionMetadata denseOption = catalog.findDenseEmbeddingModel(denseModel);
+        if (denseOption == null) {
+            throw new IllegalArgumentException("dense_embedding_model is not allowed by catalog: " + denseModel);
+        }
+        if (!isSelectable(denseOption)) {
+            throw new IllegalArgumentException(
+                    "dense_embedding_model is not selectable by catalog: " + denseModel + appendReason(denseOption.reason())
+            );
+        }
+    }
+
+    private void validateRewriteFailurePolicySelection(String policy, RuntimeCatalog catalog) {
+        RuntimeOptionMetadata option = catalog.findRewriteFailurePolicy(policy);
+        if (option == null) {
+            throw new IllegalArgumentException("rewrite_failure_policy is not allowed by catalog: " + policy);
+        }
+        if (!isSelectable(option)) {
+            throw new IllegalArgumentException(
+                    "rewrite_failure_policy is not selectable by catalog: " + policy + appendReason(option.reason())
+            );
+        }
+    }
+
+    private boolean isSelectable(RuntimeOptionMetadata option) {
+        String availability = firstNonBlank(option.availability(), "available").toLowerCase();
+        String status = firstNonBlank(option.status(), "active").toLowerCase();
+        if (List.of("unavailable", "disabled", "blocked").contains(availability)) {
+            return false;
+        }
+        return !List.of("disabled", "blocked").contains(status);
+    }
+
+    private String appendReason(String reason) {
+        String normalized = blankToNull(reason);
+        return normalized == null ? "" : " (" + normalized + ")";
+    }
+
+    private List<String> fallbackIfEmpty(List<String> preferred, List<String> fallback) {
+        if (preferred != null && !preferred.isEmpty()) {
+            return preferred;
+        }
+        if (fallback == null) {
+            return List.of();
+        }
+        return List.copyOf(fallback);
+    }
+
+    private List<String> collectRuntimeOptions(List<String> envCandidates, List<String> defaults) {
+        LinkedHashSet<String> collected = new LinkedHashSet<>();
+        if (envCandidates != null) {
+            for (String candidate : envCandidates) {
+                if (candidate == null || candidate.isBlank()) {
+                    continue;
+                }
+                String[] tokens = candidate.split("[,;\\n\\r]+");
+                for (String token : tokens) {
+                    if (token == null) {
+                        continue;
+                    }
+                    String normalized = token.trim();
+                    if (!normalized.isBlank()) {
+                        collected.add(normalized);
+                    }
+                }
+            }
+        }
+        if (defaults != null) {
+            for (String fallback : defaults) {
+                if (fallback != null && !fallback.isBlank()) {
+                    collected.add(fallback.trim());
+                }
+            }
+        }
+        if (collected.isEmpty()) {
+            return List.of();
+        }
+        return List.copyOf(collected);
+    }
+
+    private record RuntimeCatalog(
+            List<RuntimeOptionMetadata> llmProviderOptions,
+            List<RuntimeOptionMetadata> llmModelOptions,
+            List<RuntimeOptionMetadata> denseEmbeddingModelOptions,
+            List<RuntimeOptionMetadata> retrieverModeOptions,
+            List<RuntimeOptionMetadata> rewriteFailurePolicyOptions,
+            Map<String, AdminConsoleDtos.RuntimeParameterRange> defaultParameterRanges
+    ) {
+        List<String> availableLlmModels() {
+            return llmModelOptions.stream()
+                    .filter(this::isSelectable)
+                    .map(RuntimeOptionMetadata::code)
+                    .toList();
+        }
+
+        List<String> availableDenseEmbeddingModels() {
+            return denseEmbeddingModelOptions.stream()
+                    .filter(this::isSelectable)
+                    .map(RuntimeOptionMetadata::code)
+                    .toList();
+        }
+
+        List<String> availableRetrieverModes() {
+            return retrieverModeOptions.stream()
+                    .filter(this::isSelectable)
+                    .map(RuntimeOptionMetadata::code)
+                    .toList();
+        }
+
+        List<String> availableRewriteFailurePolicies() {
+            return rewriteFailurePolicyOptions.stream()
+                    .filter(this::isSelectable)
+                    .map(RuntimeOptionMetadata::code)
+                    .toList();
+        }
+
+        String defaultLlmModel() {
+            return defaultCode(llmModelOptions);
+        }
+
+        String defaultDenseEmbeddingModel() {
+            return defaultCode(denseEmbeddingModelOptions);
+        }
+
+        RuntimeOptionMetadata findLlmProvider(String provider) {
+            return findExact(llmProviderOptions, provider);
+        }
+
+        RuntimeOptionMetadata findLlmModel(String model) {
+            return findExact(llmModelOptions, model);
+        }
+
+        RuntimeOptionMetadata findDenseEmbeddingModel(String model) {
+            return findExact(denseEmbeddingModelOptions, model);
+        }
+
+        RuntimeOptionMetadata findRetrieverMode(String mode) {
+            return findNormalized(retrieverModeOptions, mode);
+        }
+
+        RuntimeOptionMetadata findRewriteFailurePolicy(String policy) {
+            return findNormalized(rewriteFailurePolicyOptions, policy);
+        }
+
+        private String defaultCode(List<RuntimeOptionMetadata> options) {
+            RuntimeOptionMetadata explicit = options.stream()
+                    .filter(option -> option.defaultSelected() && isSelectable(option))
+                    .findFirst()
+                    .orElse(null);
+            if (explicit != null) {
+                return explicit.code();
+            }
+            RuntimeOptionMetadata fallback = options.stream().filter(this::isSelectable).findFirst().orElse(null);
+            return fallback == null ? "" : fallback.code();
+        }
+
+        private RuntimeOptionMetadata findExact(List<RuntimeOptionMetadata> options, String code) {
+            if (code == null || code.isBlank()) {
+                return null;
+            }
+            return options.stream()
+                    .filter(option -> code.equals(option.code()))
+                    .findFirst()
+                    .orElse(null);
+        }
+
+        private RuntimeOptionMetadata findNormalized(List<RuntimeOptionMetadata> options, String code) {
+            if (code == null || code.isBlank()) {
+                return null;
+            }
+            String normalized = code.trim().toLowerCase().replace("-", "_");
+            return options.stream()
+                    .filter(option -> normalized.equals(option.code().toLowerCase().replace("-", "_")))
+                    .findFirst()
+                    .orElse(null);
+        }
+
+        private boolean isSelectable(RuntimeOptionMetadata option) {
+            String availability = option.availability() == null ? "available" : option.availability().toLowerCase();
+            String status = option.status() == null ? "active" : option.status().toLowerCase();
+            if (List.of("unavailable", "disabled", "blocked").contains(availability)) {
+                return false;
+            }
+            return !List.of("disabled", "blocked").contains(status);
+        }
+    }
+
+    private record RuntimeOptionMetadata(
+            String code,
+            String label,
+            String provider,
+            String status,
+            String availability,
+            String reason,
+            boolean defaultSelected
+    ) {
     }
 
     private String resolveRagRunLabel(String requestedRunName, String retrieverMode) {
@@ -1142,6 +1870,33 @@ public class AdminConsoleService {
         return List.copyOf(normalized);
     }
 
+    private List<UUID> normalizeGenerationBatchIds(List<UUID> generationBatchIds, UUID singleGenerationBatchId) {
+        LinkedHashSet<UUID> normalized = new LinkedHashSet<>();
+        if (generationBatchIds != null) {
+            for (UUID batchId : generationBatchIds) {
+                if (batchId != null) {
+                    normalized.add(batchId);
+                }
+            }
+        }
+        if (singleGenerationBatchId != null) {
+            normalized.add(singleGenerationBatchId);
+        }
+        return List.copyOf(normalized);
+    }
+
+    private void applyLlmModelOverrides(Map<String, Object> config, String requestedLlmModel) {
+        String llmModel = blankToNull(requestedLlmModel);
+        if (llmModel == null) {
+            return;
+        }
+        config.put("llm_model", llmModel);
+        config.put("llm_summary_model", llmModel);
+        config.put("llm_query_model", llmModel);
+        config.put("llm_self_eval_model", llmModel);
+        config.put("llm_rewrite_model", llmModel);
+    }
+
     private String defaultCreatedBy(String value) {
         return value == null || value.isBlank() ? "admin-console" : value.trim();
     }
@@ -1311,12 +2066,12 @@ public class AdminConsoleService {
         config.put("enable_anti_copy", true);
         config.put("gating_preset", "full_gating");
         config.put("llm_provider", "gemini");
-        config.put("llm_model", "gemini-2.5-flash-lite");
-        config.put("llm_summary_model", "gemini-2.5-flash-lite");
-        config.put("llm_query_model", "gemini-2.5-flash-lite");
-        config.put("llm_self_eval_model", "gemini-2.5-flash-lite");
-        config.put("llm_rewrite_model", "gemini-2.5-flash-lite");
-        config.put("llm_fallback_models", "gemini-2.5-flash");
+        config.put("llm_model", DEFAULT_LLM_MODEL);
+        config.put("llm_summary_model", DEFAULT_LLM_MODEL);
+        config.put("llm_query_model", DEFAULT_LLM_MODEL);
+        config.put("llm_self_eval_model", DEFAULT_LLM_MODEL);
+        config.put("llm_rewrite_model", DEFAULT_LLM_MODEL);
+        config.put("llm_fallback_models", DEFAULT_LLM_FALLBACK_MODEL);
         config.put("llm_rpm", 1000);
         config.put("llm_tpm", 1_000_000);
         config.put("llm_rpd", 10_000);
@@ -1324,6 +2079,7 @@ public class AdminConsoleService {
         config.put("memory_top_n", 5);
         config.put("rewrite_candidate_count", 3);
         config.put("rewrite_threshold", 0.10);
+        config.put("rewrite_failure_policy", REWRITE_FAILURE_POLICY_FAIL_RUN);
         config.put("retrieval_top_k", DEFAULT_RAG_RETRIEVAL_TOP_K);
         config.put("rerank_top_n", 5);
         config.put("use_session_context", false);

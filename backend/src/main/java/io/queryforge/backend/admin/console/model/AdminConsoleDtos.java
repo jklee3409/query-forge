@@ -169,7 +169,10 @@ public final class AdminConsoleDtos {
     public record GatingBatchRunRequest(
             String gatingPreset,
             UUID generationBatchId,
+            List<UUID> generationBatchIds,
             String methodCode,
+            List<String> methodCodes,
+            String llmModel,
             GatingRunConfig config,
             String createdBy
     ) {
@@ -345,12 +348,48 @@ public final class AdminConsoleDtos {
             Boolean useSessionContext,
             String rewriteRetrievalStrategy,
             Boolean rewriteAnchorInjectionEnabled,
+            String rewriteFailurePolicy,
+            String llmModel,
             Integer topK,
             Double threshold,
             Integer retrievalTopK,
             Integer rerankTopN,
             RetrieverConfigRequest retrieverConfig,
             String createdBy
+    ) {
+    }
+
+    public record RuntimeOptionsResponse(
+            List<String> llmModels,
+            String defaultLlmModel,
+            List<String> denseEmbeddingModels,
+            String defaultDenseEmbeddingModel,
+            List<String> retrieverModes,
+            List<String> rewriteFailurePolicies,
+            List<RuntimeOption> llmProviderOptions,
+            List<RuntimeOption> llmModelOptions,
+            List<RuntimeOption> denseEmbeddingModelOptions,
+            List<RuntimeOption> retrieverModeOptions,
+            List<RuntimeOption> rewriteFailurePolicyOptions,
+            Map<String, RuntimeParameterRange> defaultParameterRanges
+    ) {
+    }
+
+    public record RuntimeOption(
+            String code,
+            String label,
+            String provider,
+            String status,
+            String availability,
+            String reason,
+            Boolean defaultSelected
+    ) {
+    }
+
+    public record RuntimeParameterRange(
+            Double min,
+            Double max,
+            Double defaultValue
     ) {
     }
 

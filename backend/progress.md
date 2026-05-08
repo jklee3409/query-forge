@@ -3,6 +3,24 @@
 ## Overview
 High-level backend progress tracking.
 
+## [2026-05-08] Session Summary (Runtime Options Catalog Allowlist + Backend Selection Validation)
+- What was done: Switched Admin runtime options source to `configs/app/model_catalog.yml` allowlist and extended `/api/admin/console/runtime/options` response with option metadata (`status`, `availability`, `reason`) and `defaultParameterRanges`. Added service-level validation to reject out-of-catalog `llm_model`, `retriever_mode`, `dense_embedding_model`, and `rewrite_failure_policy` selections before run creation.
+- Key decisions: Kept legacy list fields (`llmModels`, `denseEmbeddingModels`, `retrieverModes`, `rewriteFailurePolicies`) for frontend compatibility while adding richer metadata fields.
+- Issues encountered: None.
+- Next steps: Add RAG-run request integration assertions for catalog validation paths in Docker-enabled backend integration environments.
+
+## [2026-05-08] Session Summary (Rewrite Stage Preflight Validation for RAG Runs)
+- What was done: Added preflight validation in `AdminConsoleService.runRagTest` so when `rewrite_enabled=true`, stage `rewrite` requires provider/model/api-key resolution before job enqueue (`llm_rewrite_*`/`llm_*` config + environment fallbacks by provider).
+- Key decisions: Enforced fail-fast validation at backend service layer to avoid delayed runtime-stage failures after run creation.
+- Issues encountered: None.
+- Next steps: Add request-level integration coverage for rewrite-enabled missing API-key rejection path in Docker-enabled backend test environments.
+
+## [2026-05-08] Session Summary (Admin Console Runtime Options + Deterministic Snapshot Enforcement)
+- What was done: Added `GET /api/admin/console/runtime/options` and exposed runtime-selectable model/policy options (`llmModels`, `denseEmbeddingModels`, `retrieverModes`, `rewriteFailurePolicies`). Extended gating run request handling for multi-batch/multi-strategy inputs (`generationBatchIds`, `methodCodes`) and LLM override propagation. Updated RAG run request handling with `llmModel` and `rewriteFailurePolicy` persistence into experiment config and experiment record metadata.
+- Key decisions: Removed auto-latest snapshot fallback and required explicit `source_gating_batch_id` for non-baseline/non-gating-effect RAG paths to preserve snapshot reproducibility.
+- Issues encountered: None after integration; targeted Admin Console integration tests passed.
+- Next steps: End-to-end Admin smoke validation on explicit snapshot workflows and mixed-strategy gating inputs.
+
 ## [2026-05-04] Session Summary (Anchor Re-extraction Scope Precedence Fix)
 - What was done: Updated `AnchorExtractionService.findTargetChunks(...)` so `documentIds` takes precedence over `chunkIds` in `POST /api/admin/corpus/anchors/extract`. Added integration test `anchorReExtractionWithDocumentScopeRemovesDocumentAnchorsFirst` to verify document-wide evidence deletion even when a chunk filter is also present.
 - Key decisions: Preserved existing chunk-only scoped re-extraction (`chunkIds` only) and changed only mixed-scope behavior to prevent stale document anchors after re-extraction.

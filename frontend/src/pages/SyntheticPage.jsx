@@ -4,8 +4,6 @@ import { LlmJobsTable } from '../components/LlmJobsTable.jsx'
 import { queryString, requestJson, toNumber } from '../lib/api.js'
 import { fmtTime, shortId } from '../lib/format.js'
 
-const DEFAULT_LLM_MODEL = 'gemini-2.5-flash-lite'
-
 export function SyntheticPage({ notify }) {
   const pageSize = 20
   const historyPageSize = 3
@@ -19,6 +17,7 @@ export function SyntheticPage({ notify }) {
   const [llmJobs, setLlmJobs] = useState([])
   const [llmJobsLoaded, setLlmJobsLoaded] = useState(false)
   const [llmJobsLoading, setLlmJobsLoading] = useState(false)
+  const [runtimeOptions, setRuntimeOptions] = useState({ llmModels: [], defaultLlmModel: '' })
   const [historyPage, setHistoryPage] = useState(0)
   const [queryPage, setQueryPage] = useState(0)
   const [hasNextPage, setHasNextPage] = useState(false)
@@ -33,6 +32,7 @@ export function SyntheticPage({ notify }) {
     avgQueriesPerChunk: '2.0',
     maxTotalQueries: '1000',
     chunkSamplingMode: 'random',
+    llmModel: '',
     llmRpm: '1000',
   })
 
@@ -48,6 +48,17 @@ export function SyntheticPage({ notify }) {
     const normalized = Array.isArray(rows) ? rows : []
     setMethods(normalized)
     setRunForm((prev) => ({ ...prev, methodCode: prev.methodCode || normalized[0]?.methodCode || '' }))
+  }
+
+  const loadRuntimeOptions = async () => {
+    const payload = await requestJson('/api/admin/console/runtime/options')
+    const llmModels = Array.isArray(payload.llmModels) ? payload.llmModels.filter(Boolean) : []
+    const defaultLlmModel = payload.defaultLlmModel || llmModels[0] || ''
+    setRuntimeOptions({ llmModels, defaultLlmModel })
+    setRunForm((prev) => ({
+      ...prev,
+      llmModel: prev.llmModel || defaultLlmModel,
+    }))
   }
 
   const loadBatches = async () => {
@@ -116,7 +127,7 @@ export function SyntheticPage({ notify }) {
   }
 
   useEffect(() => {
-    Promise.all([loadMethods(), loadBatches(), loadSources()])
+    Promise.all([loadMethods(), loadBatches(), loadSources(), loadRuntimeOptions()])
       .then(() => Promise.all([loadQueries(0), loadStats()]))
       .catch((error) => notify(error.message, 'error'))
   }, [])
@@ -147,6 +158,10 @@ export function SyntheticPage({ notify }) {
 
   const executeRun = async (event) => {
     event.preventDefault()
+    if (!runForm.llmModel) {
+      notify('LLM 모델을 선택하세요.', 'error')
+      return
+    }
     try {
       await requestJson('/api/admin/console/synthetic/batches/run', {
         method: 'POST',
@@ -160,7 +175,7 @@ export function SyntheticPage({ notify }) {
           avgQueriesPerChunk: toNumber(runForm.avgQueriesPerChunk),
           maxTotalQueries: toNumber(runForm.maxTotalQueries),
           randomChunkSampling: runForm.chunkSamplingMode === 'random',
-          llmModel: DEFAULT_LLM_MODEL,
+          llmModel: runForm.llmModel || runtimeOptions.defaultLlmModel || null,
           llmRpm: toNumber(runForm.llmRpm),
         }),
       })
@@ -295,7 +310,14 @@ export function SyntheticPage({ notify }) {
               </button>
             </div>
           </label>
-          <label className="filter-field">LLM 모델<input value={DEFAULT_LLM_MODEL} disabled readOnly /></label>
+          <label className="filter-field">LLM 모델
+            <select value={runForm.llmModel} onChange={(event) => setRunForm((prev) => ({ ...prev, llmModel: event.target.value }))}>
+              <option value="" disabled>LLM 모델 선택</option>
+              {runtimeOptions.llmModels.map((model) => (
+                <option key={model} value={model}>{model}</option>
+              ))}
+            </select>
+          </label>
           <label className="filter-field filter-field--small">LLM RPM<input type="number" min="1" max="1000" value={runForm.llmRpm} onChange={(event) => setRunForm((prev) => ({ ...prev, llmRpm: event.target.value }))} /></label>
           <div className="filter-field filter-field--small"><button type="submit" className="button button--primary">생성 실행</button></div>
         </form>

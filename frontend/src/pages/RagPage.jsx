@@ -4,8 +4,6 @@ import { LlmJobsTable } from '../components/LlmJobsTable.jsx'
 import { requestJson, toNumber } from '../lib/api.js'
 import { fmtTime, shortId } from '../lib/format.js'
 
-const FIXED_DENSE_EMBEDDING_MODEL = 'intfloat/multilingual-e5-small'
-
 const RETRIEVER_MODE_PRESETS = {
   bm25_only: {
     denseEmbeddingRequired: false,
@@ -36,13 +34,20 @@ const RETRIEVER_MODE_PRESETS = {
   },
 }
 
-function retrieverPresetForMode(mode) {
+function retrieverPresetForMode(mode, denseEmbeddingModel = '') {
   const normalizedMode = RETRIEVER_MODE_PRESETS[mode] ? mode : 'bm25_only'
   return {
     retrieverMode: normalizedMode,
-    denseEmbeddingModel: FIXED_DENSE_EMBEDDING_MODEL,
+    denseEmbeddingModel,
     ...RETRIEVER_MODE_PRESETS[normalizedMode],
   }
+}
+
+function retrieverModeLabel(mode) {
+  if (mode === 'bm25_only') return 'BM25 Only'
+  if (mode === 'dense_only') return 'Dense Only'
+  if (mode === 'hybrid') return 'Hybrid'
+  return mode || '-'
 }
 
 const RETRIEVAL_METRIC_DEFS = [
@@ -890,6 +895,14 @@ export function RagPage({ notify }) {
   const [llmJobs, setLlmJobs] = useState([])
   const [llmJobsLoaded, setLlmJobsLoaded] = useState(false)
   const [llmJobsLoading, setLlmJobsLoading] = useState(false)
+  const [runtimeOptions, setRuntimeOptions] = useState({
+    llmModels: [],
+    defaultLlmModel: '',
+    denseEmbeddingModels: [],
+    defaultDenseEmbeddingModel: '',
+    retrieverModes: [],
+    rewriteFailurePolicies: [],
+  })
   const [historyPage, setHistoryPage] = useState(0)
   const [modal, setModal] = useState(null)
   const [selectedMethods, setSelectedMethods] = useState([])
@@ -908,10 +921,11 @@ export function RagPage({ notify }) {
     officialGatingUngatedBatchId: '',
     officialGatingRuleOnlyBatchId: '',
     officialGatingFullGatingBatchId: '',
+    llmModel: '',
     threshold: '0.14',
     retrievalTopK: '10',
     rerankTopN: '5',
-    ...retrieverPresetForMode('bm25_only'),
+    ...retrieverPresetForMode('bm25_only', ''),
     syntheticFreeBaseline: false,
     gatingApplied: true,
     stageCutoffEnabled: false,
@@ -921,6 +935,7 @@ export function RagPage({ notify }) {
     useSessionContext: false,
     rewriteRetrievalStrategy: 'replace',
     rewriteAnchorInjectionEnabled: true,
+    rewriteFailurePolicy: 'fail_run',
   })
 
   const loadMethods = async () => {
@@ -930,6 +945,45 @@ export function RagPage({ notify }) {
     if (normalized.length > 0 && selectedMethods.length === 0) {
       setSelectedMethods([normalized[0].methodCode])
     }
+  }
+
+  const loadRuntimeOptions = async () => {
+    const payload = await requestJson('/api/admin/console/runtime/options')
+    const llmModels = Array.isArray(payload.llmModels) ? payload.llmModels.filter(Boolean) : []
+    const denseEmbeddingModels = Array.isArray(payload.denseEmbeddingModels)
+      ? payload.denseEmbeddingModels.filter(Boolean)
+      : []
+    const retrieverModes = Array.isArray(payload.retrieverModes)
+      ? payload.retrieverModes.filter(Boolean)
+      : []
+    const rewriteFailurePolicies = Array.isArray(payload.rewriteFailurePolicies)
+      ? payload.rewriteFailurePolicies.filter(Boolean)
+      : []
+    const defaultLlmModel = payload.defaultLlmModel || llmModels[0] || ''
+    const defaultDenseEmbeddingModel = payload.defaultDenseEmbeddingModel || denseEmbeddingModels[0] || ''
+    const resolvedRetrieverMode = retrieverModes.includes(form.retrieverMode)
+      ? form.retrieverMode
+      : (retrieverModes[0] || form.retrieverMode || '')
+    setRuntimeOptions({
+      llmModels,
+      defaultLlmModel,
+      denseEmbeddingModels,
+      defaultDenseEmbeddingModel,
+      retrieverModes,
+      rewriteFailurePolicies,
+    })
+    setForm((prev) => ({
+      ...prev,
+      llmModel: prev.llmModel || defaultLlmModel,
+      denseEmbeddingModel: prev.denseEmbeddingModel || defaultDenseEmbeddingModel,
+      ...retrieverPresetForMode(
+        retrieverModes.includes(prev.retrieverMode) ? prev.retrieverMode : resolvedRetrieverMode,
+        prev.denseEmbeddingModel || defaultDenseEmbeddingModel,
+      ),
+      rewriteFailurePolicy: rewriteFailurePolicies.includes(prev.rewriteFailurePolicy)
+        ? prev.rewriteFailurePolicy
+        : (rewriteFailurePolicies[0] || ''),
+    }))
   }
 
   const loadDatasets = async () => {
@@ -973,7 +1027,8 @@ export function RagPage({ notify }) {
   }
 
   useEffect(() => {
-    Promise.all([loadMethods(), loadDatasets(), loadTests(), loadGatingBatches()]).catch((error) => notify(error.message, 'error'))
+    Promise.all([loadMethods(), loadDatasets(), loadTests(), loadGatingBatches(), loadRuntimeOptions()])
+      .catch((error) => notify(error.message, 'error'))
   }, [])
 
   useEffect(() => {
@@ -1155,7 +1210,17 @@ export function RagPage({ notify }) {
       notify('최소 1개 생성 방식을 선택해야 합니다.', 'error')
       return
     }
+    if (!form.llmModel) {
+      notify('LLM 모델을 선택하세요.', 'error')
+      return
+    }
+    if (!form.denseEmbeddingModel) {
+      notify('Dense embedding 모델을 선택하세요.', 'error')
+      return
+    }
     const officialRun = !syntheticFreeBaseline && form.runDiscipline === 'official'
+    const requiresExplicitSourceSnapshot = !syntheticFreeBaseline
+      && !(officialRun && form.officialComparisonType === 'gating_effect')
     const stageCutoffEnabled = !syntheticFreeBaseline && Boolean(form.stageCutoffEnabled)
     const stageCutoffLevel = stageCutoffEnabled ? (form.stageCutoffLevel || 'full_gating') : null
     if (syntheticFreeBaseline && form.runDiscipline === 'official') {
@@ -1170,6 +1235,10 @@ export function RagPage({ notify }) {
     }
     if (stageCutoffEnabled && !form.gatingApplied) {
       notify('stage-cutoff 사용 시 gating 적용이 필요합니다.', 'error')
+      return
+    }
+    if (requiresExplicitSourceSnapshot && !form.sourceGatingBatchId) {
+      notify('Source snapshot selection is required for this RAG run.', 'error')
       return
     }
     if (stageCutoffEnabled && !form.sourceGatingBatchId) {
@@ -1206,7 +1275,7 @@ export function RagPage({ notify }) {
         }
       }
     }
-    if (!syntheticFreeBaseline && form.sourceGatingBatchId) {
+    if (requiresExplicitSourceSnapshot) {
       const snapshot = selectedSnapshot
       if (!snapshot) {
         notify('선택한 스냅샷을 찾을 수 없습니다. 목록을 새로고침하세요.', 'error')
@@ -1263,6 +1332,8 @@ export function RagPage({ notify }) {
           useSessionContext,
           rewriteRetrievalStrategy: form.rewriteRetrievalStrategy,
           rewriteAnchorInjectionEnabled,
+          rewriteFailurePolicy: form.rewriteFailurePolicy || 'fail_run',
+          llmModel: form.llmModel || runtimeOptions.defaultLlmModel || null,
           threshold: toNumber(form.threshold),
           retrievalTopK: toNumber(form.retrievalTopK),
           rerankTopN: toNumber(form.rerankTopN),
@@ -1726,9 +1797,7 @@ export function RagPage({ notify }) {
                     ? 'Not used for synthetic-free baseline'
                     : form.runDiscipline === 'official'
                     ? (form.officialComparisonType === 'gating_effect' ? 'Not used for official gating-effect' : 'Select snapshot (required)')
-                    : form.stageCutoffEnabled
-                    ? 'Select full_gating snapshot (required)'
-                    : 'Auto (latest matching)'}
+                    : 'Select snapshot (required)'}
                 </option>
                 {sourceSnapshotOptions.map((batch) => {
                   return (
@@ -1802,6 +1871,13 @@ export function RagPage({ notify }) {
               </select>
               <span className="field-hint">full_gating 배치 기준 stage cutoff 레벨입니다.</span>
             </label>
+            <label className="filter-field">LLM Model
+              <select value={form.llmModel} onChange={(event) => setForm((prev) => ({ ...prev, llmModel: event.target.value }))}>
+                <option value="" disabled>LLM 모델 선택</option>
+                {runtimeOptions.llmModels.map((model) => <option key={model} value={model}>{model}</option>)}
+              </select>
+              <span className="field-hint">generation/self-eval/rewrite 단계 공통 모델</span>
+            </label>
             <label className="filter-field filter-field--small">Rewrite Threshold
               <input
                 type="number"
@@ -1826,20 +1902,28 @@ export function RagPage({ notify }) {
 
           <div className="form-grid form-grid--3">
             <label className="filter-field filter-field--small">Retriever Mode
-              <select value={form.retrieverMode} onChange={(event) => setForm((prev) => ({ ...prev, ...retrieverPresetForMode(event.target.value) }))}>
-                <option value="bm25_only">BM25 Only</option>
-                <option value="dense_only">Dense Only</option>
-                <option value="hybrid">Hybrid</option>
+              <select value={form.retrieverMode} onChange={(event) => setForm((prev) => ({
+                ...prev,
+                ...retrieverPresetForMode(
+                  event.target.value,
+                  prev.denseEmbeddingModel || runtimeOptions.defaultDenseEmbeddingModel,
+                ),
+              }))}>
+                {(runtimeOptions.retrieverModes.length > 0 ? runtimeOptions.retrieverModes : [form.retrieverMode]).filter(Boolean).map((mode) => (
+                  <option key={mode} value={mode}>{retrieverModeLabel(mode)}</option>
+                ))}
               </select>
               <span className="field-hint">BM25/Dense/Hybrid ranking mode</span>
             </label>
             <label className="filter-field">Dense Model
-              <input
+              <select
                 value={form.denseEmbeddingModel}
-                disabled
-                readOnly
-              />
-              <span className="field-hint">intfloat/multilingual-e5-small</span>
+                disabled={form.retrieverMode === 'bm25_only'}
+                onChange={(event) => setForm((prev) => ({ ...prev, denseEmbeddingModel: event.target.value }))}
+              >
+                {runtimeOptions.denseEmbeddingModels.map((model) => <option key={model} value={model}>{model}</option>)}
+              </select>
+              <span className="field-hint">retriever가 dense를 쓸 때 사용할 임베딩 모델</span>
             </label>
             <label className="filter-field filter-field--small">Candidate Pool
               <input type="number" min="1" value={form.retrieverCandidatePoolK} disabled readOnly />
@@ -1887,6 +1971,20 @@ export function RagPage({ notify }) {
                 <span className="rewrite-strategy-field__chip">
                   {REWRITE_RETRIEVAL_OPTION_META[form.rewriteRetrievalStrategy]?.description || '전략 선택'}
                 </span>
+              </div>
+            </label>
+            <label className="rewrite-strategy-field">
+              <span className="rewrite-strategy-field__label">Rewrite Failure Policy</span>
+              <div className="rewrite-strategy-field__control">
+                <select
+                  value={form.rewriteFailurePolicy}
+                  disabled={form.syntheticFreeBaseline || !form.rewriteEnabled}
+                  onChange={(event) => setForm((prev) => ({ ...prev, rewriteFailurePolicy: event.target.value }))}
+                >
+                  {runtimeOptions.rewriteFailurePolicies.map((policy) => (
+                    <option key={policy} value={policy}>{policy}</option>
+                  ))}
+                </select>
               </div>
             </label>
           </div>

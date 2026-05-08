@@ -71,6 +71,11 @@ public class AdminConsoleController {
         return service.getDashboardStats();
     }
 
+    @GetMapping("/runtime/options")
+    public AdminConsoleDtos.RuntimeOptionsResponse runtimeOptions() {
+        return service.getRuntimeOptions();
+    }
+
     @GetMapping("/gating/batches")
     public List<AdminConsoleDtos.GatingBatchRow> gatingBatches(
             @RequestParam(name = "limit", required = false) Integer limit

@@ -3,6 +3,18 @@
 ## Overview
 High-level progress tracking for the project.
 
+## [2026-05-08] Session Summary (Runtime Options Catalog Consumption for Retriever/Rewrite Dropdowns)
+- What was done: Updated `/admin/quality-gating` and `/admin/rag-tests` so retriever mode and rewrite failure policy dropdown values come from `/api/admin/console/runtime/options` payload only, and removed hardcoded fallback option arrays in runtime state initialization.
+- Key decisions: Kept existing retriever preset behavior (`weights/candidate pool`) while changing only option-source wiring to server-driven lists.
+- Issues encountered: None.
+- Next steps: UI-smoke with catalog-updated mode/policy lists to confirm dropdown rendering and submit validation behavior.
+
+## [2026-05-08] Session Summary (GatingPage Interrupted-State Recovery + Runtime Options Wiring Completion)
+- What was done: Finalized runtime options integration for Admin forms and fixed interrupted `GatingPage.jsx` merge state. `loadLlmJobs` was normalized to a single fetch/filter path, gating run submit now derives `selectedMethodCodes` from selected generation batches, validates `llmModel`/dense model inputs in submit flow, and sends multi-batch payload (`generationBatchIds`, `methodCodes`, `llmModel`) consistently.
+- Key decisions: Kept LLM job list loading read-only and moved model validation to run-submission path to avoid unrelated section load failures.
+- Issues encountered: Mid-patch duplication had introduced redeclared `selectedMethodCodes` and undefined variable reference in submit payload.
+- Next steps: Operator smoke on `/admin/quality-gating` multi-batch selection + `/admin/rag-tests` explicit snapshot selection path.
+
 ## [2026-05-05] Session Summary (Admin Sections Lazy/On-Demand Loading)
 - What was done: Refactored admin pages to reduce eager data loading on initial mount. `PipelinePage.jsx` now lazy-loads Anchors and Anchor Eval run history; Anchor filter document options are fetched when the document dropdown is opened (`SelectDropdown` `onOpen`). `SyntheticPage.jsx`, `GatingPage.jsx`, and `RagPage.jsx` now defer LLM job fetches until the user explicitly loads that section.
 - Key decisions: Kept API compatibility and existing behavior patterns by reusing current endpoints and query params; introduced only UI-layer `loaded/loading` states and section-scoped refresh logic.
