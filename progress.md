@@ -3,6 +3,12 @@
 ## Overview
 High-level progress tracking for the project.
 
+## [2026-05-08] Session Summary (Admin RAG Validation Regression Test Additions + Docker Runtime Verification Attempt)
+- What was done: Added backend integration regression tests for Admin RAG run validation paths (`llmModel` allowlist reject, dense retriever model allowlist reject, and rewrite preflight API-key required when `rewrite_enabled=true`) in `backend/src/test/java/io/queryforge/backend/admin/console/AdminConsoleRagIntegrationTest.java`.
+- Key decisions: Kept changes minimal by extending existing integration test class and using targeted fixture inserts only for required request-path validation.
+- Issues encountered: Despite Docker CLI reachability, Testcontainers failed Docker environment detection with `BadRequestException (Status 400)` against Docker Desktop pipe/proxy endpoints, so Admin Console integration tests were still skipped by `disabledWithoutDocker=true`.
+- Next steps: Fix Docker/Testcontainers compatibility in this runtime and rerun Admin Console integration suites to complete true Docker-backed execution verification.
+
 ## [2026-05-08] Session Summary (AGENTS Governance Update: Model Catalog + Source Identity)
 - What was done: Added `.codex/AGENTS.md` Section `3.8` to codify mandatory governance for Admin runtime option allowlists (`configs/app/model_catalog.yml`) and strict source identity requirements (`source_gating_batch_id` / explicit generation source identity; no auto-latest fallback for required cases).
 - Key decisions: Elevated these behaviors from implementation detail to explicit agent policy to prevent future regressions in reproducibility and validation strictness.

@@ -3,6 +3,12 @@
 ## Overview
 High-level backend progress tracking.
 
+## [2026-05-08] Session Summary (RAG Run Validation Regression Tests + Docker/Testcontainers Execution Probe)
+- What was done: Added Admin Console RAG integration regression cases in `src/test/java/io/queryforge/backend/admin/console/AdminConsoleRagIntegrationTest.java` for (1) catalog allowlist rejection on `llmModel`, (2) catalog allowlist rejection on dense retriever model in RAG request, and (3) `rewrite_enabled=true` rewrite-stage API key preflight rejection.
+- Key decisions: Reused existing Testcontainers-based `AdminConsoleRagIntegrationTest` class and added only minimal DB fixture helpers (`eval_dataset`, `quality_gating_batch` + `source_gating_run_id`) to hit validation paths without unrelated refactors.
+- Issues encountered: Docker daemon itself was reachable (`docker version` OK), but Testcontainers provider detection failed with `BadRequestException (Status 400)` and empty Docker server fields (label points to `docker_cli` proxy), so Docker-gated integration tests remained skipped (`@Testcontainers(disabledWithoutDocker = true)`).
+- Next steps: Resolve local Docker/Testcontainers transport compatibility (or pin supported versions), then rerun `AdminConsoleGatingIntegrationTest` and `AdminConsoleRagIntegrationTest` to confirm newly added assertions execute (not skipped).
+
 ## [2026-05-08] Session Summary (Runtime Options Catalog Allowlist + Backend Selection Validation)
 - What was done: Switched Admin runtime options source to `configs/app/model_catalog.yml` allowlist and extended `/api/admin/console/runtime/options` response with option metadata (`status`, `availability`, `reason`) and `defaultParameterRanges`. Added service-level validation to reject out-of-catalog `llm_model`, `retriever_mode`, `dense_embedding_model`, and `rewrite_failure_policy` selections before run creation.
 - Key decisions: Kept legacy list fields (`llmModels`, `denseEmbeddingModels`, `retrieverModes`, `rewriteFailurePolicies`) for frontend compatibility while adding richer metadata fields.
