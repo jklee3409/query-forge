@@ -3,6 +3,12 @@
 ## Overview
 High-level progress tracking for the project.
 
+## [2026-05-09] Session Summary (Admin RAG Detail Modal UX + Runtime Options 500 Fix)
+- What was done: Improved `/admin/rag-tests` run-detail modal so the default view emphasizes only `원본 질의` and `최종 재작성 합성 질의` per sample, while metrics/candidates/chunk details are shown through expandable disclosure sections. Fixed `GET /api/admin/console/runtime/options` 500 by removing null-unsafe `List.of(readEnv(...))` usage in backend runtime option collection.
+- Key decisions: Kept existing run-detail APIs unchanged and implemented UI-only progressive disclosure for non-core debug payloads; backend fix was limited to null-tolerant runtime option candidate list handling to preserve current catalog behavior.
+- Issues encountered: Runtime options endpoint failure was reproduced with backend logs and traced to `NullPointerException` in `AdminConsoleService.getRuntimeOptions` when environment values were missing.
+- Next steps: Restart the long-running backend instance on `localhost:8080` so the runtime-options fix is applied to the active process.
+
 ## [2026-05-08] Session Summary (Admin RAG Validation Regression Test Additions + Docker Runtime Verification Attempt)
 - What was done: Added backend integration regression tests for Admin RAG run validation paths (`llmModel` allowlist reject, dense retriever model allowlist reject, and rewrite preflight API-key required when `rewrite_enabled=true`) in `backend/src/test/java/io/queryforge/backend/admin/console/AdminConsoleRagIntegrationTest.java`.
 - Key decisions: Kept changes minimal by extending existing integration test class and using targeted fixture inserts only for required request-path validation.

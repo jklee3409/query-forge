@@ -34,6 +34,7 @@
 ---
 
 ## Recent Update
+- `/admin/rag-tests` 실행 상세 모달은 샘플별 `원본 질의`와 `최종 재작성 합성 질의`를 기본 화면에 우선 노출하고, 나머지 지표/후보/청크 로그는 드롭다운(Disclosure)으로 접어서 확인하는 구조로 재구성되었다.
 - Admin pages now use section-scoped lazy loading for secondary data areas: `/admin/pipeline` Anchors + Anchor Eval history, `/admin/synthetic-queries` LLM jobs, `/admin/quality-gating` LLM jobs, and `/admin/rag-tests` rewrite logs + LLM jobs are fetched on demand instead of at initial mount.
 - `/admin/pipeline` now includes a paginated `Anchors` section with document/chunk/keyword filtering, and document/chunk filters use a custom searchable dropdown UI (`SelectDropdown`) instead of native select boxes.
 - `/admin/rag-tests` now has a `Test Name` input wired to backend `runName`, defaults `Retrieval Top-K` to `10`, and shows configured/legacy-stable names in run history and comparison UI instead of relying on generic Run A/Run B labels.

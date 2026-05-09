@@ -3,6 +3,12 @@
 ## Overview
 High-level backend progress tracking.
 
+## [2026-05-09] Session Summary (Runtime Options 500 NPE Fix)
+- What was done: Fixed `GET /api/admin/console/runtime/options` server error by replacing null-unsafe environment candidate construction (`List.of(readEnv(...))`) with a null-tolerant candidate list helper in `AdminConsoleService`.
+- Key decisions: Scoped the change to runtime-option candidate collection paths only (`getRuntimeOptions` + fallback catalog builder), preserving catalog parsing, allowlist validation, and response schema.
+- Issues encountered: Endpoint failure reproduced as `NullPointerException` at `AdminConsoleService.getRuntimeOptions` when one or more environment variables were unset.
+- Next steps: Restart any currently running backend process to load the patched service class.
+
 ## [2026-05-08] Session Summary (RAG Run Validation Regression Tests + Docker/Testcontainers Execution Probe)
 - What was done: Added Admin Console RAG integration regression cases in `src/test/java/io/queryforge/backend/admin/console/AdminConsoleRagIntegrationTest.java` for (1) catalog allowlist rejection on `llmModel`, (2) catalog allowlist rejection on dense retriever model in RAG request, and (3) `rewrite_enabled=true` rewrite-stage API key preflight rejection.
 - Key decisions: Reused existing Testcontainers-based `AdminConsoleRagIntegrationTest` class and added only minimal DB fixture helpers (`eval_dataset`, `quality_gating_batch` + `source_gating_run_id`) to hit validation paths without unrelated refactors.

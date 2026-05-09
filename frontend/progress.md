@@ -3,6 +3,12 @@
 ## Overview
 High-level progress tracking for the project.
 
+## [2026-05-09] Session Summary (RAG Run Detail Modal Query-Focused UX)
+- What was done: Reworked `/admin/rag-tests` run-detail modal so each sample prominently shows only `원본 질의` and `최종 재작성 합성 질의` by default. Moved metric contribution, recommended synthetic candidates, rewrite candidate logs, and retrieved chunk payloads behind disclosure dropdowns. Added dedicated modal styling for scan-first query comparison readability.
+- Key decisions: Kept existing backend detail API contract and transformed only frontend rendering/styling, using progressive disclosure to reduce JSON noise in the primary workflow.
+- Issues encountered: None after implementation; frontend production build completed successfully.
+- Next steps: Operator smoke on real run histories to calibrate disclosure label wording/order based on review workflow preference.
+
 ## [2026-05-08] Session Summary (Runtime Options Catalog Consumption for Retriever/Rewrite Dropdowns)
 - What was done: Updated `/admin/quality-gating` and `/admin/rag-tests` so retriever mode and rewrite failure policy dropdown values come from `/api/admin/console/runtime/options` payload only, and removed hardcoded fallback option arrays in runtime state initialization.
 - Key decisions: Kept existing retriever preset behavior (`weights/candidate pool`) while changing only option-source wiring to server-driven lists.
