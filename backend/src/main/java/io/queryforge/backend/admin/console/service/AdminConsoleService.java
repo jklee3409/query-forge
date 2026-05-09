@@ -19,6 +19,7 @@ import java.time.Instant;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -122,7 +123,7 @@ public class AdminConsoleService {
         List<String> llmModels = fallbackIfEmpty(
                 catalog.availableLlmModels(),
                 collectRuntimeOptions(
-                        List.of(
+                        nullableStringCandidates(
                                 readEnv("QUERY_FORGE_ADMIN_LLM_MODELS"),
                                 readEnv("QUERY_FORGE_LLM_MODEL"),
                                 readEnv("QUERY_FORGE_LLM_SUMMARY_MODEL"),
@@ -144,7 +145,7 @@ public class AdminConsoleService {
         List<String> denseEmbeddingModels = fallbackIfEmpty(
                 catalog.availableDenseEmbeddingModels(),
                 collectRuntimeOptions(
-                        List.of(
+                        nullableStringCandidates(
                                 readEnv("QUERY_FORGE_ADMIN_DENSE_EMBEDDING_MODELS"),
                                 readEnv("QUERY_FORGE_LOCAL_EMBEDDING_MODEL"),
                                 readEnv("QUERY_FORGE_ANCHOR_EMBEDDING_MODEL")
@@ -1195,7 +1196,7 @@ public class AdminConsoleService {
 
     private RuntimeCatalog buildFallbackRuntimeCatalog() {
         List<RuntimeOptionMetadata> llmModels = collectRuntimeOptions(
-                List.of(
+                nullableStringCandidates(
                         readEnv("QUERY_FORGE_ADMIN_LLM_MODELS"),
                         readEnv("QUERY_FORGE_LLM_MODEL"),
                         readEnv("QUERY_FORGE_LLM_SUMMARY_MODEL"),
@@ -1215,7 +1216,7 @@ public class AdminConsoleService {
                 DEFAULT_LLM_MODEL.equals(model)
         )).toList();
         List<RuntimeOptionMetadata> denseModels = collectRuntimeOptions(
-                List.of(
+                nullableStringCandidates(
                         readEnv("QUERY_FORGE_ADMIN_DENSE_EMBEDDING_MODELS"),
                         readEnv("QUERY_FORGE_LOCAL_EMBEDDING_MODEL"),
                         readEnv("QUERY_FORGE_ANCHOR_EMBEDDING_MODEL")
@@ -1486,6 +1487,13 @@ public class AdminConsoleService {
             return List.of();
         }
         return List.copyOf(collected);
+    }
+
+    private List<String> nullableStringCandidates(String... values) {
+        if (values == null || values.length == 0) {
+            return List.of();
+        }
+        return Arrays.asList(values);
     }
 
     private record RuntimeCatalog(
