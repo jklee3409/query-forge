@@ -3,6 +3,12 @@
 ## Overview
 High-level progress tracking for the project.
 
+## [2026-05-09] Session Summary (Selective Rewrite Prompt v2 Intent-Locked Expansion Policy)
+- What was done: Revised `prompts/rewrite/selective_rewrite_v2.md` so rewrite generation is treated as intent-preserving query expansion with explicit topic-substitution prohibition.
+- Key decisions: Preserved existing runtime payload schema and business logic (top memory candidates, anchor injection, selective adoption) and strengthened only prompt guardrails.
+- Issues encountered: None.
+- Next steps: Validate prompt-only effect on bad rewrite cases under fixed snapshot/dataset and compare adoption/quality metrics.
+
 ## [2026-05-08] Session Summary (Model Catalog Allowlist Added for Admin Runtime Options)
 - What was done: Added `configs/app/model_catalog.yml` to define allowlisted runtime options for Admin (`llm_providers`, `llm_models`, `dense_embedding_models`, `retriever_modes`, `rewrite_failure_policies`) and default parameter ranges (`retrieval_top_k`, `rerank_top_n`, `rewrite_threshold`, `retriever_candidate_pool_k`).
 - Key decisions: Kept catalog schema flat/simple YAML so backend can reject non-allowlisted runtime selections deterministically while returning metadata (`status/availability/reason`) through `/api/admin/console/runtime/options`.

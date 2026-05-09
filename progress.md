@@ -3,6 +3,12 @@
 ## Overview
 High-level progress tracking for the project.
 
+## [2026-05-09] Session Summary (Selective Rewrite Prompt: Intent-Preserving Query Expansion Guard)
+- What was done: Updated `configs/prompts/rewrite/selective_rewrite_v2.md` to redefine rewrite generation as intent-preserving query expansion and tightened topic-shift prohibition rules.
+- Key decisions: Kept existing rewrite pipeline/business logic unchanged (memory candidate usage, anchor injection, selective adoption scoring) and applied only prompt-level guardrail strengthening.
+- Issues encountered: None.
+- Next steps: Run same-dataset/same-snapshot comparison to verify reduced topic substitution in short Korean technical queries.
+
 ## [2026-05-09] Session Summary (Admin RAG Detail Modal UX + Runtime Options 500 Fix)
 - What was done: Improved `/admin/rag-tests` run-detail modal so the default view emphasizes only `원본 질의` and `최종 재작성 합성 질의` per sample, while metrics/candidates/chunk details are shown through expandable disclosure sections. Fixed `GET /api/admin/console/runtime/options` 500 by removing null-unsafe `List.of(readEnv(...))` usage in backend runtime option collection.
 - Key decisions: Kept existing run-detail APIs unchanged and implemented UI-only progressive disclosure for non-core debug payloads; backend fix was limited to null-tolerant runtime option candidate list handling to preserve current catalog behavior.

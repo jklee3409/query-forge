@@ -36,6 +36,7 @@
 
 ## Recent Notes
 - selective rewrite v2 prompt now consumes `terminology_hints` and enforces verbatim preservation for intent-compatible technical tokens.
+- selective rewrite v2 prompt is now explicitly intent-locked query expansion, prohibiting memory-driven topic substitution from raw query targets.
 
 ## Notes
 - Update this file when structure or responsibilities change
