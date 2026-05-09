@@ -381,11 +381,101 @@ function renderRunDetailModeComparison(retrievalByModeRows) {
   )
 }
 
-function formatMetricWithDef(value, def) {
+function normalizeQueryText(value) {
   if (value == null) return '-'
-  const precision = Number.isFinite(def?.precision) ? def.precision : 3
-  const text = Number(value).toFixed(precision)
-  return def?.unit ? `${text} ${def.unit}` : text
+  const normalized = String(value).trim()
+  return normalized || '-'
+}
+
+function hasDetailPayload(value) {
+  if (value == null) return false
+  if (Array.isArray(value)) return value.length > 0
+  if (typeof value === 'object') return Object.keys(value).length > 0
+  return String(value).trim().length > 0
+}
+
+function toPrettyJsonText(value) {
+  if (value == null) return '-'
+  if (typeof value === 'string') {
+    const normalized = value.trim()
+    if (!normalized) return '-'
+    try {
+      return JSON.stringify(JSON.parse(normalized), null, 2)
+    } catch {
+      return normalized
+    }
+  }
+  try {
+    return JSON.stringify(value, null, 2)
+  } catch {
+    return String(value)
+  }
+}
+
+function renderRagDetailJsonDisclosure(label, value) {
+  const isEmpty = !hasDetailPayload(value)
+  return (
+    <details className="rag-detail-disclosure">
+      <summary>{label}</summary>
+      <div className="rag-detail-disclosure__content">
+        {isEmpty
+          ? <div className="rag-detail-disclosure__empty">데이터 없음</div>
+          : <pre className="rag-detail-json">{toPrettyJsonText(value)}</pre>}
+      </div>
+    </details>
+  )
+}
+
+function renderRagQueryDetailRows(details) {
+  const rows = Array.isArray(details) ? details : []
+  if (!rows.length) {
+    return <div className="rag-query-detail-empty">표시할 질의 상세 데이터가 없습니다.</div>
+  }
+  return (
+    <section className="rag-query-detail-list">
+      {rows.map((row, index) => {
+        const rawQuery = normalizeQueryText(row?.rawQuery)
+        const rewriteQuery = normalizeQueryText(row?.rewriteQuery)
+        const finalRewriteQuery = rewriteQuery === '-' ? rawQuery : rewriteQuery
+        const rowKey = row?.detailId || row?.sampleId || `detail-${index}`
+        return (
+          <article className="rag-query-detail-card" key={rowKey}>
+            <header className="rag-query-detail-card__header">
+              <div className="rag-query-detail-card__id">
+                <strong>{row?.sampleId || `sample-${index + 1}`}</strong>
+                <span>{row?.queryCategory || '-'}</span>
+              </div>
+              <div className="rag-query-detail-card__badges">
+                <StatusBadge value={row?.rewriteApplied ? 'success' : 'warning'} label={row?.rewriteApplied ? 'rewrite applied' : 'rewrite skipped'} />
+                <StatusBadge value={row?.hitTarget ? 'success' : 'failed'} label={row?.hitTarget ? 'hit target' : 'miss target'} />
+              </div>
+            </header>
+
+            <div className="rag-query-focus-grid">
+              <section className="rag-query-focus rag-query-focus--raw">
+                <div className="rag-query-focus__label">원본 질의</div>
+                <p className="rag-query-focus__text">{rawQuery}</p>
+              </section>
+              <section className="rag-query-focus rag-query-focus--rewrite">
+                <div className="rag-query-focus__label">최종 재작성 합성 질의</div>
+                <p className="rag-query-focus__text">{finalRewriteQuery}</p>
+              </section>
+            </div>
+
+            <details className="rag-detail-disclosure rag-detail-disclosure--group">
+              <summary>세부 데이터 보기</summary>
+              <div className="rag-detail-disclosure__content rag-detail-disclosure__content--group">
+                {renderRagDetailJsonDisclosure('지표 기여', row?.metricContribution)}
+                {renderRagDetailJsonDisclosure('추천 합성 질의 후보', row?.memoryCandidates)}
+                {renderRagDetailJsonDisclosure('재작성 후보 로그', row?.rewriteCandidates)}
+                {renderRagDetailJsonDisclosure('검색 청크 결과', row?.retrievedChunks)}
+              </div>
+            </details>
+          </article>
+        )
+      })}
+    </section>
+  )
 }
 
 function formatDelta(value, def) {
@@ -1445,23 +1535,21 @@ export function RagPage({ notify }) {
       setModal({
         title: `RAG 실행 상세 · ${shortId(runId)}`,
         body: (
-          <div className="detail-grid detail-grid--single">
-            {renderRunDetailModeSummary(retrievalByModeRows)}
-            {renderRunDetailModeComparison(retrievalByModeRows)}
-            <DetailCard
-              label="run_profile"
-              value={JSON.stringify(
-                {
+          <div className="detail-grid detail-grid--single rag-run-detail-modal">
+            {renderRagQueryDetailRows(details)}
+            <details className="rag-detail-disclosure rag-detail-disclosure--group">
+              <summary>실행 요약 지표 보기</summary>
+              <div className="rag-detail-disclosure__content rag-detail-disclosure__content--group">
+                {renderRunDetailModeSummary(retrievalByModeRows)}
+                {renderRunDetailModeComparison(retrievalByModeRows)}
+                {renderRagDetailJsonDisclosure('실행 프로필', {
                   rewrite_mode: rewriteMode.label,
                   rewrite_anchor_injection_enabled: anchorEnabled,
-                },
-                null,
-                2,
-              )}
-            />
-            <DetailCard label="performance" value={JSON.stringify(performance, null, 2)} />
-            <DetailCard label="retrieval_by_mode" value={JSON.stringify(retrievalByModeRows, null, 2)} />
-            <DetailCard label="detail_rows" value={JSON.stringify(details, null, 2)} />
+                })}
+                {renderRagDetailJsonDisclosure('성능 지표', performance)}
+                {renderRagDetailJsonDisclosure('모드별 검색 지표', retrievalByModeRows)}
+              </div>
+            </details>
           </div>
         ),
       })

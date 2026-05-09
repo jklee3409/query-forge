@@ -1214,6 +1214,151 @@ table.data-table {
   font-family: var(--font-mono);
 }
 
+.rag-run-detail-modal {
+  gap: 14px;
+}
+
+.rag-query-detail-list {
+  display: grid;
+  gap: 14px;
+}
+
+.rag-query-detail-card {
+  min-width: 0;
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: var(--shadow-soft);
+}
+
+.rag-query-detail-card__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.rag-query-detail-card__id {
+  display: grid;
+  gap: 4px;
+}
+
+.rag-query-detail-card__id strong {
+  font-size: 14px;
+  color: #1d2d45;
+}
+
+.rag-query-detail-card__id span {
+  font-size: 12px;
+  color: var(--text-soft);
+}
+
+.rag-query-detail-card__badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.rag-query-focus-grid {
+  display: grid;
+  gap: 10px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.rag-query-focus {
+  min-width: 0;
+  border-radius: 8px;
+  border: 1px solid #d6e0ef;
+  background: #f8fbff;
+  padding: 12px;
+}
+
+.rag-query-focus--raw {
+  border-color: #d8e3f2;
+  background: #f7faff;
+}
+
+.rag-query-focus--rewrite {
+  border-color: #dcebd9;
+  background: #f4fbf3;
+}
+
+.rag-query-focus__label {
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  color: #4d5f78;
+  text-transform: uppercase;
+}
+
+.rag-query-focus__text {
+  margin: 8px 0 0;
+  font-size: 14px;
+  line-height: 1.45;
+  color: #16243b;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.rag-detail-disclosure {
+  border: 1px solid #dce5f2;
+  border-radius: 8px;
+  background: #fbfdff;
+}
+
+.rag-detail-disclosure summary {
+  cursor: pointer;
+  padding: 10px 12px;
+  font-size: 13px;
+  font-weight: 700;
+  color: #29486f;
+}
+
+.rag-detail-disclosure__content {
+  padding: 0 12px 12px;
+}
+
+.rag-detail-disclosure__content--group {
+  display: grid;
+  gap: 10px;
+}
+
+.rag-detail-disclosure__empty {
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--text-soft);
+}
+
+.rag-detail-json {
+  margin: 4px 0 0;
+  padding: 10px;
+  border-radius: 8px;
+  border: 1px solid #d9e3f4;
+  background: #f7fafe;
+  font-size: 12px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: var(--font-mono);
+}
+
+.rag-query-detail-empty {
+  padding: 14px;
+  border: 1px dashed #bccbe2;
+  border-radius: 8px;
+  color: var(--text-soft);
+  background: #f8fbff;
+}
+
+@media (max-width: 860px) {
+  .rag-query-focus-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
 .run-mode-compare {
   min-width: 0;
   background: var(--surface);
