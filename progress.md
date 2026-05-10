@@ -3,6 +3,30 @@
 ## Overview
 High-level progress tracking for the project.
 
+## [2026-05-10] Session Summary (Synthetic Query Runtime Compatibility Fix for E/F/G)
+- What was done: Fixed runtime synthetic query structured-output compatibility by making query response required fields strategy-specific in `pipeline/generation/synthetic_query_generator.py`, and hardened final query text fallback so non-query metadata fields are never selected.
+- Key decisions: Preserved existing A/B/C/D behavior and `style_note`/raw JSONB compatibility (`additionalProperties=True`) while adding explicit E/F/G coverage in `pipeline/tests/test_synthetic_query_generator.py`.
+- Issues encountered: Existing `llm_stability_runner` strategy coverage was A~D only; extended specs/case matrix to include E/F/G with aligned required keys.
+- Next steps: Execute controlled E/F/G generation smoke with same chunk set and monitor schema-retry/empty-skip deltas.
+
+## [2026-05-10] Session Summary (Strategy E `code_mixed` Semantic Fix)
+- What was done: Updated `configs/prompts/query_generation/gen_e_v1.md` to redefine `query_type=code_mixed` for English-only strategy `E` as "English-native framing + exact technical/code token preservation", and tightened matching rules/quality/forbidden clauses.
+- Key decisions: Preserved shared enum compatibility (`code_mixed` remains available) and avoided runtime/schema/table changes.
+- Issues encountered: Prior wording could be interpreted as bilingual language mixing, conflicting with E's English-only retrieval strategy.
+- Next steps: Run a small E generation sample check for `query_type=code_mixed` to confirm stable English-only outputs with anchor fidelity.
+
+## [2026-05-10] Session Summary (E/F/G Query Prompt Framework Alignment)
+- What was done: Rewrote `configs/prompts/query_generation/gen_e_v1.md`, `gen_f_v1.md`, and `gen_g_v1.md` so they follow the same control framework as A/B/C/D (`Strategy hypothesis`, `Inputs`, `Rules`, `Quality targets`, `Answerability guidance`, `Query type control`, `Forbidden patterns`, `Output contract`, `Output schema`, `Internal self-check`) while preserving E/F/G strategy-specific generation paths.
+- Key decisions: Kept runtime compatibility by preserving existing E/F/G output field contracts (`E: query_en+style_note`, `F: query_ko+query_en+style_note`, `G: query_ko+style_note`) and avoided runtime/schema/table changes.
+- Issues encountered: Found existing implementation-level risk unrelated to this patch: shared query response schema in pipeline requires `query_ko` globally, which can be stricter than E prompt/output intent (English-final).
+- Next steps: Run a small E/F/G generation smoke test to confirm stable JSON outputs under the stricter prompt contract and monitor E strategy retries/fallback frequency.
+
+## [2026-05-10] Session Summary (Synthetic Strategy F/G Physical Split Addition)
+- What was done: Added physical split support for new synthetic strategies `F` and `G` by introducing Flyway `V28`, creating `synthetic_queries_raw_f/g`, extending `synthetic_queries_raw_all` union view, widening method/registry checks to `A~G`, and seeding method metadata rows for `F/G`.
+- Key decisions: Kept strict strategy/source identity by storing `F/G` in dedicated raw tables (no routing to `C/E`) and avoided pipeline-wide refactor; only minimal generator mapping + prompt additions were applied.
+- Issues encountered: None.
+- Next steps: Apply `V28` in runtime DB and run Admin/UI smoke for `F/G` generation/gating list paths with explicit snapshot identity.
+
 ## [2026-05-09] Session Summary (Selective Rewrite Prompt: Intent-Preserving Query Expansion Guard)
 - What was done: Updated `configs/prompts/rewrite/selective_rewrite_v2.md` to redefine rewrite generation as intent-preserving query expansion and tightened topic-shift prohibition rules.
 - Key decisions: Kept existing rewrite pipeline/business logic unchanged (memory candidate usage, anchor injection, selective adoption scoring) and applied only prompt-level guardrail strengthening.

@@ -3,6 +3,12 @@
 ## Overview
 High-level backend progress tracking.
 
+## [2026-05-10] Session Summary (Synthetic F/G Physical Split Migration + Backend Raw Table Registry)
+- What was done: Added Flyway `V28__add_kr_source_strategies_f_g.sql` to extend `synthetic_query_generation_method`/`synthetic_query_registry` strategy checks to `A~G`, create `synthetic_queries_raw_f/g`, register F/G sync triggers, seed `method_code` `F/G`, and extend `synthetic_queries_raw_all` union view with `raw_f/raw_g`. Updated `AdminConsoleRepository.STRATEGY_RAW_TABLES` to include `synthetic_queries_raw_f/g`.
+- Key decisions: Enforced physical split identity for KR-source strategies (`F/G`) and explicitly avoided any routing/reuse of `C/E` raw tables.
+- Issues encountered: None.
+- Next steps: Apply Flyway `V28` in the target DB and verify Admin synthetic/gating flows list and cleanup behavior for `F/G`.
+
 ## [2026-05-09] Session Summary (Runtime Options 500 NPE Fix)
 - What was done: Fixed `GET /api/admin/console/runtime/options` server error by replacing null-unsafe environment candidate construction (`List.of(readEnv(...))`) with a null-tolerant candidate list helper in `AdminConsoleService`.
 - Key decisions: Scoped the change to runtime-option candidate collection paths only (`getRuntimeOptions` + fallback catalog builder), preserving catalog parsing, allowlist validation, and response schema.

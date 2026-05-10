@@ -30,7 +30,7 @@ prompts/      LLM 프롬프트 파일
 ### `prompts/`
 
 - `summary_extraction/`
-- `query_generation/` (`gen_a_v1`~`gen_e_v1`)
+- `query_generation/` (`gen_a_v1`~`gen_g_v1`)
 - `self_eval/`
 - `rewrite/` (`selective_rewrite_v1`, `selective_rewrite_v2`)
 

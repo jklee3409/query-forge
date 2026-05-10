@@ -18,13 +18,13 @@ Spring Boot backend for Admin Console APIs, RAG APIs, pipeline command orchestra
 - Provide admin APIs for synthetic query generation, quality gating, and RAG test operations.
 - Execute pipeline commands via backend-managed jobs.
 - Maintain DB schema evolution through Flyway.
-- Preserve strategy-separated synthetic raw storage (A/B/C/D/E) and split-aware read paths.
+- Preserve strategy-separated synthetic raw storage (A/B/C/D/E/F/G) and split-aware read paths.
 
 ---
 
 ## Key Notes
 - Legacy single-table `synthetic_queries_raw` is retired by migration `V17`.
-- Read paths use `synthetic_queries_raw_all` (union view over `synthetic_queries_raw_a/b/c/d/e`).
+- Read paths use `synthetic_queries_raw_all` (union view over `synthetic_queries_raw_a/b/c/d/e/f/g`).
 - Write/provenance updates for synthetic raw rows are strategy-table specific.
 - Admin gating result API supports strategy filtering via `method_code` and paging via `limit/offset`.
 - Admin gating funnel API supports optional strategy filtering via `method_code` (`전체 + DB 등록 전략 코드`).
@@ -36,6 +36,7 @@ Spring Boot backend for Admin Console APIs, RAG APIs, pipeline command orchestra
 - Anchor extraction/injection is used as rewrite grounding control: when Korean query rewriting over English technical-doc memory drops domain terms, anchors are injected to preserve technical intent and improve retrieval stability (`rewrite_anchor_injection_enabled` path).
 - `/admin` 웹 경로는 React Admin 단일 앱 라우트(`/admin/pipeline`, `/admin/synthetic-queries`, `/admin/quality-gating`, `/admin/rag-tests`)로 통합되어 `static/react` 번들을 서빙한다.
 - Admin synthetic supports English-native strategy `E`; backend defaults mark it as `query_language=en` and avoid Korean-ratio rule defaults in subsequent gating configs.
+- Admin synthetic supports KR-source split strategies `F/G` with dedicated raw tables (`synthetic_queries_raw_f/g`); `F` defaults to `query_language=en`, `G` defaults to `query_language=ko`.
 - Eval sample storage now supports `user_query_en` plus `query_language`, and Admin RAG run requests persist `evalQueryLanguage` into experiment config for language-specific runtime loading.
 - Admin RAG test run API supports optional snapshot binding via `sourceGatingBatchId` and validates it into fixed `source_gating_run_id`.
 - Admin RAG test run API supports `syntheticFreeBaseline` exploratory mode (synthetic-free baseline), forcing raw-only evaluation semantics without snapshot/method selection.

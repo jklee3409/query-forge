@@ -3,6 +3,18 @@
 ## Overview
 High-level pipeline progress tracking.
 
+## [2026-05-10] Session Summary (Strategy-aware Query Schema + Safe Query Text Extraction for E/F/G)
+- What was done: Updated `generation/synthetic_query_generator.py` so query response schema required fields are strategy-specific (`A/B/C/D/E/F/G`) instead of globally requiring `query_ko`. Added strategy-aware schema resolver per query call.
+- Key decisions: Kept `additionalProperties=True` and preserved `style_note` compatibility while restricting runtime fallback query extraction to real query fields only (`query`, `query_en`, `query_ko`, `query_code_mixed`).
+- Issues encountered: None.
+- Next steps: Run small live generation smoke on `E/F/G` to confirm retry/error rates remain stable with stricter per-strategy required fields.
+
+## [2026-05-10] Session Summary (Synthetic Generator F/G Mapping + KR-Source Path Prompt Wiring)
+- What was done: Extended `generation/synthetic_query_generator.py` with strategy mappings for `F/G` (`synthetic_queries_raw_f/g`), added prompt loading for `gen_f_v1.md` and `gen_g_v1.md`, added KR-source summary branch (`source_text_ko=chunk_text`) for `F/G`, and added `F` English query extraction/query-language handling.
+- Key decisions: Kept changes scoped to generation/gating compatibility only (no enum refactor, no shared pipeline rewrite), while preserving existing `A/B/C/D/E` flow unchanged.
+- Issues encountered: None.
+- Next steps: After DB migration apply, run small-scope generation smoke for `F` and `G` with explicit source document filter and verify row insert destinations (`raw_f/raw_g`).
+
 ## [2026-05-08] Session Summary (Rewrite Failure Policy Strictness + Rewrite Stats Keys)
 - What was done: Added explicit rewrite-failure-policy regression coverage in `tests/test_eval_runtime.py` for `fail_run`, `skip_to_raw`, and `heuristic_fallback`. Updated retrieval/answer summaries to emit explicit rewrite observability counters (`rewrite_llm_attempted_count`, `rewrite_llm_success_count`, `rewrite_llm_failure_count`, `rewrite_heuristic_fallback_count`) while keeping legacy alias keys for compatibility.
 - Key decisions: Kept runtime decision behavior unchanged and focused on strict policy verification plus report-schema observability completeness.

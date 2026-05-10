@@ -3,6 +3,24 @@
 ## Overview
 High-level progress tracking for the project.
 
+## [2026-05-10] Session Summary (gen_e_v1 `code_mixed` Interpretation Clarification)
+- What was done: Revised `prompts/query_generation/gen_e_v1.md` so `query_type=code_mixed` is explicitly interpreted as English-native query composition with exact technical/code token preservation.
+- Key decisions: Kept `code_mixed` in shared query-type enum for pipeline compatibility; adjusted only prompt semantics (`Rules`, `Quality targets`, `Query type control`, `Forbidden patterns`).
+- Issues encountered: Previous wording could be misread as requiring Korean-English language mixing, which is inconsistent with strategy E's English-only retrieval path.
+- Next steps: Spot-check E outputs under `code_mixed` to ensure no Korean token injection and no anchor loss.
+
+## [2026-05-10] Session Summary (E/F/G Query Prompt Structure Normalization)
+- What was done: Upgraded `prompts/query_generation/gen_e_v1.md`, `gen_f_v1.md`, `gen_g_v1.md` to the same structural control template used by A/B/C/D, adding full sections for answerability/query-type control, forbidden patterns, output contract/schema, and internal self-check.
+- Key decisions: Kept strategy-specific generation logic distinct (`E: EN->EN query`, `F: KO->KO->EN final`, `G: KO->KO final`) and preserved existing runtime-facing output fields to avoid parser breakage.
+- Issues encountered: None in prompt assets themselves; existing runtime query response schema remains broader/shared and may over-require `query_ko` for English-final strategy E.
+- Next steps: Validate E/F/G output stability with one controlled generation batch and inspect schema-driven retry behavior for E.
+
+## [2026-05-10] Session Summary (Query Generation Prompts F/G Added)
+- What was done: Added new query-generation prompt assets `prompts/query_generation/gen_f_v1.md` and `prompts/query_generation/gen_g_v1.md` for KR-source synthetic strategies.
+- Key decisions: Kept prompt family/versioning pattern consistent with existing `gen_[a-e]_v1` assets and separated `F` (KR->EN final query) vs `G` (KR final query) contracts.
+- Issues encountered: None.
+- Next steps: Validate prompt-output stability for `F/G` under the same source chunk set and compare strategy-specific retrieval behavior.
+
 ## [2026-05-09] Session Summary (Selective Rewrite Prompt v2 Intent-Locked Expansion Policy)
 - What was done: Revised `prompts/rewrite/selective_rewrite_v2.md` so rewrite generation is treated as intent-preserving query expansion with explicit topic-substitution prohibition.
 - Key decisions: Preserved existing runtime payload schema and business logic (top memory candidates, anchor injection, selective adoption) and strengthened only prompt guardrails.

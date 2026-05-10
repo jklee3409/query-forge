@@ -6,7 +6,7 @@ Python pipeline for data processing, synthetic query generation, quality gating,
 ---
 
 ## Structure
-- `generation/synthetic_query_generator.py`: synthetic query generation (A/B/C/D/E)
+- `generation/synthetic_query_generator.py`: synthetic query generation (A/B/C/D/E/F/G)
 - `gating/quality_gating.py`: quality gating
 - `memory/build_memory.py`: memory entry construction
 - `datasets/build_eval_dataset.py`: evaluation dataset creation
@@ -25,8 +25,10 @@ Python pipeline for data processing, synthetic query generation, quality gating,
 ---
 
 ## Key Notes
-- Synthetic generation now writes to `synthetic_queries_raw_a/b/c/d/e` by strategy.
+- Synthetic generation now writes to `synthetic_queries_raw_a/b/c/d/e/f/g` by strategy.
+- Synthetic query structured-output validation is strategy-aware (`A/B/C/D/E/F/G` required query fields differ), and final `query_text` fallback extraction is restricted to query-only fields (`query`, `query_en`, `query_ko`, `query_code_mixed`) to avoid metadata leakage.
 - Gating/memory/eval reads use `synthetic_queries_raw_all` (union view over split tables).
+- KR-source strategy variants `F/G` are physical-split strategies and do not reuse `C/E` raw tables.
 - This directory assumes DB migration `V17` is applied before runtime execution.
 - Quality gating rule thresholds include configurable Korean-ratio keys (`rule_min_korean_ratio`, `rule_min_korean_ratio_code_mixed`).
 - Quality gating self-eval now accepts language-neutral `naturalness` scoring while keeping backward compatibility with legacy `korean_naturalness` outputs.
