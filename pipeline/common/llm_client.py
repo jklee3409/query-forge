@@ -36,6 +36,15 @@ LOGGER = logging.getLogger(__name__)
 RETRYABLE_HTTP_STATUS = {429, 500, 502, 503, 504}
 SUPPORTED_PROVIDERS = {"gemini-native", "gemini", "groq", "openai", "mock"}
 _WARNED_COMPAT_MODELS: set[str] = set()
+FAILURE_CATEGORY_REQUEST_FAILED = "request_failed"
+FAILURE_CATEGORY_RESPONSE_EMPTY = "response_empty"
+FAILURE_CATEGORY_RESPONSE_BLOCKED = "response_blocked"
+FAILURE_CATEGORY_INVALID_JSON = "invalid_json"
+FAILURE_CATEGORY_SCHEMA_MISMATCH = "schema_mismatch"
+FAILURE_CATEGORY_MISSING_REQUIRED_KEY = "missing_required_key"
+FAILURE_CATEGORY_MAX_TOKENS_TRUNCATED = "max_tokens_truncated"
+_BLOCKED_FINISH_REASONS = {"SAFETY", "RECITATION", "BLOCKLIST", "PROHIBITED_CONTENT", "CONTENT_FILTER"}
+_TRUNCATED_FINISH_REASONS = {"MAX_TOKENS", "LENGTH"}
 
 
 class _SharedRateLimiter:
@@ -131,8 +140,18 @@ _CONCURRENCY_LIMITERS: dict[str, _SharedConcurrencyLimiter] = {}
 _CONCURRENCY_LIMITERS_LOCK = threading.Lock()
 
 
+@dataclass(frozen=True, slots=True)
+class _LlmFailureDetails:
+    category: str
+    status_code: int | None = None
+    finish_reason: str | None = None
+    block_reason: str | None = None
+
+
 class _RetryableLlmError(RuntimeError):
-    pass
+    def __init__(self, message: str, *, details: _LlmFailureDetails | None = None) -> None:
+        super().__init__(message)
+        self.details = details or _LlmFailureDetails(category=FAILURE_CATEGORY_REQUEST_FAILED)
 
 
 class _SchemaValidationError(RuntimeError):
@@ -140,7 +159,9 @@ class _SchemaValidationError(RuntimeError):
 
 
 class _MalformedLlmResponseError(RuntimeError):
-    pass
+    def __init__(self, message: str, *, details: _LlmFailureDetails | None = None) -> None:
+        super().__init__(message)
+        self.details = details or _LlmFailureDetails(category=FAILURE_CATEGORY_RESPONSE_EMPTY)
 
 
 @dataclass(slots=True)
@@ -291,7 +312,19 @@ class OpenAICompatibleClient(LLMClient):
         if response.status_code >= 400:
             return response, response.text or "", False
         body = _safe_json_body(response)
-        text = _extract_openai_compatible_text(body)
+        try:
+            text = _extract_openai_compatible_text(body)
+        except _MalformedLlmResponseError as exc:
+            details = exc.details
+            raise _MalformedLlmResponseError(
+                str(exc),
+                details=_LlmFailureDetails(
+                    category=details.category,
+                    status_code=int(response.status_code),
+                    finish_reason=details.finish_reason,
+                    block_reason=details.block_reason,
+                ),
+            ) from exc
         return response, text, False
 
 
@@ -346,7 +379,19 @@ class GeminiNativeClient(LLMClient):
         if response.status_code >= 400:
             return response, response.text or "", True
         body = _safe_json_body(response)
-        text = _extract_gemini_text(body)
+        try:
+            text = _extract_gemini_text(body)
+        except _MalformedLlmResponseError as exc:
+            details = exc.details
+            raise _MalformedLlmResponseError(
+                str(exc),
+                details=_LlmFailureDetails(
+                    category=details.category,
+                    status_code=int(response.status_code),
+                    finish_reason=details.finish_reason,
+                    block_reason=details.block_reason,
+                ),
+            ) from exc
         return response, text, True
 
 
@@ -511,14 +556,19 @@ class LlmClient:
                 last_exception = exc
             except _RetryableLlmError as exc:
                 last_exception = exc
+                details = exc.details
                 LOGGER.warning(
-                    "llm_target_failed_retryable purpose=%s trace_id=%s provider=%s provider_type=%s model=%s fallback_used=%s reason=%s",
+                    "llm_target_failed_retryable purpose=%s trace_id=%s provider=%s provider_type=%s model=%s fallback_used=%s category=%s status=%s finish_reason=%s block_reason=%s reason=%s",
                     request_purpose,
                     trace_id,
                     target.provider,
                     _runtime_provider_type(target),
                     target.model,
                     fallback_used,
+                    details.category,
+                    details.status_code,
+                    details.finish_reason,
+                    details.block_reason,
                     str(exc),
                 )
                 self._langfuse_observer.log_failure(
@@ -540,9 +590,9 @@ class LlmClient:
                         user_prompt=user_prompt,
                     ),
                     latency_ms=max(0, int((time.monotonic() - started) * 1000)),
-                    http_status=None,
+                    http_status=details.status_code,
                     error_type=type(exc).__name__,
-                    error_message=str(exc),
+                    error_message=f"{exc} [category={details.category}]",
                 )
             except Exception as exc:  # noqa: BLE001
                 last_exception = exc
@@ -624,6 +674,7 @@ class LlmClient:
         )
         prompt_fingerprint = _prompt_fingerprint(system_prompt, user_prompt)
         retryable_failure: Exception | None = None
+        last_failure_details = _LlmFailureDetails(category=FAILURE_CATEGORY_REQUEST_FAILED)
 
         for attempt in range(max_attempts):
             self._throttle(config=config, estimated_tokens=estimated_tokens)
@@ -636,6 +687,18 @@ class LlmClient:
                 )
             except _MalformedLlmResponseError as exc:
                 retryable_failure = exc
+                last_failure_details = exc.details
+                self._log_attempt_failure(
+                    config=config,
+                    provider_type=provider_type,
+                    request_purpose=request_purpose,
+                    trace_id=trace_id,
+                    prompt_fingerprint=prompt_fingerprint,
+                    attempt=attempt,
+                    max_attempts=max_attempts,
+                    details=last_failure_details,
+                    error=exc,
+                )
                 if attempt + 1 >= max_attempts:
                     break
                 self._sleep_with_retry_log(
@@ -651,6 +714,18 @@ class LlmClient:
                 continue
             except requests.Timeout as exc:
                 retryable_failure = exc
+                last_failure_details = _LlmFailureDetails(category=FAILURE_CATEGORY_REQUEST_FAILED)
+                self._log_attempt_failure(
+                    config=config,
+                    provider_type=provider_type,
+                    request_purpose=request_purpose,
+                    trace_id=trace_id,
+                    prompt_fingerprint=prompt_fingerprint,
+                    attempt=attempt,
+                    max_attempts=max_attempts,
+                    details=last_failure_details,
+                    error=exc,
+                )
                 if attempt + 1 >= max_attempts:
                     break
                 self._sleep_with_retry_log(
@@ -666,6 +741,18 @@ class LlmClient:
                 continue
             except requests.RequestException as exc:
                 retryable_failure = exc
+                last_failure_details = _LlmFailureDetails(category=FAILURE_CATEGORY_REQUEST_FAILED)
+                self._log_attempt_failure(
+                    config=config,
+                    provider_type=provider_type,
+                    request_purpose=request_purpose,
+                    trace_id=trace_id,
+                    prompt_fingerprint=prompt_fingerprint,
+                    attempt=attempt,
+                    max_attempts=max_attempts,
+                    details=last_failure_details,
+                    error=exc,
+                )
                 if attempt + 1 >= max_attempts:
                     break
                 self._sleep_with_retry_log(
@@ -686,6 +773,21 @@ class LlmClient:
                     f"Retryable HTTP status {status_code}",
                     response=response,
                 )
+                last_failure_details = _LlmFailureDetails(
+                    category=FAILURE_CATEGORY_REQUEST_FAILED,
+                    status_code=status_code,
+                )
+                self._log_attempt_failure(
+                    config=config,
+                    provider_type=provider_type,
+                    request_purpose=request_purpose,
+                    trace_id=trace_id,
+                    prompt_fingerprint=prompt_fingerprint,
+                    attempt=attempt,
+                    max_attempts=max_attempts,
+                    details=last_failure_details,
+                    error=retryable_failure,
+                )
                 if attempt + 1 >= max_attempts:
                     break
                 retry_after = _parse_retry_after(response=response)
@@ -702,13 +804,13 @@ class LlmClient:
                 )
                 continue
 
+            response_meta = _extract_response_meta(response=response, provider_type=provider_type)
             try:
                 response.raise_for_status()
                 parsed = _parse_json_text(
                     response_text,
-                    allow_markdown_fallback=(
-                        attempt + 1 >= max_attempts and (response_schema is None or not structured_output_used)
-                    ),
+                    allow_markdown_fallback=(attempt + 1 >= max_attempts),
+                    allow_object_extraction=(response_schema is None or not structured_output_used),
                 )
                 _validate_against_schema(parsed, response_schema)
             except requests.HTTPError as exc:
@@ -726,6 +828,21 @@ class LlmClient:
                     )
                     raise
                 retryable_failure = exc
+                last_failure_details = _LlmFailureDetails(
+                    category=FAILURE_CATEGORY_REQUEST_FAILED,
+                    status_code=status,
+                )
+                self._log_attempt_failure(
+                    config=config,
+                    provider_type=provider_type,
+                    request_purpose=request_purpose,
+                    trace_id=trace_id,
+                    prompt_fingerprint=prompt_fingerprint,
+                    attempt=attempt,
+                    max_attempts=max_attempts,
+                    details=last_failure_details,
+                    error=exc,
+                )
                 if attempt + 1 >= max_attempts:
                     break
                 self._sleep_with_retry_log(
@@ -741,6 +858,21 @@ class LlmClient:
                 continue
             except (_SchemaValidationError, _MalformedLlmResponseError, ValueError, json.JSONDecodeError) as exc:
                 retryable_failure = exc
+                last_failure_details = _classify_postprocess_failure(
+                    error=exc,
+                    response_meta=response_meta,
+                )
+                self._log_attempt_failure(
+                    config=config,
+                    provider_type=provider_type,
+                    request_purpose=request_purpose,
+                    trace_id=trace_id,
+                    prompt_fingerprint=prompt_fingerprint,
+                    attempt=attempt,
+                    max_attempts=max_attempts,
+                    details=last_failure_details,
+                    error=exc,
+                )
                 if attempt + 1 >= max_attempts:
                     break
                 self._sleep_with_retry_log(
@@ -756,7 +888,22 @@ class LlmClient:
                 continue
 
             if not isinstance(parsed, dict):
-                retryable_failure = _MalformedLlmResponseError("LLM JSON response must be object.")
+                retryable_failure = _MalformedLlmResponseError(
+                    "LLM JSON response must be object.",
+                    details=_LlmFailureDetails(category=FAILURE_CATEGORY_SCHEMA_MISMATCH),
+                )
+                last_failure_details = _LlmFailureDetails(category=FAILURE_CATEGORY_SCHEMA_MISMATCH)
+                self._log_attempt_failure(
+                    config=config,
+                    provider_type=provider_type,
+                    request_purpose=request_purpose,
+                    trace_id=trace_id,
+                    prompt_fingerprint=prompt_fingerprint,
+                    attempt=attempt,
+                    max_attempts=max_attempts,
+                    details=last_failure_details,
+                    error=retryable_failure,
+                )
                 if attempt + 1 >= max_attempts:
                     break
                 self._sleep_with_retry_log(
@@ -774,8 +921,46 @@ class LlmClient:
             return parsed, attempt + 1, capability, structured_output_used, provider_type, usage_details
 
         if retryable_failure:
-            raise _RetryableLlmError("LLM request failed after retry budget.") from retryable_failure
-        raise _RetryableLlmError("LLM request failed without captured exception.")
+            raise _RetryableLlmError(
+                "LLM request failed after retry budget.",
+                details=last_failure_details,
+            ) from retryable_failure
+        raise _RetryableLlmError(
+            "LLM request failed without captured exception.",
+            details=last_failure_details,
+        )
+
+    def _log_attempt_failure(
+        self,
+        *,
+        config: LlmStageConfig,
+        provider_type: str,
+        request_purpose: str,
+        trace_id: str | None,
+        prompt_fingerprint: str,
+        attempt: int,
+        max_attempts: int,
+        details: _LlmFailureDetails,
+        error: Exception,
+    ) -> None:
+        LOGGER.warning(
+            "llm_attempt_failed category=%s purpose=%s trace_id=%s provider=%s provider_type=%s model=%s attempt=%s/%s final_attempt=%s status=%s finish_reason=%s block_reason=%s error_type=%s error=%s prompt=%s",
+            details.category,
+            request_purpose,
+            trace_id,
+            config.provider,
+            provider_type,
+            config.model,
+            attempt + 1,
+            max_attempts,
+            (attempt + 1) >= max_attempts,
+            details.status_code,
+            details.finish_reason,
+            details.block_reason,
+            type(error).__name__,
+            str(error),
+            prompt_fingerprint,
+        )
 
     def _sleep_with_retry_log(
         self,
@@ -1097,6 +1282,7 @@ def _parse_json_text(
     text: str,
     *,
     allow_markdown_fallback: bool,
+    allow_object_extraction: bool = True,
 ) -> dict[str, Any] | list[Any]:
     stripped = (text or "").strip()
     if not stripped:
@@ -1114,12 +1300,13 @@ def _parse_json_text(
                     return json.loads(inner)
                 except json.JSONDecodeError:
                     pass
-        balanced = _extract_first_balanced_object(stripped)
-        if balanced:
-            return json.loads(balanced)
-        matched = JSON_BLOCK_PATTERN.search(stripped)
-        if matched:
-            return json.loads(matched.group(0))
+        if allow_object_extraction:
+            balanced = _extract_first_balanced_object(stripped)
+            if balanced:
+                return json.loads(balanced)
+            matched = JSON_BLOCK_PATTERN.search(stripped)
+            if matched:
+                return json.loads(matched.group(0))
         raise
 
 
@@ -1286,14 +1473,118 @@ def _safe_json_body(response: requests.Response) -> dict[str, Any]:
     return parsed if isinstance(parsed, dict) else {}
 
 
+def _normalize_finish_reason(value: Any) -> str | None:
+    raw = str(value or "").strip()
+    return raw.upper() if raw else None
+
+
+def _normalize_block_reason(value: Any) -> str | None:
+    raw = str(value or "").strip()
+    return raw.upper() if raw else None
+
+
+def _category_from_finish_and_block(*, finish_reason: str | None, block_reason: str | None) -> str:
+    if block_reason:
+        return FAILURE_CATEGORY_RESPONSE_BLOCKED
+    if finish_reason in _BLOCKED_FINISH_REASONS:
+        return FAILURE_CATEGORY_RESPONSE_BLOCKED
+    if finish_reason in _TRUNCATED_FINISH_REASONS:
+        return FAILURE_CATEGORY_MAX_TOKENS_TRUNCATED
+    return FAILURE_CATEGORY_RESPONSE_EMPTY
+
+
+def _extract_response_meta(
+    *,
+    response: requests.Response,
+    provider_type: str,
+) -> _LlmFailureDetails:
+    status_code = int(response.status_code) if response is not None else None
+    body = _safe_json_body(response)
+    finish_reason: str | None = None
+    block_reason: str | None = None
+    if provider_type == "gemini-native":
+        prompt_feedback = body.get("promptFeedback") if isinstance(body.get("promptFeedback"), dict) else {}
+        block_reason = _normalize_block_reason(prompt_feedback.get("blockReason"))
+        candidates = body.get("candidates")
+        if isinstance(candidates, list) and candidates:
+            first = candidates[0] if isinstance(candidates[0], dict) else {}
+            finish_reason = _normalize_finish_reason(first.get("finishReason"))
+    else:
+        choices = body.get("choices")
+        if isinstance(choices, list) and choices:
+            first = choices[0] if isinstance(choices[0], dict) else {}
+            finish_reason = _normalize_finish_reason(first.get("finish_reason"))
+    return _LlmFailureDetails(
+        category=_category_from_finish_and_block(finish_reason=finish_reason, block_reason=block_reason),
+        status_code=status_code,
+        finish_reason=finish_reason,
+        block_reason=block_reason,
+    )
+
+
+def _classify_json_decode_failure(*, response_meta: _LlmFailureDetails) -> str:
+    if response_meta.block_reason:
+        return FAILURE_CATEGORY_RESPONSE_BLOCKED
+    if response_meta.finish_reason in _BLOCKED_FINISH_REASONS:
+        return FAILURE_CATEGORY_RESPONSE_BLOCKED
+    if response_meta.finish_reason in _TRUNCATED_FINISH_REASONS:
+        return FAILURE_CATEGORY_MAX_TOKENS_TRUNCATED
+    return FAILURE_CATEGORY_INVALID_JSON
+
+
+def _classify_schema_failure(error: _SchemaValidationError) -> str:
+    if "required field missing" in str(error).lower():
+        return FAILURE_CATEGORY_MISSING_REQUIRED_KEY
+    return FAILURE_CATEGORY_SCHEMA_MISMATCH
+
+
+def _classify_postprocess_failure(
+    *,
+    error: Exception,
+    response_meta: _LlmFailureDetails,
+) -> _LlmFailureDetails:
+    if isinstance(error, _MalformedLlmResponseError):
+        details = error.details
+        return _LlmFailureDetails(
+            category=details.category,
+            status_code=response_meta.status_code,
+            finish_reason=details.finish_reason or response_meta.finish_reason,
+            block_reason=details.block_reason or response_meta.block_reason,
+        )
+    if isinstance(error, _SchemaValidationError):
+        category = _classify_schema_failure(error)
+    elif isinstance(error, json.JSONDecodeError):
+        category = _classify_json_decode_failure(response_meta=response_meta)
+    elif isinstance(error, ValueError):
+        category = FAILURE_CATEGORY_INVALID_JSON
+    else:
+        category = FAILURE_CATEGORY_INVALID_JSON
+    return _LlmFailureDetails(
+        category=category,
+        status_code=response_meta.status_code,
+        finish_reason=response_meta.finish_reason,
+        block_reason=response_meta.block_reason,
+    )
+
+
 def _extract_openai_compatible_text(body: dict[str, Any]) -> str:
     choices = body.get("choices")
     if not isinstance(choices, list) or not choices:
-        raise _MalformedLlmResponseError("choices missing in OpenAI-compatible response.")
+        raise _MalformedLlmResponseError(
+            "choices missing in OpenAI-compatible response.",
+            details=_LlmFailureDetails(category=FAILURE_CATEGORY_RESPONSE_EMPTY),
+        )
     first = choices[0] if isinstance(choices[0], dict) else {}
+    finish_reason = _normalize_finish_reason(first.get("finish_reason"))
     message = first.get("message")
     if not isinstance(message, dict):
-        raise _MalformedLlmResponseError("message missing in OpenAI-compatible response.")
+        raise _MalformedLlmResponseError(
+            "message missing in OpenAI-compatible response.",
+            details=_LlmFailureDetails(
+                category=_category_from_finish_and_block(finish_reason=finish_reason, block_reason=None),
+                finish_reason=finish_reason,
+            ),
+        )
     content = message.get("content")
     if isinstance(content, str) and content.strip():
         return content.strip()
@@ -1307,20 +1598,55 @@ def _extract_openai_compatible_text(body: dict[str, Any]) -> str:
         merged = "\n".join(parts).strip()
         if merged:
             return merged
-    raise _MalformedLlmResponseError("OpenAI-compatible content was empty or missing.")
+    raise _MalformedLlmResponseError(
+        "OpenAI-compatible content was empty or missing.",
+        details=_LlmFailureDetails(
+            category=_category_from_finish_and_block(finish_reason=finish_reason, block_reason=None),
+            finish_reason=finish_reason,
+        ),
+    )
 
 
 def _extract_gemini_text(body: dict[str, Any]) -> str:
+    prompt_feedback = body.get("promptFeedback") if isinstance(body.get("promptFeedback"), dict) else {}
+    block_reason = _normalize_block_reason(prompt_feedback.get("blockReason"))
     candidates = body.get("candidates")
     if not isinstance(candidates, list) or not candidates:
-        raise _MalformedLlmResponseError("Gemini candidates missing.")
+        raise _MalformedLlmResponseError(
+            "Gemini candidates missing.",
+            details=_LlmFailureDetails(
+                category=_category_from_finish_and_block(finish_reason=None, block_reason=block_reason),
+                block_reason=block_reason,
+            ),
+        )
     first = candidates[0] if isinstance(candidates[0], dict) else {}
+    finish_reason = _normalize_finish_reason(first.get("finishReason"))
     content = first.get("content")
     if not isinstance(content, dict):
-        raise _MalformedLlmResponseError("Gemini content missing.")
+        raise _MalformedLlmResponseError(
+            "Gemini content missing.",
+            details=_LlmFailureDetails(
+                category=_category_from_finish_and_block(
+                    finish_reason=finish_reason,
+                    block_reason=block_reason,
+                ),
+                finish_reason=finish_reason,
+                block_reason=block_reason,
+            ),
+        )
     parts = content.get("parts")
     if not isinstance(parts, list) or not parts:
-        raise _MalformedLlmResponseError("Gemini content.parts missing.")
+        raise _MalformedLlmResponseError(
+            "Gemini content.parts missing.",
+            details=_LlmFailureDetails(
+                category=_category_from_finish_and_block(
+                    finish_reason=finish_reason,
+                    block_reason=block_reason,
+                ),
+                finish_reason=finish_reason,
+                block_reason=block_reason,
+            ),
+        )
     texts: list[str] = []
     for part in parts:
         if isinstance(part, dict):
@@ -1329,7 +1655,17 @@ def _extract_gemini_text(body: dict[str, Any]) -> str:
                 texts.append(text.strip())
     merged = "\n".join(texts).strip()
     if not merged:
-        raise _MalformedLlmResponseError("Gemini response text empty.")
+        raise _MalformedLlmResponseError(
+            "Gemini response text empty.",
+            details=_LlmFailureDetails(
+                category=_category_from_finish_and_block(
+                    finish_reason=finish_reason,
+                    block_reason=block_reason,
+                ),
+                finish_reason=finish_reason,
+                block_reason=block_reason,
+            ),
+        )
     return merged
 
 

@@ -3,6 +3,18 @@
 ## Overview
 High-level progress tracking for the project.
 
+## [2026-05-10] Session Summary (LLM Post-processing Failure Classification + Gemini JSON Fence Handling)
+- What was done: Refined `pipeline/common/llm_client.py` so retry-exhausted failures distinguish request-layer failures from response post-processing failures via explicit categories (`request_failed`, `response_empty`, `response_blocked`, `invalid_json`, `schema_mismatch`, `missing_required_key`, `max_tokens_truncated`). Added per-attempt failure logs with provider/status/finish-reason/block-reason metadata and improved retryable failure propagation to keep category context through the final `RuntimeError`.
+- Key decisions: Kept retry/fallback strategy and prompt semantics unchanged; only observability and parsing robustness were adjusted. For structured-output responses, markdown fenced JSON is now accepted only on the final attempt and only via fenced-block parsing (not broad object scraping) to avoid loosening validation too aggressively.
+- Issues encountered: None.
+- Next steps: Validate real admin `summary_extraction_ko` failure traces to confirm category distribution and identify whether failures are dominated by safety blocking, truncation, or schema/key mismatches.
+
+## [2026-05-10] Session Summary (F/G Strategy Restriction Stabilization: Source/Dataset Guard)
+- What was done: Added backend strategy restrictions so Spring technical-doc scope allows only `A~E` and Python KR scope allows only `F/G`; applied this to synthetic generation validation and dataset-bound RAG method validation. Extended `/api/admin/console/synthetic/methods` to support scoped filtering (`source_id`, `source_document_id`, `dataset_id`) and updated frontend synthetic run form to use source-scoped method options.
+- Key decisions: Enforced strict source identity at synthetic run creation (`source_id` or `source_document_id` required) to prevent mixed-domain generation after KR Python source onboarding; kept method metadata endpoint DB-driven and context-filtered instead of hardcoded frontend allowlists.
+- Issues encountered: Existing eval datasets in runtime DB were Spring-family only, so Python KR dataset-level RAG validation could not be executed end-to-end in this session without creating new datasets.
+- Next steps: Analyze existing Spring evaluation dataset schema/query style/grounding and prepare KR Python evaluation dataset creation plan with explicit dataset metadata scope (`strategy_profile=python_kr`) for deterministic restriction checks.
+
 ## [2026-05-10] Session Summary (Synthetic Query Runtime Compatibility Fix for E/F/G)
 - What was done: Fixed runtime synthetic query structured-output compatibility by making query response required fields strategy-specific in `pipeline/generation/synthetic_query_generator.py`, and hardened final query text fallback so non-query metadata fields are never selected.
 - Key decisions: Preserved existing A/B/C/D behavior and `style_note`/raw JSONB compatibility (`additionalProperties=True`) while adding explicit E/F/G coverage in `pipeline/tests/test_synthetic_query_generator.py`.

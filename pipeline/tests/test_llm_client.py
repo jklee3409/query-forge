@@ -207,6 +207,112 @@ class LlmClientTest(unittest.TestCase):
             client.chat_json(system_prompt="s", user_prompt="u")
 
     @patch("pipeline.common.llm_client.requests.post")
+    def test_gemini_structured_output_accepts_markdown_fenced_json(self, mock_post) -> None:
+        mock_post.return_value = _FakeResponse(
+            status_code=200,
+            body={
+                "candidates": [
+                    {
+                        "finishReason": "STOP",
+                        "content": {"parts": [{"text": "```json\n{\"query_ko\":\"fenced\"}\n```"}]},
+                    }
+                ]
+            },
+        )
+        client = llm_client.LlmClient(
+            _config(
+                provider="gemini-native",
+                model="gemini-2.5-flash",
+                base_url="https://generativelanguage.googleapis.com/v1beta",
+                api_key="gemini-key",
+                max_retries=0,
+            )
+        )
+        schema = {
+            "type": "object",
+            "required": ["query_ko"],
+            "properties": {"query_ko": {"type": "string"}},
+            "additionalProperties": True,
+        }
+
+        response = client.chat_json(system_prompt="s", user_prompt="u", response_schema=schema)
+        self.assertEqual(response["query_ko"], "fenced")
+
+    @patch("pipeline.common.llm_client.requests.post")
+    def test_missing_required_key_failure_category_logged(self, mock_post) -> None:
+        mock_post.return_value = _openai_success({"wrong_field": "value"})
+        client = llm_client.LlmClient(_config(max_retries=0))
+        schema = {
+            "type": "object",
+            "required": ["query_ko"],
+            "properties": {"query_ko": {"type": "string"}},
+            "additionalProperties": True,
+        }
+
+        with self.assertLogs("pipeline.common.llm_client", level="WARNING") as logs:
+            with self.assertRaises(RuntimeError):
+                client.chat_json(system_prompt="s", user_prompt="u", response_schema=schema)
+
+        self.assertTrue(any("category=missing_required_key" in line for line in logs.output))
+
+    @patch("pipeline.common.llm_client.requests.post")
+    def test_gemini_safety_block_failure_category_logged(self, mock_post) -> None:
+        mock_post.return_value = _FakeResponse(
+            status_code=200,
+            body={"promptFeedback": {"blockReason": "SAFETY"}},
+        )
+        client = llm_client.LlmClient(
+            _config(
+                provider="gemini-native",
+                model="gemini-2.5-flash",
+                base_url="https://generativelanguage.googleapis.com/v1beta",
+                api_key="gemini-key",
+                max_retries=0,
+            )
+        )
+
+        with self.assertLogs("pipeline.common.llm_client", level="WARNING") as logs:
+            with self.assertRaises(RuntimeError):
+                client.chat_json(system_prompt="s", user_prompt="u")
+
+        self.assertTrue(any("category=response_blocked" in line for line in logs.output))
+
+    @patch("pipeline.common.llm_client.requests.post")
+    def test_gemini_max_tokens_truncated_failure_category_logged(self, mock_post) -> None:
+        mock_post.return_value = _FakeResponse(
+            status_code=200,
+            body={
+                "candidates": [
+                    {
+                        "finishReason": "MAX_TOKENS",
+                        "content": {"parts": [{"text": "{\"query_ko\": \"truncated\""}]},
+                    }
+                ]
+            },
+        )
+        client = llm_client.LlmClient(
+            _config(
+                provider="gemini-native",
+                model="gemini-2.5-flash",
+                base_url="https://generativelanguage.googleapis.com/v1beta",
+                api_key="gemini-key",
+                max_retries=0,
+            )
+        )
+        schema = {
+            "type": "object",
+            "required": ["query_ko"],
+            "properties": {"query_ko": {"type": "string"}},
+            "additionalProperties": True,
+        }
+
+        with self.assertLogs("pipeline.common.llm_client", level="WARNING") as logs:
+            with self.assertRaises(RuntimeError):
+                client.chat_json(system_prompt="s", user_prompt="u", response_schema=schema)
+
+        self.assertTrue(any("category=max_tokens_truncated" in line for line in logs.output))
+
+    @patch("pipeline.common.llm_client.requests.post")
     def test_structured_output_mapping_with_gemini_native(self, mock_post) -> None:
         mock_post.return_value = _gemini_success({"query_ko": "구조화 출력"})
         client = llm_client.LlmClient(

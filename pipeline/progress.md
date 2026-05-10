@@ -3,6 +3,12 @@
 ## Overview
 High-level pipeline progress tracking.
 
+## [2026-05-10] Session Summary (LLM Retry Failure Categorization + Structured JSON Fence Recovery)
+- What was done: Updated `common/llm_client.py` so HTTP-success but post-processing failures are explicitly categorized (`response_empty`, `response_blocked`, `invalid_json`, `schema_mismatch`, `missing_required_key`, `max_tokens_truncated`) and logged per attempt with response metadata (`status`, `finish_reason`, `block_reason`). Added retry-exhaustion propagation with failure detail context and structured-output safe fence recovery on final attempt.
+- Key decisions: Preserved existing model fallback/retry behavior and schema contracts; changed only parsing fallback policy and observability. Markdown fallback on structured-output path is restricted to fenced JSON parsing at the final attempt to reduce accidental over-acceptance of mixed natural-language output.
+- Issues encountered: None.
+- Next steps: Monitor real `summary_extraction_ko` runs and confirm whether dominant failures are parse/schema/safety/truncation related before tuning token budgets or prompt-level constraints.
+
 ## [2026-05-10] Session Summary (Strategy-aware Query Schema + Safe Query Text Extraction for E/F/G)
 - What was done: Updated `generation/synthetic_query_generator.py` so query response schema required fields are strategy-specific (`A/B/C/D/E/F/G`) instead of globally requiring `query_ko`. Added strategy-aware schema resolver per query call.
 - Key decisions: Kept `additionalProperties=True` and preserved `style_note` compatibility while restricting runtime fallback query extraction to real query fields only (`query`, `query_en`, `query_ko`, `query_code_mixed`).
