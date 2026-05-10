@@ -3,6 +3,12 @@
 ## Overview
 High-level backend progress tracking.
 
+## [2026-05-10] Session Summary (Source/Dataset Method Restriction + Synthetic Stats Method-Zero Stability)
+- What was done: Added source/dataset strategy-scope guards in `AdminConsoleService` to enforce `Spring -> A~E`, `Python KR -> F/G` for synthetic generation and dataset-bound RAG requests. Extended `AdminConsoleController` synthetic methods API to accept optional context params (`source_id`, `source_document_id`, `dataset_id`) and return filtered methods. Added repository scope resolvers (`findSourceIdByDocumentId`, `findSourceStrategyContext`, `findDatasetStrategyContext`) and fixed synthetic stats `byMethod` aggregation to keep method metadata rows even when count is `0`.
+- Key decisions: Prevented ambiguous cross-domain generation by requiring `source_id` or `source_document_id` on synthetic run creation, while keeping context-less method listing available for full inventory view (`A~G`).
+- Issues encountered: Runtime DB currently has Spring-family eval datasets only; Python KR dataset-level RAG allow-path validation remains pending until KR eval dataset registration exists.
+- Next steps: Register KR Python eval dataset metadata scope (`strategy_profile=python_kr`) and verify RAG dataset-level allow/block matrix (`G allow`, `B block`) through the same backend validation path.
+
 ## [2026-05-10] Session Summary (Synthetic F/G Physical Split Migration + Backend Raw Table Registry)
 - What was done: Added Flyway `V28__add_kr_source_strategies_f_g.sql` to extend `synthetic_query_generation_method`/`synthetic_query_registry` strategy checks to `A~G`, create `synthetic_queries_raw_f/g`, register F/G sync triggers, seed `method_code` `F/G`, and extend `synthetic_queries_raw_all` union view with `raw_f/raw_g`. Updated `AdminConsoleRepository.STRATEGY_RAW_TABLES` to include `synthetic_queries_raw_f/g`.
 - Key decisions: Enforced physical split identity for KR-source strategies (`F/G`) and explicitly avoided any routing/reuse of `C/E` raw tables.

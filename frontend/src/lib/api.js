@@ -27,6 +27,15 @@ export function queryString(params) {
   return search.toString()
 }
 
+export function fetchSyntheticMethods({ sourceId, sourceDocumentId, datasetId } = {}) {
+  const query = queryString({
+    source_id: sourceId || null,
+    source_document_id: sourceDocumentId || null,
+    dataset_id: datasetId || null,
+  })
+  return requestJson(`/api/admin/console/synthetic/methods${query ? `?${query}` : ''}`)
+}
+
 export function toNumber(value) {
   if (value == null || value === '') return null
   const parsed = Number(value)

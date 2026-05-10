@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { DetailCard, IdBadge, Modal, StatusBadge } from '../components/Common.jsx'
 import { LlmJobsTable } from '../components/LlmJobsTable.jsx'
-import { queryString, requestJson, toNumber } from '../lib/api.js'
+import { fetchSyntheticMethods, queryString, requestJson, toNumber } from '../lib/api.js'
 import { fmtTime, shortId } from '../lib/format.js'
 
 export function SyntheticPage({ notify }) {
@@ -9,6 +9,7 @@ export function SyntheticPage({ notify }) {
   const historyPageSize = 3
 
   const [methods, setMethods] = useState([])
+  const [runMethods, setRunMethods] = useState([])
   const [batches, setBatches] = useState([])
   const [sources, setSources] = useState([])
   const [sourceDocuments, setSourceDocuments] = useState([])
@@ -44,10 +45,26 @@ export function SyntheticPage({ notify }) {
   })
 
   const loadMethods = async () => {
-    const rows = await requestJson('/api/admin/console/synthetic/methods')
+    const rows = await fetchSyntheticMethods()
     const normalized = Array.isArray(rows) ? rows : []
     setMethods(normalized)
     setRunForm((prev) => ({ ...prev, methodCode: prev.methodCode || normalized[0]?.methodCode || '' }))
+  }
+
+  const loadRunMethods = async (sourceId, sourceDocumentId) => {
+    const rows = await fetchSyntheticMethods({
+      sourceId: sourceId || null,
+      sourceDocumentId: sourceDocumentId || null,
+    })
+    const normalized = Array.isArray(rows) ? rows : []
+    setRunMethods(normalized)
+    setRunForm((prev) => {
+      const stillValid = normalized.some((method) => method.methodCode === prev.methodCode)
+      return {
+        ...prev,
+        methodCode: stillValid ? prev.methodCode : (normalized[0]?.methodCode || ''),
+      }
+    })
   }
 
   const loadRuntimeOptions = async () => {
@@ -128,13 +145,16 @@ export function SyntheticPage({ notify }) {
 
   useEffect(() => {
     Promise.all([loadMethods(), loadBatches(), loadSources(), loadRuntimeOptions()])
-      .then(() => Promise.all([loadQueries(0), loadStats()]))
+      .then(() => Promise.all([loadRunMethods('', ''), loadQueries(0), loadStats()]))
       .catch((error) => notify(error.message, 'error'))
   }, [])
 
   useEffect(() => {
-    loadSourceDocuments(runForm.sourceId).catch((error) => notify(error.message, 'error'))
-  }, [runForm.sourceId])
+    Promise.all([
+      loadSourceDocuments(runForm.sourceId),
+      loadRunMethods(runForm.sourceId, runForm.sourceDocumentId),
+    ]).catch((error) => notify(error.message, 'error'))
+  }, [runForm.sourceId, runForm.sourceDocumentId])
 
   useEffect(() => {
     const totalPages = Math.max(1, Math.ceil(batches.length / historyPageSize))
@@ -158,6 +178,10 @@ export function SyntheticPage({ notify }) {
 
   const executeRun = async (event) => {
     event.preventDefault()
+    if (!runForm.sourceId && !runForm.sourceDocumentId) {
+      notify('소스 또는 소스 문서를 선택해 주세요.', 'error')
+      return
+    }
     if (!runForm.llmModel) {
       notify('LLM 모델을 선택하세요.', 'error')
       return
@@ -250,6 +274,7 @@ export function SyntheticPage({ notify }) {
   const currentHistoryPage = Math.min(historyPage, historyTotalPages - 1)
   const pagedBatches = batches.slice(currentHistoryPage * historyPageSize, (currentHistoryPage + 1) * historyPageSize)
   const queryFilterBatchOptions = batches.filter(isBatchSelectableInQueryFilter)
+  const runMethodOptions = runMethods.length > 0 ? runMethods : methods
 
   return (
     <>
@@ -275,7 +300,7 @@ export function SyntheticPage({ notify }) {
         <form className="filter-bar" onSubmit={executeRun}>
           <label className="filter-field">생성 방식
             <select value={runForm.methodCode} onChange={(event) => setRunForm((prev) => ({ ...prev, methodCode: event.target.value }))}>
-              <option value="">선택</option>{methods.map((method) => <option key={method.methodCode} value={method.methodCode}>{method.methodCode} - {method.methodName}</option>)}
+              <option value="">선택</option>{runMethodOptions.map((method) => <option key={method.methodCode} value={method.methodCode}>{method.methodCode} - {method.methodName}</option>)}
             </select>
           </label>
           <label className="filter-field">소스

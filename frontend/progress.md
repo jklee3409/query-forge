@@ -3,6 +3,12 @@
 ## Overview
 High-level progress tracking for the project.
 
+## [2026-05-10] Session Summary (Synthetic Method Dropdown Source-Scope Restriction)
+- What was done: Updated `SyntheticPage.jsx` to load source-scoped method options for the synthetic run form and keep selected method validity when source/source-document selection changes. Added `fetchSyntheticMethods(...)` helper in `src/lib/api.js` to call `/api/admin/console/synthetic/methods` with optional `source_id/source_document_id/dataset_id`.
+- Key decisions: Kept method inventory table/filter (`methods`) unchanged and applied scope restriction only to run-execution dropdown (`runMethods`) so existing monitoring views do not regress.
+- Issues encountered: None.
+- Next steps: Reuse scoped method option API in dataset-bound pages when KR Python evaluation dataset selection is activated.
+
 ## [2026-05-09] Session Summary (RAG Run Detail Modal Query-Focused UX)
 - What was done: Reworked `/admin/rag-tests` run-detail modal so each sample prominently shows only `원본 질의` and `최종 재작성 합성 질의` by default. Moved metric contribution, recommended synthetic candidates, rewrite candidate logs, and retrieved chunk payloads behind disclosure dropdowns. Added dedicated modal styling for scan-first query comparison readability.
 - Key decisions: Kept existing backend detail API contract and transformed only frontend rendering/styling, using progressive disclosure to reduce JSON noise in the primary workflow.

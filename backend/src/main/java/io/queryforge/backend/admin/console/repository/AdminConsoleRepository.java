@@ -49,6 +49,28 @@ public class AdminConsoleRepository {
     ) {
     }
 
+    public record SourceStrategyContext(
+            String sourceId,
+            String sourceType,
+            String productName,
+            String sourceName,
+            boolean hasKoDocuments,
+            boolean hasEnDocuments
+    ) {
+    }
+
+    public record DatasetStrategyContext(
+            UUID datasetId,
+            String datasetKey,
+            String metadataStrategyProfile,
+            String metadataQueryLanguage,
+            boolean hasSpringSamples,
+            boolean hasPythonSamples,
+            boolean hasKoQueries,
+            boolean hasEnQueries
+    ) {
+    }
+
     public List<AdminConsoleDtos.SyntheticGenerationMethod> findGenerationMethods() {
         String sql = """
                 SELECT generation_method_id,
@@ -535,23 +557,33 @@ public class AdminConsoleRepository {
         MapSqlParameterSource params = new MapSqlParameterSource();
         String syntheticWhere = buildSyntheticFilterClause(methodCode, batchId, params);
         String batchWhere = buildBatchFilterClause(methodCode, batchId, params);
+        String methodMetadataWhere = buildMethodMetadataFilterClause(methodCode, params);
 
         String byMethodSql = """
                 SELECT COALESCE(
                     jsonb_agg(
-                        jsonb_build_object('method_code', x.generation_strategy, 'count', x.cnt)
-                        ORDER BY x.generation_strategy
+                        jsonb_build_object('method_code', x.method_code, 'count', x.cnt)
+                        ORDER BY x.method_code
                     ),
                     '[]'::jsonb
                 )::text AS payload
                 FROM (
-                    SELECT r.generation_strategy, COUNT(*) AS cnt
-                    FROM synthetic_queries_raw_all r
-                    LEFT JOIN synthetic_query_generation_batch b
-                      ON b.source_generation_run_id = r.experiment_run_id
+                    SELECT m.method_code,
+                           COALESCE(cnts.cnt, 0) AS cnt
+                    FROM synthetic_query_generation_method m
+                    LEFT JOIN (
+                        SELECT r.generation_strategy,
+                               COUNT(*) AS cnt
+                        FROM synthetic_queries_raw_all r
+                        LEFT JOIN synthetic_query_generation_batch b
+                          ON b.source_generation_run_id = r.experiment_run_id
+                        WHERE 1=1
+                    """ + syntheticWhere + """
+                        GROUP BY r.generation_strategy
+                    ) cnts
+                      ON cnts.generation_strategy = m.method_code
                     WHERE 1=1
-                """ + syntheticWhere + """
-                    GROUP BY r.generation_strategy
+                """ + methodMetadataWhere + """
                 ) x
                 """;
         String byBatchSql = """
@@ -1555,6 +1587,102 @@ public class AdminConsoleRepository {
                 sql,
                 new MapSqlParameterSource("datasetId", datasetId),
                 (rs, rowNum) -> rs.getString("query_language")
+        );
+        return rows.stream().findFirst();
+    }
+
+    public Optional<String> findSourceIdByDocumentId(String documentId) {
+        String sql = "SELECT source_id FROM corpus_documents WHERE document_id = :documentId";
+        List<String> rows = jdbcTemplate.query(
+                sql,
+                new MapSqlParameterSource("documentId", documentId),
+                (rs, rowNum) -> rs.getString("source_id")
+        );
+        return rows.stream().findFirst();
+    }
+
+    public Optional<SourceStrategyContext> findSourceStrategyContext(String sourceId) {
+        String sql = """
+                SELECT s.source_id,
+                       s.source_type,
+                       s.product_name,
+                       s.source_name,
+                       COALESCE(doc.has_ko, FALSE) AS has_ko_documents,
+                       COALESCE(doc.has_en, FALSE) AS has_en_documents
+                FROM corpus_sources s
+                LEFT JOIN LATERAL (
+                    SELECT BOOL_OR(LOWER(COALESCE(d.language_code, '')) = 'ko') AS has_ko,
+                           BOOL_OR(LOWER(COALESCE(d.language_code, '')) = 'en') AS has_en
+                    FROM corpus_documents d
+                    WHERE d.source_id = s.source_id
+                      AND d.is_active = TRUE
+                ) doc ON TRUE
+                WHERE s.source_id = :sourceId
+                LIMIT 1
+                """;
+        List<SourceStrategyContext> rows = jdbcTemplate.query(
+                sql,
+                new MapSqlParameterSource("sourceId", sourceId),
+                (rs, rowNum) -> new SourceStrategyContext(
+                        rs.getString("source_id"),
+                        rs.getString("source_type"),
+                        rs.getString("product_name"),
+                        rs.getString("source_name"),
+                        rs.getBoolean("has_ko_documents"),
+                        rs.getBoolean("has_en_documents")
+                )
+        );
+        return rows.stream().findFirst();
+    }
+
+    public Optional<DatasetStrategyContext> findDatasetStrategyContext(UUID datasetId) {
+        String sql = """
+                SELECT d.dataset_id,
+                       d.dataset_key,
+                       LOWER(COALESCE(d.metadata ->> 'strategy_profile', '')) AS metadata_strategy_profile,
+                       LOWER(COALESCE(d.metadata ->> 'query_language', '')) AS metadata_query_language,
+                       COALESCE(stats.has_spring, FALSE) AS has_spring_samples,
+                       COALESCE(stats.has_python, FALSE) AS has_python_samples,
+                       COALESCE(stats.has_ko_query, FALSE) AS has_ko_queries,
+                       COALESCE(stats.has_en_query, FALSE) AS has_en_queries
+                FROM eval_dataset d
+                LEFT JOIN LATERAL (
+                    SELECT BOOL_OR(LOWER(COALESCE(s.source_product, '')) LIKE '%spring%') AS has_spring,
+                           BOOL_OR(LOWER(COALESCE(s.source_product, '')) LIKE '%python%') AS has_python,
+                           BOOL_OR(
+                               COALESCE(
+                                   NULLIF(LOWER(s.query_language), ''),
+                                   COALESCE(NULLIF(LOWER(d.metadata ->> 'query_language'), ''), 'ko')
+                               ) = 'ko'
+                           ) AS has_ko_query,
+                           BOOL_OR(
+                               COALESCE(
+                                   NULLIF(LOWER(s.query_language), ''),
+                                   COALESCE(NULLIF(LOWER(d.metadata ->> 'query_language'), ''), 'ko')
+                               ) = 'en'
+                           ) AS has_en_query
+                    FROM eval_dataset_item i
+                    JOIN eval_samples s
+                      ON s.sample_id = i.sample_id
+                    WHERE i.dataset_id = d.dataset_id
+                      AND i.active = TRUE
+                ) stats ON TRUE
+                WHERE d.dataset_id = :datasetId
+                LIMIT 1
+                """;
+        List<DatasetStrategyContext> rows = jdbcTemplate.query(
+                sql,
+                new MapSqlParameterSource("datasetId", datasetId),
+                (rs, rowNum) -> new DatasetStrategyContext(
+                        readUuid(rs, "dataset_id"),
+                        rs.getString("dataset_key"),
+                        rs.getString("metadata_strategy_profile"),
+                        rs.getString("metadata_query_language"),
+                        rs.getBoolean("has_spring_samples"),
+                        rs.getBoolean("has_python_samples"),
+                        rs.getBoolean("has_ko_queries"),
+                        rs.getBoolean("has_en_queries")
+                )
         );
         return rows.stream().findFirst();
     }
@@ -2624,6 +2752,15 @@ public class AdminConsoleRepository {
         if (batchId != null) {
             where.append(" AND b.batch_id = :batchId");
             params.addValue("batchId", batchId);
+        }
+        return where.toString();
+    }
+
+    private String buildMethodMetadataFilterClause(String methodCode, MapSqlParameterSource params) {
+        StringBuilder where = new StringBuilder();
+        if (methodCode != null && !methodCode.isBlank()) {
+            where.append(" AND m.method_code = :methodCode");
+            params.addValue("methodCode", methodCode.trim().toUpperCase());
         }
         return where.toString();
     }

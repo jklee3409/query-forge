@@ -23,8 +23,10 @@ import java.util.Arrays;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.regex.Pattern;
 
@@ -75,6 +77,11 @@ public class AdminConsoleService {
     private static final double DEFAULT_RAG_HYBRID_BM25_WEIGHT = 0.32d;
     private static final double DEFAULT_RAG_HYBRID_TECHNICAL_WEIGHT = 0.08d;
     private static final int MAX_RAG_RUN_LABEL_LENGTH = 120;
+    private static final Set<String> ALL_METHOD_CODES = Set.of("A", "B", "C", "D", "E", "F", "G");
+    private static final Set<String> SPRING_TECHDOC_METHOD_CODES = Set.of("A", "B", "C", "D", "E");
+    private static final Set<String> PYTHON_KR_METHOD_CODES = Set.of("F", "G");
+    private static final String SCOPE_LABEL_SPRING_TECHDOC = "spring_techdoc";
+    private static final String SCOPE_LABEL_PYTHON_KR = "python_kr";
     private static final Pattern NON_ALNUM_PATTERN = Pattern.compile("[^A-Z0-9]");
     private static final ZoneId KOREA_ZONE_ID = ZoneId.of("Asia/Seoul");
     private static final DateTimeFormatter RUN_LABEL_TIME_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")
@@ -87,7 +94,18 @@ public class AdminConsoleService {
     private final Yaml yaml = new Yaml();
 
     public List<AdminConsoleDtos.SyntheticGenerationMethod> listGenerationMethods() {
-        return repository.findGenerationMethods();
+        return listGenerationMethods(null, null, null);
+    }
+
+    public List<AdminConsoleDtos.SyntheticGenerationMethod> listGenerationMethods(
+            String sourceId,
+            String sourceDocumentId,
+            UUID datasetId
+    ) {
+        Set<String> allowedMethodCodes = resolveAllowedMethodCodesForMethodList(sourceId, sourceDocumentId, datasetId);
+        return repository.findGenerationMethods().stream()
+                .filter(method -> allowedMethodCodes.contains(normalizeMethodCode(method.methodCode())))
+                .toList();
     }
 
     public List<AdminConsoleDtos.SyntheticGenerationBatchRow> listGenerationBatches(Integer limit) {
@@ -191,6 +209,7 @@ public class AdminConsoleService {
     @Transactional
     public AdminConsoleDtos.SyntheticGenerationBatchRow runSyntheticGeneration(AdminConsoleDtos.SyntheticBatchRunRequest request) {
         String methodCode = normalizeMethodCode(request.methodCode());
+        validateSyntheticSourceMethodRestriction(methodCode, request.sourceId(), request.sourceDocumentId());
         AdminConsoleDtos.SyntheticGenerationMethod method = repository.findGenerationMethodByCode(methodCode)
                 .orElseThrow(() -> new IllegalArgumentException("generation method not found: " + methodCode));
         RuntimeCatalog runtimeCatalog = loadRuntimeCatalog();
@@ -558,6 +577,9 @@ public class AdminConsoleService {
         List<String> methodCodes = syntheticFreeBaseline ? List.of() : normalizeMethodCodes(request.methodCodes());
         if (!syntheticFreeBaseline && methodCodes.isEmpty()) {
             throw new IllegalArgumentException("at least one generation method is required");
+        }
+        if (!syntheticFreeBaseline) {
+            validateDatasetMethodRestriction(request.datasetId(), methodCodes);
         }
         List<UUID> batchIds = request.generationBatchIds() == null ? List.of() : request.generationBatchIds();
         String runDiscipline = normalizeRunDiscipline(request.officialRun());
@@ -1790,6 +1812,238 @@ public class AdminConsoleService {
         repository.refreshDefaultEvalDatasetItems(datasetId);
     }
 
+    private enum StrategyScope {
+        SPRING_TECHDOC,
+        PYTHON_KR,
+        UNKNOWN
+    }
+
+    private record SourceResolution(
+            String sourceId,
+            AdminConsoleRepository.SourceStrategyContext context,
+            StrategyScope scope
+    ) {
+    }
+
+    private record DatasetResolution(
+            AdminConsoleRepository.DatasetStrategyContext context,
+            StrategyScope scope
+    ) {
+    }
+
+    private Set<String> resolveAllowedMethodCodesForMethodList(
+            String sourceId,
+            String sourceDocumentId,
+            UUID datasetId
+    ) {
+        if (datasetId != null) {
+            DatasetResolution datasetResolution = resolveDatasetScope(datasetId, false);
+            return allowedMethodCodesForScope(datasetResolution.scope());
+        }
+        SourceResolution sourceResolution = resolveSourceScope(sourceId, sourceDocumentId, false);
+        if (sourceResolution == null) {
+            return ALL_METHOD_CODES;
+        }
+        return allowedMethodCodesForScope(sourceResolution.scope());
+    }
+
+    private void validateSyntheticSourceMethodRestriction(String methodCode, String sourceId, String sourceDocumentId) {
+        SourceResolution sourceResolution = resolveSourceScope(sourceId, sourceDocumentId, true);
+        Set<String> allowedMethods = allowedMethodCodesForScope(sourceResolution.scope());
+        if (!allowedMethods.contains(methodCode)) {
+            throw new IllegalArgumentException(
+                    "method_code " + methodCode
+                            + " is not allowed for source scope "
+                            + scopeLabel(sourceResolution.scope())
+                            + " (source_id=" + sourceResolution.sourceId()
+                            + ", allowed=" + allowedMethods + ")"
+            );
+        }
+    }
+
+    private void validateDatasetMethodRestriction(UUID datasetId, List<String> methodCodes) {
+        DatasetResolution datasetResolution = resolveDatasetScope(datasetId, true);
+        Set<String> allowedMethods = allowedMethodCodesForScope(datasetResolution.scope());
+        for (String methodCode : methodCodes) {
+            if (!allowedMethods.contains(methodCode)) {
+                throw new IllegalArgumentException(
+                        "method_code " + methodCode
+                                + " is not allowed for dataset "
+                                + datasetResolution.context().datasetKey()
+                                + " (dataset_id=" + datasetId
+                                + ", scope=" + scopeLabel(datasetResolution.scope())
+                                + ", allowed=" + allowedMethods + ")"
+                );
+            }
+        }
+    }
+
+    private SourceResolution resolveSourceScope(String sourceId, String sourceDocumentId, boolean strict) {
+        String normalizedSourceId = blankToNull(sourceId);
+        String normalizedSourceDocumentId = blankToNull(sourceDocumentId);
+        if (normalizedSourceId == null && normalizedSourceDocumentId == null) {
+            if (strict) {
+                throw new IllegalArgumentException("source_id or source_document_id is required");
+            }
+            return null;
+        }
+
+        String sourceIdFromDocument = null;
+        if (normalizedSourceDocumentId != null) {
+            sourceIdFromDocument = repository.findSourceIdByDocumentId(normalizedSourceDocumentId)
+                    .orElseThrow(() -> new IllegalArgumentException("source document not found: " + normalizedSourceDocumentId));
+        }
+
+        if (normalizedSourceId != null
+                && sourceIdFromDocument != null
+                && !normalizedSourceId.equalsIgnoreCase(sourceIdFromDocument)) {
+            throw new IllegalArgumentException(
+                    "source_id and source_document_id mismatch: source_id=" + normalizedSourceId
+                            + ", source_document_id=" + normalizedSourceDocumentId
+                            + ", resolved_source_id=" + sourceIdFromDocument
+            );
+        }
+
+        String effectiveSourceId = normalizedSourceId != null ? normalizedSourceId : sourceIdFromDocument;
+        if (effectiveSourceId == null) {
+            if (strict) {
+                throw new IllegalArgumentException("unable to resolve source scope");
+            }
+            return null;
+        }
+
+        AdminConsoleRepository.SourceStrategyContext sourceContext = repository.findSourceStrategyContext(effectiveSourceId)
+                .orElse(null);
+        StrategyScope scope = inferSourceScope(effectiveSourceId, sourceContext);
+        if (strict && scope == StrategyScope.UNKNOWN) {
+            throw new IllegalArgumentException(
+                    "unable to determine source strategy scope: source_id=" + effectiveSourceId
+                            + " (expected spring-source or python-ko-source)"
+            );
+        }
+        return new SourceResolution(effectiveSourceId, sourceContext, scope);
+    }
+
+    private DatasetResolution resolveDatasetScope(UUID datasetId, boolean strict) {
+        AdminConsoleRepository.DatasetStrategyContext context = repository.findDatasetStrategyContext(datasetId)
+                .orElseThrow(() -> new IllegalArgumentException("dataset not found: " + datasetId));
+        StrategyScope scope = inferDatasetScope(context);
+        if (strict && scope == StrategyScope.UNKNOWN) {
+            throw new IllegalArgumentException(
+                    "unable to determine dataset strategy scope: dataset_id=" + datasetId
+                            + ", dataset_key=" + context.datasetKey()
+                            + " (expected spring-techdoc or python-kr dataset)"
+            );
+        }
+        return new DatasetResolution(context, scope);
+    }
+
+    private StrategyScope inferSourceScope(String sourceId, AdminConsoleRepository.SourceStrategyContext context) {
+        String normalizedSourceId = normalizeHint(sourceId);
+        String normalizedProductName = normalizeHint(context == null ? null : context.productName());
+        String normalizedSourceName = normalizeHint(context == null ? null : context.sourceName());
+        String normalizedSourceType = normalizeHint(context == null ? null : context.sourceType());
+
+        boolean springHint = containsSpringHint(normalizedSourceId)
+                || containsSpringHint(normalizedProductName)
+                || containsSpringHint(normalizedSourceName);
+        boolean pythonHint = containsPythonHint(normalizedSourceId)
+                || containsPythonHint(normalizedProductName)
+                || containsPythonHint(normalizedSourceName)
+                || containsPythonHint(normalizedSourceType);
+        boolean koreanHint = containsKoreanHint(normalizedSourceId)
+                || containsKoreanHint(normalizedProductName)
+                || containsKoreanHint(normalizedSourceName)
+                || (context != null && context.hasKoDocuments());
+        boolean englishHint = context != null && context.hasEnDocuments();
+
+        if (springHint && !pythonHint) {
+            return StrategyScope.SPRING_TECHDOC;
+        }
+        if (pythonHint && !springHint && (koreanHint || !englishHint)) {
+            return StrategyScope.PYTHON_KR;
+        }
+        return StrategyScope.UNKNOWN;
+    }
+
+    private StrategyScope inferDatasetScope(AdminConsoleRepository.DatasetStrategyContext context) {
+        String metadataProfile = normalizeHint(context.metadataStrategyProfile());
+        if (SCOPE_LABEL_SPRING_TECHDOC.equals(metadataProfile)) {
+            return StrategyScope.SPRING_TECHDOC;
+        }
+        if (SCOPE_LABEL_PYTHON_KR.equals(metadataProfile)) {
+            return StrategyScope.PYTHON_KR;
+        }
+
+        String datasetKey = normalizeHint(context.datasetKey());
+        String metadataLanguage = normalizeHint(context.metadataQueryLanguage());
+        boolean springHint = context.hasSpringSamples() || containsSpringHint(datasetKey);
+        boolean pythonHint = context.hasPythonSamples() || containsPythonHint(datasetKey);
+        boolean koreanHint = context.hasKoQueries()
+                || QUERY_LANGUAGE_KO.equals(metadataLanguage)
+                || containsKoreanHint(datasetKey);
+
+        if (pythonHint && !springHint && koreanHint) {
+            return StrategyScope.PYTHON_KR;
+        }
+        if (springHint && !pythonHint) {
+            return StrategyScope.SPRING_TECHDOC;
+        }
+        return StrategyScope.UNKNOWN;
+    }
+
+    private Set<String> allowedMethodCodesForScope(StrategyScope scope) {
+        return switch (scope) {
+            case SPRING_TECHDOC -> SPRING_TECHDOC_METHOD_CODES;
+            case PYTHON_KR -> PYTHON_KR_METHOD_CODES;
+            case UNKNOWN -> ALL_METHOD_CODES;
+        };
+    }
+
+    private String scopeLabel(StrategyScope scope) {
+        return switch (scope) {
+            case SPRING_TECHDOC -> SCOPE_LABEL_SPRING_TECHDOC;
+            case PYTHON_KR -> SCOPE_LABEL_PYTHON_KR;
+            case UNKNOWN -> "unknown";
+        };
+    }
+
+    private boolean containsSpringHint(String normalizedText) {
+        if (normalizedText == null || normalizedText.isBlank()) {
+            return false;
+        }
+        return normalizedText.contains("spring")
+                || normalizedText.contains("docs_spring");
+    }
+
+    private boolean containsPythonHint(String normalizedText) {
+        if (normalizedText == null || normalizedText.isBlank()) {
+            return false;
+        }
+        return normalizedText.contains("python");
+    }
+
+    private boolean containsKoreanHint(String normalizedText) {
+        if (normalizedText == null || normalizedText.isBlank()) {
+            return false;
+        }
+        return normalizedText.contains("ko")
+                || normalizedText.contains("kr")
+                || normalizedText.contains("korean");
+    }
+
+    private String normalizeHint(String value) {
+        if (value == null || value.isBlank()) {
+            return "";
+        }
+        return value.trim().toLowerCase(Locale.ROOT);
+    }
+
+    private boolean isEnglishOnlyMethod(String methodCode) {
+        String normalized = normalizeOptionalMethodCode(methodCode);
+        return "E".equals(normalized) || "F".equals(normalized);
+    }
+
     private String normalizeMethodCode(String value) {
         if (value == null || value.isBlank()) {
             throw new IllegalArgumentException("method_code is required");
@@ -1931,7 +2185,7 @@ public class AdminConsoleService {
     }
 
     private Map<String, Object> resolveRuleConfig(String methodCode, AdminConsoleDtos.GatingRuleConfig request) {
-        boolean englishOnly = "E".equalsIgnoreCase(methodCode);
+        boolean englishOnly = isEnglishOnlyMethod(methodCode);
         Map<String, Object> ruleConfig = new LinkedHashMap<>();
         ruleConfig.put(
                 "rule_min_len_short",
@@ -2058,7 +2312,7 @@ public class AdminConsoleService {
     }
 
     private Map<String, Object> baseExperimentConfig(String experimentKey, String methodCode) {
-        boolean englishOnly = "E".equalsIgnoreCase(methodCode);
+        boolean englishOnly = isEnglishOnlyMethod(methodCode);
         Map<String, Object> config = new LinkedHashMap<>();
         config.put("experiment_key", experimentKey);
         config.put("category", "admin");

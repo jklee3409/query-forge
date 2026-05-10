@@ -23,8 +23,12 @@ public class AdminConsoleController {
     private final AdminConsoleService service;
 
     @GetMapping("/synthetic/methods")
-    public List<AdminConsoleDtos.SyntheticGenerationMethod> syntheticMethods() {
-        return service.listGenerationMethods();
+    public List<AdminConsoleDtos.SyntheticGenerationMethod> syntheticMethods(
+            @RequestParam(name = "source_id", required = false) String sourceId,
+            @RequestParam(name = "source_document_id", required = false) String sourceDocumentId,
+            @RequestParam(name = "dataset_id", required = false) UUID datasetId
+    ) {
+        return service.listGenerationMethods(sourceId, sourceDocumentId, datasetId);
     }
 
     @GetMapping("/synthetic/batches")
