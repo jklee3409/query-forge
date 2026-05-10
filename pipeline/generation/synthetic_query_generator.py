@@ -75,8 +75,9 @@ SUMMARY_KO_RESPONSE_SCHEMA: dict[str, Any] = {
 
 QUERY_BASE_RESPONSE_SCHEMA: dict[str, Any] = {
     "type": "object",
-    "required": ["query_ko"],
+    "required": [],
     "properties": {
+        "query": {"type": "string"},
         "query_ko": {"type": "string"},
         "query_en": {"type": "string"},
         "query_code_mixed": {"type": "string"},
@@ -87,12 +88,26 @@ QUERY_BASE_RESPONSE_SCHEMA: dict[str, Any] = {
     "additionalProperties": True,
 }
 
+QUERY_TEXT_FIELDS: tuple[str, ...] = ("query", "query_en", "query_ko", "query_code_mixed")
+
+QUERY_REQUIRED_FIELDS_BY_STRATEGY: dict[str, tuple[str, ...]] = {
+    "A": ("query_en", "query_ko"),
+    "B": ("query_ko",),
+    "C": ("query_ko",),
+    "D": ("query_ko", "query_code_mixed"),
+    "E": ("query_en",),
+    "F": ("query_ko", "query_en"),
+    "G": ("query_ko",),
+}
+
 STRATEGY_RAW_TABLES: dict[str, str] = {
     "A": "synthetic_queries_raw_a",
     "B": "synthetic_queries_raw_b",
     "C": "synthetic_queries_raw_c",
     "D": "synthetic_queries_raw_d",
     "E": "synthetic_queries_raw_e",
+    "F": "synthetic_queries_raw_f",
+    "G": "synthetic_queries_raw_g",
 }
 
 
@@ -154,6 +169,8 @@ def _resolve_prompt_bundle(
         "C": prompt_root / "query_generation" / "gen_c_v1.md",
         "D": prompt_root / "query_generation" / "gen_d_v1.md",
         "E": prompt_root / "query_generation" / "gen_e_v1.md",
+        "F": prompt_root / "query_generation" / "gen_f_v1.md",
+        "G": prompt_root / "query_generation" / "gen_g_v1.md",
     }
     for required_path in (summary_en_path, summary_ko_path, translate_path, *query_paths.values()):
         if not required_path.exists():
@@ -341,8 +358,19 @@ def _normalize_query_text(text: str) -> str:
     return " ".join(text.strip().lower().split())
 
 
+def _query_response_schema_for_strategy(generation_strategy: str) -> dict[str, Any]:
+    strategy = generation_strategy.strip().upper()
+    required_fields = QUERY_REQUIRED_FIELDS_BY_STRATEGY.get(strategy)
+    if required_fields is None:
+        raise ValueError(f"unsupported generation strategy for response schema: {generation_strategy}")
+    return {
+        **QUERY_BASE_RESPONSE_SCHEMA,
+        "required": list(required_fields),
+    }
+
+
 def _language_profile(strategy: str, query_type: str) -> str:
-    if strategy == "E":
+    if strategy in {"E", "F"}:
         return "en"
     if strategy == "D" or query_type == "code_mixed":
         return "code_mixed"
@@ -614,18 +642,18 @@ def _extract_query_text(
     query_type: str,
     response: dict[str, Any],
 ) -> tuple[str, dict[str, Any]]:
-    def _fallback_query_text() -> str:
-        primary_keys = ("query_en", "query_ko") if generation_strategy == "E" else ("query_ko", "query_en")
-        candidate_keys = (
-            *primary_keys,
-            "query_text",
-            "query",
-            "question",
-            "search_query",
-            "synthetic_query",
-            "query_korean",
-        )
+    def _read_query_field(*candidate_keys: str) -> str:
+        normalized_keys: list[str] = []
+        seen: set[str] = set()
         for key in candidate_keys:
+            key_name = str(key).strip()
+            if key_name in QUERY_TEXT_FIELDS and key_name not in seen:
+                seen.add(key_name)
+                normalized_keys.append(key_name)
+        if not normalized_keys:
+            normalized_keys = list(QUERY_TEXT_FIELDS)
+
+        for key in normalized_keys:
             value = response.get(key)
             if isinstance(value, str) and value.strip():
                 return value.strip()
@@ -633,33 +661,35 @@ def _extract_query_text(
         queries_value = response.get("queries")
         if isinstance(queries_value, list):
             for item in queries_value:
-                if isinstance(item, str) and item.strip():
-                    return item.strip()
-                if isinstance(item, dict):
-                    for key in candidate_keys:
-                        value = item.get(key)
-                        if isinstance(value, str) and value.strip():
-                            return value.strip()
-
-        for value in response.values():
-            if isinstance(value, str) and value.strip():
-                return value.strip()
+                if not isinstance(item, dict):
+                    continue
+                for key in normalized_keys:
+                    value = item.get(key)
+                    if isinstance(value, str) and value.strip():
+                        return value.strip()
         return ""
 
-    if generation_strategy == "A":
-        query_text = str(response.get("query_ko") or "").strip() or _fallback_query_text()
-        query_en = str(response.get("query_en") or "").strip()
+    strategy = generation_strategy.strip().upper()
+    if strategy == "A":
+        query_text = _read_query_field("query_ko", "query_en", "query")
+        query_en = _read_query_field("query_en", "query")
         return query_text, {"query_en": query_en}
-    if generation_strategy == "E":
-        query_en = str(response.get("query_en") or "").strip() or _fallback_query_text()
+    if strategy == "E":
+        query_en = _read_query_field("query_en", "query", "query_ko")
         return query_en, {"query_en": query_en}
-    if generation_strategy == "D":
-        query_ko = str(response.get("query_ko") or "").strip() or _fallback_query_text()
-        query_code_mixed = str(response.get("query_code_mixed") or "").strip()
+    if strategy == "F":
+        query_en = _read_query_field("query_en", "query", "query_ko")
+        query_ko = _read_query_field("query_ko")
+        return query_en, {"query_en": query_en, "query_ko": query_ko}
+    if strategy == "D":
+        query_ko = _read_query_field("query_ko", "query")
+        query_code_mixed = _read_query_field("query_code_mixed")
         if query_type == "code_mixed" and query_code_mixed:
             return query_code_mixed, {"query_ko": query_ko, "query_code_mixed": query_code_mixed}
-        return query_ko, {"query_code_mixed": query_code_mixed}
-    return str(response.get("query_ko") or "").strip() or _fallback_query_text(), {}
+        return (query_ko or query_code_mixed), {"query_ko": query_ko, "query_code_mixed": query_code_mixed}
+    if strategy in {"B", "C", "G"}:
+        return _read_query_field("query_ko", "query", "query_en"), {}
+    return _read_query_field("query_ko", "query_en", "query"), {}
 
 
 def _raw_table_for_strategy(generation_strategy: str) -> str:
@@ -1003,20 +1033,23 @@ def run_generation(
                     ]
                 )
 
-                en_summary_asset_id, en_summary, en_summary_cached = _resolve_or_create_summary_en(
-                    connection,
-                    chunk=chunk,
-                    source_fingerprint=source_fingerprint,
-                    prompt_asset=prompts.summary_en_asset,
-                    prompt_text=prompts.summary_en_text,
-                    client=summary_client,
-                )
-                if en_summary_cached:
-                    asset_cache_hits["EN_EXTRACTIVE_SUMMARY"] += 1
-                else:
-                    asset_created["EN_EXTRACTIVE_SUMMARY"] += 1
+                generation_asset_ids: list[str] = []
+                en_summary = ""
+                if generation_strategy in {"A", "B", "C", "D", "E"}:
+                    en_summary_asset_id, en_summary, en_summary_cached = _resolve_or_create_summary_en(
+                        connection,
+                        chunk=chunk,
+                        source_fingerprint=source_fingerprint,
+                        prompt_asset=prompts.summary_en_asset,
+                        prompt_text=prompts.summary_en_text,
+                        client=summary_client,
+                    )
+                    if en_summary_cached:
+                        asset_cache_hits["EN_EXTRACTIVE_SUMMARY"] += 1
+                    else:
+                        asset_created["EN_EXTRACTIVE_SUMMARY"] += 1
+                    generation_asset_ids.append(en_summary_asset_id)
 
-                generation_asset_ids = [en_summary_asset_id]
                 translated_chunk_ko = ""
                 summary_ko = ""
 
@@ -1066,6 +1099,22 @@ def run_generation(
                     else:
                         asset_created["KO_SUMMARY"] += 1
                     generation_asset_ids.append(summary_ko_asset_id)
+                elif generation_strategy in {"F", "G"}:
+                    summary_ko_asset_id, summary_ko, summary_ko_cached = _resolve_or_create_summary_ko(
+                        connection,
+                        chunk=chunk,
+                        source_fingerprint=source_fingerprint,
+                        prompt_asset=prompts.summary_ko_asset,
+                        prompt_text=prompts.summary_ko_text,
+                        prompt_version_suffix=generation_strategy,
+                        source_text_ko=chunk.chunk_text,
+                        client=summary_client,
+                    )
+                    if summary_ko_cached:
+                        asset_cache_hits["KO_SUMMARY"] += 1
+                    else:
+                        asset_created["KO_SUMMARY"] += 1
+                    generation_asset_ids.append(summary_ko_asset_id)
 
                 if _find_cached_query(
                     connection,
@@ -1102,6 +1151,7 @@ def run_generation(
                     "product": chunk.product_name,
                     "version": chunk.version_label,
                     "original_chunk_en": chunk.chunk_text,
+                    "original_chunk_ko": chunk.chunk_text,
                     "extractive_summary_en": en_summary,
                     "translated_chunk_ko": translated_chunk_ko,
                     "extractive_summary_ko": summary_ko,
@@ -1110,11 +1160,12 @@ def run_generation(
                     "answerability_type": answerability_type,
                     "target_chunk_ids": target_chunk_ids,
                 }
+                query_response_schema = _query_response_schema_for_strategy(generation_strategy)
                 query_response = _llm_json(
                     query_client,
                     prompt_text=query_prompt_text,
                     payload=query_payload,
-                    response_schema=QUERY_BASE_RESPONSE_SCHEMA,
+                    response_schema=query_response_schema,
                     request_purpose="generate_query",
                     trace_id=f"query:{stable_query_id}",
                 )
@@ -1128,7 +1179,7 @@ def run_generation(
                         query_client,
                         prompt_text=query_prompt_text,
                         payload={**query_payload, "retry_hint": "query_text_must_not_be_empty"},
-                        response_schema=QUERY_BASE_RESPONSE_SCHEMA,
+                        response_schema=query_response_schema,
                         request_purpose="generate_query_retry",
                         trace_id=f"query:{stable_query_id}",
                     )
@@ -1149,7 +1200,7 @@ def run_generation(
 
                 normalized_query_text = _normalize_query_text(query_text)
                 language_profile = _language_profile(generation_strategy, query_type)
-                query_language = "en" if generation_strategy == "E" else "ko"
+                query_language = "en" if generation_strategy in {"E", "F"} else "ko"
                 payload = {
                     "synthetic_query_id": stable_query_id,
                     "experiment_run_id": run_context.experiment_run_id,

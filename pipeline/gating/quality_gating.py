@@ -183,9 +183,9 @@ def _load_raw_queries(
                    target_chunk_ids,
                    answerability_type,
                    query_text,
-                   COALESCE(NULLIF(query_language, ''), CASE WHEN generation_strategy = 'E' THEN 'en' ELSE 'ko' END) AS query_language,
+                   COALESCE(NULLIF(query_language, ''), CASE WHEN generation_strategy IN ('E', 'F') THEN 'en' ELSE 'ko' END) AS query_language,
                    COALESCE(NULLIF(language_profile, ''), CASE
-                       WHEN generation_strategy = 'E' THEN 'en'
+                       WHEN generation_strategy IN ('E', 'F') THEN 'en'
                        WHEN query_type = 'code_mixed' THEN 'code_mixed'
                        ELSE 'ko'
                    END) AS language_profile,

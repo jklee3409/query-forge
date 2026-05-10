@@ -210,6 +210,55 @@ def _strategy_specs(prompt_root: Path) -> dict[str, StrategySpec]:
             required_keys=("query_ko", "query_code_mixed", "query_type", "answerability_type"),
             eval_keys=("query_ko", "query_code_mixed"),
         ),
+        "E": StrategySpec(
+            strategy="E",
+            prompt_path=prompt_root / "query_generation" / "gen_e_v1.md",
+            response_schema={
+                "type": "object",
+                "required": ["query_en", "query_type", "answerability_type", "style_note"],
+                "properties": {
+                    "query_en": {"type": "string"},
+                    "query_type": {"type": "string"},
+                    "answerability_type": {"type": "string"},
+                    "style_note": {"type": "string"},
+                },
+            },
+            required_keys=("query_en", "query_type", "answerability_type", "style_note"),
+            eval_keys=("query_en",),
+        ),
+        "F": StrategySpec(
+            strategy="F",
+            prompt_path=prompt_root / "query_generation" / "gen_f_v1.md",
+            response_schema={
+                "type": "object",
+                "required": ["query_ko", "query_en", "query_type", "answerability_type", "style_note"],
+                "properties": {
+                    "query_ko": {"type": "string"},
+                    "query_en": {"type": "string"},
+                    "query_type": {"type": "string"},
+                    "answerability_type": {"type": "string"},
+                    "style_note": {"type": "string"},
+                },
+            },
+            required_keys=("query_ko", "query_en", "query_type", "answerability_type", "style_note"),
+            eval_keys=("query_en", "query_ko"),
+        ),
+        "G": StrategySpec(
+            strategy="G",
+            prompt_path=prompt_root / "query_generation" / "gen_g_v1.md",
+            response_schema={
+                "type": "object",
+                "required": ["query_ko", "query_type", "answerability_type", "style_note"],
+                "properties": {
+                    "query_ko": {"type": "string"},
+                    "query_type": {"type": "string"},
+                    "answerability_type": {"type": "string"},
+                    "style_note": {"type": "string"},
+                },
+            },
+            required_keys=("query_ko", "query_type", "answerability_type", "style_note"),
+            eval_keys=("query_ko",),
+        ),
     }
 
 
@@ -281,7 +330,7 @@ def _is_generic(text: str) -> bool:
     return len(normalized) < 20
 
 
-def _style_match(query_type: str, text: str) -> bool:
+def _style_match(strategy: str, query_type: str, text: str) -> bool:
     lowered = (text or "").lower()
     if query_type == "definition":
         return any(token in lowered for token in ("무엇", "뜻", "개념", "의미"))
@@ -294,6 +343,8 @@ def _style_match(query_type: str, text: str) -> bool:
     if query_type == "short_user":
         return 8 <= len(text or "") <= 45
     if query_type == "code_mixed":
+        if strategy in {"E", "F"}:
+            return _contains_english_token(text)
         return _contains_korean(text) and _contains_english_token(text)
     if query_type == "follow_up":
         return any(token in lowered for token in ("그럼", "그러면", "이 경우", "그 상태"))
@@ -480,7 +531,7 @@ def _call_case(
             "query_length_avg": round(avg_len, 2),
             "anchor_present": any(_anchor_present(item) for item in texts),
             "generic_question": _is_generic(representative),
-            "style_match": _style_match(case.query_type, representative),
+            "style_match": _style_match(case.strategy, case.query_type, representative),
             "query_preview": representative[:200],
             "provider": meta.get("provider"),
             "provider_type": meta.get("provider_type"),
@@ -946,13 +997,13 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
             query_type="procedure",
             answerability_type="single",
         )
-        for strategy in ("A", "B", "C", "D")
+        for strategy in ("A", "B", "C", "D", "E", "F", "G")
     ]
     batch_cases = _build_case_matrix(
         phase="batch",
         provider_label="gemini-native",
         count=args.batch_size,
-        strategies=["A", "B", "C", "D"],
+        strategies=["A", "B", "C", "D", "E", "F", "G"],
         query_types=["definition", "reason", "procedure", "comparison", "short_user", "code_mixed", "follow_up"],
         answerability_types=["single", "near", "far"],
         seed=17,
@@ -961,7 +1012,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         phase="load",
         provider_label="gemini-native",
         count=args.load_size,
-        strategies=["A", "B", "C", "D"],
+        strategies=["A", "B", "C", "D", "E", "F", "G"],
         query_types=["reason", "procedure", "comparison", "follow_up"],
         answerability_types=["single", "near", "far"],
         seed=23,
@@ -970,7 +1021,7 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         phase="provider_compare",
         provider_label="gemini-native",
         count=args.provider_compare_size,
-        strategies=["A", "B", "C", "D"],
+        strategies=["A", "B", "C", "D", "E", "F", "G"],
         query_types=["definition", "reason", "procedure", "comparison"],
         answerability_types=["single", "near", "far"],
         seed=29,

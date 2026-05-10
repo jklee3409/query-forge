@@ -32,7 +32,9 @@ public class AdminConsoleRepository {
             "synthetic_queries_raw_b",
             "synthetic_queries_raw_c",
             "synthetic_queries_raw_d",
-            "synthetic_queries_raw_e"
+            "synthetic_queries_raw_e",
+            "synthetic_queries_raw_f",
+            "synthetic_queries_raw_g"
     );
 
     private final NamedParameterJdbcTemplate jdbcTemplate;
@@ -809,7 +811,7 @@ public class AdminConsoleRepository {
                        COALESCE(
                            r.language_profile,
                            CASE
-                               WHEN r.generation_strategy = 'E' THEN 'en'
+                               WHEN r.generation_strategy IN ('E', 'F') THEN 'en'
                                WHEN r.query_type = 'code_mixed' THEN 'code_mixed'
                                ELSE 'ko'
                            END
@@ -2582,7 +2584,7 @@ public class AdminConsoleRepository {
                     language_profile = COALESCE(
                         r.language_profile,
                         CASE
-                            WHEN r.generation_strategy = 'E' THEN 'en'
+                            WHEN r.generation_strategy IN ('E', 'F') THEN 'en'
                             WHEN r.query_type = 'code_mixed' THEN 'code_mixed'
                             ELSE 'ko'
                         END
