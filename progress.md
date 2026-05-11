@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-05-11] Session Summary (F/G-A/C/D 구조 점검 + Synthetic 배치 생성수 실시간 반영)
+- What was done: Reviewed current implementation paths for `F/G` vs `A/C/D` (generation/gating/memory/eval/admin wiring) and implemented real-time synthetic batch count reflection by combining backend live-count SQL with frontend polling.
+- Key decisions: Kept pipeline/research flow unchanged; applied minimum-scope edits only to synthetic batch read path and synthetic page refresh behavior.
+- Issues encountered: None.
+- Next steps: Validate `/admin/synthetic-queries` batch history count growth during active generation jobs and continue KR-source evaluation dataset scope verification.
+
 ## Overview
 High-level progress tracking for the project.
 

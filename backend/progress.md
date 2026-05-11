@@ -3,6 +3,12 @@
 ## Overview
 High-level backend progress tracking.
 
+## [2026-05-11] Session Summary (Synthetic Batch Live Count Query Reflection)
+- What was done: Updated `AdminConsoleRepository.findGenerationBatches` and `findGenerationBatch` to return `total_generated_count` as the max of persisted batch count and live raw-row count (`synthetic_queries_raw_all` by `generation_batch_id`).
+- Key decisions: Kept generation job lifecycle/status update flow unchanged and avoided schema/API contract changes by reusing the existing `totalGeneratedCount` field.
+- Issues encountered: None.
+- Next steps: Verify running batch rows in `/api/admin/console/synthetic/batches` increase during `GENERATE_SYNTHETIC_QUERY` execution before batch completion.
+
 ## [2026-05-10] Session Summary (Source/Dataset Method Restriction + Synthetic Stats Method-Zero Stability)
 - What was done: Added source/dataset strategy-scope guards in `AdminConsoleService` to enforce `Spring -> A~E`, `Python KR -> F/G` for synthetic generation and dataset-bound RAG requests. Extended `AdminConsoleController` synthetic methods API to accept optional context params (`source_id`, `source_document_id`, `dataset_id`) and return filtered methods. Added repository scope resolvers (`findSourceIdByDocumentId`, `findSourceStrategyContext`, `findDatasetStrategyContext`) and fixed synthetic stats `byMethod` aggregation to keep method metadata rows even when count is `0`.
 - Key decisions: Prevented ambiguous cross-domain generation by requiring `source_id` or `source_document_id` on synthetic run creation, while keeping context-less method listing available for full inventory view (`A~G`).

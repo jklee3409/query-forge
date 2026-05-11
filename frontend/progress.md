@@ -3,6 +3,12 @@
 ## Overview
 High-level progress tracking for the project.
 
+## [2026-05-11] Session Summary (Synthetic Batch History Real-time Refresh)
+- What was done: Updated `SyntheticPage.jsx` to poll `/api/admin/console/synthetic/batches` every 3 seconds while any generation batch is in `planned/queued/running` status, so batch history count/status refreshes automatically.
+- Key decisions: Kept existing manual refresh button and data model unchanged; added polling only for active-generation windows to minimize network overhead.
+- Issues encountered: None.
+- Next steps: Validate UI behavior with concurrent generation jobs and tune polling interval if operator feedback requests faster/slower refresh.
+
 ## [2026-05-10] Session Summary (Synthetic Method Dropdown Source-Scope Restriction)
 - What was done: Updated `SyntheticPage.jsx` to load source-scoped method options for the synthetic run form and keep selected method validity when source/source-document selection changes. Added `fetchSyntheticMethods(...)` helper in `src/lib/api.js` to call `/api/admin/console/synthetic/methods` with optional `source_id/source_document_id/dataset_id`.
 - Key decisions: Kept method inventory table/filter (`methods`) unchanged and applied scope restriction only to run-execution dropdown (`runMethods`) so existing monitoring views do not regress.
