@@ -30,6 +30,7 @@ Python pipeline for data processing, synthetic query generation, quality gating,
 - Gating/memory/eval reads use `synthetic_queries_raw_all` (union view over split tables).
 - KR-source strategy variants `F/G` are physical-split strategies and do not reuse `C/E` raw tables.
 - `F/G` Korean summary generation path applies a higher summary output-token floor (min `2048`) and truncation-only source-length fallback retries (`3200/2200/1400 chars`) to reduce `MAX_TOKENS` failures on long KR source chunks, without affecting other strategy/stage token budgets.
+- `F/G` generation now defaults to deterministic extractive KO summaries (`fg_summary_mode=extractive`) to avoid a per-chunk summary LLM call, strips chunk overlap context before prompting, scopes relation/glossary loading to selected source data, and passes `related_chunks_ko` evidence for near/far query grounding.
 - This directory assumes DB migration `V17` is applied before runtime execution.
 - Quality gating rule thresholds include configurable Korean-ratio keys (`rule_min_korean_ratio`, `rule_min_korean_ratio_code_mixed`).
 - Quality gating self-eval now accepts language-neutral `naturalness` scoring while keeping backward compatibility with legacy `korean_naturalness` outputs.

@@ -102,6 +102,11 @@ QUERY_REQUIRED_FIELDS_BY_STRATEGY: dict[str, tuple[str, ...]] = {
 
 FG_SUMMARY_KO_MIN_MAX_TOKENS = 2048
 FG_SUMMARY_KO_SOURCE_CHAR_LIMITS_ON_TRUNCATION: tuple[int, ...] = (3200, 2200, 1400)
+FG_DETERMINISTIC_SUMMARY_PROVIDER = "deterministic"
+FG_DETERMINISTIC_SUMMARY_MODEL = "extractive-ko-v1"
+FG_DEFAULT_SUMMARY_MAX_CHARS = 1800
+FG_RELATED_CHUNK_MAX_CHARS = 900
+OVERLAP_CONTEXT_LABEL = "Overlap context from previous chunk:"
 
 STRATEGY_RAW_TABLES: dict[str, str] = {
     "A": "synthetic_queries_raw_a",
@@ -256,19 +261,37 @@ def _load_chunks(
 
 def _load_relations(
     connection: psycopg.Connection[Any],
+    *,
+    chunk_ids: set[str] | None = None,
 ) -> dict[str, dict[str, list[str]]]:
     relations: dict[str, dict[str, list[str]]] = defaultdict(
         lambda: {"near": [], "far": []}
     )
+    selected_chunk_ids = sorted(chunk_ids or [])
+    if chunk_ids is not None and not selected_chunk_ids:
+        return relations
     with connection.cursor() as cursor:
-        cursor.execute(
-            """
-            SELECT source_chunk_id, target_chunk_id, relation_type
-            FROM corpus_chunk_relations
-            WHERE relation_type IN ('near', 'far')
-            ORDER BY source_chunk_id, relation_type, distance_in_doc
-            """
-        )
+        if selected_chunk_ids:
+            cursor.execute(
+                """
+                SELECT source_chunk_id, target_chunk_id, relation_type
+                FROM corpus_chunk_relations
+                WHERE relation_type IN ('near', 'far')
+                  AND source_chunk_id = ANY(%s)
+                  AND target_chunk_id = ANY(%s)
+                ORDER BY source_chunk_id, relation_type, distance_in_doc
+                """,
+                (selected_chunk_ids, selected_chunk_ids),
+            )
+        else:
+            cursor.execute(
+                """
+                SELECT source_chunk_id, target_chunk_id, relation_type
+                FROM corpus_chunk_relations
+                WHERE relation_type IN ('near', 'far')
+                ORDER BY source_chunk_id, relation_type, distance_in_doc
+                """
+            )
         for row in cursor.fetchall():
             source_chunk_id = str(row["source_chunk_id"])
             target_chunk_id = str(row["target_chunk_id"])
@@ -279,18 +302,35 @@ def _load_relations(
 
 def _load_glossary(
     connection: psycopg.Connection[Any],
+    *,
+    document_ids: set[str] | None = None,
 ) -> dict[str, list[str]]:
     glossary_by_doc: dict[str, list[str]] = defaultdict(list)
+    selected_document_ids = sorted(document_ids or [])
+    if document_ids is not None and not selected_document_ids:
+        return glossary_by_doc
     with connection.cursor() as cursor:
-        cursor.execute(
-            """
-            SELECT first_seen_document_id, canonical_form
-            FROM corpus_glossary_terms
-            WHERE is_active = TRUE
-              AND first_seen_document_id IS NOT NULL
-            ORDER BY evidence_count DESC, canonical_form
-            """
-        )
+        if selected_document_ids:
+            cursor.execute(
+                """
+                SELECT first_seen_document_id, canonical_form
+                FROM corpus_glossary_terms
+                WHERE is_active = TRUE
+                  AND first_seen_document_id = ANY(%s)
+                ORDER BY evidence_count DESC, canonical_form
+                """,
+                (selected_document_ids,),
+            )
+        else:
+            cursor.execute(
+                """
+                SELECT first_seen_document_id, canonical_form
+                FROM corpus_glossary_terms
+                WHERE is_active = TRUE
+                  AND first_seen_document_id IS NOT NULL
+                ORDER BY evidence_count DESC, canonical_form
+                """
+            )
         for row in cursor.fetchall():
             document_id = str(row["first_seen_document_id"])
             term = str(row["canonical_form"])
@@ -406,6 +446,94 @@ def _summary_source_text_candidates(*, generation_strategy: str, source_text_ko:
         seen.add(candidate)
         deduped.append(candidate)
     return deduped
+
+
+def _primary_chunk_text(source_text: str) -> str:
+    text = str(source_text or "").replace("\r\n", "\n").strip()
+    if not text.startswith(OVERLAP_CONTEXT_LABEL):
+        return text
+    parts = text.split("\n\n", 1)
+    if len(parts) == 2 and parts[1].strip():
+        return parts[1].strip()
+    lines = text.splitlines()
+    for index, line in enumerate(lines[1:], start=1):
+        if not line.strip():
+            primary_text = "\n".join(lines[index + 1 :]).strip()
+            return primary_text or text
+    return text
+
+
+def _compact_ko_evidence_summary(source_text_ko: str, *, max_chars: int = FG_DEFAULT_SUMMARY_MAX_CHARS) -> str:
+    max_chars = max(200, int(max_chars))
+    text = _primary_chunk_text(source_text_ko)
+    if len(text) <= max_chars:
+        return text
+
+    paragraphs = [paragraph.strip() for paragraph in text.split("\n\n") if paragraph.strip()]
+    if not paragraphs:
+        return text[:max_chars].rstrip()
+
+    selected: list[str] = []
+    for paragraph in paragraphs:
+        lowered = paragraph.lower()
+        is_structural = paragraph.startswith("Section Path:")
+        is_technical = any(
+            marker in lowered
+            for marker in (
+                ">>>",
+                "```",
+                "`",
+                "def ",
+                "class ",
+                "import ",
+                "python",
+                "pip ",
+                "exception",
+                "traceback",
+                "async",
+                "decorator",
+                "module",
+                "attribute",
+            )
+        )
+        if selected and not is_structural and not is_technical and len(paragraph) < 40:
+            continue
+        next_summary = "\n\n".join([*selected, paragraph])
+        if len(next_summary) > max_chars:
+            if not selected:
+                return paragraph[:max_chars].rstrip()
+            break
+        selected.append(paragraph)
+
+    summary = "\n\n".join(selected or [paragraphs[0]])
+    return summary[:max_chars].rstrip()
+
+
+def _fg_summary_mode(raw_config: dict[str, Any]) -> str:
+    mode = str(raw_config.get("fg_summary_mode") or "extractive").strip().lower()
+    if mode not in {"extractive", "llm"}:
+        raise ValueError("fg_summary_mode must be one of: extractive, llm")
+    return mode
+
+
+def _fg_summary_max_chars(raw_config: dict[str, Any]) -> int:
+    raw_value = raw_config.get("fg_summary_max_chars", FG_DEFAULT_SUMMARY_MAX_CHARS)
+    try:
+        value = int(raw_value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("fg_summary_max_chars must be an integer") from exc
+    return max(600, min(value, 4000))
+
+
+def _generation_strategy_for_query_type(
+    base_strategy: str,
+    query_type: str,
+    enable_code_mixed: bool,
+) -> str:
+    strategy = base_strategy.strip().upper()
+    if enable_code_mixed and query_type == "code_mixed" and strategy in {"A", "B", "C"}:
+        return "D"
+    return strategy
 
 
 def _language_profile(strategy: str, query_type: str) -> str:
@@ -698,6 +826,50 @@ def _resolve_or_create_summary_ko(
     return asset_id, summary_ko, False
 
 
+def _resolve_or_create_extractive_summary_ko(
+    connection: psycopg.Connection[Any],
+    *,
+    chunk: ChunkRow,
+    source_fingerprint: str,
+    prompt_asset: PromptAsset,
+    prompt_version_suffix: str,
+    source_text_ko: str,
+    max_chars: int,
+) -> tuple[str, str, bool]:
+    template_version = f"{prompt_asset.version}:{prompt_version_suffix}:extractive"
+    cached = _find_existing_asset(
+        connection,
+        chunk_id=chunk.chunk_id,
+        asset_type="KO_SUMMARY",
+        llm_provider=FG_DETERMINISTIC_SUMMARY_PROVIDER,
+        llm_model=FG_DETERMINISTIC_SUMMARY_MODEL,
+        prompt_template_version=template_version,
+        source_fingerprint=source_fingerprint,
+    )
+    if cached:
+        return cached[0], cached[1], True
+
+    summary_ko = _compact_ko_evidence_summary(source_text_ko, max_chars=max_chars)
+    if not summary_ko:
+        raise RuntimeError(f"empty extractive summary_ko for chunk={chunk.chunk_id}")
+    asset_id = _create_asset(
+        connection,
+        chunk=chunk,
+        asset_type="KO_SUMMARY",
+        text_content=summary_ko,
+        llm_provider=FG_DETERMINISTIC_SUMMARY_PROVIDER,
+        llm_model=FG_DETERMINISTIC_SUMMARY_MODEL,
+        prompt_template_version=template_version,
+        source_fingerprint=source_fingerprint,
+        metadata={
+            "source": prompt_version_suffix,
+            "summary_mode": "extractive",
+            "max_chars": max_chars,
+        },
+    )
+    return asset_id, summary_ko, False
+
+
 def _extract_query_text(
     *,
     generation_strategy: str,
@@ -955,6 +1127,65 @@ def _insert_source_link(
         )
 
 
+def _insert_source_links_for_targets(
+    connection: psycopg.Connection[Any],
+    *,
+    synthetic_query_id: str,
+    primary_chunk: ChunkRow,
+    target_chunk_ids: list[str],
+    chunks_by_id: dict[str, ChunkRow],
+) -> None:
+    _insert_source_link(
+        connection,
+        synthetic_query_id=synthetic_query_id,
+        source_doc_id=primary_chunk.document_id,
+        source_chunk_id=primary_chunk.chunk_id,
+        source_chunk_group_id=None,
+        source_role="primary",
+    )
+    for target_chunk_id in target_chunk_ids:
+        if target_chunk_id == primary_chunk.chunk_id:
+            continue
+        target_chunk = chunks_by_id.get(target_chunk_id)
+        if target_chunk is None:
+            continue
+        _insert_source_link(
+            connection,
+            synthetic_query_id=synthetic_query_id,
+            source_doc_id=target_chunk.document_id,
+            source_chunk_id=target_chunk.chunk_id,
+            source_chunk_group_id=None,
+            source_role="related",
+        )
+
+
+def _related_chunks_ko_payload(
+    *,
+    primary_chunk_id: str,
+    target_chunk_ids: list[str],
+    chunks_by_id: dict[str, ChunkRow],
+) -> list[dict[str, str]]:
+    related_chunks: list[dict[str, str]] = []
+    for target_chunk_id in target_chunk_ids:
+        if target_chunk_id == primary_chunk_id:
+            continue
+        target_chunk = chunks_by_id.get(target_chunk_id)
+        if target_chunk is None:
+            continue
+        related_chunks.append(
+            {
+                "chunk_id": target_chunk.chunk_id,
+                "document_id": target_chunk.document_id,
+                "title": target_chunk.title,
+                "text_ko": _compact_ko_evidence_summary(
+                    target_chunk.chunk_text,
+                    max_chars=FG_RELATED_CHUNK_MAX_CHARS,
+                ),
+            }
+        )
+    return related_chunks
+
+
 def run_generation(
     *,
     experiment: str,
@@ -1000,6 +1231,11 @@ def run_generation(
                 "source_id": config.raw.get("source_id"),
                 "source_document_id": config.raw.get("source_document_id"),
                 "random_chunk_sampling": bool(config.raw.get("random_chunk_sampling", False)),
+                "fg_summary_mode": (
+                    config.raw.get("fg_summary_mode", "extractive")
+                    if config.generation_strategy in {"F", "G"}
+                    else None
+                ),
             },
             run_label="generate-queries",
         )
@@ -1037,11 +1273,20 @@ def run_generation(
                 source_id,
                 config.limit_chunks,
             )
-        relations = _load_relations(connection)
-        glossary_by_doc = _load_glossary(connection)
+        chunks_by_id = {chunk.chunk_id: chunk for chunk in chunks}
+        selected_chunk_ids = set(chunks_by_id)
+        selected_document_ids = {chunk.document_id for chunk in chunks}
+        relations = _load_relations(connection, chunk_ids=selected_chunk_ids)
+        glossary_by_doc = _load_glossary(connection, document_ids=selected_document_ids)
         rng = random.Random(config.random_seed)
 
-        strategy = config.generation_strategy
+        strategy = config.generation_strategy.strip().upper()
+        fg_summary_mode = _fg_summary_mode(config.raw) if strategy in {"F", "G"} else "llm"
+        fg_summary_max_chars = (
+            _fg_summary_max_chars(config.raw)
+            if strategy in {"F", "G"}
+            else FG_DEFAULT_SUMMARY_MAX_CHARS
+        )
         generation_batch_id = str(config.raw.get("generation_batch_id") or "").strip() or None
         if generation_batch_id and not _batch_exists(connection, generation_batch_id):
             LOGGER.warning(
@@ -1086,9 +1331,11 @@ def run_generation(
                     relations,
                     rng,
                 )
-                generation_strategy = strategy
-                if config.enable_code_mixed and query_type == "code_mixed":
-                    generation_strategy = "D"
+                generation_strategy = _generation_strategy_for_query_type(
+                    strategy,
+                    query_type,
+                    config.enable_code_mixed,
+                )
                 raw_table_name = _raw_table_for_strategy(generation_strategy)
                 generation_method_id = method_id_cache.get(generation_strategy)
                 query_prompt_asset = prompts.query_assets[generation_strategy]
@@ -1107,6 +1354,11 @@ def run_generation(
 
                 generation_asset_ids: list[str] = []
                 en_summary = ""
+                original_chunk_ko = (
+                    _primary_chunk_text(chunk.chunk_text)
+                    if generation_strategy in {"F", "G"}
+                    else chunk.chunk_text
+                )
                 if generation_strategy in {"A", "B", "C", "D", "E"}:
                     en_summary_asset_id, en_summary, en_summary_cached = _resolve_or_create_summary_en(
                         connection,
@@ -1171,6 +1423,21 @@ def run_generation(
                     else:
                         asset_created["KO_SUMMARY"] += 1
                     generation_asset_ids.append(summary_ko_asset_id)
+                elif generation_strategy in {"F", "G"} and fg_summary_mode == "extractive":
+                    summary_ko_asset_id, summary_ko, summary_ko_cached = _resolve_or_create_extractive_summary_ko(
+                        connection,
+                        chunk=chunk,
+                        source_fingerprint=source_fingerprint,
+                        prompt_asset=prompts.summary_ko_asset,
+                        prompt_version_suffix=generation_strategy,
+                        source_text_ko=original_chunk_ko,
+                        max_chars=fg_summary_max_chars,
+                    )
+                    if summary_ko_cached:
+                        asset_cache_hits["KO_SUMMARY"] += 1
+                    else:
+                        asset_created["KO_SUMMARY"] += 1
+                    generation_asset_ids.append(summary_ko_asset_id)
                 elif generation_strategy in {"F", "G"}:
                     summary_ko_asset_id, summary_ko, summary_ko_cached = _resolve_or_create_summary_ko(
                         connection,
@@ -1179,7 +1446,7 @@ def run_generation(
                         prompt_asset=prompts.summary_ko_asset,
                         prompt_text=prompts.summary_ko_text,
                         prompt_version_suffix=generation_strategy,
-                        source_text_ko=chunk.chunk_text,
+                        source_text_ko=original_chunk_ko,
                         client=summary_client_for_ko_long,
                     )
                     if summary_ko_cached:
@@ -1205,25 +1472,34 @@ def run_generation(
                         llm_model=query_client.config.model,
                         generation_asset_ids=generation_asset_ids,
                     )
-                    _insert_source_link(
+                    _insert_source_links_for_targets(
                         connection,
                         synthetic_query_id=stable_query_id,
-                        source_doc_id=chunk.document_id,
-                        source_chunk_id=chunk.chunk_id,
-                        source_chunk_group_id=None,
-                        source_role="primary",
+                        primary_chunk=chunk,
+                        target_chunk_ids=target_chunk_ids,
+                        chunks_by_id=chunks_by_id,
                     )
                     reused_count += 1
                     continue
 
+                related_chunks_ko = (
+                    _related_chunks_ko_payload(
+                        primary_chunk_id=chunk.chunk_id,
+                        target_chunk_ids=target_chunk_ids,
+                        chunks_by_id=chunks_by_id,
+                    )
+                    if generation_strategy in {"F", "G"}
+                    else []
+                )
                 query_payload = {
                     "chunk_id": chunk.chunk_id,
                     "document_id": chunk.document_id,
                     "title": chunk.title,
                     "product": chunk.product_name,
                     "version": chunk.version_label,
-                    "original_chunk_en": chunk.chunk_text,
-                    "original_chunk_ko": chunk.chunk_text,
+                    "original_chunk_en": "" if generation_strategy in {"F", "G"} else chunk.chunk_text,
+                    "original_chunk_ko": original_chunk_ko,
+                    "related_chunks_ko": related_chunks_ko,
                     "extractive_summary_en": en_summary,
                     "translated_chunk_ko": translated_chunk_ko,
                     "extractive_summary_ko": summary_ko,
@@ -1309,6 +1585,8 @@ def run_generation(
                             "trace": {
                                 "en_summary": en_summary,
                                 "ko_summary": summary_ko,
+                                "fg_summary_mode": fg_summary_mode if generation_strategy in {"F", "G"} else None,
+                                "related_chunks_ko_count": len(related_chunks_ko),
                                 "translated_chunk_excerpt": translated_chunk_ko[:320],
                                 **extra_trace,
                             },
@@ -1326,13 +1604,12 @@ def run_generation(
                     ),
                 }
                 _insert_query_row(connection, table_name=raw_table_name, payload=payload)
-                _insert_source_link(
+                _insert_source_links_for_targets(
                     connection,
                     synthetic_query_id=stable_query_id,
-                    source_doc_id=chunk.document_id,
-                    source_chunk_id=chunk.chunk_id,
-                    source_chunk_group_id=None,
-                    source_role="primary",
+                    primary_chunk=chunk,
+                    target_chunk_ids=target_chunk_ids,
+                    chunks_by_id=chunks_by_id,
                 )
                 generated_count += 1
                 query_type_counter[query_type] += 1
@@ -1351,6 +1628,10 @@ def run_generation(
             "source_document_id": source_document_id,
             "max_total_queries": max_total_queries,
             "random_chunk_sampling": random_chunk_sampling,
+            "relation_source_chunks_loaded": len(relations),
+            "glossary_documents_loaded": len(glossary_by_doc),
+            "fg_summary_mode": fg_summary_mode,
+            "fg_summary_max_chars": fg_summary_max_chars,
             "llm": {
                 "summary": {
                     "provider": summary_client.config.provider,

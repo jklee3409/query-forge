@@ -4,7 +4,10 @@ import unittest
 
 from pipeline.common.llm_client import _validate_json_schema
 from pipeline.generation.synthetic_query_generator import _extract_query_text
+from pipeline.generation.synthetic_query_generator import _generation_strategy_for_query_type
 from pipeline.generation.synthetic_query_generator import _is_max_tokens_truncation_error
+from pipeline.generation.synthetic_query_generator import _compact_ko_evidence_summary
+from pipeline.generation.synthetic_query_generator import _primary_chunk_text
 from pipeline.generation.synthetic_query_generator import _query_response_schema_for_strategy
 from pipeline.generation.synthetic_query_generator import _summary_source_text_candidates
 from pipeline.generation.synthetic_query_generator import _summary_max_tokens_for_strategy
@@ -86,6 +89,39 @@ class SyntheticQueryGeneratorSchemaTests(unittest.TestCase):
 
         c_candidates = _summary_source_text_candidates(generation_strategy="C", source_text_ko=long_text)
         self.assertEqual([len(value) for value in c_candidates], [5000])
+
+    def test_code_mixed_routing_preserves_native_e_f_g_strategies(self) -> None:
+        self.assertEqual(_generation_strategy_for_query_type("A", "code_mixed", True), "D")
+        self.assertEqual(_generation_strategy_for_query_type("B", "code_mixed", True), "D")
+        self.assertEqual(_generation_strategy_for_query_type("C", "code_mixed", True), "D")
+        self.assertEqual(_generation_strategy_for_query_type("D", "code_mixed", True), "D")
+        self.assertEqual(_generation_strategy_for_query_type("E", "code_mixed", True), "E")
+        self.assertEqual(_generation_strategy_for_query_type("F", "code_mixed", True), "F")
+        self.assertEqual(_generation_strategy_for_query_type("G", "code_mixed", True), "G")
+
+    def test_primary_chunk_text_strips_overlap_context(self) -> None:
+        source = (
+            "Overlap context from previous chunk:\n"
+            "previous section details\n\n"
+            "Section Path: library/functions\n\n"
+            "Use isinstance() to check object types."
+        )
+        primary = _primary_chunk_text(source)
+        self.assertNotIn("previous section details", primary)
+        self.assertTrue(primary.startswith("Section Path: library/functions"))
+
+    def test_compact_ko_evidence_summary_strips_overlap_and_caps_length(self) -> None:
+        source = (
+            "Overlap context from previous chunk:\n"
+            "old context\n\n"
+            "Section Path: reference/import\n\n"
+            "import statements load modules and bind names.\n\n"
+            + ("Additional Python module details. " * 80)
+        )
+        summary = _compact_ko_evidence_summary(source, max_chars=220)
+        self.assertLessEqual(len(summary), 220)
+        self.assertNotIn("old context", summary)
+        self.assertIn("Section Path: reference/import", summary)
 
     def test_is_max_tokens_truncation_error_detects_details_category(self) -> None:
         class _Details:

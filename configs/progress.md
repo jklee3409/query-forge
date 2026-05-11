@@ -3,6 +3,12 @@
 ## Overview
 High-level progress tracking for the project.
 
+## [2026-05-11] Session Summary (F/G Prompt Grounding Contract)
+- What was done: Updated `prompts/query_generation/gen_f_v1.md` and `gen_g_v1.md` to include `related_chunks_ko` as optional near/far evidence and to prohibit queries derived from overlap/previous-chunk context.
+- Key decisions: Kept existing F/G output schemas unchanged (`F: query_ko + query_en`, `G: query_ko`) and made only grounding/control text updates aligned with the runtime payload.
+- Issues encountered: None.
+- Next steps: Inspect a small F/G generation sample for answerability alignment before large-batch generation.
+
 ## [2026-05-10] Session Summary (gen_e_v1 `code_mixed` Interpretation Clarification)
 - What was done: Revised `prompts/query_generation/gen_e_v1.md` so `query_type=code_mixed` is explicitly interpreted as English-native query composition with exact technical/code token preservation.
 - Key decisions: Kept `code_mixed` in shared query-type enum for pipeline compatibility; adjusted only prompt semantics (`Rules`, `Quality targets`, `Query type control`, `Forbidden patterns`).

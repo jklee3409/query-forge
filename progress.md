@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-05-11] Session Summary (F/G Synthetic Query Pipeline Correctness + Speed)
+- What was done: Updated `pipeline/generation/synthetic_query_generator.py` so F/G `code_mixed` stays in `synthetic_queries_raw_f/g` instead of being rerouted to D, scoped relation/glossary loads to the selected source chunks/documents, stripped overlap context from F/G Korean evidence, added related chunk evidence payloads for near/far, and defaulted F/G Korean summaries to deterministic extractive summaries to remove one LLM call per chunk. Updated F/G prompts to consume `related_chunks_ko` and avoid overlap-derived queries.
+- Key decisions: Preserved AGENTS stage order and strategy-split raw tables; kept A/B/C code-mixed rerouting to D while preserving E/F/G native strategy semantics.
+- Issues encountered: Targeted unit test exposed an existing dedupe indentation bug in summary truncation candidates that returned no retry candidates; fixed it in the same generator file.
+- Next steps: Run a small explicit-source F/G generation smoke in the Admin flow and inspect raw_f/raw_g rows, query language, target chunk IDs, and near/far grounding before launching a large batch.
+
 ## [2026-05-11] Session Summary (RAG 400 Preflight Cleanup: Prevent Planned Run Residue)
 - What was done: Reordered Admin RAG run creation flow so rewrite preflight (`rewrite_enabled=true` API-key validation) executes before DB run-row creation; invalid requests now return `400` without inserting `planned` runs.
 - Key decisions: Applied ordering-only fix with no payload/schema/API contract expansion; added integration assertion to confirm no `rag_test_run` row is created on rewrite preflight rejection.

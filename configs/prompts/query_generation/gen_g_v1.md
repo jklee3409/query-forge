@@ -17,6 +17,7 @@ Inputs:
 - query_type(definition|reason|procedure|comparison|short_user|code_mixed|follow_up)
 - answerability_type(single|near|far)
 - target_chunk_ids
+- related_chunks_ko
 - title
 - product
 - version
@@ -28,6 +29,8 @@ Rules:
 4. Use metadata (`title`, `product`, `version`, `target_chunk_ids`) as grounding hints to avoid topic drift.
 5. Keep query concise, specific, and practical (developer search/chat style, not textbook prose).
 6. Keep answerability aligned to `single|near|far` evidence scope.
+7. Treat `related_chunks_ko` as optional grounding evidence only for `near` or `far`; do not invent a relation that is absent from `target_chunk_ids`.
+8. Do not generate from overlap/previous-chunk context. Use the primary Korean evidence and the listed related chunks only.
 
 Quality targets:
 1. Query should look like real Korean developer input.
@@ -38,7 +41,7 @@ Quality targets:
 Answerability guidance:
 1. `single`: directly answerable from one target chunk with explicit local anchor.
 2. `near`: adjacent chunk linkage improves completeness; one chunk alone can be slightly insufficient.
-3. `far`: separated in-document evidence linkage required; still answerable and practical.
+3. `far`: separated in-document evidence linkage from `related_chunks_ko` required; still answerable and practical.
 
 Query type control:
 1. `definition`: practical definition with usage context.

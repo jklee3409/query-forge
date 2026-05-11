@@ -3,6 +3,12 @@
 ## Overview
 High-level pipeline progress tracking.
 
+## [2026-05-11] Session Summary (F/G Synthetic Query Routing, Grounding, and Speed)
+- What was done: Hardened `generation/synthetic_query_generator.py` for F/G by keeping F/G `code_mixed` outputs in their own strategy tables, scoping relation/glossary SQL to the selected chunks/documents, removing overlap context from F/G primary evidence, passing compact `related_chunks_ko` evidence for near/far, and adding deterministic extractive KO summaries as the default F/G summary path.
+- Key decisions: Left A/B/C `code_mixed` compatibility with strategy D intact, while preventing E/F/G from being hijacked by D. Deterministic F/G summaries are cached as `KO_SUMMARY` assets with provider/model `deterministic/extractive-ko-v1`, with `fg_summary_mode=llm` available for fallback.
+- Issues encountered: The targeted generator test caught a summary-candidate dedupe indentation issue that made truncation retry candidates empty; fixed alongside the F/G work.
+- Next steps: Smoke-test a small Python KR F/G batch and compare generated query traces for `related_chunks_ko_count`, `fg_summary_mode`, and raw table destination.
+
 ## [2026-05-11] Session Summary (F/G summary_ko MAX_TOKENS 절단 범위 한정 대응)
 - What was done: Scoped fix in `generation/synthetic_query_generator.py` to harden only F/G `summary_extraction_ko` path against truncation: raised F/G summary output-token floor to `2048` and added truncation-only retry with progressively shortened source text candidates (`3200 -> 2200 -> 1400 chars`) when and only when failure category is `max_tokens_truncated`.
 - Key decisions: Did not change prompts, strategy routing, or non-F/G flows; restricted logic to the confirmed failing branch (`_resolve_or_create_summary_ko`, `prompt_version_suffix in {F,G}`) and only for `MAX_TOKENS`-classified failures.
