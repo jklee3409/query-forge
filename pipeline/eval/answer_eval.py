@@ -69,10 +69,27 @@ def _mean(values: list[float]) -> float:
     return float(statistics.fmean(values))
 
 
+def _resolve_csv_fieldnames(rows: list[dict[str, Any]], fieldnames: list[str]) -> list[str]:
+    resolved = list(fieldnames or [])
+    known = set(resolved)
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        for key in row.keys():
+            if key not in known:
+                resolved.append(key)
+                known.add(key)
+    return resolved
+
+
 def _write_csv(path: Path, rows: list[dict[str, Any]], fieldnames: list[str]) -> None:
+    resolved_fieldnames = _resolve_csv_fieldnames(rows, fieldnames)
+    if resolved_fieldnames != fieldnames:
+        appended = [name for name in resolved_fieldnames if name not in set(fieldnames or [])]
+        LOGGER.warning("Extending CSV fieldnames for %s with dynamic keys: %s", path, appended)
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", encoding="utf-8", newline="") as target:
-        writer = csv.DictWriter(target, fieldnames=fieldnames)
+        writer = csv.DictWriter(target, fieldnames=resolved_fieldnames, extrasaction="ignore")
         writer.writeheader()
         for row in rows:
             writer.writerow(row)

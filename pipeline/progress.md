@@ -245,6 +245,12 @@ High-level pipeline progress tracking.
 - Issues encountered: Without run-id filtering, memory lookup could mix entries from different gating runs; this was resolved by reading `memory_entries.metadata.source_gate_run_id` and filtering in `memory_top_n`.
 - Next steps: Validate repeated runs against the same snapshot to confirm stable metrics and verify behavior when snapshot is omitted.
 
+## [2026-05-11] Session Summary (RAG Answer Eval CSV Field Drift Guard)
+- What was done: Fixed `eval/answer_eval.py` CSV write path so detail rows no longer fail when runtime adds new keys (e.g., `rewrite_llm_attempted`, `rewrite_llm_succeeded`, `rewrite_heuristic_fallback_used`). `_write_csv` now expands fieldnames dynamically from row keys and writes safely.
+- Key decisions: Chose schema-drift-tolerant CSV output to prevent hard failure in long-running RAG eval jobs while still preserving newly emitted observability columns in exported detail CSV.
+- Issues encountered: Existing fixed `fieldnames` list lagged behind recently added rewrite observability fields, causing `ValueError` and full `eval-answer` stage failure.
+- Next steps: Keep answer-detail CSV consumers tolerant to additive columns and monitor whether any downstream parser requires explicit column-order pinning.
+
 ---
 
 ## Notes
