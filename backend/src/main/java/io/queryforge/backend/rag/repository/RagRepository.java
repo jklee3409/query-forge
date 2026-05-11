@@ -115,7 +115,7 @@ public class RagRepository {
                     'chunk',
                     :chunkId,
                     :embeddingModel,
-                    3072,
+                    384,
                     CAST(:embedding AS halfvec),
                     CAST(:metadata AS jsonb)
                 )
@@ -209,7 +209,7 @@ public class RagRepository {
                     'memory',
                     :memoryId,
                     :embeddingModel,
-                    3072,
+                    384,
                     CAST(:embedding AS halfvec),
                     CAST(:metadata AS jsonb)
                 )

@@ -35,7 +35,12 @@ def stable_hash(value: str, prefix: str) -> str:
 
 def is_section_container(tag: Tag) -> bool:
     classes = tag.get("class", [])
-    return any(SECTION_CLASS_RE.match(name) for name in classes) or "section-summary" in classes
+    if any(SECTION_CLASS_RE.match(name) for name in classes) or "section-summary" in classes:
+        return True
+    return tag.name == "section" and tag.find(
+        ["h1", "h2", "h3", "h4", "h5", "h6"],
+        recursive=False,
+    ) is not None
 
 
 def list_items_from_tag(tag: Tag) -> list[str]:
@@ -268,8 +273,8 @@ def heading_text_and_id(section_node: Tag) -> tuple[str, str | None, int]:
     heading = section_node.find(["h1", "h2", "h3", "h4", "h5", "h6"], recursive=False)
     if heading:
         return (
-            normalize_whitespace(heading.get_text(" ", strip=True)),
-            heading.get("id"),
+            normalize_whitespace(heading.get_text(" ", strip=True).replace("¶", "")),
+            heading.get("id") or section_node.get("id"),
             int(heading.name[1]),
         )
 
@@ -282,6 +287,11 @@ def prune_non_content_nodes(container: Tag) -> None:
         ".breadcrumbs-container",
         ".page-pagination",
         ".toolbar",
+        ".related",
+        ".sphinxsidebar",
+        ".footer",
+        ".headerlink",
+        ".toctree-wrapper",
         "nav.pagination",
         "nav.toc",
         "aside",
@@ -304,6 +314,11 @@ def extract_article(html: str) -> Tag | None:
         prune_non_content_nodes(legacy_content)
         return legacy_content
 
+    sphinx_body = soup.select_one("div.body")
+    if sphinx_body is not None:
+        prune_non_content_nodes(sphinx_body)
+        return sphinx_body
+
     if soup.body is not None:
         prune_non_content_nodes(soup.body)
         return soup.body
@@ -316,9 +331,9 @@ def normalize_document(raw_record: dict[str, Any]) -> list[dict[str, Any]]:
         LOGGER.warning("No parseable content container found for %s", raw_record["source_url"])
         return []
 
-    document_title_node = article.select_one("h1.page")
+    document_title_node = article.select_one("h1.page") or article.select_one("h1")
     document_title = (
-        normalize_whitespace(document_title_node.get_text(" ", strip=True))
+        normalize_whitespace(document_title_node.get_text(" ", strip=True).replace("¶", ""))
         if document_title_node
         else raw_record["title"]
     )

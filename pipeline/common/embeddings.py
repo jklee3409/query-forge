@@ -6,7 +6,7 @@ import hashlib
 from typing import Iterable
 
 
-DEFAULT_DIMENSION = 3072
+DEFAULT_DIMENSION = 384
 TOKEN_PATTERN = re.compile(r"[A-Za-z0-9_./-]+|[가-힣]+")
 
 

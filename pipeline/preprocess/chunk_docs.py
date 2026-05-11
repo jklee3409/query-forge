@@ -1633,7 +1633,11 @@ def build_chunks_and_glossary(
             len(document_chunks),
         )
 
-    glossary_terms = extract_glossary_terms(documents, settings.glossary)
+    if os.getenv("QUERY_FORGE_SKIP_GLOSSARY", "").lower() in {"1", "true", "yes"}:
+        LOGGER.info("[glossary] skipped because QUERY_FORGE_SKIP_GLOSSARY is enabled")
+        glossary_terms = []
+    else:
+        glossary_terms = extract_glossary_terms(documents, settings.glossary)
 
     write_jsonl(output_chunks_path, chunk_records)
     write_jsonl(output_glossary_path, glossary_terms)

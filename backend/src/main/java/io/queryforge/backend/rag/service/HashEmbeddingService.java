@@ -13,7 +13,7 @@ import java.util.regex.Pattern;
 @Component
 public class HashEmbeddingService {
 
-    public static final int DIMENSION = 3072;
+    public static final int DIMENSION = 384;
     private static final Pattern TOKEN_PATTERN = Pattern.compile("[A-Za-z0-9_./-]+|[가-힣]+");
 
     public List<Double> embed(String text) {
@@ -103,4 +103,3 @@ public class HashEmbeddingService {
         }
     }
 }
-

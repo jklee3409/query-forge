@@ -1,9 +1,50 @@
 source_id: docs-python-org-ko-3-14
-product: ko
-start_urls: ['https://docs.python.org/ko/3.14/whatsnew/3.13.html']
-allow_prefixes: ['https://docs.python.org/ko/3.14/whatsnew/']
+product: python
+start_urls:
+  - https://docs.python.org/ko/3.14/tutorial/index.html
+  - https://docs.python.org/ko/3.14/tutorial/introduction.html
+  - https://docs.python.org/ko/3.14/tutorial/controlflow.html
+  - https://docs.python.org/ko/3.14/tutorial/datastructures.html
+  - https://docs.python.org/ko/3.14/tutorial/modules.html
+  - https://docs.python.org/ko/3.14/tutorial/inputoutput.html
+  - https://docs.python.org/ko/3.14/tutorial/errors.html
+  - https://docs.python.org/ko/3.14/tutorial/classes.html
+  - https://docs.python.org/ko/3.14/tutorial/stdlib.html
+  - https://docs.python.org/ko/3.14/tutorial/stdlib2.html
+  - https://docs.python.org/ko/3.14/using/index.html
+  - https://docs.python.org/ko/3.14/using/cmdline.html
+  - https://docs.python.org/ko/3.14/using/windows.html
+  - https://docs.python.org/ko/3.14/using/unix.html
+  - https://docs.python.org/ko/3.14/howto/index.html
+  - https://docs.python.org/ko/3.14/howto/argparse.html
+  - https://docs.python.org/ko/3.14/howto/logging.html
+  - https://docs.python.org/ko/3.14/howto/regex.html
+  - https://docs.python.org/ko/3.14/howto/sockets.html
+  - https://docs.python.org/ko/3.14/library/functions.html
+  - https://docs.python.org/ko/3.14/library/stdtypes.html
+  - https://docs.python.org/ko/3.14/library/exceptions.html
+  - https://docs.python.org/ko/3.14/library/pathlib.html
+  - https://docs.python.org/ko/3.14/library/json.html
+  - https://docs.python.org/ko/3.14/library/re.html
+  - https://docs.python.org/ko/3.14/library/datetime.html
+  - https://docs.python.org/ko/3.14/library/asyncio.html
+  - https://docs.python.org/ko/3.14/library/logging.html
+  - https://docs.python.org/ko/3.14/library/argparse.html
+  - https://docs.python.org/ko/3.14/library/subprocess.html
+  - https://docs.python.org/ko/3.14/library/typing.html
+  - https://docs.python.org/ko/3.14/library/unittest.html
+  - https://docs.python.org/ko/3.14/reference/datamodel.html
+  - https://docs.python.org/ko/3.14/reference/expressions.html
+  - https://docs.python.org/ko/3.14/reference/simple_stmts.html
+  - https://docs.python.org/ko/3.14/reference/compound_stmts.html
+allow_prefixes:
+  - https://docs.python.org/ko/3.14/tutorial/
+  - https://docs.python.org/ko/3.14/using/
+  - https://docs.python.org/ko/3.14/howto/
+  - https://docs.python.org/ko/3.14/library/
+  - https://docs.python.org/ko/3.14/reference/
 deny_url_patterns: [.*#.*, .*/search.*, .*/login.*, '.*\?.*']
 request_delay_seconds: 0.75
-max_depth: 4
+max_depth: 0
 enabled: true
 metadata: {doc_family: technical, provider: admin, collection_format: html}
