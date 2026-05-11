@@ -3,6 +3,18 @@
 ## Overview
 High-level progress tracking for the project.
 
+## [2026-05-11] Session Summary (F/G Generate-queries MAX_TOKENS 절단 해결: 범위 한정 패치)
+- What was done: Applied a scoped pipeline fix so only `F/G` Korean summary generation path hardens against truncation with (1) summary output-token floor `2048` and (2) truncation-only retry using progressively shortened source text candidates.
+- Key decisions: Avoided broad refactor and preserved generation strategy/prompt semantics; changes are limited to explicit failing path and only trigger on `category=max_tokens_truncated`.
+- Issues encountered: None.
+- Next steps: Re-run failing F/G jobs and confirm retry-exhaustion category is cleared from `llm_job_item.error_message`.
+
+## [2026-05-11] Session Summary (Generate-queries 실패 재분석용 LLM 예외 가시성 보강)
+- What was done: Added failure-category serialization to `pipeline/common/llm_client.py` retry-exhaustion exception text so Admin `llm_job_item.error_message` tails can reveal whether the failure is request-layer or post-processing-layer.
+- Key decisions: Avoided strategy/prompt/runtime-flow changes and limited scope to diagnostics visibility (`category/status/finish_reason/block_reason`) surfaced directly in `_RetryableLlmError` message.
+- Issues encountered: Existing failed job IDs (`84fc90a6-...`, `573cd819-...`) were created before this diagnostic message enrichment, so their stored tail remains generic despite categorized logging support.
+- Next steps: Re-run `F/G` jobs and capture new error tails; use surfaced category to decide whether to tune summary max tokens, prompt-output strictness, or schema/key handling.
+
 ## [2026-05-10] Session Summary (LLM Post-processing Failure Classification + Gemini JSON Fence Handling)
 - What was done: Refined `pipeline/common/llm_client.py` so retry-exhausted failures distinguish request-layer failures from response post-processing failures via explicit categories (`request_failed`, `response_empty`, `response_blocked`, `invalid_json`, `schema_mismatch`, `missing_required_key`, `max_tokens_truncated`). Added per-attempt failure logs with provider/status/finish-reason/block-reason metadata and improved retryable failure propagation to keep category context through the final `RuntimeError`.
 - Key decisions: Kept retry/fallback strategy and prompt semantics unchanged; only observability and parsing robustness were adjusted. For structured-output responses, markdown fenced JSON is now accepted only on the final attempt and only via fenced-block parsing (not broad object scraping) to avoid loosening validation too aggressively.

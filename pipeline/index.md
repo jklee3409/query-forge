@@ -29,6 +29,7 @@ Python pipeline for data processing, synthetic query generation, quality gating,
 - Synthetic query structured-output validation is strategy-aware (`A/B/C/D/E/F/G` required query fields differ), and final `query_text` fallback extraction is restricted to query-only fields (`query`, `query_en`, `query_ko`, `query_code_mixed`) to avoid metadata leakage.
 - Gating/memory/eval reads use `synthetic_queries_raw_all` (union view over split tables).
 - KR-source strategy variants `F/G` are physical-split strategies and do not reuse `C/E` raw tables.
+- `F/G` Korean summary generation path applies a higher summary output-token floor (min `2048`) and truncation-only source-length fallback retries (`3200/2200/1400 chars`) to reduce `MAX_TOKENS` failures on long KR source chunks, without affecting other strategy/stage token budgets.
 - This directory assumes DB migration `V17` is applied before runtime execution.
 - Quality gating rule thresholds include configurable Korean-ratio keys (`rule_min_korean_ratio`, `rule_min_korean_ratio_code_mixed`).
 - Quality gating self-eval now accepts language-neutral `naturalness` scoring while keeping backward compatibility with legacy `korean_naturalness` outputs.
@@ -56,6 +57,7 @@ Python pipeline for data processing, synthetic query generation, quality gating,
 - Selective rewrite adoption now considers retrieval shift (`top-k` composition change + `top1` change) in addition to confidence, reducing zero-adoption lock when rerank scores are flat.
 - Langfuse LLM observability is integrated at `common/langfuse_observability.py` and wired only through `common/llm_client.py` with fail-open behavior.
 - LLM JSON calls now classify retry-exhausted failures by category (`request_failed`, `response_empty`, `response_blocked`, `invalid_json`, `schema_mismatch`, `missing_required_key`, `max_tokens_truncated`) and log provider response metadata (`status`, `finish_reason`, `block_reason`) so post-processing failures are distinguishable from transport/API failures.
+- Retry-exhaustion exception text now includes the same failure category/metadata (`category`, `status`, `finish_reason`, `block_reason`), so truncated job stderr tails can still expose dominant failure mode without full process logs.
 - Normalize preprocessing now supports legacy HTML containers by falling back from `article.doc` to `div#content` and `body` when extracting section records.
 - Spring docs collector now skips placeholder-templated URLs (`{...}`) and treats per-URL fetch failures as skip-with-metrics (`fetch_failures`) instead of whole-run aborts.
 - `extract-anchor-candidates` CLI command reuses glossary extraction logic for arbitrary chunk scopes so backend anchor re-extraction can share the same extractor path instead of maintaining a separate implementation.

@@ -3,6 +3,18 @@
 ## Overview
 High-level pipeline progress tracking.
 
+## [2026-05-11] Session Summary (F/G summary_ko MAX_TOKENS 절단 범위 한정 대응)
+- What was done: Scoped fix in `generation/synthetic_query_generator.py` to harden only F/G `summary_extraction_ko` path against truncation: raised F/G summary output-token floor to `2048` and added truncation-only retry with progressively shortened source text candidates (`3200 -> 2200 -> 1400 chars`) when and only when failure category is `max_tokens_truncated`.
+- Key decisions: Did not change prompts, strategy routing, or non-F/G flows; restricted logic to the confirmed failing branch (`_resolve_or_create_summary_ko`, `prompt_version_suffix in {F,G}`) and only for `MAX_TOKENS`-classified failures.
+- Issues encountered: None.
+- Next steps: Re-run `admin_gen_31f26eea21bd` and `admin_gen_560d9fdb54a2` and verify summary_ko no longer exits with `category=max_tokens_truncated`.
+
+## [2026-05-11] Session Summary (Retry Exhaustion Error Message에 Failure Category 직렬화)
+- What was done: Updated `common/llm_client.py` so `_RetryableLlmError` string representation always includes structured failure details (`category`, `status`, `finish_reason`, `block_reason`) when available.
+- Key decisions: Kept generation/retry strategy unchanged; only enriched exception text so downstream job error tails can distinguish post-processing failures from request-layer failures without full stdout/stderr logs.
+- Issues encountered: Existing Admin `llm_job_item.error_message` stores truncated stderr tail, so category logs were often not visible before this change.
+- Next steps: Re-run failed `summary_extraction_ko` jobs and classify by surfaced category (`invalid_json`, `missing_required_key`, `response_blocked`, `max_tokens_truncated`, etc.) before tuning stage-specific token budgets.
+
 ## [2026-05-10] Session Summary (LLM Retry Failure Categorization + Structured JSON Fence Recovery)
 - What was done: Updated `common/llm_client.py` so HTTP-success but post-processing failures are explicitly categorized (`response_empty`, `response_blocked`, `invalid_json`, `schema_mismatch`, `missing_required_key`, `max_tokens_truncated`) and logged per attempt with response metadata (`status`, `finish_reason`, `block_reason`). Added retry-exhaustion propagation with failure detail context and structured-output safe fence recovery on final attempt.
 - Key decisions: Preserved existing model fallback/retry behavior and schema contracts; changed only parsing fallback policy and observability. Markdown fallback on structured-output path is restricted to fenced JSON parsing at the final attempt to reduce accidental over-acceptance of mixed natural-language output.
