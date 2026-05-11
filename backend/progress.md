@@ -3,6 +3,18 @@
 ## Overview
 High-level backend progress tracking.
 
+## [2026-05-11] Session Summary (RAG Run Preflight Ordering: No Planned Run on 400)
+- What was done: Moved `runRagTest` rewrite-stage preflight validation ahead of `rag_test_run` row creation so `400 Bad Request` cases (e.g., missing rewrite API key) no longer leave `planned` run residue.
+- Key decisions: Kept request-validation semantics unchanged and limited the change to operation ordering (`validateRewriteStageLlmConfig` before `createRagTestRun`).
+- Issues encountered: None.
+- Next steps: Verify Admin GUI repeatedly rejects invalid rewrite requests without accumulating planned run rows.
+
+## [2026-05-11] Session Summary (RAG Rewrite Preflight Gemini Key Resolution + `.env` Fallback)
+- What was done: Enhanced `AdminConsoleService` rewrite-stage API-key preflight resolution so Gemini paths accept `QUERY_FORGE_GEMINI_API_KEY`, `QUERY_FORGE_LLM_GEMINI_API_KEY`, `GEMINI_API_KEY`, and `GOOGLE_API_KEY`, and added `.env` fallback lookup when process env is absent. Updated integration-test expected error message accordingly.
+- Key decisions: Preserved existing fail-fast contract (`rewrite_enabled=true` still rejects missing keys) and limited changes to key discovery/diagnostic text only.
+- Issues encountered: None.
+- Next steps: Restart running backend and validate Admin RAG run creation under `.env`-defined `GEMINI_API_KEY`.
+
 ## [2026-05-11] Session Summary (Synthetic Batch Delete + Generation Cancel/Purge + ETA + Unlimited Retry)
 - What was done: Added `DELETE /api/admin/console/synthetic/batches/{batchId}` and backend deletion flow (`AdminConsoleService` + `AdminConsoleRepository`) to remove generation-batch-linked `llm_job` rows, raw synthetic rows (`synthetic_queries_raw_a..g` by `generation_batch_id`), then delete the batch row while nulling `quality_gating_batch.generation_batch_id` references.
 - Key decisions: Removed generation retry cap only for `GENERATE_SYNTHETIC_QUERY` by using `max_retries=-1` sentinel and treating negative retries as unlimited in failure backoff logic; other job types keep existing retry behavior.

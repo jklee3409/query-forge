@@ -1,5 +1,17 @@
 # progress.md
 
+## [2026-05-11] Session Summary (RAG 400 Preflight Cleanup: Prevent Planned Run Residue)
+- What was done: Reordered Admin RAG run creation flow so rewrite preflight (`rewrite_enabled=true` API-key validation) executes before DB run-row creation; invalid requests now return `400` without inserting `planned` runs.
+- Key decisions: Applied ordering-only fix with no payload/schema/API contract expansion; added integration assertion to confirm no `rag_test_run` row is created on rewrite preflight rejection.
+- Issues encountered: None.
+- Next steps: Monitor admin invalid-run retries and ensure no additional manual cleanup is needed for failed preflight attempts.
+
+## [2026-05-11] Session Summary (RAG Rewrite Preflight: GEMINI_API_KEY/.env Fallback Support)
+- What was done: Updated backend rewrite-stage API-key preflight resolution to support Gemini key aliases consistently (`QUERY_FORGE_GEMINI_API_KEY`, `QUERY_FORGE_LLM_GEMINI_API_KEY`, `GEMINI_API_KEY`, `GOOGLE_API_KEY`) and to read `.env` fallback values when process env is missing. Updated related integration-test expected validation message.
+- Key decisions: Kept validation strictness (`rewrite_enabled=true` still requires key) and changed only key-discovery path/message for local runtime compatibility.
+- Issues encountered: None.
+- Next steps: Restart active backend process and re-run `/api/admin/console/rag/tests/run` to confirm planned runs can be created with `.env`-defined `GEMINI_API_KEY`.
+
 ## [2026-05-11] Session Summary (Synthetic Batch Delete + Generation Cancel/Purge + ETA + Unlimited Retry)
 - What was done: Added synthetic generation batch history deletion flow end-to-end (Admin API + UI action) so deleting a batch removes linked `llm_job` rows and strategy-split raw synthetic queries for the batch, then deletes the batch row (with gating-batch linkage nulled). Extended synthetic batch list payload with live ETA fields (`targetQueryCount`, `estimatedSecondsPerQuery`, `estimatedRemainingSeconds`, LLM job/item state) and reflected them in `/admin/synthetic-queries`.
 - Key decisions: Kept pipeline/research stage order unchanged and scoped retry-limit removal to `GENERATE_SYNTHETIC_QUERY` only via unlimited retry sentinel (`max_retries=-1`).
