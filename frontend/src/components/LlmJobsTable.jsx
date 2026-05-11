@@ -1,5 +1,13 @@
 import { useEffect, useMemo, useState } from 'react'
 import { IdBadge, StatusBadge } from './Common.jsx'
+import { RemainingEta } from './RemainingEta.jsx'
+
+function resolveEtaUnit(jobType) {
+  if (jobType === 'RUN_LLM_SELF_EVAL') return 'query'
+  if (jobType === 'RUN_RAG_TEST') return 'stage'
+  if (jobType === 'GENERATE_SYNTHETIC_QUERY') return 'step'
+  return 'item'
+}
 
 export function LlmJobsTable({ jobs, onAction, onDetail, loaded = true, loading = false, onLoad = null }) {
   const pageSize = 3
@@ -35,7 +43,7 @@ export function LlmJobsTable({ jobs, onAction, onDetail, loaded = true, loading 
   return (
     <section className="table-shell">
       <div className="table-header">
-        <div className="table-title">LLM 비동기 JOB 상태</div>
+        <div className="table-title">LLM 비동기 Job 상태</div>
         {onLoad && (
           <button type="button" className="button" disabled={loading} onClick={onLoad}>
             {loading ? 'Loading...' : (loaded ? '새로고침' : '불러오기')}
@@ -47,12 +55,13 @@ export function LlmJobsTable({ jobs, onAction, onDetail, loaded = true, loading 
           <thead>
             <tr>
               <th>job_id</th>
-              <th>유형</th>
-              <th>상태</th>
-              <th>진행률</th>
-              <th>재시도</th>
-              <th>연결 대상</th>
-              <th>제어</th>
+              <th>type</th>
+              <th>status</th>
+              <th>progress</th>
+              <th>ETA</th>
+              <th>retry</th>
+              <th>related_id</th>
+              <th>actions</th>
             </tr>
           </thead>
           <tbody>
@@ -65,6 +74,17 @@ export function LlmJobsTable({ jobs, onAction, onDetail, loaded = true, loading 
                   <td>{job.jobType || '-'}</td>
                   <td><StatusBadge value={job.jobStatus} /></td>
                   <td>{job.progressPct == null ? '-' : `${Number(job.progressPct).toFixed(1)}%`}</td>
+                  <td>
+                    <RemainingEta
+                      remainingSeconds={job.estimatedRemainingSeconds}
+                      secondsPerUnit={job.estimatedSecondsPerUnit}
+                      completedCount={job.processedItems}
+                      totalCount={job.totalItems}
+                      unitLabel={resolveEtaUnit(job.jobType)}
+                      status={job.jobStatus}
+                      compact
+                    />
+                  </td>
                   <td>{job.retryCount ?? 0}/{retryLimitLabel}</td>
                   <td><IdBadge value={job.generationBatchId || job.gatingBatchId || job.ragTestRunId} /></td>
                   <td>

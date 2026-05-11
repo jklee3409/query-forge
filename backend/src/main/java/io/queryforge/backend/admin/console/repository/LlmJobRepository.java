@@ -152,6 +152,33 @@ public class LlmJobRepository {
                     SELECT COUNT(*) AS processed_count
                     FROM synthetic_query_gating_result gr
                     WHERE gr.gating_batch_id = (SELECT tj.gating_batch_id FROM target_job tj)
+                ),
+                gating_target AS (
+                    SELECT SUM(batch_stats.generated_count)::int AS target_query_count
+                    FROM target_job tj
+                    LEFT JOIN quality_gating_batch qb
+                      ON qb.gating_batch_id = tj.gating_batch_id
+                    LEFT JOIN LATERAL (
+                        SELECT DISTINCT source_batch.batch_id
+                        FROM (
+                            SELECT qb.generation_batch_id AS batch_id
+                            WHERE qb.generation_batch_id IS NOT NULL
+                            UNION
+                            SELECT arr.value::uuid AS batch_id
+                            FROM jsonb_array_elements_text(COALESCE(qb.stage_config_json -> 'source_generation_batch_ids', '[]'::jsonb)) arr(value)
+                            WHERE arr.value ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+                        ) source_batch
+                    ) src ON TRUE
+                    LEFT JOIN LATERAL (
+                        SELECT GREATEST(COALESCE(gb.total_generated_count, 0), COALESCE(live.live_generated_count, 0)) AS generated_count
+                        FROM synthetic_query_generation_batch gb
+                        LEFT JOIN LATERAL (
+                            SELECT COUNT(*)::int AS live_generated_count
+                            FROM synthetic_queries_raw_all r
+                            WHERE r.generation_batch_id = src.batch_id
+                        ) live ON TRUE
+                        WHERE gb.batch_id = src.batch_id
+                    ) batch_stats ON TRUE
                 )
                 SELECT tj.job_id,
                        tj.job_type,
@@ -163,32 +190,27 @@ public class LlmJobRepository {
                        tj.experiment_name,
                        tj.command_name,
                        tj.command_args::text AS command_args,
+                       progress.processed_items,
+                       progress.total_items,
+                       progress.progress_pct,
+                       rate.estimated_seconds_per_unit,
                        CASE
-                           WHEN tj.job_type = 'RUN_LLM_SELF_EVAL'
-                                AND lower(COALESCE(tj.job_status, '')) IN ('queued', 'running', 'pause_requested', 'paused', 'cancel_requested')
-                               THEN COALESCE(gl.processed_count, 0)
-                           ELSE tj.processed_items
-                       END AS processed_items,
-                       CASE
-                           WHEN tj.job_type = 'RUN_LLM_SELF_EVAL'
-                                AND lower(COALESCE(tj.job_status, '')) IN ('queued', 'running', 'pause_requested', 'paused', 'cancel_requested')
-                               THEN COALESCE(NULLIF(gb.total_generated_count, 0), NULLIF(tj.total_items, 0), 1)
-                           ELSE tj.total_items
-                       END AS total_items,
-                       CASE
-                           WHEN tj.job_type = 'RUN_LLM_SELF_EVAL'
-                                AND lower(COALESCE(tj.job_status, '')) IN ('queued', 'running', 'pause_requested', 'paused', 'cancel_requested')
-                               THEN LEAST(
-                                       100.0,
+                           WHEN lower(COALESCE(tj.job_status, '')) IN ('queued', 'running', 'pause_requested', 'paused', 'cancel_requested')
+                                AND progress.total_items IS NOT NULL
+                                AND progress.processed_items >= progress.total_items
+                               THEN 0
+                           WHEN lower(COALESCE(tj.job_status, '')) IN ('queued', 'running', 'pause_requested', 'paused', 'cancel_requested')
+                                AND rate.estimated_seconds_per_unit IS NOT NULL
+                                AND progress.total_items IS NOT NULL
+                               THEN GREATEST(
+                                       0,
                                        ROUND(
-                                               (
-                                                   COALESCE(gl.processed_count, 0)::numeric * 100.0
-                                               ) / COALESCE(NULLIF(gb.total_generated_count, 0), NULLIF(tj.total_items, 0), 1),
-                                               1
-                                       )::double precision
-                               )
-                           ELSE tj.progress_pct
-                       END AS progress_pct,
+                                               (progress.total_items - progress.processed_items)
+                                               * rate.estimated_seconds_per_unit
+                                       )
+                               )::bigint
+                           ELSE NULL
+                       END AS estimated_remaining_seconds,
                        tj.retry_count,
                        tj.max_retries,
                        tj.next_run_at,
@@ -199,10 +221,60 @@ public class LlmJobRepository {
                        tj.created_at
                 FROM target_job tj
                 LEFT JOIN gating_live gl ON true
-                LEFT JOIN quality_gating_batch qb
-                  ON qb.gating_batch_id = tj.gating_batch_id
-                LEFT JOIN synthetic_query_generation_batch gb
-                  ON gb.batch_id = qb.generation_batch_id
+                LEFT JOIN gating_target gt ON true
+                LEFT JOIN LATERAL (
+                    SELECT CASE
+                               WHEN tj.job_type = 'RUN_LLM_SELF_EVAL'
+                                    AND lower(COALESCE(tj.job_status, '')) IN ('queued', 'running', 'pause_requested', 'paused', 'cancel_requested')
+                                   THEN COALESCE(gl.processed_count, 0)
+                               ELSE tj.processed_items
+                           END AS processed_items,
+                           CASE
+                               WHEN tj.job_type = 'RUN_LLM_SELF_EVAL'
+                                    AND lower(COALESCE(tj.job_status, '')) IN ('queued', 'running', 'pause_requested', 'paused', 'cancel_requested')
+                                   THEN COALESCE(NULLIF(gt.target_query_count, 0), NULLIF(tj.total_items, 0), 1)
+                               ELSE tj.total_items
+                           END AS total_items,
+                           CASE
+                               WHEN tj.job_type = 'RUN_LLM_SELF_EVAL'
+                                    AND lower(COALESCE(tj.job_status, '')) IN ('queued', 'running', 'pause_requested', 'paused', 'cancel_requested')
+                                   THEN LEAST(
+                                           100.0,
+                                           ROUND(
+                                                   (
+                                                       COALESCE(gl.processed_count, 0)::numeric * 100.0
+                                                   ) / COALESCE(NULLIF(gt.target_query_count, 0), NULLIF(tj.total_items, 0), 1),
+                                                   1
+                                           )::double precision
+                                   )
+                               ELSE tj.progress_pct
+                           END AS progress_pct
+                ) progress ON TRUE
+                LEFT JOIN LATERAL (
+                    SELECT AVG(sample.seconds_per_unit) AS historical_seconds_per_unit
+                    FROM (
+                        SELECT EXTRACT(EPOCH FROM (history.finished_at - history.started_at))
+                               / history.total_items::double precision AS seconds_per_unit
+                        FROM llm_job history
+                        WHERE history.job_type = tj.job_type
+                          AND history.job_status = 'completed'
+                          AND history.total_items > 0
+                          AND history.started_at IS NOT NULL
+                          AND history.finished_at IS NOT NULL
+                        ORDER BY history.finished_at DESC
+                        LIMIT 20
+                    ) sample
+                ) hist ON TRUE
+                LEFT JOIN LATERAL (
+                    SELECT CASE
+                               WHEN progress.processed_items > 0
+                                    AND tj.started_at IS NOT NULL
+                                    AND lower(COALESCE(tj.job_status, '')) IN ('queued', 'running', 'pause_requested', 'paused', 'cancel_requested')
+                                   THEN GREATEST(EXTRACT(EPOCH FROM (NOW() - tj.started_at)), 1.0)
+                                        / progress.processed_items::double precision
+                               ELSE hist.historical_seconds_per_unit
+                           END AS estimated_seconds_per_unit
+                ) rate ON TRUE
                 """;
         List<AdminConsoleDtos.LlmJobRow> rows = jdbcTemplate.query(
                 sql,
@@ -250,6 +322,38 @@ public class LlmJobRepository {
                         WHERE lj.gating_batch_id IS NOT NULL
                     )
                     GROUP BY gr.gating_batch_id
+                ),
+                gating_target AS (
+                    SELECT qb.gating_batch_id,
+                           SUM(batch_stats.generated_count)::int AS target_query_count
+                    FROM quality_gating_batch qb
+                    LEFT JOIN LATERAL (
+                        SELECT DISTINCT source_batch.batch_id
+                        FROM (
+                            SELECT qb.generation_batch_id AS batch_id
+                            WHERE qb.generation_batch_id IS NOT NULL
+                            UNION
+                            SELECT arr.value::uuid AS batch_id
+                            FROM jsonb_array_elements_text(COALESCE(qb.stage_config_json -> 'source_generation_batch_ids', '[]'::jsonb)) arr(value)
+                            WHERE arr.value ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+                        ) source_batch
+                    ) src ON TRUE
+                    LEFT JOIN LATERAL (
+                        SELECT GREATEST(COALESCE(gb.total_generated_count, 0), COALESCE(live.live_generated_count, 0)) AS generated_count
+                        FROM synthetic_query_generation_batch gb
+                        LEFT JOIN LATERAL (
+                            SELECT COUNT(*)::int AS live_generated_count
+                            FROM synthetic_queries_raw_all r
+                            WHERE r.generation_batch_id = src.batch_id
+                        ) live ON TRUE
+                        WHERE gb.batch_id = src.batch_id
+                    ) batch_stats ON TRUE
+                    WHERE qb.gating_batch_id IN (
+                        SELECT lj.gating_batch_id
+                        FROM limited_job lj
+                        WHERE lj.gating_batch_id IS NOT NULL
+                    )
+                    GROUP BY qb.gating_batch_id
                 )
                 SELECT lj.job_id,
                        lj.job_type,
@@ -261,32 +365,27 @@ public class LlmJobRepository {
                        lj.experiment_name,
                        lj.command_name,
                        lj.command_args::text AS command_args,
+                       progress.processed_items,
+                       progress.total_items,
+                       progress.progress_pct,
+                       rate.estimated_seconds_per_unit,
                        CASE
-                           WHEN lj.job_type = 'RUN_LLM_SELF_EVAL'
-                                AND lower(COALESCE(lj.job_status, '')) IN ('queued', 'running', 'pause_requested', 'paused', 'cancel_requested')
-                               THEN COALESCE(gl.processed_count, 0)
-                           ELSE lj.processed_items
-                       END AS processed_items,
-                       CASE
-                           WHEN lj.job_type = 'RUN_LLM_SELF_EVAL'
-                                AND lower(COALESCE(lj.job_status, '')) IN ('queued', 'running', 'pause_requested', 'paused', 'cancel_requested')
-                               THEN COALESCE(NULLIF(gb.total_generated_count, 0), NULLIF(lj.total_items, 0), 1)
-                           ELSE lj.total_items
-                       END AS total_items,
-                       CASE
-                           WHEN lj.job_type = 'RUN_LLM_SELF_EVAL'
-                                AND lower(COALESCE(lj.job_status, '')) IN ('queued', 'running', 'pause_requested', 'paused', 'cancel_requested')
-                               THEN LEAST(
-                                       100.0,
+                           WHEN lower(COALESCE(lj.job_status, '')) IN ('queued', 'running', 'pause_requested', 'paused', 'cancel_requested')
+                                AND progress.total_items IS NOT NULL
+                                AND progress.processed_items >= progress.total_items
+                               THEN 0
+                           WHEN lower(COALESCE(lj.job_status, '')) IN ('queued', 'running', 'pause_requested', 'paused', 'cancel_requested')
+                                AND rate.estimated_seconds_per_unit IS NOT NULL
+                                AND progress.total_items IS NOT NULL
+                               THEN GREATEST(
+                                       0,
                                        ROUND(
-                                               (
-                                                   COALESCE(gl.processed_count, 0)::numeric * 100.0
-                                               ) / COALESCE(NULLIF(gb.total_generated_count, 0), NULLIF(lj.total_items, 0), 1),
-                                               1
-                                       )::double precision
-                               )
-                           ELSE lj.progress_pct
-                       END AS progress_pct,
+                                               (progress.total_items - progress.processed_items)
+                                               * rate.estimated_seconds_per_unit
+                                       )
+                               )::bigint
+                           ELSE NULL
+                       END AS estimated_remaining_seconds,
                        lj.retry_count,
                        lj.max_retries,
                        lj.next_run_at,
@@ -298,10 +397,61 @@ public class LlmJobRepository {
                 FROM limited_job lj
                 LEFT JOIN gating_live gl
                   ON gl.gating_batch_id = lj.gating_batch_id
-                LEFT JOIN quality_gating_batch qb
-                  ON qb.gating_batch_id = lj.gating_batch_id
-                LEFT JOIN synthetic_query_generation_batch gb
-                  ON gb.batch_id = qb.generation_batch_id
+                LEFT JOIN gating_target gt
+                  ON gt.gating_batch_id = lj.gating_batch_id
+                LEFT JOIN LATERAL (
+                    SELECT CASE
+                               WHEN lj.job_type = 'RUN_LLM_SELF_EVAL'
+                                    AND lower(COALESCE(lj.job_status, '')) IN ('queued', 'running', 'pause_requested', 'paused', 'cancel_requested')
+                                   THEN COALESCE(gl.processed_count, 0)
+                               ELSE lj.processed_items
+                           END AS processed_items,
+                           CASE
+                               WHEN lj.job_type = 'RUN_LLM_SELF_EVAL'
+                                    AND lower(COALESCE(lj.job_status, '')) IN ('queued', 'running', 'pause_requested', 'paused', 'cancel_requested')
+                                   THEN COALESCE(NULLIF(gt.target_query_count, 0), NULLIF(lj.total_items, 0), 1)
+                               ELSE lj.total_items
+                           END AS total_items,
+                           CASE
+                               WHEN lj.job_type = 'RUN_LLM_SELF_EVAL'
+                                    AND lower(COALESCE(lj.job_status, '')) IN ('queued', 'running', 'pause_requested', 'paused', 'cancel_requested')
+                                   THEN LEAST(
+                                           100.0,
+                                           ROUND(
+                                                   (
+                                                       COALESCE(gl.processed_count, 0)::numeric * 100.0
+                                                   ) / COALESCE(NULLIF(gt.target_query_count, 0), NULLIF(lj.total_items, 0), 1),
+                                                   1
+                                           )::double precision
+                                   )
+                               ELSE lj.progress_pct
+                           END AS progress_pct
+                ) progress ON TRUE
+                LEFT JOIN LATERAL (
+                    SELECT AVG(sample.seconds_per_unit) AS historical_seconds_per_unit
+                    FROM (
+                        SELECT EXTRACT(EPOCH FROM (history.finished_at - history.started_at))
+                               / history.total_items::double precision AS seconds_per_unit
+                        FROM llm_job history
+                        WHERE history.job_type = lj.job_type
+                          AND history.job_status = 'completed'
+                          AND history.total_items > 0
+                          AND history.started_at IS NOT NULL
+                          AND history.finished_at IS NOT NULL
+                        ORDER BY history.finished_at DESC
+                        LIMIT 20
+                    ) sample
+                ) hist ON TRUE
+                LEFT JOIN LATERAL (
+                    SELECT CASE
+                               WHEN progress.processed_items > 0
+                                    AND lj.started_at IS NOT NULL
+                                    AND lower(COALESCE(lj.job_status, '')) IN ('queued', 'running', 'pause_requested', 'paused', 'cancel_requested')
+                                   THEN GREATEST(EXTRACT(EPOCH FROM (NOW() - lj.started_at)), 1.0)
+                                        / progress.processed_items::double precision
+                               ELSE hist.historical_seconds_per_unit
+                           END AS estimated_seconds_per_unit
+                ) rate ON TRUE
                 ORDER BY lj.created_at DESC
                 """;
         return jdbcTemplate.query(
@@ -712,6 +862,8 @@ public class LlmJobRepository {
                 rs.getInt("total_items"),
                 rs.getInt("processed_items"),
                 rs.getObject("progress_pct", Double.class),
+                rs.getObject("estimated_seconds_per_unit", Double.class),
+                rs.getObject("estimated_remaining_seconds", Long.class),
                 rs.getInt("retry_count"),
                 rs.getInt("max_retries"),
                 readInstant(rs, "next_run_at"),

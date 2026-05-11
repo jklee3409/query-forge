@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { DetailCard, IdBadge, Modal, NumberInput, StageCard, StatusBadge } from '../components/Common.jsx'
 import { LlmJobsTable } from '../components/LlmJobsTable.jsx'
+import { RemainingEta } from '../components/RemainingEta.jsx'
 import { queryString, requestJson, toNumber } from '../lib/api.js'
 import { shortId } from '../lib/format.js'
 
@@ -718,7 +719,7 @@ export function GatingPage({ notify }) {
                 return (
                   <tr key={batch.gatingBatchId}>
                     <td><IdBadge value={batch.gatingBatchId} /></td><td>{renderPresetRetrieverBadges(batch)}</td><td>{batch.methodCode || '-'}</td><td><StatusBadge value={batch.status} /></td>
-                    <td>{batch.processedCount ?? 0}</td><td>{batch.acceptedCount ?? 0}</td><td>{acceptance}%</td>
+                    <td>{batch.processedCount ?? 0}</td><td>{batch.acceptedCount ?? 0}</td><td><div>{acceptance}%</div><RemainingEta remainingSeconds={batch.estimatedRemainingSeconds} secondsPerUnit={batch.estimatedSecondsPerQuery} completedCount={batch.processedCount} totalCount={batch.targetQueryCount} unitLabel="query" status={batch.status} compact /></td>
                     <td><button type="button" className="button button--ghost" onClick={() => openBatchDetail(batch)}>상세 조회</button></td>
                   </tr>
                 )

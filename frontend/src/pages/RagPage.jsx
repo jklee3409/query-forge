@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { DetailCard, IdBadge, Modal, StatusBadge } from '../components/Common.jsx'
 import { LlmJobsTable } from '../components/LlmJobsTable.jsx'
+import { RemainingEta } from '../components/RemainingEta.jsx'
 import { requestJson, toNumber } from '../lib/api.js'
 import { fmtTime, shortId } from '../lib/format.js'
 
@@ -2396,6 +2397,15 @@ export function RagPage({ notify }) {
                         <StatusBadge value={run.status} />
                         <IdBadge value={run.ragTestRunId} />
                       </div>
+                      <RemainingEta
+                        remainingSeconds={run.estimatedRemainingSeconds}
+                        secondsPerUnit={run.estimatedSecondsPerStage}
+                        completedCount={run.completedStageCount}
+                        totalCount={run.totalStageCount}
+                        unitLabel="stage"
+                        status={run.status}
+                        compact
+                      />
                     </td>
                     <td>
                       <div className="run-history-token-list">

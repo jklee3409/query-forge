@@ -43,6 +43,7 @@
 - `/admin/rag-tests` now exposes `Eval Query Language` so the same runtime can evaluate Korean or English dataset variants, and dataset preview resolves `userQueryEn` when the selected dataset is English.
 - Admin shell synthetic-page copy now reflects `A/B/C/D/E` strategy coverage while the strategy picker itself remains DB-driven.
 - `/admin/synthetic-queries` batch history now shows generation ETA context (`generated/target`, `sec per query`, `ETA`, LLM job/item state) and supports terminal-batch delete action.
+- Admin UI now uses reusable ETA primitives (`src/lib/eta.js`, `src/components/RemainingEta.jsx`) to render remaining-time projections consistently across Synthetic batch history, Gating batch history, RAG run history, and LLM async job tables.
 - `/admin/rag-tests` and `/admin/quality-gating` now expose retriever ranking controls for BM25 Only, Dense Only, and Hybrid modes, including dense model, dense-required/fallback, rerank, candidate-pool, and fusion-weight settings.
 - Admin retriever controls default to Hybrid + `intfloat/multilingual-e5-small`, dense required, hash fallback disabled, and Cohere rerank enabled so generated experiments are reproducible by ranking mode.
 - `/admin/rag-tests` now defaults rewrite threshold to `0.10` and single-run detail shows a raw-vs-query-rewrite/synthetic-memory comparison table when `raw_only` is present; synthetic-free baseline detail remains baseline-only.

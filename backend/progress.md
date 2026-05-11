@@ -305,6 +305,12 @@ High-level backend progress tracking.
 - Issues encountered: RAG config originally only wrote `memory_generation_strategies`; updated to also emit `source_generation_strategies` for downstream memory builder compatibility.
 - Next steps: Add/extend integration coverage for invalid snapshot selection and successful snapshot-bound run config generation.
 
+## [2026-05-11] Session Summary (RAG/Gating ETA Exposure + LLM Job ETA Metrics)
+- What was done: Extended Admin DTO/repository projections so ETA-related fields are returned for RAG test runs, gating batches, and LLM jobs (`estimated_seconds_per_*`, `estimated_remaining_seconds`, progress totals). Added SQL-side runtime/historical rate estimation using current run throughput (when available) with completed-history fallback.
+- Key decisions: Kept schema unchanged and implemented ETA as read-time derived values; for gating, target query count now resolves from multi-source batch IDs (`stage_config_json.source_generation_batch_ids`) instead of single-batch assumptions.
+- Issues encountered: Legacy UI/API payloads had no ETA primitives for RAG/gating, so mapping/query layers required additive field expansion while preserving existing contracts.
+- Next steps: Monitor ETA stability against real workloads and tune historical sample windows if operator-observed variance is high.
+
 ---
 
 ## Notes

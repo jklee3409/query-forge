@@ -1256,6 +1256,14 @@ public class AdminConsoleRepository {
 
     public Optional<AdminConsoleDtos.GatingBatchRow> findGatingBatch(UUID gatingBatchId) {
         String sql = """
+                WITH live_count AS (
+                    SELECT gr.gating_batch_id,
+                           COUNT(*) AS processed_count,
+                           COUNT(*) FILTER (WHERE gr.accepted) AS accepted_count
+                    FROM synthetic_query_gating_result gr
+                    WHERE gr.gating_batch_id = :gatingBatchId
+                    GROUP BY gr.gating_batch_id
+                )
                 SELECT qb.gating_batch_id,
                        qb.gating_preset,
                        qb.generation_batch_id,
@@ -1266,14 +1274,97 @@ public class AdminConsoleRepository {
                        qb.status,
                        qb.started_at,
                        qb.finished_at,
-                       qb.processed_count,
-                       qb.accepted_count,
-                       qb.rejected_count,
+                       progress.processed_count,
+                       progress.accepted_count,
+                       progress.rejected_count,
+                       target.target_query_count,
+                       rate.estimated_seconds_per_query,
+                       CASE
+                           WHEN lower(COALESCE(qb.status, '')) IN ('completed', 'failed', 'cancelled') THEN 0
+                           WHEN lower(COALESCE(qb.status, '')) NOT IN ('planned', 'queued', 'running') THEN NULL
+                           WHEN target.target_query_count IS NULL OR target.target_query_count <= 0 THEN NULL
+                           WHEN progress.processed_count >= target.target_query_count THEN 0
+                           WHEN rate.estimated_seconds_per_query IS NULL THEN NULL
+                           ELSE GREATEST(
+                                   0,
+                                   ROUND(
+                                           (target.target_query_count - progress.processed_count)
+                                           * rate.estimated_seconds_per_query
+                                   )
+                                )::bigint
+                       END AS estimated_remaining_seconds,
                        qb.rejection_summary::text AS rejection_summary,
                        qb.stage_config_json::text AS stage_config
                 FROM quality_gating_batch qb
                 LEFT JOIN synthetic_query_generation_method m
                   ON m.generation_method_id = qb.generation_method_id
+                LEFT JOIN live_count lc
+                  ON lc.gating_batch_id = qb.gating_batch_id
+                LEFT JOIN LATERAL (
+                    SELECT CASE
+                               WHEN lower(COALESCE(qb.status, '')) IN ('planned', 'queued', 'running')
+                                   THEN COALESCE(lc.processed_count, 0)
+                               ELSE qb.processed_count
+                           END AS processed_count,
+                           CASE
+                               WHEN lower(COALESCE(qb.status, '')) IN ('planned', 'queued', 'running')
+                                   THEN COALESCE(lc.accepted_count, 0)
+                               ELSE qb.accepted_count
+                           END AS accepted_count,
+                           CASE
+                               WHEN lower(COALESCE(qb.status, '')) IN ('planned', 'queued', 'running')
+                                   THEN GREATEST(COALESCE(lc.processed_count, 0) - COALESCE(lc.accepted_count, 0), 0)
+                               ELSE qb.rejected_count
+                           END AS rejected_count
+                ) progress ON TRUE
+                LEFT JOIN LATERAL (
+                    SELECT SUM(batch_stats.generated_count)::int AS target_query_count
+                    FROM (
+                        SELECT DISTINCT source_batch.batch_id,
+                               GREATEST(COALESCE(gb.total_generated_count, 0), COALESCE(live.live_generated_count, 0)) AS generated_count
+                        FROM (
+                            SELECT qb.generation_batch_id AS batch_id
+                            WHERE qb.generation_batch_id IS NOT NULL
+                            UNION
+                            SELECT arr.value::uuid AS batch_id
+                            FROM jsonb_array_elements_text(COALESCE(qb.stage_config_json -> 'source_generation_batch_ids', '[]'::jsonb)) arr(value)
+                            WHERE arr.value ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+                        ) source_batch
+                        JOIN synthetic_query_generation_batch gb
+                          ON gb.batch_id = source_batch.batch_id
+                        LEFT JOIN LATERAL (
+                            SELECT COUNT(*)::int AS live_generated_count
+                            FROM synthetic_queries_raw_all r
+                            WHERE r.generation_batch_id = source_batch.batch_id
+                        ) live ON TRUE
+                    ) batch_stats
+                ) target ON TRUE
+                LEFT JOIN LATERAL (
+                    SELECT AVG(sample.seconds_per_query) AS historical_seconds_per_query
+                    FROM (
+                        SELECT EXTRACT(EPOCH FROM (history.finished_at - history.started_at))
+                               / history.processed_count::double precision AS seconds_per_query
+                        FROM quality_gating_batch history
+                        WHERE history.generation_method_id = qb.generation_method_id
+                          AND history.gating_preset = qb.gating_preset
+                          AND history.status = 'completed'
+                          AND history.processed_count > 0
+                          AND history.started_at IS NOT NULL
+                          AND history.finished_at IS NOT NULL
+                        ORDER BY history.finished_at DESC
+                        LIMIT 20
+                    ) sample
+                ) hist ON TRUE
+                LEFT JOIN LATERAL (
+                    SELECT CASE
+                               WHEN progress.processed_count > 0
+                                    AND qb.started_at IS NOT NULL
+                                    AND lower(COALESCE(qb.status, '')) IN ('planned', 'queued', 'running')
+                                   THEN GREATEST(EXTRACT(EPOCH FROM (NOW() - qb.started_at)), 1.0)
+                                        / progress.processed_count::double precision
+                               ELSE hist.historical_seconds_per_query
+                           END AS estimated_seconds_per_query
+                ) rate ON TRUE
                 WHERE qb.gating_batch_id = :gatingBatchId
                 """;
         List<AdminConsoleDtos.GatingBatchRow> rows = jdbcTemplate.query(
@@ -1324,21 +1415,25 @@ public class AdminConsoleRepository {
                        lb.status,
                        lb.started_at,
                        lb.finished_at,
+                       progress.processed_count,
+                       progress.accepted_count,
+                       progress.rejected_count,
+                       target.target_query_count,
+                       rate.estimated_seconds_per_query,
                        CASE
-                           WHEN lower(COALESCE(lb.status, '')) IN ('planned', 'queued', 'running')
-                               THEN COALESCE(lc.processed_count, 0)
-                           ELSE lb.processed_count
-                       END AS processed_count,
-                       CASE
-                           WHEN lower(COALESCE(lb.status, '')) IN ('planned', 'queued', 'running')
-                               THEN COALESCE(lc.accepted_count, 0)
-                           ELSE lb.accepted_count
-                       END AS accepted_count,
-                       CASE
-                           WHEN lower(COALESCE(lb.status, '')) IN ('planned', 'queued', 'running')
-                               THEN GREATEST(COALESCE(lc.processed_count, 0) - COALESCE(lc.accepted_count, 0), 0)
-                           ELSE lb.rejected_count
-                       END AS rejected_count,
+                           WHEN lower(COALESCE(lb.status, '')) IN ('completed', 'failed', 'cancelled') THEN 0
+                           WHEN lower(COALESCE(lb.status, '')) NOT IN ('planned', 'queued', 'running') THEN NULL
+                           WHEN target.target_query_count IS NULL OR target.target_query_count <= 0 THEN NULL
+                           WHEN progress.processed_count >= target.target_query_count THEN 0
+                           WHEN rate.estimated_seconds_per_query IS NULL THEN NULL
+                           ELSE GREATEST(
+                                   0,
+                                   ROUND(
+                                           (target.target_query_count - progress.processed_count)
+                                           * rate.estimated_seconds_per_query
+                                   )
+                                )::bigint
+                       END AS estimated_remaining_seconds,
                        lb.rejection_summary::text AS rejection_summary,
                        lb.stage_config_json::text AS stage_config
                 FROM limited_batch lb
@@ -1346,6 +1441,71 @@ public class AdminConsoleRepository {
                   ON m.generation_method_id = lb.generation_method_id
                 LEFT JOIN live_count lc
                   ON lc.gating_batch_id = lb.gating_batch_id
+                LEFT JOIN LATERAL (
+                    SELECT CASE
+                               WHEN lower(COALESCE(lb.status, '')) IN ('planned', 'queued', 'running')
+                                   THEN COALESCE(lc.processed_count, 0)
+                               ELSE lb.processed_count
+                           END AS processed_count,
+                           CASE
+                               WHEN lower(COALESCE(lb.status, '')) IN ('planned', 'queued', 'running')
+                                   THEN COALESCE(lc.accepted_count, 0)
+                               ELSE lb.accepted_count
+                           END AS accepted_count,
+                           CASE
+                               WHEN lower(COALESCE(lb.status, '')) IN ('planned', 'queued', 'running')
+                                   THEN GREATEST(COALESCE(lc.processed_count, 0) - COALESCE(lc.accepted_count, 0), 0)
+                               ELSE lb.rejected_count
+                           END AS rejected_count
+                ) progress ON TRUE
+                LEFT JOIN LATERAL (
+                    SELECT SUM(batch_stats.generated_count)::int AS target_query_count
+                    FROM (
+                        SELECT DISTINCT source_batch.batch_id,
+                               GREATEST(COALESCE(gb.total_generated_count, 0), COALESCE(live.live_generated_count, 0)) AS generated_count
+                        FROM (
+                            SELECT lb.generation_batch_id AS batch_id
+                            WHERE lb.generation_batch_id IS NOT NULL
+                            UNION
+                            SELECT arr.value::uuid AS batch_id
+                            FROM jsonb_array_elements_text(COALESCE(lb.stage_config_json -> 'source_generation_batch_ids', '[]'::jsonb)) arr(value)
+                            WHERE arr.value ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+                        ) source_batch
+                        JOIN synthetic_query_generation_batch gb
+                          ON gb.batch_id = source_batch.batch_id
+                        LEFT JOIN LATERAL (
+                            SELECT COUNT(*)::int AS live_generated_count
+                            FROM synthetic_queries_raw_all r
+                            WHERE r.generation_batch_id = source_batch.batch_id
+                        ) live ON TRUE
+                    ) batch_stats
+                ) target ON TRUE
+                LEFT JOIN LATERAL (
+                    SELECT AVG(sample.seconds_per_query) AS historical_seconds_per_query
+                    FROM (
+                        SELECT EXTRACT(EPOCH FROM (history.finished_at - history.started_at))
+                               / history.processed_count::double precision AS seconds_per_query
+                        FROM quality_gating_batch history
+                        WHERE history.generation_method_id = lb.generation_method_id
+                          AND history.gating_preset = lb.gating_preset
+                          AND history.status = 'completed'
+                          AND history.processed_count > 0
+                          AND history.started_at IS NOT NULL
+                          AND history.finished_at IS NOT NULL
+                        ORDER BY history.finished_at DESC
+                        LIMIT 20
+                    ) sample
+                ) hist ON TRUE
+                LEFT JOIN LATERAL (
+                    SELECT CASE
+                               WHEN progress.processed_count > 0
+                                    AND lb.started_at IS NOT NULL
+                                    AND lower(COALESCE(lb.status, '')) IN ('planned', 'queued', 'running')
+                                   THEN GREATEST(EXTRACT(EPOCH FROM (NOW() - lb.started_at)), 1.0)
+                                        / progress.processed_count::double precision
+                               ELSE hist.historical_seconds_per_query
+                           END AS estimated_seconds_per_query
+                ) rate ON TRUE
                 ORDER BY lb.created_at DESC
                 """;
         return jdbcTemplate.query(
@@ -2320,6 +2480,24 @@ public class AdminConsoleRepository {
                        r.rewrite_anchor_injection_enabled,
                        r.retrieval_top_k,
                        r.threshold,
+                       COALESCE(job.total_items, 3) AS total_stage_count,
+                       COALESCE(job.processed_items, 0) AS completed_stage_count,
+                       rate.estimated_seconds_per_stage,
+                       CASE
+                           WHEN lower(COALESCE(r.status, '')) IN ('completed', 'failed', 'cancelled')
+                               THEN 0
+                           WHEN COALESCE(job.total_items, 3) <= COALESCE(job.processed_items, 0)
+                               THEN 0
+                           WHEN rate.estimated_seconds_per_stage IS NULL
+                               THEN NULL
+                           ELSE GREATEST(
+                                   0,
+                                   ROUND(
+                                           (COALESCE(job.total_items, 3) - COALESCE(job.processed_items, 0))
+                                           * rate.estimated_seconds_per_stage
+                                   )
+                                )::bigint
+                       END AS estimated_remaining_seconds,
                        r.started_at,
                        r.finished_at,
                        r.metrics_json::text AS metrics_json
@@ -2328,6 +2506,41 @@ public class AdminConsoleRepository {
                   ON d.dataset_id = r.dataset_id
                 LEFT JOIN rag_test_run_config rc
                   ON rc.rag_test_run_id = r.rag_test_run_id
+                LEFT JOIN LATERAL (
+                    SELECT lj.total_items,
+                           lj.processed_items,
+                           lj.job_status,
+                           lj.started_at
+                    FROM llm_job lj
+                    WHERE lj.rag_test_run_id = r.rag_test_run_id
+                    ORDER BY lj.created_at DESC
+                    LIMIT 1
+                ) job ON TRUE
+                LEFT JOIN LATERAL (
+                    SELECT AVG(sample.seconds_per_stage) AS historical_seconds_per_stage
+                    FROM (
+                        SELECT EXTRACT(EPOCH FROM (history.finished_at - history.started_at))
+                               / history.total_items::double precision AS seconds_per_stage
+                        FROM llm_job history
+                        WHERE history.job_type = 'RUN_RAG_TEST'
+                          AND history.job_status = 'completed'
+                          AND history.total_items > 0
+                          AND history.started_at IS NOT NULL
+                          AND history.finished_at IS NOT NULL
+                        ORDER BY history.finished_at DESC
+                        LIMIT 20
+                    ) sample
+                ) hist ON TRUE
+                LEFT JOIN LATERAL (
+                    SELECT CASE
+                               WHEN COALESCE(job.processed_items, 0) > 0
+                                    AND job.started_at IS NOT NULL
+                                    AND lower(COALESCE(job.job_status, '')) IN ('queued', 'running', 'pause_requested', 'paused', 'cancel_requested')
+                                   THEN GREATEST(EXTRACT(EPOCH FROM (NOW() - job.started_at)), 1.0)
+                                        / job.processed_items::double precision
+                               ELSE hist.historical_seconds_per_stage
+                           END AS estimated_seconds_per_stage
+                ) rate ON TRUE
                 WHERE r.rag_test_run_id = :runId
                 """;
         List<AdminConsoleDtos.RagTestRunRow> rows = jdbcTemplate.query(
@@ -2509,6 +2722,24 @@ public class AdminConsoleRepository {
                        r.rewrite_anchor_injection_enabled,
                        r.retrieval_top_k,
                        r.threshold,
+                       COALESCE(job.total_items, 3) AS total_stage_count,
+                       COALESCE(job.processed_items, 0) AS completed_stage_count,
+                       rate.estimated_seconds_per_stage,
+                       CASE
+                           WHEN lower(COALESCE(r.status, '')) IN ('completed', 'failed', 'cancelled')
+                               THEN 0
+                           WHEN COALESCE(job.total_items, 3) <= COALESCE(job.processed_items, 0)
+                               THEN 0
+                           WHEN rate.estimated_seconds_per_stage IS NULL
+                               THEN NULL
+                           ELSE GREATEST(
+                                   0,
+                                   ROUND(
+                                           (COALESCE(job.total_items, 3) - COALESCE(job.processed_items, 0))
+                                           * rate.estimated_seconds_per_stage
+                                   )
+                                )::bigint
+                       END AS estimated_remaining_seconds,
                        r.started_at,
                        r.finished_at,
                        r.metrics_json::text AS metrics_json
@@ -2517,6 +2748,41 @@ public class AdminConsoleRepository {
                   ON d.dataset_id = r.dataset_id
                 LEFT JOIN rag_test_run_config rc
                   ON rc.rag_test_run_id = r.rag_test_run_id
+                LEFT JOIN LATERAL (
+                    SELECT lj.total_items,
+                           lj.processed_items,
+                           lj.job_status,
+                           lj.started_at
+                    FROM llm_job lj
+                    WHERE lj.rag_test_run_id = r.rag_test_run_id
+                    ORDER BY lj.created_at DESC
+                    LIMIT 1
+                ) job ON TRUE
+                LEFT JOIN LATERAL (
+                    SELECT AVG(sample.seconds_per_stage) AS historical_seconds_per_stage
+                    FROM (
+                        SELECT EXTRACT(EPOCH FROM (history.finished_at - history.started_at))
+                               / history.total_items::double precision AS seconds_per_stage
+                        FROM llm_job history
+                        WHERE history.job_type = 'RUN_RAG_TEST'
+                          AND history.job_status = 'completed'
+                          AND history.total_items > 0
+                          AND history.started_at IS NOT NULL
+                          AND history.finished_at IS NOT NULL
+                        ORDER BY history.finished_at DESC
+                        LIMIT 20
+                    ) sample
+                ) hist ON TRUE
+                LEFT JOIN LATERAL (
+                    SELECT CASE
+                               WHEN COALESCE(job.processed_items, 0) > 0
+                                    AND job.started_at IS NOT NULL
+                                    AND lower(COALESCE(job.job_status, '')) IN ('queued', 'running', 'pause_requested', 'paused', 'cancel_requested')
+                                   THEN GREATEST(EXTRACT(EPOCH FROM (NOW() - job.started_at)), 1.0)
+                                        / job.processed_items::double precision
+                               ELSE hist.historical_seconds_per_stage
+                           END AS estimated_seconds_per_stage
+                ) rate ON TRUE
                 ORDER BY r.created_at DESC
                 LIMIT :limit
                 """;
@@ -2628,6 +2894,24 @@ public class AdminConsoleRepository {
                        r.rewrite_anchor_injection_enabled,
                        r.retrieval_top_k,
                        r.threshold,
+                       COALESCE(job.total_items, 3) AS total_stage_count,
+                       COALESCE(job.processed_items, 0) AS completed_stage_count,
+                       rate.estimated_seconds_per_stage,
+                       CASE
+                           WHEN lower(COALESCE(r.status, '')) IN ('completed', 'failed', 'cancelled')
+                               THEN 0
+                           WHEN COALESCE(job.total_items, 3) <= COALESCE(job.processed_items, 0)
+                               THEN 0
+                           WHEN rate.estimated_seconds_per_stage IS NULL
+                               THEN NULL
+                           ELSE GREATEST(
+                                   0,
+                                   ROUND(
+                                           (COALESCE(job.total_items, 3) - COALESCE(job.processed_items, 0))
+                                           * rate.estimated_seconds_per_stage
+                                   )
+                                )::bigint
+                       END AS estimated_remaining_seconds,
                        r.started_at,
                        r.finished_at,
                        r.metrics_json::text AS metrics_json
@@ -2636,6 +2920,41 @@ public class AdminConsoleRepository {
                   ON d.dataset_id = r.dataset_id
                 LEFT JOIN rag_test_run_config rc
                   ON rc.rag_test_run_id = r.rag_test_run_id
+                LEFT JOIN LATERAL (
+                    SELECT lj.total_items,
+                           lj.processed_items,
+                           lj.job_status,
+                           lj.started_at
+                    FROM llm_job lj
+                    WHERE lj.rag_test_run_id = r.rag_test_run_id
+                    ORDER BY lj.created_at DESC
+                    LIMIT 1
+                ) job ON TRUE
+                LEFT JOIN LATERAL (
+                    SELECT AVG(sample.seconds_per_stage) AS historical_seconds_per_stage
+                    FROM (
+                        SELECT EXTRACT(EPOCH FROM (history.finished_at - history.started_at))
+                               / history.total_items::double precision AS seconds_per_stage
+                        FROM llm_job history
+                        WHERE history.job_type = 'RUN_RAG_TEST'
+                          AND history.job_status = 'completed'
+                          AND history.total_items > 0
+                          AND history.started_at IS NOT NULL
+                          AND history.finished_at IS NOT NULL
+                        ORDER BY history.finished_at DESC
+                        LIMIT 20
+                    ) sample
+                ) hist ON TRUE
+                LEFT JOIN LATERAL (
+                    SELECT CASE
+                               WHEN COALESCE(job.processed_items, 0) > 0
+                                    AND job.started_at IS NOT NULL
+                                    AND lower(COALESCE(job.job_status, '')) IN ('queued', 'running', 'pause_requested', 'paused', 'cancel_requested')
+                                   THEN GREATEST(EXTRACT(EPOCH FROM (NOW() - job.started_at)), 1.0)
+                                        / job.processed_items::double precision
+                               ELSE hist.historical_seconds_per_stage
+                           END AS estimated_seconds_per_stage
+                ) rate ON TRUE
                 WHERE r.dataset_id = :datasetId
                 ORDER BY r.created_at DESC
                 """;
@@ -2861,6 +3180,9 @@ public class AdminConsoleRepository {
                 rs.getInt("processed_count"),
                 rs.getInt("accepted_count"),
                 rs.getInt("rejected_count"),
+                rs.getObject("target_query_count", Integer.class),
+                rs.getObject("estimated_seconds_per_query", Double.class),
+                rs.getObject("estimated_remaining_seconds", Long.class),
                 readJson(rs, "rejection_summary"),
                 stageConfig
         );
@@ -2885,6 +3207,10 @@ public class AdminConsoleRepository {
                 rs.getObject("rewrite_anchor_injection_enabled", Boolean.class),
                 rs.getObject("retrieval_top_k", Integer.class),
                 rs.getObject("threshold", Double.class),
+                rs.getObject("total_stage_count", Integer.class),
+                rs.getObject("completed_stage_count", Integer.class),
+                rs.getObject("estimated_seconds_per_stage", Double.class),
+                rs.getObject("estimated_remaining_seconds", Long.class),
                 readInstant(rs, "started_at"),
                 readInstant(rs, "finished_at"),
                 readJson(rs, "metrics_json")

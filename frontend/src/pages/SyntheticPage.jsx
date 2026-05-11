@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { DetailCard, IdBadge, Modal, StatusBadge } from '../components/Common.jsx'
 import { LlmJobsTable } from '../components/LlmJobsTable.jsx'
+import { RemainingEta } from '../components/RemainingEta.jsx'
 import { fetchSyntheticMethods, queryString, requestJson, toNumber } from '../lib/api.js'
 import { fmtTime, shortId } from '../lib/format.js'
 import { usePolling } from '../lib/hooks.js'
@@ -177,23 +178,6 @@ export function SyntheticPage({ notify }) {
   const isBatchDeletable = (batch) => {
     const status = String(batch?.status || '').toLowerCase()
     return status !== 'planned' && status !== 'queued' && status !== 'running'
-  }
-
-  const formatRemainingSeconds = (seconds) => {
-    if (seconds == null || Number.isNaN(Number(seconds))) return '-'
-    const safe = Math.max(0, Math.round(Number(seconds)))
-    const hours = Math.floor(safe / 3600)
-    const minutes = Math.floor((safe % 3600) / 60)
-    const secs = safe % 60
-    if (hours > 0) {
-      return `${hours}h ${String(minutes).padStart(2, '0')}m`
-    }
-    return `${String(minutes).padStart(2, '0')}:${String(secs).padStart(2, '0')}`
-  }
-
-  const formatPerQuerySeconds = (value) => {
-    if (value == null || Number.isNaN(Number(value))) return '-'
-    return `${Number(value).toFixed(2)}s/q`
   }
 
   const formatLlmJobState = (batch) => {
@@ -431,7 +415,14 @@ export function SyntheticPage({ notify }) {
                   <td>{fmtTime(batch.startedAt)}</td><td>{fmtTime(batch.finishedAt)}</td>
                   <td>
                     <div>{batch.totalGeneratedCount ?? 0} / {batch.targetQueryCount ?? '-'}</div>
-                    <div>{formatPerQuerySeconds(batch.estimatedSecondsPerQuery)} / ETA {formatRemainingSeconds(batch.estimatedRemainingSeconds)}</div>
+                    <RemainingEta
+                      remainingSeconds={batch.estimatedRemainingSeconds}
+                      secondsPerUnit={batch.estimatedSecondsPerQuery}
+                      completedCount={batch.totalGeneratedCount}
+                      totalCount={batch.targetQueryCount}
+                      unitLabel="query"
+                      status={batch.status}
+                    />
                     <div>{formatLlmJobState(batch)}</div>
                     <button type="button" title="Delete batch history" className="button button--ghost" disabled={!isBatchDeletable(batch)} onClick={() => deleteBatch(batch)}>
                       Delete

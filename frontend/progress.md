@@ -247,6 +247,12 @@ High-level progress tracking for the project.
 - Issues encountered: Existing file had mixed-encoding history, so controls were inserted with minimal surface-area changes and then validated by production build.
 - Next steps: Operator smoke-test for official `rewrite_effect` and `gating_effect` workflows and verify explicit failure messages for missing/incompatible snapshots.
 
+## [2026-05-11] Session Summary (Admin ETA Component + Cross-Page ETA Rendering)
+- What was done: Added reusable ETA utilities (`src/lib/eta.js`) and a dedicated ETA display component (`src/components/RemainingEta.jsx`), then applied it to Synthetic batch history, Gating batch history, RAG run history, and shared LLM job table.
+- Key decisions: Centralized duration/rate/progress formatting in one utility layer and used a single UI component with compact/default variants so ETA rendering remains consistent across admin surfaces.
+- Issues encountered: Existing `LlmJobsTable.jsx` contained encoding-drifted labels; it was normalized and rebuilt while preserving job action behavior.
+- Next steps: Collect operator feedback on ETA readability/density and tune compact mode spacing/labels if needed.
+
 ---
 
 ## Notes

@@ -270,6 +270,9 @@ public final class AdminConsoleDtos {
             int processedCount,
             int acceptedCount,
             int rejectedCount,
+            Integer targetQueryCount,
+            Double estimatedSecondsPerQuery,
+            Long estimatedRemainingSeconds,
             JsonNode rejectionSummary,
             JsonNode stageConfig
     ) {
@@ -418,6 +421,10 @@ public final class AdminConsoleDtos {
             Boolean rewriteAnchorInjectionEnabled,
             Integer retrievalTopK,
             Double threshold,
+            Integer totalStageCount,
+            Integer completedStageCount,
+            Double estimatedSecondsPerStage,
+            Long estimatedRemainingSeconds,
             Instant startedAt,
             Instant finishedAt,
             JsonNode metricsJson
@@ -467,6 +474,8 @@ public final class AdminConsoleDtos {
             Integer totalItems,
             Integer processedItems,
             Double progressPct,
+            Double estimatedSecondsPerUnit,
+            Long estimatedRemainingSeconds,
             Integer retryCount,
             Integer maxRetries,
             Instant nextRunAt,
