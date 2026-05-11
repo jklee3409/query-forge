@@ -119,6 +119,13 @@ public final class AdminConsoleDtos {
             Instant startedAt,
             Instant finishedAt,
             int totalGeneratedCount,
+            Integer targetQueryCount,
+            Double estimatedSecondsPerQuery,
+            Long estimatedRemainingSeconds,
+            String llmJobStatus,
+            String llmJobItemStatus,
+            Integer llmRetryCount,
+            Integer llmMaxRetries,
             String createdBy,
             JsonNode metricsJson
     ) {

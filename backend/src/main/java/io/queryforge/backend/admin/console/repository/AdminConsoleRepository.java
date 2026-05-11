@@ -283,6 +283,33 @@ public class AdminConsoleRepository {
     }
 
     @Transactional
+    public int deleteLlmJobsByGenerationBatch(UUID batchId) {
+        if (batchId == null) {
+            return 0;
+        }
+        return jdbcTemplate.update(
+                "DELETE FROM llm_job WHERE generation_batch_id = :batchId",
+                new MapSqlParameterSource("batchId", batchId)
+        );
+    }
+
+    @Transactional
+    public int deleteGenerationBatch(UUID batchId) {
+        if (batchId == null) {
+            return 0;
+        }
+        MapSqlParameterSource params = new MapSqlParameterSource("batchId", batchId);
+        jdbcTemplate.update(
+                "UPDATE quality_gating_batch SET generation_batch_id = NULL WHERE generation_batch_id = :batchId",
+                params
+        );
+        return jdbcTemplate.update(
+                "DELETE FROM synthetic_query_generation_batch WHERE batch_id = :batchId",
+                params
+        );
+    }
+
+    @Transactional
     public void markGenerationBatchRunning(UUID batchId) {
         String sql = """
                 UPDATE synthetic_query_generation_batch
@@ -300,6 +327,7 @@ public class AdminConsoleRepository {
                 UPDATE synthetic_query_generation_batch
                 SET status = 'cancelled',
                     finished_at = NOW(),
+                    total_generated_count = 0,
                     metrics_json = jsonb_build_object('cancel_reason', :reason)
                 WHERE batch_id = :batchId
                 """;
@@ -322,7 +350,25 @@ public class AdminConsoleRepository {
                        b.status,
                        b.started_at,
                        b.finished_at,
-                       GREATEST(COALESCE(b.total_generated_count, 0), COALESCE(live.live_generated_count, 0)) AS total_generated_count,
+                       stats.generated_count AS total_generated_count,
+                       stats.target_query_count,
+                       rate.estimated_seconds_per_query,
+                       CASE
+                           WHEN stats.target_query_count IS NULL OR stats.target_query_count <= 0 THEN NULL
+                           WHEN stats.generated_count >= stats.target_query_count THEN 0
+                           WHEN rate.estimated_seconds_per_query IS NULL THEN NULL
+                           ELSE GREATEST(
+                                   0,
+                                   ROUND(
+                                           (stats.target_query_count - stats.generated_count)
+                                           * rate.estimated_seconds_per_query
+                                   )
+                                )::bigint
+                       END AS estimated_remaining_seconds,
+                       job.job_status AS llm_job_status,
+                       job.item_status AS llm_job_item_status,
+                       job.retry_count AS llm_retry_count,
+                       job.max_retries AS llm_max_retries,
                        b.created_by,
                        b.metrics_json::text AS metrics_json
                 FROM synthetic_query_generation_batch b
@@ -333,6 +379,56 @@ public class AdminConsoleRepository {
                     FROM synthetic_queries_raw_all r
                     WHERE r.generation_batch_id = b.batch_id
                 ) live ON TRUE
+                LEFT JOIN LATERAL (
+                    SELECT GREATEST(COALESCE(b.total_generated_count, 0), COALESCE(live.live_generated_count, 0)) AS generated_count,
+                           CASE
+                               WHEN COALESCE(b.config_json ->> 'max_total_queries', '') ~ '^[0-9]+$'
+                                   THEN (b.config_json ->> 'max_total_queries')::int
+                               ELSE NULL
+                           END AS target_query_count
+                ) stats ON TRUE
+                LEFT JOIN LATERAL (
+                    SELECT AVG(sample.seconds_per_query) AS historical_seconds_per_query
+                    FROM (
+                        SELECT EXTRACT(EPOCH FROM (cb.finished_at - cb.started_at))
+                               / cb.total_generated_count::double precision AS seconds_per_query
+                        FROM synthetic_query_generation_batch cb
+                        WHERE cb.generation_method_id = b.generation_method_id
+                          AND cb.status = 'completed'
+                          AND cb.total_generated_count > 0
+                          AND cb.started_at IS NOT NULL
+                          AND cb.finished_at IS NOT NULL
+                        ORDER BY cb.finished_at DESC
+                        LIMIT 20
+                    ) sample
+                ) hist ON TRUE
+                LEFT JOIN LATERAL (
+                    SELECT CASE
+                               WHEN stats.generated_count > 0
+                                    AND b.started_at IS NOT NULL
+                                    AND LOWER(COALESCE(b.status, '')) IN ('planned', 'queued', 'running')
+                                   THEN GREATEST(EXTRACT(EPOCH FROM (NOW() - b.started_at)), 1.0)
+                                        / stats.generated_count::double precision
+                               ELSE hist.historical_seconds_per_query
+                           END AS estimated_seconds_per_query
+                ) rate ON TRUE
+                LEFT JOIN LATERAL (
+                    SELECT lj.job_status,
+                           lj.retry_count,
+                           lj.max_retries,
+                           li.item_status
+                    FROM llm_job lj
+                    LEFT JOIN LATERAL (
+                        SELECT item_status
+                        FROM llm_job_item lji
+                        WHERE lji.job_id = lj.job_id
+                        ORDER BY lji.item_order DESC
+                        LIMIT 1
+                    ) li ON TRUE
+                    WHERE lj.generation_batch_id = b.batch_id
+                    ORDER BY lj.created_at DESC
+                    LIMIT 1
+                ) job ON TRUE
                 ORDER BY b.created_at DESC
                 LIMIT :limit
                 """;
@@ -350,6 +446,13 @@ public class AdminConsoleRepository {
                         readInstant(rs, "started_at"),
                         readInstant(rs, "finished_at"),
                         rs.getInt("total_generated_count"),
+                        rs.getObject("target_query_count", Integer.class),
+                        rs.getObject("estimated_seconds_per_query", Double.class),
+                        rs.getObject("estimated_remaining_seconds", Long.class),
+                        rs.getString("llm_job_status"),
+                        rs.getString("llm_job_item_status"),
+                        rs.getObject("llm_retry_count", Integer.class),
+                        rs.getObject("llm_max_retries", Integer.class),
                         rs.getString("created_by"),
                         readJson(rs, "metrics_json")
                 )
@@ -367,7 +470,25 @@ public class AdminConsoleRepository {
                        b.status,
                        b.started_at,
                        b.finished_at,
-                       GREATEST(COALESCE(b.total_generated_count, 0), COALESCE(live.live_generated_count, 0)) AS total_generated_count,
+                       stats.generated_count AS total_generated_count,
+                       stats.target_query_count,
+                       rate.estimated_seconds_per_query,
+                       CASE
+                           WHEN stats.target_query_count IS NULL OR stats.target_query_count <= 0 THEN NULL
+                           WHEN stats.generated_count >= stats.target_query_count THEN 0
+                           WHEN rate.estimated_seconds_per_query IS NULL THEN NULL
+                           ELSE GREATEST(
+                                   0,
+                                   ROUND(
+                                           (stats.target_query_count - stats.generated_count)
+                                           * rate.estimated_seconds_per_query
+                                   )
+                                )::bigint
+                       END AS estimated_remaining_seconds,
+                       job.job_status AS llm_job_status,
+                       job.item_status AS llm_job_item_status,
+                       job.retry_count AS llm_retry_count,
+                       job.max_retries AS llm_max_retries,
                        b.created_by,
                        b.metrics_json::text AS metrics_json
                 FROM synthetic_query_generation_batch b
@@ -378,6 +499,56 @@ public class AdminConsoleRepository {
                     FROM synthetic_queries_raw_all r
                     WHERE r.generation_batch_id = b.batch_id
                 ) live ON TRUE
+                LEFT JOIN LATERAL (
+                    SELECT GREATEST(COALESCE(b.total_generated_count, 0), COALESCE(live.live_generated_count, 0)) AS generated_count,
+                           CASE
+                               WHEN COALESCE(b.config_json ->> 'max_total_queries', '') ~ '^[0-9]+$'
+                                   THEN (b.config_json ->> 'max_total_queries')::int
+                               ELSE NULL
+                           END AS target_query_count
+                ) stats ON TRUE
+                LEFT JOIN LATERAL (
+                    SELECT AVG(sample.seconds_per_query) AS historical_seconds_per_query
+                    FROM (
+                        SELECT EXTRACT(EPOCH FROM (cb.finished_at - cb.started_at))
+                               / cb.total_generated_count::double precision AS seconds_per_query
+                        FROM synthetic_query_generation_batch cb
+                        WHERE cb.generation_method_id = b.generation_method_id
+                          AND cb.status = 'completed'
+                          AND cb.total_generated_count > 0
+                          AND cb.started_at IS NOT NULL
+                          AND cb.finished_at IS NOT NULL
+                        ORDER BY cb.finished_at DESC
+                        LIMIT 20
+                    ) sample
+                ) hist ON TRUE
+                LEFT JOIN LATERAL (
+                    SELECT CASE
+                               WHEN stats.generated_count > 0
+                                    AND b.started_at IS NOT NULL
+                                    AND LOWER(COALESCE(b.status, '')) IN ('planned', 'queued', 'running')
+                                   THEN GREATEST(EXTRACT(EPOCH FROM (NOW() - b.started_at)), 1.0)
+                                        / stats.generated_count::double precision
+                               ELSE hist.historical_seconds_per_query
+                           END AS estimated_seconds_per_query
+                ) rate ON TRUE
+                LEFT JOIN LATERAL (
+                    SELECT lj.job_status,
+                           lj.retry_count,
+                           lj.max_retries,
+                           li.item_status
+                    FROM llm_job lj
+                    LEFT JOIN LATERAL (
+                        SELECT item_status
+                        FROM llm_job_item lji
+                        WHERE lji.job_id = lj.job_id
+                        ORDER BY lji.item_order DESC
+                        LIMIT 1
+                    ) li ON TRUE
+                    WHERE lj.generation_batch_id = b.batch_id
+                    ORDER BY lj.created_at DESC
+                    LIMIT 1
+                ) job ON TRUE
                 WHERE b.batch_id = :batchId
                 """;
         List<AdminConsoleDtos.SyntheticGenerationBatchRow> rows = jdbcTemplate.query(
@@ -394,6 +565,13 @@ public class AdminConsoleRepository {
                         readInstant(rs, "started_at"),
                         readInstant(rs, "finished_at"),
                         rs.getInt("total_generated_count"),
+                        rs.getObject("target_query_count", Integer.class),
+                        rs.getObject("estimated_seconds_per_query", Double.class),
+                        rs.getObject("estimated_remaining_seconds", Long.class),
+                        rs.getString("llm_job_status"),
+                        rs.getString("llm_job_item_status"),
+                        rs.getObject("llm_retry_count", Integer.class),
+                        rs.getObject("llm_max_retries", Integer.class),
                         rs.getString("created_by"),
                         readJson(rs, "metrics_json")
                 )

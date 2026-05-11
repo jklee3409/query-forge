@@ -174,6 +174,36 @@ export function SyntheticPage({ notify }) {
     return status === 'planned' || status === 'queued' || status === 'running'
   })
 
+  const isBatchDeletable = (batch) => {
+    const status = String(batch?.status || '').toLowerCase()
+    return status !== 'planned' && status !== 'queued' && status !== 'running'
+  }
+
+  const formatRemainingSeconds = (seconds) => {
+    if (seconds == null || Number.isNaN(Number(seconds))) return '-'
+    const safe = Math.max(0, Math.round(Number(seconds)))
+    const hours = Math.floor(safe / 3600)
+    const minutes = Math.floor((safe % 3600) / 60)
+    const secs = safe % 60
+    if (hours > 0) {
+      return `${hours}h ${String(minutes).padStart(2, '0')}m`
+    }
+    return `${String(minutes).padStart(2, '0')}:${String(secs).padStart(2, '0')}`
+  }
+
+  const formatPerQuerySeconds = (value) => {
+    if (value == null || Number.isNaN(Number(value))) return '-'
+    return `${Number(value).toFixed(2)}s/q`
+  }
+
+  const formatLlmJobState = (batch) => {
+    const jobStatus = batch?.llmJobStatus || '-'
+    const itemStatus = batch?.llmJobItemStatus || '-'
+    const retries = batch?.llmRetryCount ?? 0
+    const maxRetries = Number(batch?.llmMaxRetries) < 0 ? '∞' : (batch?.llmMaxRetries ?? 0)
+    return `${jobStatus} / ${itemStatus} (${retries}/${maxRetries})`
+  }
+
   usePolling(hasActiveGenerationBatch, 3000, () => {
     loadBatches().catch(() => {})
   })
@@ -249,8 +279,33 @@ export function SyntheticPage({ notify }) {
   const executeLlmAction = async (jobId, action) => {
     try {
       await requestJson(`/api/admin/console/llm-jobs/${jobId}/${action}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' })
-      await loadLlmJobs()
+      const refreshTasks = [loadBatches(), loadStats(), loadQueries(queryPage)]
+      if (llmJobsLoaded) {
+        refreshTasks.push(loadLlmJobs())
+      }
+      await Promise.all(refreshTasks)
       notify(`JOB ${action} 요청을 전송했습니다.`)
+    } catch (error) {
+      notify(error.message, 'error')
+    }
+  }
+
+  const deleteBatch = async (batch) => {
+    if (!batch?.batchId) return
+    if (!isBatchDeletable(batch)) {
+      notify('Running batch cannot be deleted. Cancel the job first.', 'error')
+      return
+    }
+    const confirmed = window.confirm(`Delete batch history ${batch.batchId}? This action cannot be undone.`)
+    if (!confirmed) return
+    try {
+      await requestJson(`/api/admin/console/synthetic/batches/${batch.batchId}`, { method: 'DELETE' })
+      const refreshTasks = [loadBatches(), loadStats(), loadQueries(queryPage)]
+      if (llmJobsLoaded) {
+        refreshTasks.push(loadLlmJobs())
+      }
+      await Promise.all(refreshTasks)
+      notify('Synthetic batch history deleted.')
     } catch (error) {
       notify(error.message, 'error')
     }
@@ -373,7 +428,15 @@ export function SyntheticPage({ notify }) {
               {pagedBatches.map((batch) => (
                 <tr key={batch.batchId}>
                   <td><IdBadge value={batch.batchId} /></td><td>{batch.methodCode}</td><td>{batch.versionName}</td><td><StatusBadge value={batch.status} /></td>
-                  <td>{fmtTime(batch.startedAt)}</td><td>{fmtTime(batch.finishedAt)}</td><td>{batch.totalGeneratedCount ?? 0}</td>
+                  <td>{fmtTime(batch.startedAt)}</td><td>{fmtTime(batch.finishedAt)}</td>
+                  <td>
+                    <div>{batch.totalGeneratedCount ?? 0} / {batch.targetQueryCount ?? '-'}</div>
+                    <div>{formatPerQuerySeconds(batch.estimatedSecondsPerQuery)} / ETA {formatRemainingSeconds(batch.estimatedRemainingSeconds)}</div>
+                    <div>{formatLlmJobState(batch)}</div>
+                    <button type="button" title="Delete batch history" className="button button--ghost" disabled={!isBatchDeletable(batch)} onClick={() => deleteBatch(batch)}>
+                      Delete
+                    </button>
+                  </td>
                 </tr>
               ))}
             </tbody>

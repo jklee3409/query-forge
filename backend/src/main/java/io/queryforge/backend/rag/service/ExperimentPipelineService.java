@@ -21,6 +21,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 import java.util.stream.Stream;
 
@@ -40,8 +41,13 @@ public class ExperimentPipelineService {
 
     private final AdminPipelineProperties properties;
     private final ObjectMapper objectMapper;
+    private final Map<String, Process> runningProcesses = new ConcurrentHashMap<>();
 
     public RagDtos.ExperimentCommandResponse run(RagDtos.ExperimentCommandRequest request) {
+        return run(request, null);
+    }
+
+    public RagDtos.ExperimentCommandResponse run(RagDtos.ExperimentCommandRequest request, String executionKey) {
         String command = normalizedCommand(request.command());
         if (!ALLOWED_COMMANDS.contains(command)) {
             throw new IllegalArgumentException("unsupported command: " + request.command());
@@ -62,8 +68,12 @@ public class ExperimentPipelineService {
         ProcessBuilder processBuilder = new ProcessBuilder(commandLine)
                 .directory(repoRoot.toFile());
         applyDotEnvForProcess(processBuilder, repoRoot);
+        String normalizedExecutionKey = normalizeExecutionKey(executionKey);
         try {
             Process process = processBuilder.start();
+            if (normalizedExecutionKey != null) {
+                runningProcesses.put(normalizedExecutionKey, process);
+            }
             CompletableFuture<String> stdoutFuture = CompletableFuture.supplyAsync(
                     () -> readStream(process.getInputStream())
             );
@@ -73,11 +83,7 @@ public class ExperimentPipelineService {
             long timeoutSeconds = Math.max(60L, properties.experimentCommandTimeoutSeconds());
             boolean finished = process.waitFor(timeoutSeconds, TimeUnit.SECONDS);
             if (!finished) {
-                process.destroy();
-                if (!process.waitFor(10, TimeUnit.SECONDS)) {
-                    process.destroyForcibly();
-                    process.waitFor(10, TimeUnit.SECONDS);
-                }
+                destroyProcess(process);
                 String stdout = stdoutFuture.join();
                 String stderr = stderrFuture.join();
                 String timeoutMessage = "command timed out after " + timeoutSeconds + " seconds";
@@ -110,7 +116,24 @@ public class ExperimentPipelineService {
             throw new IllegalStateException("failed to read experiment command output", exception);
         } catch (IOException exception) {
             throw new IllegalStateException("failed to run experiment command", exception);
+        } finally {
+            if (normalizedExecutionKey != null) {
+                runningProcesses.remove(normalizedExecutionKey);
+            }
         }
+    }
+
+    public boolean cancelRunningCommand(String executionKey) {
+        String normalizedExecutionKey = normalizeExecutionKey(executionKey);
+        if (normalizedExecutionKey == null) {
+            return false;
+        }
+        Process process = runningProcesses.get(normalizedExecutionKey);
+        if (process == null) {
+            return false;
+        }
+        destroyProcess(process);
+        return true;
     }
 
     private void applyDotEnvForProcess(ProcessBuilder processBuilder, Path repoRoot) {
@@ -210,6 +233,29 @@ public class ExperimentPipelineService {
         } catch (IOException exception) {
             throw new IllegalStateException("failed to read process output stream", exception);
         }
+    }
+
+    private void destroyProcess(Process process) {
+        if (process == null) {
+            return;
+        }
+        process.destroy();
+        try {
+            if (!process.waitFor(10, TimeUnit.SECONDS)) {
+                process.destroyForcibly();
+                process.waitFor(10, TimeUnit.SECONDS);
+            }
+        } catch (InterruptedException exception) {
+            Thread.currentThread().interrupt();
+        }
+    }
+
+    private String normalizeExecutionKey(String executionKey) {
+        if (executionKey == null) {
+            return null;
+        }
+        String normalized = executionKey.trim();
+        return normalized.isEmpty() ? null : normalized;
     }
 
     private String trim(String text) {

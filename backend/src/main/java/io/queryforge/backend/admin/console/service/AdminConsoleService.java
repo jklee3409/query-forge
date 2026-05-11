@@ -112,6 +112,22 @@ public class AdminConsoleService {
         return repository.findGenerationBatches(limit);
     }
 
+    @Transactional
+    public void deleteSyntheticGenerationBatch(UUID batchId) {
+        AdminConsoleDtos.SyntheticGenerationBatchRow batch = repository.findGenerationBatch(batchId)
+                .orElseThrow(() -> new IllegalArgumentException("generation batch not found: " + batchId));
+        String status = batch.status() == null ? "" : batch.status().trim().toLowerCase(Locale.ROOT);
+        if (Set.of("planned", "queued", "running").contains(status)) {
+            throw new IllegalArgumentException("running generation batch cannot be deleted. cancel the job first.");
+        }
+        repository.deleteLlmJobsByGenerationBatch(batchId);
+        repository.deleteSyntheticQueriesByGenerationBatch(batchId);
+        int removed = repository.deleteGenerationBatch(batchId);
+        if (removed <= 0) {
+            throw new IllegalArgumentException("generation batch not found: " + batchId);
+        }
+    }
+
     public List<AdminConsoleDtos.SyntheticQueryRow> listSyntheticQueries(
             String methodCode,
             UUID batchId,

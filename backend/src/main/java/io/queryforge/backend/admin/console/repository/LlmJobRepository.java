@@ -80,7 +80,7 @@ public class LlmJobRepository {
                         .addValue("commandName", commandName)
                         .addValue("commandArgs", commandArgs.toString())
                         .addValue("totalItems", Math.max(totalItems, 1))
-                        .addValue("maxRetries", Math.max(maxRetries, 0))
+                        .addValue("maxRetries", normalizeMaxRetries(maxRetries))
                         .addValue("createdBy", createdBy)
         );
         return jobId;
@@ -116,7 +116,7 @@ public class LlmJobRepository {
                         .addValue("itemOrder", itemOrder)
                         .addValue("itemType", itemType)
                         .addValue("payloadJson", payloadJson.toString())
-                        .addValue("maxRetries", Math.max(maxRetries, 0))
+                        .addValue("maxRetries", normalizeMaxRetries(maxRetries))
         );
         return jobItemId;
     }
@@ -728,6 +728,10 @@ public class LlmJobRepository {
             return fallback;
         }
         return Math.min(value, 500);
+    }
+
+    private int normalizeMaxRetries(int maxRetries) {
+        return maxRetries < 0 ? -1 : maxRetries;
     }
 
     private UUID readUuid(ResultSet rs, String column) throws SQLException {

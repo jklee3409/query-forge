@@ -114,10 +114,10 @@ public class LlmJobService {
                 null,
                 null,
                 1,
-                2,
+                -1,
                 createdBy
         );
-        llmJobRepository.createJobItem(jobId, 1, "generate-queries", commandArgs, 2);
+        llmJobRepository.createJobItem(jobId, 1, "generate-queries", commandArgs, -1);
         enqueue(jobId);
         return jobId;
     }
@@ -196,6 +196,7 @@ public class LlmJobService {
     @Transactional
     public void cancelJob(UUID jobId) {
         llmJobRepository.requestCancel(jobId);
+        experimentPipelineService.cancelRunningCommand(jobId.toString());
         llmJobRepository.findJob(jobId).ifPresent(job -> {
             if ("cancelled".equalsIgnoreCase(job.jobStatus())) {
                 llmJobRepository.markRemainingItemsCancelled(jobId);
@@ -348,14 +349,14 @@ public class LlmJobService {
                 llmJobRepository.markItemRunning(item.jobItemId());
                 long commandStartedAtNano = System.nanoTime();
                 RagDtos.ExperimentCommandResponse response = experimentPipelineService.run(
-                        new RagDtos.ExperimentCommandRequest(command, experiment)
+                        new RagDtos.ExperimentCommandRequest(command, experiment),
+                        job.jobId().toString()
                 );
                 commandDurationMs.put(command, elapsedMillis(commandStartedAtNano));
                 resultByCommand.put(command, response.summary());
                 AdminConsoleDtos.LlmJobRow afterRun = llmJobRepository.findJob(job.jobId())
                         .orElseThrow(() -> new IllegalStateException("llm job missing after command run: " + job.jobId()));
                 if ("cancel_requested".equalsIgnoreCase(afterRun.jobStatus())) {
-                    llmJobRepository.markItemCompleted(item.jobItemId(), response.summary());
                     llmJobRepository.markRemainingItemsCancelled(job.jobId());
                     llmJobRepository.markCancelled(
                             job.jobId(),
@@ -536,7 +537,8 @@ public class LlmJobService {
         int nextRetry = (job.retryCount() == null ? 0 : job.retryCount()) + 1;
         int maxRetries = job.maxRetries() == null ? 0 : job.maxRetries();
         String errorMessage = exception.getMessage() == null ? "job_failed" : exception.getMessage();
-        if (nextRetry <= maxRetries) {
+        boolean unlimitedRetry = "GENERATE_SYNTHETIC_QUERY".equals(job.jobType()) && maxRetries < 0;
+        if (unlimitedRetry || nextRetry <= maxRetries) {
             long backoffSeconds = (long) Math.min(60, Math.pow(2, nextRetry) * 2);
             Instant nextRunAt = Instant.now().plusSeconds(backoffSeconds);
             llmJobRepository.prepareItemsForRetry(job.jobId());
@@ -589,6 +591,24 @@ public class LlmJobService {
 
     private void markRelatedCancelled(AdminConsoleDtos.LlmJobRow job) {
         if (job.generationBatchId() != null) {
+            try {
+                int purged = adminConsoleRepository.deleteSyntheticQueriesByGenerationBatch(job.generationBatchId());
+                if (purged > 0) {
+                    log.info(
+                            "Purged {} synthetic queries after generation job cancellation. batchId={}, jobId={}",
+                            purged,
+                            job.generationBatchId(),
+                            job.jobId()
+                    );
+                }
+            } catch (RuntimeException cleanupException) {
+                log.warn(
+                        "Failed to purge synthetic queries after generation job cancellation. batchId={}, jobId={}",
+                        job.generationBatchId(),
+                        job.jobId(),
+                        cleanupException
+                );
+            }
             adminConsoleRepository.cancelGenerationBatch(job.generationBatchId(), "cancel requested by user");
         }
         if (job.gatingBatchId() != null) {

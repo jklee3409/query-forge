@@ -58,13 +58,14 @@ export function LlmJobsTable({ jobs, onAction, onDetail, loaded = true, loading 
           <tbody>
             {pagedJobs.map((job) => {
               const status = String(job.jobStatus || '').toLowerCase()
+              const retryLimitLabel = Number(job.maxRetries) < 0 ? '∞' : (job.maxRetries ?? 0)
               return (
                 <tr key={job.jobId}>
                   <td><IdBadge value={job.jobId} /></td>
                   <td>{job.jobType || '-'}</td>
                   <td><StatusBadge value={job.jobStatus} /></td>
                   <td>{job.progressPct == null ? '-' : `${Number(job.progressPct).toFixed(1)}%`}</td>
-                  <td>{job.retryCount ?? 0}/{job.maxRetries ?? 0}</td>
+                  <td>{job.retryCount ?? 0}/{retryLimitLabel}</td>
                   <td><IdBadge value={job.generationBatchId || job.gatingBatchId || job.ragTestRunId} /></td>
                   <td>
                     <div className="toolbar">

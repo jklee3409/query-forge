@@ -45,6 +45,11 @@ public class AdminConsoleController {
         return service.runSyntheticGeneration(request);
     }
 
+    @DeleteMapping("/synthetic/batches/{batchId}")
+    public void deleteSyntheticBatch(@PathVariable UUID batchId) {
+        service.deleteSyntheticGenerationBatch(batchId);
+    }
+
     @GetMapping("/synthetic/queries")
     public List<AdminConsoleDtos.SyntheticQueryRow> syntheticQueries(
             @RequestParam(name = "method_code", required = false) String methodCode,
