@@ -153,6 +153,21 @@ class _RetryableLlmError(RuntimeError):
         super().__init__(message)
         self.details = details or _LlmFailureDetails(category=FAILURE_CATEGORY_REQUEST_FAILED)
 
+    def __str__(self) -> str:
+        base = super().__str__()
+        details = self.details
+        parts = [f"category={details.category}"]
+        if details.status_code is not None:
+            parts.append(f"status={details.status_code}")
+        if details.finish_reason:
+            parts.append(f"finish_reason={details.finish_reason}")
+        if details.block_reason:
+            parts.append(f"block_reason={details.block_reason}")
+        suffix = " ".join(parts)
+        if not base:
+            return suffix
+        return f"{base} [{suffix}]"
+
 
 class _SchemaValidationError(RuntimeError):
     pass

@@ -256,6 +256,23 @@ class LlmClientTest(unittest.TestCase):
         self.assertTrue(any("category=missing_required_key" in line for line in logs.output))
 
     @patch("pipeline.common.llm_client.requests.post")
+    def test_retryable_error_message_includes_failure_category(self, mock_post) -> None:
+        mock_post.return_value = _openai_success({"wrong_field": "value"})
+        client = llm_client.LlmClient(_config(max_retries=0))
+        schema = {
+            "type": "object",
+            "required": ["query_ko"],
+            "properties": {"query_ko": {"type": "string"}},
+            "additionalProperties": True,
+        }
+
+        with self.assertRaises(RuntimeError) as ctx:
+            client.chat_json(system_prompt="s", user_prompt="u", response_schema=schema)
+
+        self.assertIsNotNone(ctx.exception.__cause__)
+        self.assertIn("category=missing_required_key", str(ctx.exception.__cause__))
+
+    @patch("pipeline.common.llm_client.requests.post")
     def test_gemini_safety_block_failure_category_logged(self, mock_post) -> None:
         mock_post.return_value = _FakeResponse(
             status_code=200,
