@@ -322,12 +322,17 @@ public class AdminConsoleRepository {
                        b.status,
                        b.started_at,
                        b.finished_at,
-                       b.total_generated_count,
+                       GREATEST(COALESCE(b.total_generated_count, 0), COALESCE(live.live_generated_count, 0)) AS total_generated_count,
                        b.created_by,
                        b.metrics_json::text AS metrics_json
                 FROM synthetic_query_generation_batch b
                 JOIN synthetic_query_generation_method m
                   ON m.generation_method_id = b.generation_method_id
+                LEFT JOIN LATERAL (
+                    SELECT COUNT(*)::int AS live_generated_count
+                    FROM synthetic_queries_raw_all r
+                    WHERE r.generation_batch_id = b.batch_id
+                ) live ON TRUE
                 ORDER BY b.created_at DESC
                 LIMIT :limit
                 """;
@@ -362,12 +367,17 @@ public class AdminConsoleRepository {
                        b.status,
                        b.started_at,
                        b.finished_at,
-                       b.total_generated_count,
+                       GREATEST(COALESCE(b.total_generated_count, 0), COALESCE(live.live_generated_count, 0)) AS total_generated_count,
                        b.created_by,
                        b.metrics_json::text AS metrics_json
                 FROM synthetic_query_generation_batch b
                 JOIN synthetic_query_generation_method m
                   ON m.generation_method_id = b.generation_method_id
+                LEFT JOIN LATERAL (
+                    SELECT COUNT(*)::int AS live_generated_count
+                    FROM synthetic_queries_raw_all r
+                    WHERE r.generation_batch_id = b.batch_id
+                ) live ON TRUE
                 WHERE b.batch_id = :batchId
                 """;
         List<AdminConsoleDtos.SyntheticGenerationBatchRow> rows = jdbcTemplate.query(

@@ -3,6 +3,7 @@ import { DetailCard, IdBadge, Modal, StatusBadge } from '../components/Common.js
 import { LlmJobsTable } from '../components/LlmJobsTable.jsx'
 import { fetchSyntheticMethods, queryString, requestJson, toNumber } from '../lib/api.js'
 import { fmtTime, shortId } from '../lib/format.js'
+import { usePolling } from '../lib/hooks.js'
 
 export function SyntheticPage({ notify }) {
   const pageSize = 20
@@ -167,6 +168,15 @@ export function SyntheticPage({ notify }) {
     const status = String(batch?.status || '').toLowerCase()
     return status !== 'failed' && status !== 'cancelled'
   }
+
+  const hasActiveGenerationBatch = batches.some((batch) => {
+    const status = String(batch?.status || '').toLowerCase()
+    return status === 'planned' || status === 'queued' || status === 'running'
+  })
+
+  usePolling(hasActiveGenerationBatch, 3000, () => {
+    loadBatches().catch(() => {})
+  })
 
   useEffect(() => {
     if (!filterForm.batch_id) return
