@@ -39,6 +39,7 @@ Spring Boot backend for Admin Console APIs, RAG APIs, pipeline command orchestra
 - Admin synthetic supports KR-source split strategies `F/G` with dedicated raw tables (`synthetic_queries_raw_f/g`); `F` defaults to `query_language=en`, `G` defaults to `query_language=ko`.
 - Synthetic method selection now supports context-scoped API filtering via `/api/admin/console/synthetic/methods?source_id=...&source_document_id=...&dataset_id=...`.
 - Backend enforces strategy scope guards: Spring technical-doc scope allows only `A~E`, Python KR scope allows only `F/G`, with synthetic run-time source validation and dataset-bound RAG method validation.
+- Synthetic batch history now supports hard delete via `DELETE /api/admin/console/synthetic/batches/{batchId}` (linked `llm_job` rows + batch raw synthetic rows cleanup), generation retry-limit removal (`max_retries=-1` sentinel for generation jobs), and live ETA exposure from batch API fields (`targetQueryCount`, `estimatedSecondsPerQuery`, `estimatedRemainingSeconds`, job/item status).
 - Eval sample storage now supports `user_query_en` plus `query_language`, and Admin RAG run requests persist `evalQueryLanguage` into experiment config for language-specific runtime loading.
 - Admin RAG test run API supports optional snapshot binding via `sourceGatingBatchId` and validates it into fixed `source_gating_run_id`.
 - Admin RAG test run API supports `syntheticFreeBaseline` exploratory mode (synthetic-free baseline), forcing raw-only evaluation semantics without snapshot/method selection.

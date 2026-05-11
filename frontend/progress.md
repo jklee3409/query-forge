@@ -3,6 +3,12 @@
 ## Overview
 High-level progress tracking for the project.
 
+## [2026-05-11] Session Summary (Synthetic Batch Delete Action + ETA Exposure)
+- What was done: Updated `SyntheticPage.jsx` to add generation-batch delete action (calls `DELETE /api/admin/console/synthetic/batches/{batchId}`) and to surface live generation ETA/context using backend-provided fields (`targetQueryCount`, `estimatedSecondsPerQuery`, `estimatedRemainingSeconds`, LLM job/item status + retry state) inside batch history rows.
+- Key decisions: Kept existing batch-history table structure and integrated ETA/delete as additive row details to minimize UI churn under mixed-encoding source constraints.
+- Issues encountered: Existing localized literals are partially mixed-encoding; new behavior wiring was applied with minimal text-surface edits.
+- Next steps: UI smoke against active F/G generation runs to verify ETA refresh accuracy and delete-guard behavior for running batches.
+
 ## [2026-05-11] Session Summary (Synthetic Batch History Real-time Refresh)
 - What was done: Updated `SyntheticPage.jsx` to poll `/api/admin/console/synthetic/batches` every 3 seconds while any generation batch is in `planned/queued/running` status, so batch history count/status refreshes automatically.
 - Key decisions: Kept existing manual refresh button and data model unchanged; added polling only for active-generation windows to minimize network overhead.

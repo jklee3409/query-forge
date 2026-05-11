@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-05-11] Session Summary (Synthetic Batch Delete + Generation Cancel/Purge + ETA + Unlimited Retry)
+- What was done: Added synthetic generation batch history deletion flow end-to-end (Admin API + UI action) so deleting a batch removes linked `llm_job` rows and strategy-split raw synthetic queries for the batch, then deletes the batch row (with gating-batch linkage nulled). Extended synthetic batch list payload with live ETA fields (`targetQueryCount`, `estimatedSecondsPerQuery`, `estimatedRemainingSeconds`, LLM job/item state) and reflected them in `/admin/synthetic-queries`.
+- Key decisions: Kept pipeline/research stage order unchanged and scoped retry-limit removal to `GENERATE_SYNTHETIC_QUERY` only via unlimited retry sentinel (`max_retries=-1`).
+- Issues encountered: Existing admin frontend file includes mixed-encoding localized literals; edits were kept behavior-focused with minimal text-surface changes.
+- Next steps: Validate runtime behavior on long-running F/G generation (cancel interruption latency, data purge completeness, ETA convergence).
+
 ## [2026-05-11] Session Summary (F/G-A/C/D 구조 점검 + Synthetic 배치 생성수 실시간 반영)
 - What was done: Reviewed current implementation paths for `F/G` vs `A/C/D` (generation/gating/memory/eval/admin wiring) and implemented real-time synthetic batch count reflection by combining backend live-count SQL with frontend polling.
 - Key decisions: Kept pipeline/research flow unchanged; applied minimum-scope edits only to synthetic batch read path and synthetic page refresh behavior.

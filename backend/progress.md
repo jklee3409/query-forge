@@ -3,6 +3,12 @@
 ## Overview
 High-level backend progress tracking.
 
+## [2026-05-11] Session Summary (Synthetic Batch Delete + Generation Cancel/Purge + ETA + Unlimited Retry)
+- What was done: Added `DELETE /api/admin/console/synthetic/batches/{batchId}` and backend deletion flow (`AdminConsoleService` + `AdminConsoleRepository`) to remove generation-batch-linked `llm_job` rows, raw synthetic rows (`synthetic_queries_raw_a..g` by `generation_batch_id`), then delete the batch row while nulling `quality_gating_batch.generation_batch_id` references.
+- Key decisions: Removed generation retry cap only for `GENERATE_SYNTHETIC_QUERY` by using `max_retries=-1` sentinel and treating negative retries as unlimited in failure backoff logic; other job types keep existing retry behavior.
+- Issues encountered: None.
+- Next steps: Validate DB runtime behavior for active-cancel and delete flows against real F/G generation batches.
+
 ## [2026-05-11] Session Summary (Synthetic Batch Live Count Query Reflection)
 - What was done: Updated `AdminConsoleRepository.findGenerationBatches` and `findGenerationBatch` to return `total_generated_count` as the max of persisted batch count and live raw-row count (`synthetic_queries_raw_all` by `generation_batch_id`).
 - Key decisions: Kept generation job lifecycle/status update flow unchanged and avoided schema/API contract changes by reusing the existing `totalGeneratedCount` field.
