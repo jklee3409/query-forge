@@ -763,27 +763,6 @@ public class AdminConsoleService {
         }
 
         String experimentName = "admin_eval_" + UUID.randomUUID().toString().replace("-", "").substring(0, 12);
-        JsonNode methodCodesNode = objectMapper.valueToTree(methodCodes);
-        JsonNode batchIdsNode = objectMapper.valueToTree(batchIds);
-        UUID runId = repository.createRagTestRun(
-                runLabel,
-                request.datasetId(),
-                methodCodesNode,
-                batchIdsNode,
-                gatingApplied,
-                gatingPreset,
-                rewriteEnabled,
-                selectiveRewrite,
-                useSessionContext,
-                rewriteAnchorInjectionEnabled,
-                request.topK(),
-                threshold,
-                retrievalTopK,
-                rerankTopN,
-                experimentName,
-                defaultCreatedBy(request.createdBy())
-        );
-
         Map<String, Object> config = baseExperimentConfig(
                 experimentName,
                 syntheticFreeBaseline ? SYNTHETIC_FREE_BASELINE_METHOD : methodCodes.getFirst()
@@ -888,6 +867,26 @@ public class AdminConsoleService {
         }
 
         validateRewriteStageLlmConfig(config, rewriteEnabled);
+        JsonNode methodCodesNode = objectMapper.valueToTree(methodCodes);
+        JsonNode batchIdsNode = objectMapper.valueToTree(batchIds);
+        UUID runId = repository.createRagTestRun(
+                runLabel,
+                request.datasetId(),
+                methodCodesNode,
+                batchIdsNode,
+                gatingApplied,
+                gatingPreset,
+                rewriteEnabled,
+                selectiveRewrite,
+                useSessionContext,
+                rewriteAnchorInjectionEnabled,
+                request.topK(),
+                threshold,
+                retrievalTopK,
+                rerankTopN,
+                experimentName,
+                defaultCreatedBy(request.createdBy())
+        );
         writeExperimentConfig(experimentName, config);
         repository.upsertRagTestRunConfig(runId, objectMapper.valueToTree(config));
         String initialSnapshotId = firstNonBlank(
@@ -1099,9 +1098,44 @@ public class AdminConsoleService {
     private String readEnv(String key) {
         String value = System.getenv(key);
         if (value == null || value.isBlank()) {
+            value = readFromDotEnvFile(key);
+        }
+        if (value == null || value.isBlank()) {
             return null;
         }
         return value.trim();
+    }
+
+    private String readFromDotEnvFile(String key) {
+        Path envPath = resolveRepoRoot().resolve(".env").normalize();
+        if (!Files.exists(envPath)) {
+            return null;
+        }
+        try {
+            for (String entry : Files.readAllLines(envPath, StandardCharsets.UTF_8)) {
+                String line = entry.trim();
+                if (line.isEmpty() || line.startsWith("#")) {
+                    continue;
+                }
+                int delimiter = line.indexOf('=');
+                if (delimiter <= 0) {
+                    continue;
+                }
+                String name = line.substring(0, delimiter).trim();
+                if (!name.equals(key)) {
+                    continue;
+                }
+                String rawValue = line.substring(delimiter + 1).trim();
+                if ((rawValue.startsWith("\"") && rawValue.endsWith("\""))
+                        || (rawValue.startsWith("'") && rawValue.endsWith("'"))) {
+                    rawValue = rawValue.substring(1, rawValue.length() - 1);
+                }
+                return rawValue.isBlank() ? null : rawValue.trim();
+            }
+        } catch (IOException ignored) {
+            return null;
+        }
+        return null;
     }
 
     private String normalizeLlmProviderName(String provider) {
@@ -1128,8 +1162,10 @@ public class AdminConsoleService {
                     rewriteEnvApiKey,
                     sharedEnvApiKey,
                     providerScopedEnvApiKey,
+                    readEnv("QUERY_FORGE_GEMINI_API_KEY"),
                     readEnv("QUERY_FORGE_LLM_GEMINI_API_KEY"),
-                    readEnv("GEMINI_API_KEY")
+                    readEnv("GEMINI_API_KEY"),
+                    readEnv("GOOGLE_API_KEY")
             );
             case "openai" -> firstNonBlank(
                     rewriteStageApiKey,
@@ -1194,7 +1230,8 @@ public class AdminConsoleService {
         if (apiKey.isBlank()) {
             throw new IllegalArgumentException(
                     "rewrite_enabled=true requires rewrite-stage LLM API key "
-                            + "(llm_rewrite_api_key / QUERY_FORGE_LLM_REWRITE_API_KEY / provider API key env)"
+                            + "(llm_rewrite_api_key / QUERY_FORGE_LLM_REWRITE_API_KEY / QUERY_FORGE_LLM_API_KEY "
+                            + "/ GEMINI_API_KEY / provider API key env)"
             );
         }
     }

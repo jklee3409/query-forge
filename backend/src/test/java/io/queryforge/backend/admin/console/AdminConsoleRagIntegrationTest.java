@@ -670,12 +670,14 @@ class AdminConsoleRagIntegrationTest {
     void runRagRewriteEnabledRequiresRewriteStageApiKey() throws Exception {
         UUID datasetId = insertEvalDataset("rag-rewrite-preflight-api-key");
         UUID sourceGatingBatchId = insertCompletedGatingBatch("A", "full_gating");
+        String runName = "rewrite-preflight-" + UUID.randomUUID();
 
         mockMvc.perform(post("/api/admin/console/rag/tests/run")
                         .contentType(APPLICATION_JSON)
                         .content("""
                                 {
                                   "datasetId": "%s",
+                                  "runName": "%s",
                                   "methodCodes": ["A"],
                                   "gatingApplied": true,
                                   "gatingPreset": "full_gating",
@@ -684,12 +686,14 @@ class AdminConsoleRagIntegrationTest {
                                   "selectiveRewrite": true,
                                   "llmModel": "gemini-2.5-flash-lite"
                                 }
-                                """.formatted(datasetId, sourceGatingBatchId)))
+                                """.formatted(datasetId, runName, sourceGatingBatchId)))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.detail").value(
                         "rewrite_enabled=true requires rewrite-stage LLM API key "
-                                + "(llm_rewrite_api_key / QUERY_FORGE_LLM_REWRITE_API_KEY / provider API key env)"
+                                + "(llm_rewrite_api_key / QUERY_FORGE_LLM_REWRITE_API_KEY / QUERY_FORGE_LLM_API_KEY "
+                                + "/ GEMINI_API_KEY / provider API key env)"
                 ));
+        assertThat(countRows("SELECT COUNT(*) FROM rag_test_run WHERE run_label = :runLabel", "runLabel", runName)).isZero();
     }
 
     private UUID insertEvalDataset(String datasetKeySuffix) {
