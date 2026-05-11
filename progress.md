@@ -557,6 +557,12 @@ High-level progress tracking for the project.
 - Issues encountered: Funnel stage summary table cannot provide method-specific counts, so method-filtered funnel counts are derived directly from `synthetic_query_gating_result`.
 - Next steps: Run Admin GUI smoke checks for funnel filter switching and confirm expected ratio behavior for method D (`code_mixed`) runs.
 
+## [2026-05-11] Session Summary (RAG Eval Failure Fix + ETA Cross-Surface Exposure)
+- What was done: Fixed RAG answer-eval failure path by making `pipeline/eval/answer_eval.py` CSV writer tolerant to additive row keys and added regression test `pipeline/tests/test_answer_eval_csv.py`. Extended backend admin projections to expose ETA for RAG test runs, quality-gating batches, and LLM jobs using live progress + historical-rate fallback. Added reusable frontend ETA utility/component and applied it across Synthetic/Gating/RAG history and LLM job tables.
+- Key decisions: Kept DB schema unchanged and implemented ETA as read-time derived values; for gating ETA target counts now resolve from multi-source batch IDs in `stage_config_json` instead of single-batch-only assumptions.
+- Issues encountered: Existing admin UI tables had no shared ETA renderer and one job-table file had encoding-drifted labels, so component-level consolidation and table refresh were required together.
+- Next steps: Monitor ETA accuracy under real workloads (especially long eval-answer runs) and tune historical sample windows/compact rendering density from operator feedback.
+
 ---
 
 ## Notes
