@@ -4,7 +4,10 @@ import unittest
 
 from pipeline.common.llm_client import _validate_json_schema
 from pipeline.generation.synthetic_query_generator import _extract_query_text
+from pipeline.generation.synthetic_query_generator import _is_max_tokens_truncation_error
 from pipeline.generation.synthetic_query_generator import _query_response_schema_for_strategy
+from pipeline.generation.synthetic_query_generator import _summary_source_text_candidates
+from pipeline.generation.synthetic_query_generator import _summary_max_tokens_for_strategy
 
 
 class SyntheticQueryGeneratorSchemaTests(unittest.TestCase):
@@ -65,6 +68,37 @@ class SyntheticQueryGeneratorSchemaTests(unittest.TestCase):
             },
         )
         self.assertEqual(query_text, "")
+
+    def test_summary_max_tokens_boosted_for_f_and_g(self) -> None:
+        boosted_f = _summary_max_tokens_for_strategy(generation_strategy="F", base_max_tokens=384)
+        boosted_g = _summary_max_tokens_for_strategy(generation_strategy="G", base_max_tokens=512)
+        self.assertGreaterEqual(boosted_f, 2048)
+        self.assertGreaterEqual(boosted_g, 2048)
+
+    def test_summary_max_tokens_unchanged_for_non_fg(self) -> None:
+        unchanged = _summary_max_tokens_for_strategy(generation_strategy="C", base_max_tokens=384)
+        self.assertEqual(unchanged, 384)
+
+    def test_summary_source_candidates_shrink_only_for_f_and_g(self) -> None:
+        long_text = "x" * 5000
+        fg_candidates = _summary_source_text_candidates(generation_strategy="F", source_text_ko=long_text)
+        self.assertEqual([len(value) for value in fg_candidates], [5000, 3200, 2200, 1400])
+
+        c_candidates = _summary_source_text_candidates(generation_strategy="C", source_text_ko=long_text)
+        self.assertEqual([len(value) for value in c_candidates], [5000])
+
+    def test_is_max_tokens_truncation_error_detects_details_category(self) -> None:
+        class _Details:
+            category = "max_tokens_truncated"
+
+        class _Cause(RuntimeError):
+            def __init__(self) -> None:
+                super().__init__("inner")
+                self.details = _Details()
+
+        outer = RuntimeError("outer")
+        outer.__cause__ = _Cause()
+        self.assertTrue(_is_max_tokens_truncation_error(outer))
 
     def test_existing_strategy_a_behavior_prefers_query_ko(self) -> None:
         query_text, trace = _extract_query_text(

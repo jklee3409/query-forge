@@ -5,7 +5,7 @@ import logging
 import random
 import uuid
 from collections import Counter, defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
@@ -99,6 +99,9 @@ QUERY_REQUIRED_FIELDS_BY_STRATEGY: dict[str, tuple[str, ...]] = {
     "F": ("query_ko", "query_en"),
     "G": ("query_ko",),
 }
+
+FG_SUMMARY_KO_MIN_MAX_TOKENS = 2048
+FG_SUMMARY_KO_SOURCE_CHAR_LIMITS_ON_TRUNCATION: tuple[int, ...] = (3200, 2200, 1400)
 
 STRATEGY_RAW_TABLES: dict[str, str] = {
     "A": "synthetic_queries_raw_a",
@@ -369,6 +372,42 @@ def _query_response_schema_for_strategy(generation_strategy: str) -> dict[str, A
     }
 
 
+def _summary_max_tokens_for_strategy(*, generation_strategy: str, base_max_tokens: int) -> int:
+    strategy = generation_strategy.strip().upper()
+    if strategy in {"F", "G"}:
+        return max(base_max_tokens, FG_SUMMARY_KO_MIN_MAX_TOKENS)
+    return base_max_tokens
+
+
+def _is_max_tokens_truncation_error(error: Exception) -> bool:
+    cause = getattr(error, "__cause__", None)
+    details = getattr(cause, "details", None)
+    category = getattr(details, "category", None)
+    if str(category or "").strip().lower() == "max_tokens_truncated":
+        return True
+    message = str(cause) if cause is not None else str(error)
+    lowered = message.lower()
+    return "category=max_tokens_truncated" in lowered or "finish_reason=max_tokens" in lowered
+
+
+def _summary_source_text_candidates(*, generation_strategy: str, source_text_ko: str) -> list[str]:
+    source_text = str(source_text_ko or "")
+    strategy = generation_strategy.strip().upper()
+    candidates = [source_text]
+    if strategy in {"F", "G"}:
+        for char_limit in FG_SUMMARY_KO_SOURCE_CHAR_LIMITS_ON_TRUNCATION:
+            if len(source_text) > char_limit:
+                candidates.append(source_text[:char_limit])
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for candidate in candidates:
+        if candidate in seen:
+            continue
+        seen.add(candidate)
+        deduped.append(candidate)
+    return deduped
+
+
 def _language_profile(strategy: str, query_type: str) -> str:
     if strategy in {"E", "F"}:
         return "en"
@@ -608,17 +647,40 @@ def _resolve_or_create_summary_ko(
     )
     if cached:
         return cached[0], cached[1], True
-    response = _llm_json(
-        client,
-        prompt_text=prompt_text,
-        payload={
-            "chunk_id": chunk.chunk_id,
-            "source_text_ko": source_text_ko,
-        },
-        response_schema=SUMMARY_KO_RESPONSE_SCHEMA,
-        request_purpose="summary_extraction_ko",
-        trace_id=f"chunk:{chunk.chunk_id}",
+    response: dict[str, Any] | None = None
+    candidate_sources = _summary_source_text_candidates(
+        generation_strategy=prompt_version_suffix,
+        source_text_ko=source_text_ko,
     )
+    for index, source_candidate in enumerate(candidate_sources):
+        try:
+            response = _llm_json(
+                client,
+                prompt_text=prompt_text,
+                payload={
+                    "chunk_id": chunk.chunk_id,
+                    "source_text_ko": source_candidate,
+                },
+                response_schema=SUMMARY_KO_RESPONSE_SCHEMA,
+                request_purpose="summary_extraction_ko",
+                trace_id=f"chunk:{chunk.chunk_id}",
+            )
+            break
+        except RuntimeError as exc:
+            is_last = (index + 1) >= len(candidate_sources)
+            if not is_last and _is_max_tokens_truncation_error(exc):
+                LOGGER.warning(
+                    "summary_ko_retry_after_max_tokens chunk=%s strategy=%s attempt=%s/%s source_chars=%s",
+                    chunk.chunk_id,
+                    prompt_version_suffix,
+                    index + 1,
+                    len(candidate_sources),
+                    len(source_candidate),
+                )
+                continue
+            raise
+    if response is None:
+        raise RuntimeError(f"summary_ko response missing for chunk={chunk.chunk_id}")
     summary_ko = str(response.get("summary_ko") or "").strip()
     if not summary_ko:
         raise RuntimeError(f"empty summary_ko for chunk={chunk.chunk_id}")
@@ -943,7 +1005,17 @@ def run_generation(
         )
 
         prompts = _resolve_prompt_bundle(connection, config=config, prompt_root=prompt_root)
-        summary_client = LlmClient(load_stage_config(stage="summary", raw_config=config.raw))
+        summary_stage_config = load_stage_config(stage="summary", raw_config=config.raw)
+        summary_client = LlmClient(summary_stage_config)
+        summary_client_for_ko_long = summary_client
+        summary_max_tokens = _summary_max_tokens_for_strategy(
+            generation_strategy=config.generation_strategy,
+            base_max_tokens=summary_stage_config.max_tokens,
+        )
+        if summary_max_tokens != summary_stage_config.max_tokens:
+            summary_client_for_ko_long = LlmClient(
+                replace(summary_stage_config, max_tokens=summary_max_tokens)
+            )
         query_client = LlmClient(load_stage_config(stage="query", raw_config=config.raw))
         translate_client = LlmClient(load_stage_config(stage="translation", raw_config=config.raw))
 
@@ -1108,7 +1180,7 @@ def run_generation(
                         prompt_text=prompts.summary_ko_text,
                         prompt_version_suffix=generation_strategy,
                         source_text_ko=chunk.chunk_text,
-                        client=summary_client,
+                        client=summary_client_for_ko_long,
                     )
                     if summary_ko_cached:
                         asset_cache_hits["KO_SUMMARY"] += 1
