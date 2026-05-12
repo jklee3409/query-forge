@@ -485,6 +485,212 @@ class EvalRuntimeRewriteTests(unittest.TestCase):
         self.assertGreater(outcome.candidates[0]["retrieval_gain_score"], 0.0)
         self.assertGreaterEqual(outcome.candidates[0]["terminology_preservation_score"], outcome.candidates[0]["preservation_floor"])
 
+    def test_force_rewrite_falls_back_to_raw_when_no_candidate_is_eligible(self) -> None:
+        raw_query = "DigestAuthenticationFilter ?ㅼ젙 諛⑸쾿"
+        candidate_query = "Spring Security filter setup"
+
+        def fake_retrieve(query_text: str, *args, **kwargs):
+            if query_text == raw_query:
+                return self._single_retrieval(query_text, score=0.20, chunk_id="raw")
+            return self._single_retrieval(query_text, score=0.90, chunk_id="cand")
+
+        def fake_memory(query_text: str, *args, **kwargs):
+            return [
+                {
+                    "memory_id": "m1",
+                    "query_text": query_text,
+                    "similarity": 0.0,
+                    "glossary_terms": ["DigestAuthenticationFilter"],
+                }
+            ]
+
+        with patch.object(runtime, "build_rewrite_candidates_v2", return_value=[{"label": "c1", "query": candidate_query}]), patch.object(
+            runtime,
+            "retrieve_top_k",
+            side_effect=fake_retrieve,
+        ), patch.object(runtime, "memory_top_n", side_effect=fake_memory):
+            outcome, retrieval = runtime.run_selective_rewrite(
+                raw_query=raw_query,
+                query_language="ko",
+                query_category="definition",
+                session_context={},
+                chunks=[],
+                memories=[],
+                memory_top_n_value=3,
+                candidate_count=1,
+                threshold=0.01,
+                retrieval_top_k=3,
+                force_rewrite=True,
+                retriever_config=build_retriever_config({"dense_fallback_enabled": True}),
+            )
+
+        self.assertFalse(outcome.rewrite_applied)
+        self.assertEqual(outcome.final_query, raw_query)
+        self.assertEqual(outcome.rewrite_reason, "preservation_below_floor")
+        self.assertEqual(retrieval[0].chunk_id, "raw")
+        self.assertEqual(outcome.candidates[0]["rejection_reason"], "preservation_below_floor")
+
+    def test_force_rewrite_uses_best_eligible_candidate(self) -> None:
+        raw_query = "DigestAuthenticationFilter ?ㅼ젙 諛⑸쾿"
+        rejected_query = "Spring Security filter overview"
+        accepted_query = "DigestAuthenticationFilter security config"
+
+        def fake_retrieve(query_text: str, *args, **kwargs):
+            if query_text == raw_query:
+                return self._single_retrieval(query_text, score=0.20, chunk_id="raw")
+            if query_text == rejected_query:
+                return self._single_retrieval(query_text, score=0.95, chunk_id="rejected")
+            return self._single_retrieval(query_text, score=0.80, chunk_id="accepted")
+
+        def fake_memory(query_text: str, *args, **kwargs):
+            return [
+                {
+                    "memory_id": "m1",
+                    "query_text": query_text,
+                    "similarity": 0.0,
+                    "glossary_terms": ["DigestAuthenticationFilter"],
+                }
+            ]
+
+        with patch.object(
+            runtime,
+            "build_rewrite_candidates_v2",
+            return_value=[
+                {"label": "rejected", "query": rejected_query},
+                {"label": "accepted", "query": accepted_query},
+            ],
+        ), patch.object(
+            runtime,
+            "retrieve_top_k",
+            side_effect=fake_retrieve,
+        ), patch.object(runtime, "memory_top_n", side_effect=fake_memory):
+            outcome, retrieval = runtime.run_selective_rewrite(
+                raw_query=raw_query,
+                query_language="ko",
+                query_category="definition",
+                session_context={},
+                chunks=[],
+                memories=[],
+                memory_top_n_value=3,
+                candidate_count=2,
+                threshold=0.01,
+                retrieval_top_k=3,
+                force_rewrite=True,
+                retriever_config=build_retriever_config({"dense_fallback_enabled": True}),
+            )
+
+        self.assertTrue(outcome.rewrite_applied)
+        self.assertEqual(outcome.rewrite_reason, "forced")
+        self.assertEqual(outcome.final_query, accepted_query)
+        self.assertEqual(retrieval[0].chunk_id, "accepted")
+        self.assertEqual(outcome.candidates[0]["rejection_reason"], "preservation_below_floor")
+        self.assertEqual(outcome.candidates[1]["rejection_reason"], "")
+
+    def test_short_user_force_rewrite_rejects_generic_candidate_without_memory_target(self) -> None:
+        raw_query = "how to use this in practice"
+        candidate_query = "Spring Boot practical usage"
+
+        def fake_retrieve(query_text: str, *args, **kwargs):
+            if query_text == raw_query:
+                return self._single_retrieval(query_text, score=0.20, chunk_id="raw")
+            return self._single_retrieval(query_text, score=0.95, chunk_id="generic")
+
+        def fake_memory(query_text: str, *args, **kwargs):
+            return [
+                {
+                    "memory_id": "m1",
+                    "query_text": "Spring Boot executable jar extraction",
+                    "similarity": 0.70,
+                    "product": "spring-boot",
+                    "glossary_terms": [],
+                }
+            ]
+
+        with patch.object(runtime, "build_rewrite_candidates_v2", return_value=[{"label": "generic", "query": candidate_query}]), patch.object(
+            runtime,
+            "retrieve_top_k",
+            side_effect=fake_retrieve,
+        ), patch.object(runtime, "memory_top_n", side_effect=fake_memory):
+            outcome, retrieval = runtime.run_selective_rewrite(
+                raw_query=raw_query,
+                query_language="en",
+                query_category="short_user",
+                session_context={},
+                chunks=[],
+                memories=[],
+                memory_top_n_value=3,
+                candidate_count=1,
+                threshold=0.01,
+                retrieval_top_k=3,
+                force_rewrite=True,
+                retriever_config=build_retriever_config({"dense_fallback_enabled": True}),
+            )
+
+        self.assertFalse(outcome.rewrite_applied)
+        self.assertEqual(outcome.rewrite_reason, "missing_memory_target")
+        self.assertEqual(outcome.final_query, raw_query)
+        self.assertEqual(retrieval[0].chunk_id, "raw")
+        self.assertTrue(outcome.candidates[0]["raw_is_underspecified"])
+        self.assertEqual(outcome.candidates[0]["candidate_target_overlap_count"], 0)
+
+    def test_short_user_force_rewrite_prefers_candidate_with_memory_target(self) -> None:
+        raw_query = "how to use this in practice"
+        generic_candidate = "Spring Boot practical usage"
+        target_candidate = "Spring Boot jar extraction"
+
+        def fake_retrieve(query_text: str, *args, **kwargs):
+            if query_text == raw_query:
+                return self._single_retrieval(query_text, score=0.20, chunk_id="raw")
+            if query_text == generic_candidate:
+                return self._single_retrieval(query_text, score=0.95, chunk_id="generic")
+            return self._single_retrieval(query_text, score=0.70, chunk_id="target")
+
+        def fake_memory(query_text: str, *args, **kwargs):
+            return [
+                {
+                    "memory_id": "m1",
+                    "query_text": "Spring Boot executable jar extraction",
+                    "similarity": 0.70,
+                    "product": "spring-boot",
+                    "glossary_terms": [],
+                }
+            ]
+
+        with patch.object(
+            runtime,
+            "build_rewrite_candidates_v2",
+            return_value=[
+                {"label": "generic", "query": generic_candidate},
+                {"label": "target", "query": target_candidate},
+            ],
+        ), patch.object(
+            runtime,
+            "retrieve_top_k",
+            side_effect=fake_retrieve,
+        ), patch.object(runtime, "memory_top_n", side_effect=fake_memory):
+            outcome, retrieval = runtime.run_selective_rewrite(
+                raw_query=raw_query,
+                query_language="en",
+                query_category="short_user",
+                session_context={},
+                chunks=[],
+                memories=[],
+                memory_top_n_value=3,
+                candidate_count=2,
+                threshold=0.01,
+                retrieval_top_k=3,
+                force_rewrite=True,
+                retriever_config=build_retriever_config({"dense_fallback_enabled": True}),
+            )
+
+        self.assertTrue(outcome.rewrite_applied)
+        self.assertEqual(outcome.rewrite_reason, "forced")
+        self.assertEqual(outcome.final_query, target_candidate)
+        self.assertEqual(retrieval[0].chunk_id, "target")
+        self.assertEqual(outcome.candidates[0]["rejection_reason"], "missing_memory_target")
+        self.assertGreater(outcome.candidates[1]["candidate_target_overlap_count"], 0)
+        self.assertGreater(outcome.candidates[1]["memory_target_presence_bonus"], 0.0)
+
     def test_selective_rewrite_applies_category_aware_threshold_for_short_user(self) -> None:
         raw_query = "DigestAuthenticationFilter 설정 방법"
         candidate_query = "DigestAuthenticationFilter security setup"

@@ -1,5 +1,17 @@
 # progress.md
 
+## [2026-05-12] Session Summary (Short-User Memory-Target Guard for Generic Rewrite Rejection)
+- What was done: Added a second rewrite-runtime patch that extracts lightweight target tokens from the top memory query/glossary, penalizes and rejects short-user rewrites that stay generic under strong memory evidence, and rewards candidates that recover the missing target anchor.
+- Key decisions: Preserved the low-cost direction from 1차 patch by keeping the change entirely in pipeline runtime/policy and avoiding prompt churn, new retriever modes, or added database work.
+- Issues encountered: Local verification continued through `python -m unittest pipeline.tests.test_eval_runtime -q` because `pytest` is not installed in this environment.
+- Next steps: Re-run the same snapshot/dataset pair used for the prior A/full-gating comparison and check whether `rewrite_always` recovers target-specific top-rank hits while keeping generic drift suppressed.
+
+## [2026-05-12] Session Summary (Rewrite-Always Validity Guard + Short-User Relaxation)
+- What was done: Patched pipeline rewrite selection so `rewrite_always` falls back to the raw query when every generated candidate is already rejected by validity checks, and relaxed the default `short_user` rewrite adoption policy to recover compact technical anchor expansion.
+- Key decisions: Treated this as a low-cost evaluation fix only; no new retriever mode, reranker, broad corpus scan, or extra DB query path was introduced.
+- Issues encountered: Local environment did not have `pytest`, so targeted verification was executed with `python -m unittest pipeline.tests.test_eval_runtime -q` instead.
+- Next steps: Re-run the same snapshot/dataset pair used for `c7c42735-5be9-4941-a53d-fe9fb4572f6a` and `6f7ae4d0-b311-4224-8249-9a5d8e302c31` to measure whether `rewrite_always` regains the lost top-rank cases without reintroducing broad bad rewrites.
+
 ## [2026-05-12] Session Summary (RAG Synthetic-Anchor Default Restore)
 - What was done: Restored `memory_only_*` retrieval default to direct top-memory synthetic query usage, made raw-query intent-preserving guided lookup opt-in via `memory_lookup_intent_preserving_enabled=true`, and rolled back the extra intent-locked wording in `selective_rewrite_v2`.
 - Key decisions: Based on Before/After analysis, short Korean user queries benefit more from specific synthetic-query retrieval anchors than from overly preserving the sparse original query by default.

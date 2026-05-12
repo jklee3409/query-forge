@@ -61,20 +61,33 @@ DEFAULT_REWRITE_ADOPTION_POLICY: dict[str, Any] = {
         "low_memory_similarity_cutoff": 0.45,
         "low_memory_extra_threshold": 0.02,
         "min_retrieval_gain_score": 0.0,
+        "underspecified_memory_norm_cutoff": 0.72,
     },
     "penalties": {
         "verbosity_per_extra_ratio": 0.08,
         "critical_token_drop": 0.22,
         "anchor_overlap_drop": 0.12,
+        "memory_target_missing": 0.10,
+    },
+    "bonuses": {
+        "memory_target_presence": 0.06,
     },
     "shift_bonus_weight": 0.03,
     "category_overrides": {
         "short_user": {
             "thresholds": {
                 "min_improvement": 0.05,
-                "preservation_floor": 0.82,
-                "max_length_ratio": 1.45,
-            }
+                "preservation_floor": 0.76,
+                "max_length_ratio": 1.70,
+                "underspecified_memory_norm_cutoff": 0.72,
+            },
+            "penalties": {
+                "verbosity_per_extra_ratio": 0.05,
+                "memory_target_missing": 0.14,
+            },
+            "bonuses": {
+                "memory_target_presence": 0.10,
+            },
         },
         "code_mixed": {
             "thresholds": {
@@ -246,6 +259,12 @@ def resolve_rewrite_adoption_policy(raw_config: dict[str, Any] | None) -> dict[s
             min_value=0.0,
             max_value=1.0,
         )
+        thresholds["underspecified_memory_norm_cutoff"] = _clamp_float(
+            thresholds.get("underspecified_memory_norm_cutoff"),
+            default=0.72,
+            min_value=0.0,
+            max_value=1.0,
+        )
 
     penalties = merged.get("penalties")
     if isinstance(penalties, dict):
@@ -264,6 +283,12 @@ def resolve_rewrite_adoption_policy(raw_config: dict[str, Any] | None) -> dict[s
         penalties["anchor_overlap_drop"] = _clamp_float(
             penalties.get("anchor_overlap_drop"),
             default=0.12,
+            min_value=0.0,
+            max_value=1.0,
+        )
+        penalties["memory_target_missing"] = _clamp_float(
+            penalties.get("memory_target_missing"),
+            default=0.10,
             min_value=0.0,
             max_value=1.0,
         )
@@ -287,6 +312,15 @@ def resolve_rewrite_adoption_policy(raw_config: dict[str, Any] | None) -> dict[s
             default=0.12,
             min_value=0.0,
             max_value=1.0,
+        )
+
+    bonuses = merged.get("bonuses")
+    if isinstance(bonuses, dict):
+        bonuses["memory_target_presence"] = _clamp_float(
+            bonuses.get("memory_target_presence"),
+            default=0.06,
+            min_value=0.0,
+            max_value=0.5,
         )
 
     merged["shift_bonus_weight"] = _clamp_float(

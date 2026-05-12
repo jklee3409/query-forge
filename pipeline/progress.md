@@ -3,6 +3,18 @@
 ## Overview
 High-level pipeline progress tracking.
 
+## [2026-05-12] Session Summary (Short-User Memory-Target Guard for Generic Rewrite Rejection)
+- What was done: Added lightweight content-token based `memory target` scoring in `eval/runtime.py` so short-user rewrites can derive compact target anchors from the top memory query/glossary, reject underspecified generic rewrites that omit those anchors (`missing_memory_target`), and reward candidates that add them. Extended `common/experiment_config.py` with policy knobs (`underspecified_memory_norm_cutoff`, `memory_target_missing`, `memory_target_presence`) and added regression tests in `tests/test_eval_runtime.py`.
+- Key decisions: Kept this as a runtime-only heuristic layer with no extra LLM calls, no extra DB queries, and no prompt change, so low-spec laptop evaluation cost stays flat.
+- Issues encountered: None in code path; verification still uses `python -m unittest pipeline.tests.test_eval_runtime -q` because `pytest` is unavailable locally.
+- Next steps: Re-run the same `A/full_gating` snapshot condition and inspect whether previously generic rewrites recover target-anchor cases such as executable `jar` style queries without raising broad bad-rewrite rate.
+
+## [2026-05-12] Session Summary (Rewrite-Always Validity Guard + Short-User Relaxation)
+- What was done: Updated `eval/runtime.py` so `rewrite_always` no longer force-applies candidates that already failed preservation/verbosity/threshold checks; it now applies the best eligible candidate and otherwise falls back to the raw query. Relaxed default `short_user` rewrite adoption policy in `common/experiment_config.py` (`preservation_floor 0.76`, `max_length_ratio 1.70`, lower verbosity penalty) and added regression tests in `tests/test_eval_runtime.py`.
+- Key decisions: Kept the fix inside rewrite selection/policy only, avoiding any extra LLM call, retriever expansion, or DB access so low-spec laptop runs stay cheap.
+- Issues encountered: `pytest` was unavailable in the local Python environment, so verification used `python -m unittest pipeline.tests.test_eval_runtime -q`.
+- Next steps: Re-run the same `A/full_gating` dataset/snapshot condition and compare `rewrite_always` against `c7c42735-5be9-4941-a53d-fe9fb4572f6a` and `6f7ae4d0-b311-4224-8249-9a5d8e302c31`.
+
 ## [2026-05-12] Session Summary (Memory Lookup Default Revert)
 - What was done: Changed `eval/retrieval_eval.py` so `memory_only_*` modes default back to direct top-memory synthetic query retrieval instead of raw-query intent-preserving guided lookup.
 - Key decisions: Kept `memory_lookup_intent_preserving_enabled=true` as an explicit opt-in for future controlled ablations, but restored the default behavior that uses synthetic queries as the retrieval query.

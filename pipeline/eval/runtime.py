@@ -4,6 +4,7 @@ import hashlib
 import json
 import math
 import os
+import re
 import threading
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -124,6 +125,47 @@ TROUBLESHOOTING_HINT_TOKENS = (
     "에러",
     "실패",
 )
+
+CONTENT_TOKEN_RE = re.compile(r"[@A-Za-z0-9_./:$-]+|[\uac00-\ud7a3]{2,}")
+GENERIC_CONTENT_TOKENS = {
+    "spring",
+    "boot",
+    "security",
+    "framework",
+    "data",
+    "java",
+    "kotlin",
+    "practical",
+    "practice",
+    "usage",
+    "use",
+    "overview",
+    "summary",
+    "point",
+    "points",
+    "difference",
+    "differences",
+    "guide",
+    "latest",
+    "stable",
+    "version",
+    "\uc2e4\ud589",
+    "\uc0ac\uc6a9",
+    "\uc0ac\uc6a9\ubc95",
+    "\uc694\uc57d",
+    "\ud3ec\uc778\ud2b8",
+    "\ucc28\uc774",
+    "\ubc29\ubc95",
+    "\uc608\uc2dc",
+    "\uc2e4\ubb34",
+    "\ubcf4\ud1b5",
+    "\uad00\ub828",
+    "\uac00\uc774\ub4dc",
+    "\uc815\ub9ac",
+    "\ud575\uc2ec",
+    "\ube60\ub974\uac8c",
+    "\uac19\uc774",
+}
 
 REWRITE_RESPONSE_SCHEMA: dict[str, Any] = {
     "type": "object",
@@ -1264,6 +1306,7 @@ def _resolve_rewrite_adoption_policy(
             "weights",
             "thresholds",
             "penalties",
+            "bonuses",
             "shift_bonus_weight",
             "category_overrides",
         )
@@ -1303,6 +1346,106 @@ def _technical_token_set(
             language_hint=query_language,
             max_items=max_items,
         )
+    }
+
+
+def _content_token_set(
+    text: str,
+    *,
+    max_items: int = 24,
+    include_generic: bool = False,
+) -> set[str]:
+    value = str(text or "")
+    if not value:
+        return set()
+    collected: set[str] = set()
+    for raw_token in CONTENT_TOKEN_RE.findall(value):
+        token = normalize_anchor_text(raw_token)
+        if not token:
+            continue
+        lowered = token.casefold()
+        if not include_generic and lowered in GENERIC_CONTENT_TOKENS:
+            continue
+        if lowered.isdigit():
+            continue
+        if len(token) < 2:
+            continue
+        if len(token) < 3 and not has_technical_marker(token):
+            continue
+        collected.add(lowered)
+        if len(collected) >= max_items:
+            break
+    return collected
+
+
+def _memory_target_metrics(
+    *,
+    raw_query: str,
+    candidate_query: str,
+    memory_items: list[dict[str, Any]],
+    query_profile: str | None,
+    raw_memory_norm: float,
+    underspecified_memory_norm_cutoff: float,
+    memory_target_presence_bonus_weight: float,
+    memory_target_missing_penalty_weight: float,
+) -> dict[str, Any]:
+    if not memory_items:
+        return {
+            "memory_target_tokens": [],
+            "raw_target_overlap_count": 0,
+            "candidate_target_overlap_count": 0,
+            "raw_is_underspecified": False,
+            "missing_memory_target": False,
+            "memory_target_presence_bonus": 0.0,
+            "memory_target_missing_penalty": 0.0,
+        }
+
+    top_memory = memory_items[0]
+    memory_target_tokens = _content_token_set(
+        str(top_memory.get("query_text") or ""),
+        max_items=12,
+    )
+    for term in top_memory.get("glossary_terms") or []:
+        memory_target_tokens |= _content_token_set(str(term), max_items=8)
+        if len(memory_target_tokens) >= 16:
+            break
+
+    product_tokens = _content_token_set(
+        str(top_memory.get("product") or "").replace("-", " ").replace("_", " "),
+        max_items=4,
+        include_generic=True,
+    )
+    memory_target_tokens -= product_tokens
+
+    raw_content_tokens = _content_token_set(raw_query, max_items=12)
+    candidate_content_tokens = _content_token_set(candidate_query, max_items=12)
+    raw_target_overlap = raw_content_tokens & memory_target_tokens
+    candidate_target_overlap = candidate_content_tokens & memory_target_tokens
+
+    raw_is_underspecified = bool(
+        str(query_profile or "").strip().lower() == "short_user"
+        and raw_memory_norm >= underspecified_memory_norm_cutoff
+        and memory_target_tokens
+        and not raw_target_overlap
+    )
+    missing_memory_target = raw_is_underspecified and not candidate_target_overlap
+
+    return {
+        "memory_target_tokens": sorted(memory_target_tokens),
+        "raw_target_overlap_count": len(raw_target_overlap),
+        "candidate_target_overlap_count": len(candidate_target_overlap),
+        "raw_is_underspecified": raw_is_underspecified,
+        "missing_memory_target": missing_memory_target,
+        "memory_target_presence_bonus": (
+            memory_target_presence_bonus_weight
+            if len(candidate_target_overlap) > len(raw_target_overlap)
+            else 0.0
+        ),
+        "memory_target_missing_penalty": (
+            memory_target_missing_penalty_weight
+            if missing_memory_target
+            else 0.0
+        ),
     }
 
 
@@ -1523,10 +1666,23 @@ def run_selective_rewrite(
     low_memory_similarity_cutoff = _clamp01(_float_value(thresholds.get("low_memory_similarity_cutoff"), 0.0))
     low_memory_extra_threshold = max(0.0, _float_value(thresholds.get("low_memory_extra_threshold"), 0.0))
     min_retrieval_gain_score = _clamp01(_float_value(thresholds.get("min_retrieval_gain_score"), 0.0))
+    underspecified_memory_norm_cutoff = _clamp01(
+        _float_value(thresholds.get("underspecified_memory_norm_cutoff"), 0.0)
+    )
 
     verbosity_per_extra_ratio = max(0.0, _float_value(penalties.get("verbosity_per_extra_ratio"), 0.0))
     critical_token_drop_weight = max(0.0, _float_value(penalties.get("critical_token_drop"), 0.0))
     anchor_overlap_drop_weight = max(0.0, _float_value(penalties.get("anchor_overlap_drop"), 0.0))
+    memory_target_missing_penalty_weight = max(
+        0.0,
+        _float_value(penalties.get("memory_target_missing"), 0.0),
+    )
+    bonuses = policy.get("bonuses") if isinstance(policy.get("bonuses"), dict) else {}
+    memory_target_presence_bonus_weight = max(
+        0.0,
+        _float_value(bonuses.get("memory_target_presence"), 0.0),
+    )
+    query_profile = str(policy.get("query_profile") or "").strip().lower()
 
     raw_memory = _memory_alignment_score(
         raw_memory_similarity=raw_memory_affinity,
@@ -1601,6 +1757,16 @@ def run_selective_rewrite(
             candidate_memory_similarity=candidate_memory_affinity,
         )
         memory_alignment_score = memory_metrics["memory_alignment_score"]
+        memory_target_metrics = _memory_target_metrics(
+            raw_query=raw_query,
+            candidate_query=template["query"],
+            memory_items=memory_items,
+            query_profile=query_profile,
+            raw_memory_norm=raw_memory["raw_memory_norm"],
+            underspecified_memory_norm_cutoff=underspecified_memory_norm_cutoff,
+            memory_target_presence_bonus_weight=memory_target_presence_bonus_weight,
+            memory_target_missing_penalty_weight=memory_target_missing_penalty_weight,
+        )
 
         length_ratio = _length_ratio_without_spaces(raw_query, template["query"])
         verbosity_penalty = max(0.0, length_ratio - 1.0) * verbosity_per_extra_ratio
@@ -1614,7 +1780,13 @@ def run_selective_rewrite(
             memory_alignment_score=memory_alignment_score,
             weights=weights,
         )
-        final_candidate_score = _clamp01(weighted_score - verbosity_penalty - preservation_penalty)
+        final_candidate_score = _clamp01(
+            weighted_score
+            + memory_target_metrics["memory_target_presence_bonus"]
+            - verbosity_penalty
+            - preservation_penalty
+            - memory_target_metrics["memory_target_missing_penalty"]
+        )
 
         low_memory_strict_threshold = (
             low_memory_extra_threshold
@@ -1636,10 +1808,12 @@ def run_selective_rewrite(
             rejection_reason = "preservation_below_floor"
         elif retrieval_gain_score < min_retrieval_gain_score:
             rejection_reason = "retrieval_gain_below_floor"
+        elif memory_target_metrics["missing_memory_target"]:
+            rejection_reason = "missing_memory_target"
         elif adoption_margin < effective_threshold:
             rejection_reason = "delta_below_threshold"
 
-        eligible = (not rejection_reason) or force_rewrite
+        eligible = not rejection_reason
         candidate = {
             "label": template["label"],
             "query": template["query"],
@@ -1656,6 +1830,12 @@ def run_selective_rewrite(
             "anchor_overlap_ratio": anchor_overlap_ratio,
             "verbosity_penalty": verbosity_penalty,
             "preservation_penalty": preservation_penalty,
+            "memory_target_presence_bonus": memory_target_metrics["memory_target_presence_bonus"],
+            "memory_target_missing_penalty": memory_target_metrics["memory_target_missing_penalty"],
+            "memory_target_tokens": memory_target_metrics["memory_target_tokens"],
+            "raw_target_overlap_count": memory_target_metrics["raw_target_overlap_count"],
+            "candidate_target_overlap_count": memory_target_metrics["candidate_target_overlap_count"],
+            "raw_is_underspecified": memory_target_metrics["raw_is_underspecified"],
             "final_candidate_score": final_candidate_score,
             "adoption_margin": adoption_margin,
             "effective_threshold": effective_threshold,
@@ -1690,12 +1870,12 @@ def run_selective_rewrite(
             raw_retrieval,
         )
 
-    selected_candidate = best_candidate if force_rewrite else (best_eligible_candidate or best_candidate)
+    selected_candidate = best_eligible_candidate or best_candidate
     normalized_raw_query = " ".join(raw_query.split()).strip().lower()
     normalized_best_query = " ".join(str(selected_candidate["query"]).split()).strip().lower()
     same_query = normalized_raw_query == normalized_best_query
     selected_rejection_reason = str(selected_candidate.get("rejection_reason") or "").strip()
-    should_apply = force_rewrite or bool(
+    should_apply = bool(
         selected_candidate.get("eligible")
         and (not same_query)
     )
@@ -1746,6 +1926,12 @@ def run_selective_rewrite(
                     "anchor_overlap_ratio": candidate.get("anchor_overlap_ratio", 0.0),
                     "verbosity_penalty": candidate.get("verbosity_penalty", 0.0),
                     "preservation_penalty": candidate.get("preservation_penalty", 0.0),
+                    "memory_target_presence_bonus": candidate.get("memory_target_presence_bonus", 0.0),
+                    "memory_target_missing_penalty": candidate.get("memory_target_missing_penalty", 0.0),
+                    "memory_target_tokens": candidate.get("memory_target_tokens", []),
+                    "raw_target_overlap_count": candidate.get("raw_target_overlap_count", 0),
+                    "candidate_target_overlap_count": candidate.get("candidate_target_overlap_count", 0),
+                    "raw_is_underspecified": candidate.get("raw_is_underspecified", False),
                     "final_candidate_score": candidate.get("final_candidate_score", candidate["confidence"]),
                     "adoption_margin": candidate.get("adoption_margin", 0.0),
                     "effective_threshold": candidate.get("effective_threshold", 0.0),
