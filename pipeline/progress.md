@@ -3,6 +3,12 @@
 ## Overview
 High-level pipeline progress tracking.
 
+## [2026-05-12] Session Summary (Memory Lookup Default Revert)
+- What was done: Changed `eval/retrieval_eval.py` so `memory_only_*` modes default back to direct top-memory synthetic query retrieval instead of raw-query intent-preserving guided lookup.
+- Key decisions: Kept `memory_lookup_intent_preserving_enabled=true` as an explicit opt-in for future controlled ablations, but restored the default behavior that uses synthetic queries as the retrieval query.
+- Issues encountered: Before/After analysis showed short Korean user queries lost retrieval signal when raw intent was preserved too strongly with only product-level hints.
+- Next steps: Re-run the same A/full-gating snapshot with the restored default and compare `memory_only_gated`, `rewrite_always`, and `selective_rewrite` against the prior runs.
+
 ## [2026-05-11] Session Summary (F/G Synthetic Query Routing, Grounding, and Speed)
 - What was done: Hardened `generation/synthetic_query_generator.py` for F/G by keeping F/G `code_mixed` outputs in their own strategy tables, scoping relation/glossary SQL to the selected chunks/documents, removing overlap context from F/G primary evidence, passing compact `related_chunks_ko` evidence for near/far, and adding deterministic extractive KO summaries as the default F/G summary path.
 - Key decisions: Left A/B/C `code_mixed` compatibility with strategy D intact, while preventing E/F/G from being hijacked by D. Deterministic F/G summaries are cached as `KO_SUMMARY` assets with provider/model `deterministic/extractive-ko-v1`, with `fg_summary_mode=llm` available for fallback.

@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-05-12] Session Summary (RAG Synthetic-Anchor Default Restore)
+- What was done: Restored `memory_only_*` retrieval default to direct top-memory synthetic query usage, made raw-query intent-preserving guided lookup opt-in via `memory_lookup_intent_preserving_enabled=true`, and rolled back the extra intent-locked wording in `selective_rewrite_v2`.
+- Key decisions: Based on Before/After analysis, short Korean user queries benefit more from specific synthetic-query retrieval anchors than from overly preserving the sparse original query by default.
+- Issues encountered: Existing unrelated docs/report changes were present in the worktree and were left untouched.
+- Next steps: Re-run the same dataset/snapshot condition to verify `memory_only_gated` recovers toward the previous MRR/nDCG profile.
+
 ## [2026-05-12] Session Summary (Python KR KO/EN Short-User Eval Dataset)
 - What was done: Created paired Python Korean-document evaluation datasets with 80 Korean short-user queries and 80 English short-user queries, stored JSONL artifacts under `data/eval/`, registered both datasets in DB, and wrote generation audit metadata under `data/reports/`.
 - Key decisions: Used the same `docs-python-org-ko-3-14` grounded chunks for paired KO/EN samples, assigned target methods `G` and `F`, and marked dataset metadata with `strategy_profile=python_kr` for Admin method-scope validation.

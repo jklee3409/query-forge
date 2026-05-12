@@ -3,6 +3,12 @@
 ## Overview
 High-level progress tracking for the project.
 
+## [2026-05-12] Session Summary (Selective Rewrite Prompt Guard Rollback)
+- What was done: Rolled back the extra intent-locked query-expansion wording in `prompts/rewrite/selective_rewrite_v2.md` to the previous rewrite-candidate style while preserving the same prompt id/schema and terminology-hint inputs.
+- Key decisions: Kept basic intent preservation and technical-token preservation, but removed the stricter "raw target only/minimal expansion/topic-shift prohibition" wording that over-constrained short Korean query rewrites.
+- Issues encountered: Before/After RAG analysis showed the stricter prompt and raw-query preservation path could suppress useful synthetic-memory retrieval anchors.
+- Next steps: Re-run same-snapshot A/full-gating retrieval to confirm rewrite candidates recover useful synthetic-query anchors without reintroducing severe topic drift.
+
 ## [2026-05-11] Session Summary (F/G Prompt Grounding Contract)
 - What was done: Updated `prompts/query_generation/gen_f_v1.md` and `gen_g_v1.md` to include `related_chunks_ko` as optional near/far evidence and to prohibit queries derived from overlap/previous-chunk context.
 - Key decisions: Kept existing F/G output schemas unchanged (`F: query_ko + query_en`, `G: query_ko`) and made only grounding/control text updates aligned with the runtime payload.

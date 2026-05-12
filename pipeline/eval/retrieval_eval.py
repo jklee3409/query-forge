@@ -290,9 +290,9 @@ def _evaluate_mode(
             top_k=config.retrieval_top_k,
             retriever_config=config.retriever_config,
         )
-        memory_lookup_intent_preserving_enabled = bool(
-            config.raw.get("memory_lookup_intent_preserving_enabled", True)
-        )
+        memory_lookup_intent_preserving_enabled = str(
+            config.raw.get("memory_lookup_intent_preserving_enabled", False)
+        ).strip().lower() in {"1", "true", "yes", "on"}
         if top_memory and memory_lookup_intent_preserving_enabled:
             final_query = build_memory_guided_query(
                 sample.query_text,
