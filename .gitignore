@@ -69,10 +69,17 @@ data/synthetic/*
 data/eval/*
 !data/eval/.gitkeep
 !data/eval/README.md
+!data/eval/index.md
+!data/eval/progress.md
 !data/eval/human_eval_short_user_test_80_en.jsonl
+!data/eval/python_kr_short_user_test_80_ko.jsonl
+!data/eval/python_kr_short_user_test_80_en.jsonl
 data/reports/*
 !data/reports/.gitkeep
 !data/reports/README.md
+!data/reports/index.md
+!data/reports/progress.md
+!data/reports/python_kr_eval_dataset_80_audit_2026-05-12.json
 data/artifacts/*
 !data/artifacts/.gitkeep
 !data/artifacts/README.md

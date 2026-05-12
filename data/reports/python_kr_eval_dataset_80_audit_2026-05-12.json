@@ -1,0 +1,31 @@
+{
+  "generated_at": "2026-05-12T00:33:40.526067+00:00",
+  "source_id": "docs-python-org-ko-3-14",
+  "source_product": "python",
+  "source_version": "3.14.5",
+  "ko_dataset_id": "dfbadf26-0ab6-4b95-890e-5196dddc62cc",
+  "ko_dataset_key": "python_kr_short_user_80_ko",
+  "en_dataset_id": "0d29df79-3920-40b2-b7ff-897eac5544fa",
+  "en_dataset_key": "python_kr_short_user_80_en",
+  "ko_output_file": "data/eval/python_kr_short_user_test_80_ko.jsonl",
+  "en_output_file": "data/eval/python_kr_short_user_test_80_en.jsonl",
+  "skip_db": false,
+  "audit": {
+    "status": "pass",
+    "issues": [],
+    "warnings": [],
+    "counts": {
+      "ko": 80,
+      "en": 80,
+      "total": 160,
+      "unique_samples": 160
+    },
+    "category_distribution": {
+      "short_user": 160
+    },
+    "single_multi_distribution": {
+      "single": 144,
+      "multi": 16
+    }
+  }
+}

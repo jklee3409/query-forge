@@ -3,6 +3,12 @@
 ## Overview
 High-level progress tracking for the project.
 
+## [2026-05-12] Session Summary (Python KR KO/EN Eval Dataset Assets)
+- What was done: Added paired Python Korean-document short-user eval datasets under `data/eval/` and a generation audit report under `data/reports/`.
+- Key decisions: Kept KO and EN datasets separate with paired sample IDs, `strategy_profile=python_kr`, and target methods `G`/`F` so F/G comparisons can use the same grounded chunks without mixing query languages.
+- Issues encountered: `data/eval` and `data/reports` lacked directory-level `index.md`/`progress.md`; added them while updating README content.
+- Next steps: Run snapshot-pinned F/G retrieval and answer evaluation using the new dataset IDs.
+
 ## [2026-04-28] Session Summary (English Short User 80 Asset Added)
 - What was done: Added `data/eval/human_eval_short_user_test_80_en.jsonl` as the separate English short-user evaluation dataset paired to the existing Korean 80 set.
 - Key decisions: Kept the same retrieval-aware grounding fields and assigned new English sample ids (`test-short-user-en-###`) plus paired-sample metadata instead of modifying the existing Korean dataset in place.

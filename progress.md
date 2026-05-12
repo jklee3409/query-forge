@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-05-12] Session Summary (Python KR KO/EN Short-User Eval Dataset)
+- What was done: Created paired Python Korean-document evaluation datasets with 80 Korean short-user queries and 80 English short-user queries, stored JSONL artifacts under `data/eval/`, registered both datasets in DB, and wrote generation audit metadata under `data/reports/`.
+- Key decisions: Used the same `docs-python-org-ko-3-14` grounded chunks for paired KO/EN samples, assigned target methods `G` and `F`, and marked dataset metadata with `strategy_profile=python_kr` for Admin method-scope validation.
+- Issues encountered: `data/eval` and `data/reports` needed directory-level docs before active use, so `index.md`/`progress.md` were added; terminal rendering may show mojibake, but UTF-8 validation confirms Korean content is intact.
+- Next steps: Run F/G snapshot-pinned retrieval and answer evaluation with dataset IDs `dfbadf26-0ab6-4b95-890e-5196dddc62cc` and `0d29df79-3920-40b2-b7ff-897eac5544fa`.
+
 ## [2026-05-11] Session Summary (F/G Synthetic Query Pipeline Correctness + Speed)
 - What was done: Updated `pipeline/generation/synthetic_query_generator.py` so F/G `code_mixed` stays in `synthetic_queries_raw_f/g` instead of being rerouted to D, scoped relation/glossary loads to the selected source chunks/documents, stripped overlap context from F/G Korean evidence, added related chunk evidence payloads for near/far, and defaulted F/G Korean summaries to deterministic extractive summaries to remove one LLM call per chunk. Updated F/G prompts to consume `related_chunks_ko` and avoid overlap-derived queries.
 - Key decisions: Preserved AGENTS stage order and strategy-split raw tables; kept A/B/C code-mixed rerouting to D while preserving E/F/G native strategy semantics.

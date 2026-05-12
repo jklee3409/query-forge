@@ -1,11 +1,5 @@
 # Reports
 
-`data/reports/`는 실험 결과와 운영 리포트를 저장하는 위치다. 현재 단계에서는 자동 생성 리포트가 아직 없으므로 디렉터리만 준비되어 있다.
+`data/reports/`는 평가 실행 요약, audit 결과, retrieval/answer 세부 결과처럼 실험 해석에 필요한 산출물을 저장하는 디렉터리입니다. 대부분의 대용량 실행 결과는 local artifact로 다루지만, 기준 데이터셋 생성 audit처럼 재현성에 직접 필요한 파일은 명시적으로 보존합니다.
 
-## 향후 저장 예정 항목
-
-- generation strategy 비교표
-- gating on/off 비교표
-- rewrite strategy 비교표
-- latency 분석표
-- best / bad case 사례집
+현재 Python KR 평가셋 생성 결과는 `python_kr_eval_dataset_80_audit_2026-05-12.json`에 기록되어 있습니다. 이 파일은 한글/영어 각 80개 sample 수, single/multi 분포, 중복 및 grounding 검증 결과를 담습니다.

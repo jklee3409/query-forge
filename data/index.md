@@ -1,39 +1,30 @@
 # index.md
 
 ## Directory Overview
-수집/전처리/합성/평가 과정의 데이터 산출물과 보고서를 저장하는 작업 데이터 디렉토리입니다.
-
----
+`data/`는 수집, 전처리, 합성 질의, 평가 입력, 평가 결과, 리포트 산출물을 보관하는 작업 데이터 디렉터리입니다.
 
 ## Structure
-- `README.md`: 데이터 디렉토리 운영 원칙
-- `raw/`: 수집 원본 데이터(README, `.gitkeep`)
-- `processed/`: 전처리/청킹/용어 추출 결과(README, `.gitkeep`)
-- `synthetic/`: 합성 질의 및 메모리 관련 산출물(README, `.gitkeep`)
-- `eval/`: 평가 입력/결과 산출물(README, `.gitkeep`)
-- `reports/`: 리포트 출력 경로(README, `.gitkeep`)
-- `artifacts/`: 실행 결과 아티팩트(런타임 생성)
-- `logs/`: 실행 로그(런타임 생성)
-- `tmp/`: 임시 실행 산출물(런타임 생성)
-
----
+- `README.md`: 데이터 디렉터리 운영 원칙
+- `raw/`: 수집 원본 데이터
+- `processed/`: 전처리된 section/chunk/glossary 산출물
+- `synthetic/`: 합성 질의와 memory 관련 산출물
+- `eval/`: retrieval-aware 평가 데이터셋 JSONL
+- `reports/`: 평가 요약, audit, retrieval/answer 리포트
+- `artifacts/`: 실행 중 생성되는 artifact
+- `logs/`: 실행 로그
+- `tmp/`: 임시 실행 산출물
 
 ## Responsibilities
-- 파이프라인 단계별 데이터 저장 경로를 분리 관리
-- 재실행/비교를 위한 중간 산출물 보관 위치 제공
-- 보고서/로그/임시 파일의 런타임 저장소 역할 수행
-
----
+- pipeline 단계별 데이터 저장 위치를 분리합니다.
+- 평가 데이터셋과 실험 리포트를 재현 가능한 artifact로 보존합니다.
+- 대용량 실행 산출물과 기준 데이터셋 산출물을 구분해 관리합니다.
 
 ## Key Flows
-- `collect-docs` 결과를 `raw/`에 저장
-- `preprocess`, `chunk-docs`, `glossary-docs` 결과를 `processed/`에 저장
-- generation/gating/memory 관련 산출물을 `synthetic/`에 저장
-- retrieval/answer 평가 산출물을 `eval/`, 요약 리포트를 `reports/`에 저장
-- `eval/` now includes a separate English short-user companion set (`human_eval_short_user_test_80_en.jsonl`) for paired KO/EN retrieval experiments on the same English technical-doc domain.
-- 실행 로그와 중간 실행 파일은 `logs/`, `tmp/`로 분리
-
----
+- `collect-docs` 결과는 `raw/`에 저장합니다.
+- `preprocess`, `chunk-docs`, `glossary-docs` 결과는 `processed/`에 저장합니다.
+- generation/gating/memory 관련 산출물은 `synthetic/`에 저장합니다.
+- retrieval/answer 평가 입력은 `eval/`, 요약 리포트와 audit는 `reports/`에 저장합니다.
+- `eval/`에는 기존 Spring 도메인 KO/EN short-user 데이터셋과 Python KR 도메인 KO/EN paired short-user 데이터셋이 포함됩니다.
 
 ## Notes
-- Update this file when structure or responsibilities change
+- 구조나 책임이 바뀌면 이 파일을 함께 갱신합니다.

@@ -3,6 +3,12 @@
 ## Overview
 High-level progress tracking for the project.
 
+## [2026-05-12] Session Summary (Python KR Eval Dataset Builder)
+- What was done: Added `scripts/build_python_kr_eval_datasets.py` to generate paired KO/EN Python Korean-document short-user 80 JSONL files, write an audit report, and upsert both datasets into DB tables.
+- Key decisions: Hardcoded only the manually reviewed short-user query specs while resolving actual `expected_doc_ids` and `expected_chunk_ids` from the current `docs-python-org-ko-3-14` corpus at runtime.
+- Issues encountered: psycopg direct connections return tuple rows by default, so the chunk fetch path uses explicit tuple destructuring.
+- Next steps: Reuse this script when the Python KR corpus is refreshed, then compare F/G under fixed snapshot and dataset IDs.
+
 ## [2026-04-28] Session Summary (English Short-User 80 Builder)
 - What was done: Added `scripts/build_short_user_en_dataset.py` to generate `data/eval/human_eval_short_user_test_80_en.jsonl` and optionally upsert the separate English dataset (`human_eval_short_user_80_en`) into DB tables.
 - Key decisions: Kept DB writes optional via `--skip-db` so the artifact can be generated before applying the new Flyway migration, and stored paired-sample metadata linking each English row back to the existing Korean short-user 80 set.
