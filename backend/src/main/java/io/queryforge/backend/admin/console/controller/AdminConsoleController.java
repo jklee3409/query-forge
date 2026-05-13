@@ -85,6 +85,20 @@ public class AdminConsoleController {
         return service.getRuntimeOptions();
     }
 
+    @GetMapping("/rag/chunk-embeddings/status")
+    public AdminConsoleDtos.ChunkEmbeddingMaterializationStatusResponse chunkEmbeddingStatus(
+            @RequestParam(name = "embedding_model", required = false) String embeddingModel
+    ) {
+        return service.getChunkEmbeddingMaterializationStatus(embeddingModel);
+    }
+
+    @PostMapping("/rag/chunk-embeddings/materialize")
+    public AdminConsoleDtos.LlmJobRow materializeChunkEmbeddings(
+            @RequestBody AdminConsoleDtos.ChunkEmbeddingMaterializationRequest request
+    ) {
+        return service.runChunkEmbeddingMaterialization(request);
+    }
+
     @GetMapping("/gating/batches")
     public List<AdminConsoleDtos.GatingBatchRow> gatingBatches(
             @RequestParam(name = "limit", required = false) Integer limit

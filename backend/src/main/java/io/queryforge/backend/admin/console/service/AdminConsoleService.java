@@ -61,6 +61,8 @@ public class AdminConsoleService {
     private static final String GATING_PASS_STAGE_PASSED_ALL = "passed_all";
     private static final String QUERY_LANGUAGE_KO = "ko";
     private static final String QUERY_LANGUAGE_EN = "en";
+    private static final String RETRIEVAL_BACKEND_LOCAL = "local";
+    private static final String RETRIEVAL_BACKEND_DB_ANN = "db_ann";
     private static final String RETRIEVER_MODE_BM25_ONLY = "bm25_only";
     private static final String RETRIEVER_MODE_DENSE_ONLY = "dense_only";
     private static final String RETRIEVER_MODE_HYBRID = "hybrid";
@@ -76,6 +78,7 @@ public class AdminConsoleService {
     private static final double DEFAULT_RAG_HYBRID_DENSE_WEIGHT = 0.60d;
     private static final double DEFAULT_RAG_HYBRID_BM25_WEIGHT = 0.32d;
     private static final double DEFAULT_RAG_HYBRID_TECHNICAL_WEIGHT = 0.08d;
+    private static final String VECTOR_STORE_POSTGRESQL_PGVECTOR = "postgresql-pgvector";
     private static final int MAX_RAG_RUN_LABEL_LENGTH = 120;
     private static final Set<String> ALL_METHOD_CODES = Set.of("A", "B", "C", "D", "E", "F", "G");
     private static final Set<String> SPRING_TECHDOC_METHOD_CODES = Set.of("A", "B", "C", "D", "E");
@@ -194,6 +197,16 @@ public class AdminConsoleService {
                 denseEmbeddingModels.isEmpty() ? null : denseEmbeddingModels.getFirst()
         );
 
+        List<String> retrievalBackends = fallbackIfEmpty(
+                catalog.availableRetrievalBackends(),
+                List.of(RETRIEVAL_BACKEND_LOCAL, RETRIEVAL_BACKEND_DB_ANN)
+        );
+        String defaultRetrievalBackend = firstNonBlank(
+                retrievalBackends.contains(catalog.defaultRetrievalBackend()) ? catalog.defaultRetrievalBackend() : null,
+                retrievalBackends.contains(RETRIEVAL_BACKEND_LOCAL) ? RETRIEVAL_BACKEND_LOCAL : null,
+                retrievalBackends.isEmpty() ? null : retrievalBackends.getFirst()
+        );
+
         List<String> retrieverModes = fallbackIfEmpty(
                 catalog.availableRetrieverModes(),
                 List.of(RETRIEVER_MODE_BM25_ONLY, RETRIEVER_MODE_DENSE_ONLY, RETRIEVER_MODE_HYBRID)
@@ -211,15 +224,68 @@ public class AdminConsoleService {
                 defaultLlmModel,
                 denseEmbeddingModels,
                 defaultDenseEmbeddingModel,
+                retrievalBackends,
+                defaultRetrievalBackend,
                 retrieverModes,
                 rewriteFailurePolicies,
                 catalog.llmProviderOptions().stream().map(this::toRuntimeOptionDto).toList(),
                 catalog.llmModelOptions().stream().map(this::toRuntimeOptionDto).toList(),
                 catalog.denseEmbeddingModelOptions().stream().map(this::toRuntimeOptionDto).toList(),
+                catalog.retrievalBackendOptions().stream().map(this::toRuntimeOptionDto).toList(),
                 catalog.retrieverModeOptions().stream().map(this::toRuntimeOptionDto).toList(),
                 catalog.rewriteFailurePolicyOptions().stream().map(this::toRuntimeOptionDto).toList(),
                 catalog.defaultParameterRanges()
         );
+    }
+
+    public AdminConsoleDtos.ChunkEmbeddingMaterializationStatusResponse getChunkEmbeddingMaterializationStatus(String embeddingModel) {
+        RuntimeCatalog catalog = loadRuntimeCatalog();
+        String normalizedEmbeddingModel = normalizeChunkEmbeddingModel(embeddingModel, catalog);
+        return buildChunkEmbeddingStatus(normalizedEmbeddingModel);
+    }
+
+    @Transactional
+    public AdminConsoleDtos.LlmJobRow runChunkEmbeddingMaterialization(
+            AdminConsoleDtos.ChunkEmbeddingMaterializationRequest request
+    ) {
+        RuntimeCatalog catalog = loadRuntimeCatalog();
+        String normalizedEmbeddingModel = normalizeChunkEmbeddingModel(
+                request == null ? null : request.embeddingModel(),
+                catalog
+        );
+        AdminConsoleDtos.ChunkEmbeddingMaterializationStatusResponse status = buildChunkEmbeddingStatus(normalizedEmbeddingModel);
+        if (status.ready()) {
+            throw new IllegalArgumentException(
+                    "chunk embeddings are already materialized for embedding_model=" + normalizedEmbeddingModel
+            );
+        }
+        String experimentName = "admin_materialize_" + UUID.randomUUID().toString().replace("-", "").substring(0, 12);
+        Map<String, Object> config = baseExperimentConfig(experimentName, SYNTHETIC_FREE_BASELINE_METHOD);
+        Map<String, Object> retrieverConfig = resolveRetrieverConfig(
+                new AdminConsoleDtos.RetrieverConfigRequest(
+                        RETRIEVER_MODE_DENSE_ONLY,
+                        normalizedEmbeddingModel,
+                        true,
+                        false,
+                        false,
+                        DEFAULT_RETRIEVER_CANDIDATE_POOL_K,
+                        1.0d,
+                        0.0d,
+                        0.0d
+                ),
+                false
+        );
+        attachRetrieverConfig(config, retrieverConfig);
+        config.put("retrieval_backend", RETRIEVAL_BACKEND_DB_ANN);
+        config.put("chunk_embedding_model", normalizedEmbeddingModel);
+        config.put("vector_store", VECTOR_STORE_POSTGRESQL_PGVECTOR);
+        config.put("chunk_embedding_force_refresh", false);
+        writeExperimentConfig(experimentName, config);
+        UUID jobId = llmJobService.createChunkEmbeddingMaterializationJob(
+                experimentName,
+                defaultCreatedBy(request == null ? null : request.createdBy())
+        );
+        return llmJobService.getJob(jobId);
     }
 
     @Transactional
@@ -641,13 +707,20 @@ public class AdminConsoleService {
                 ? request.retrievalTopK()
                 : DEFAULT_RAG_RETRIEVAL_TOP_K;
         int rerankTopN = request.rerankTopN() != null && request.rerankTopN() > 0 ? request.rerankTopN() : 5;
-        Map<String, Object> retrieverConfig = resolveRetrieverConfig(request.retrieverConfig(), true);
+        Map<String, Object> retrieverConfig = resolveRetrieverConfig(request.retrieverConfig(), false);
         RuntimeCatalog runtimeCatalog = loadRuntimeCatalog();
         validateLlmModelSelection(blankToNull(request.llmModel()), runtimeCatalog);
+        String retrievalBackend = normalizeRetrievalBackend(request.retrievalBackend());
+        validateRetrievalBackendSelection(retrievalBackend, runtimeCatalog);
         validateRetrieverSelection(retrieverConfig, runtimeCatalog);
+        validateDbAnnConfigurationIfNeeded(retrievalBackend, retrieverConfig);
+        String retrievalEmbeddingModel = blankToNull(asTrimmedString(retrieverConfig.get("dense_embedding_model")));
+        if (RETRIEVAL_BACKEND_DB_ANN.equals(retrievalBackend)) {
+            requireChunkEmbeddingsReady(retrievalEmbeddingModel);
+        }
         String runLabel = resolveRagRunLabel(
                 request.runName(),
-                String.valueOf(retrieverConfig.get("retriever_mode"))
+                retrievalBackend + ":" + String.valueOf(retrieverConfig.get("retriever_mode"))
         );
         double threshold = request.threshold() != null ? request.threshold() : 0.10d;
         String rewriteRetrievalStrategy = normalizeRewriteRetrievalStrategy(request.rewriteRetrievalStrategy());
@@ -786,6 +859,10 @@ public class AdminConsoleService {
         config.put("retrieval_top_k", retrievalTopK);
         config.put("rerank_top_n", rerankTopN);
         attachRetrieverConfig(config, retrieverConfig);
+        config.put("retrieval_backend", retrievalBackend);
+        config.put("chunk_embedding_model", retrievalEmbeddingModel);
+        config.put("vector_store", RETRIEVAL_BACKEND_DB_ANN.equals(retrievalBackend) ? VECTOR_STORE_POSTGRESQL_PGVECTOR : null);
+        config.put("fallback_used", false);
         config.put("run_discipline", runDiscipline);
         config.put("stage_cutoff_enabled", stageCutoffEnabled);
         if (stageCutoffEnabled) {
@@ -902,6 +979,13 @@ public class AdminConsoleService {
         initialGatingConfig.put("stage_cutoff_level", stageCutoffEnabled ? stageCutoffLevel : null);
         initialGatingConfig.put("stage_cutoff_source_gating_batch_id", config.get("stage_cutoff_source_gating_batch_id"));
         Map<String, Object> initialRetrievalConfig = new LinkedHashMap<>();
+        initialRetrievalConfig.put("retrieval_backend", retrievalBackend);
+        initialRetrievalConfig.put("embedding_model", retrievalEmbeddingModel);
+        initialRetrievalConfig.put(
+                "vector_store",
+                RETRIEVAL_BACKEND_DB_ANN.equals(retrievalBackend) ? VECTOR_STORE_POSTGRESQL_PGVECTOR : null
+        );
+        initialRetrievalConfig.put("fallback_used", false);
         initialRetrievalConfig.put("retrieval_top_k", retrievalTopK);
         initialRetrievalConfig.put("rerank_top_n", rerankTopN);
         initialRetrievalConfig.put("retrieval_modes", config.get("retrieval_modes"));
@@ -1251,6 +1335,7 @@ public class AdminConsoleService {
             List<RuntimeOptionMetadata> llmProviders = parseRuntimeOptions(rootMap.get("llm_providers"), false);
             List<RuntimeOptionMetadata> llmModels = parseRuntimeOptions(rootMap.get("llm_models"), false);
             List<RuntimeOptionMetadata> denseModels = parseRuntimeOptions(rootMap.get("dense_embedding_models"), false);
+            List<RuntimeOptionMetadata> retrievalBackends = parseRuntimeOptions(rootMap.get("retrieval_backends"), true);
             List<RuntimeOptionMetadata> retrieverModes = parseRuntimeOptions(rootMap.get("retriever_modes"), true);
             List<RuntimeOptionMetadata> rewritePolicies = parseRuntimeOptions(rootMap.get("rewrite_failure_policies"), true);
             Map<String, AdminConsoleDtos.RuntimeParameterRange> parameterRanges = parseDefaultParameterRanges(
@@ -1260,6 +1345,7 @@ public class AdminConsoleService {
                     llmProviders,
                     llmModels,
                     denseModels,
+                    retrievalBackends,
                     retrieverModes,
                     rewritePolicies,
                     parameterRanges
@@ -1311,6 +1397,10 @@ public class AdminConsoleService {
                 new RuntimeOptionMetadata(RETRIEVER_MODE_DENSE_ONLY, "Dense Only", null, "active", "available", null, false),
                 new RuntimeOptionMetadata(RETRIEVER_MODE_HYBRID, "Hybrid", null, "active", "available", null, true)
         );
+        List<RuntimeOptionMetadata> retrievalBackends = List.of(
+                new RuntimeOptionMetadata(RETRIEVAL_BACKEND_LOCAL, "Local", null, "active", "available", null, true),
+                new RuntimeOptionMetadata(RETRIEVAL_BACKEND_DB_ANN, "DB ANN", null, "active", "available", null, false)
+        );
         List<RuntimeOptionMetadata> rewritePolicies = List.of(
                 new RuntimeOptionMetadata(REWRITE_FAILURE_POLICY_FAIL_RUN, REWRITE_FAILURE_POLICY_FAIL_RUN, null, "active", "available", null, true),
                 new RuntimeOptionMetadata(REWRITE_FAILURE_POLICY_SKIP_TO_RAW, REWRITE_FAILURE_POLICY_SKIP_TO_RAW, null, "active", "available", null, false),
@@ -1321,6 +1411,7 @@ public class AdminConsoleService {
                 List.of(),
                 llmModels,
                 denseModels,
+                retrievalBackends,
                 retrieverModes,
                 rewritePolicies,
                 ranges
@@ -1496,6 +1587,18 @@ public class AdminConsoleService {
         }
     }
 
+    private void validateRetrievalBackendSelection(String retrievalBackend, RuntimeCatalog catalog) {
+        RuntimeOptionMetadata backendOption = catalog.findRetrievalBackend(retrievalBackend);
+        if (backendOption == null) {
+            throw new IllegalArgumentException("retrieval_backend is not allowed by catalog: " + retrievalBackend);
+        }
+        if (!isSelectable(backendOption)) {
+            throw new IllegalArgumentException(
+                    "retrieval_backend is not selectable by catalog: " + retrievalBackend + appendReason(backendOption.reason())
+            );
+        }
+    }
+
     private void validateRewriteFailurePolicySelection(String policy, RuntimeCatalog catalog) {
         RuntimeOptionMetadata option = catalog.findRewriteFailurePolicy(policy);
         if (option == null) {
@@ -1506,6 +1609,73 @@ public class AdminConsoleService {
                     "rewrite_failure_policy is not selectable by catalog: " + policy + appendReason(option.reason())
             );
         }
+    }
+
+    private void validateDbAnnConfigurationIfNeeded(String retrievalBackend, Map<String, Object> retrieverConfig) {
+        if (!RETRIEVAL_BACKEND_DB_ANN.equals(retrievalBackend)) {
+            return;
+        }
+        String retrieverMode = normalizeRetrieverMode(asTrimmedString(retrieverConfig.get("retriever_mode")));
+        if (RETRIEVER_MODE_BM25_ONLY.equals(retrieverMode)) {
+            throw new IllegalArgumentException("db-ann retrieval_backend requires retriever_mode=dense_only or hybrid");
+        }
+        boolean denseFallbackEnabled = Boolean.TRUE.equals(retrieverConfig.get("dense_fallback_enabled"));
+        if (denseFallbackEnabled) {
+            throw new IllegalArgumentException("db-ann retrieval_backend must not enable dense_fallback_enabled");
+        }
+        String denseModel = blankToNull(asTrimmedString(retrieverConfig.get("dense_embedding_model")));
+        if (denseModel == null) {
+            throw new IllegalArgumentException("db-ann retrieval_backend requires dense_embedding_model");
+        }
+    }
+
+    private String normalizeChunkEmbeddingModel(String embeddingModel, RuntimeCatalog catalog) {
+        String normalized = firstNonBlank(
+                blankToNull(embeddingModel),
+                blankToNull(catalog.defaultDenseEmbeddingModel()),
+                DEFAULT_DENSE_EMBEDDING_MODEL
+        );
+        RuntimeOptionMetadata option = catalog.findDenseEmbeddingModel(normalized);
+        if (option == null) {
+            throw new IllegalArgumentException("dense_embedding_model is not allowed by catalog: " + normalized);
+        }
+        if (!isSelectable(option)) {
+            throw new IllegalArgumentException(
+                    "dense_embedding_model is not selectable by catalog: " + normalized + appendReason(option.reason())
+            );
+        }
+        return normalized;
+    }
+
+    private AdminConsoleDtos.ChunkEmbeddingMaterializationStatusResponse buildChunkEmbeddingStatus(String embeddingModel) {
+        long totalChunkCount = repository.countCorpusChunks();
+        long materializedChunkCount = repository.countMaterializedChunkEmbeddings(embeddingModel);
+        long missingChunkCount = Math.max(0L, totalChunkCount - materializedChunkCount);
+        return new AdminConsoleDtos.ChunkEmbeddingMaterializationStatusResponse(
+                embeddingModel,
+                VECTOR_STORE_POSTGRESQL_PGVECTOR,
+                totalChunkCount,
+                materializedChunkCount,
+                missingChunkCount,
+                totalChunkCount > 0L && missingChunkCount == 0L,
+                repository.findLatestChunkEmbeddingUpdatedAt(embeddingModel)
+        );
+    }
+
+    private void requireChunkEmbeddingsReady(String embeddingModel) {
+        if (embeddingModel == null || embeddingModel.isBlank()) {
+            throw new IllegalArgumentException("db-ann retrieval_backend requires dense_embedding_model");
+        }
+        AdminConsoleDtos.ChunkEmbeddingMaterializationStatusResponse status = buildChunkEmbeddingStatus(embeddingModel);
+        if (status.ready()) {
+            return;
+        }
+        throw new IllegalStateException(
+                "chunk embedding materialization required: embedding_model=" + embeddingModel
+                        + ", total_chunks=" + status.totalChunkCount()
+                        + ", materialized_chunks=" + status.materializedChunkCount()
+                        + ", missing_chunks=" + status.missingChunkCount()
+        );
     }
 
     private boolean isSelectable(RuntimeOptionMetadata option) {
@@ -1575,6 +1745,7 @@ public class AdminConsoleService {
             List<RuntimeOptionMetadata> llmProviderOptions,
             List<RuntimeOptionMetadata> llmModelOptions,
             List<RuntimeOptionMetadata> denseEmbeddingModelOptions,
+            List<RuntimeOptionMetadata> retrievalBackendOptions,
             List<RuntimeOptionMetadata> retrieverModeOptions,
             List<RuntimeOptionMetadata> rewriteFailurePolicyOptions,
             Map<String, AdminConsoleDtos.RuntimeParameterRange> defaultParameterRanges
@@ -1588,6 +1759,13 @@ public class AdminConsoleService {
 
         List<String> availableDenseEmbeddingModels() {
             return denseEmbeddingModelOptions.stream()
+                    .filter(this::isSelectable)
+                    .map(RuntimeOptionMetadata::code)
+                    .toList();
+        }
+
+        List<String> availableRetrievalBackends() {
+            return retrievalBackendOptions.stream()
                     .filter(this::isSelectable)
                     .map(RuntimeOptionMetadata::code)
                     .toList();
@@ -1615,6 +1793,10 @@ public class AdminConsoleService {
             return defaultCode(denseEmbeddingModelOptions);
         }
 
+        String defaultRetrievalBackend() {
+            return defaultCode(retrievalBackendOptions);
+        }
+
         RuntimeOptionMetadata findLlmProvider(String provider) {
             return findExact(llmProviderOptions, provider);
         }
@@ -1625,6 +1807,10 @@ public class AdminConsoleService {
 
         RuntimeOptionMetadata findDenseEmbeddingModel(String model) {
             return findExact(denseEmbeddingModelOptions, model);
+        }
+
+        RuntimeOptionMetadata findRetrievalBackend(String backend) {
+            return findNormalized(retrievalBackendOptions, backend);
         }
 
         RuntimeOptionMetadata findRetrieverMode(String mode) {
@@ -1816,6 +2002,17 @@ public class AdminConsoleService {
         }
         if (!List.of(RETRIEVER_MODE_BM25_ONLY, RETRIEVER_MODE_DENSE_ONLY, RETRIEVER_MODE_HYBRID).contains(normalized)) {
             throw new IllegalArgumentException("unsupported retriever_mode: " + value);
+        }
+        return normalized;
+    }
+
+    private String normalizeRetrievalBackend(String value) {
+        if (value == null || value.isBlank()) {
+            return RETRIEVAL_BACKEND_LOCAL;
+        }
+        String normalized = value.trim().toLowerCase().replace("-", "_");
+        if (!List.of(RETRIEVAL_BACKEND_LOCAL, RETRIEVAL_BACKEND_DB_ANN).contains(normalized)) {
+            throw new IllegalArgumentException("unsupported retrieval_backend: " + value);
         }
         return normalized;
     }

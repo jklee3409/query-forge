@@ -143,6 +143,28 @@ public class LlmJobService {
     }
 
     @Transactional
+    public UUID createChunkEmbeddingMaterializationJob(String experimentName, String createdBy) {
+        JsonNode commandArgs = objectMapper.valueToTree(
+                Map.of("experiment", experimentName, "command", "materialize-chunk-embeddings")
+        );
+        UUID jobId = llmJobRepository.createJob(
+                "MATERIALIZE_CHUNK_EMBEDDINGS",
+                "materialize-chunk-embeddings",
+                experimentName,
+                commandArgs,
+                null,
+                null,
+                null,
+                1,
+                1,
+                createdBy
+        );
+        llmJobRepository.createJobItem(jobId, 1, "materialize-chunk-embeddings", commandArgs, 1);
+        enqueue(jobId);
+        return jobId;
+    }
+
+    @Transactional
     public UUID createRagTestJob(UUID ragTestRunId, String experimentName, String createdBy) {
         JsonNode commandArgs = objectMapper.valueToTree(Map.of("experiment", experimentName));
         UUID jobId = llmJobRepository.createJob(

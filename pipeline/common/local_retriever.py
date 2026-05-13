@@ -4,7 +4,7 @@ import math
 import os
 import threading
 from collections import Counter, defaultdict
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 import hashlib
 import json
 from typing import Iterable
@@ -277,6 +277,130 @@ class _SentenceTransformerBackend(_DenseBackend):
             return super().score_query(query_text, dense_passages, fallback_embeddings)
         scores = passage_matrix.dot(query_embedding[0])
         return [float(score) for score in scores]
+
+
+def _normalize_embedding_values(values: object) -> list[list[float]]:
+    normalized: list[list[float]] = []
+    if hasattr(values, "tolist"):
+        values = values.tolist()
+    if not isinstance(values, list):
+        return normalized
+    for row in values:
+        if hasattr(row, "tolist"):
+            row = row.tolist()
+        if not isinstance(row, list):
+            continue
+        normalized.append([float(value) for value in row])
+    return normalized
+
+
+def encode_passages_with_retriever_config(
+    texts: Iterable[str],
+    *,
+    retriever_config: RetrieverConfig | None = None,
+    require_real_dense: bool = False,
+) -> tuple[list[list[float]], str, bool]:
+    config = retriever_config or build_retriever_config({})
+    text_values = [str(text) for text in texts]
+    if require_real_dense and not config.requires_dense:
+        raise RuntimeError("real dense embeddings are required but retriever_mode does not enable dense retrieval.")
+    backend = _dense_backend(config) if config.requires_dense else _DenseBackend()
+    if require_real_dense and not backend.real_dense:
+        raise RuntimeError(
+            "real dense embeddings are required for db-ann retrieval but only hash fallback is available."
+        )
+    encoded = backend.encode_passages(text_values, [])
+    normalized = _normalize_embedding_values(encoded)
+    model_name = config.dense_embedding_model if backend.real_dense else "hash-embedding-v1"
+    return normalized, model_name, not backend.real_dense
+
+
+def embed_query_with_retriever_config(
+    query_text: str,
+    *,
+    retriever_config: RetrieverConfig | None = None,
+    require_real_dense: bool = False,
+) -> tuple[list[float], str, bool]:
+    config = retriever_config or build_retriever_config({})
+    if require_real_dense and not config.requires_dense:
+        raise RuntimeError("real dense embeddings are required but retriever_mode does not enable dense retrieval.")
+    backend = _dense_backend(config) if config.requires_dense else _DenseBackend()
+    if require_real_dense and not backend.real_dense:
+        raise RuntimeError(
+            "real dense embeddings are required for db-ann retrieval but only hash fallback is available."
+        )
+    if isinstance(backend, _SentenceTransformerBackend):
+        encoded = backend.model.encode(  # type: ignore[attr-defined]
+            [_query_text(query_text, backend.model_name)],
+            batch_size=1,
+            show_progress_bar=False,
+            normalize_embeddings=True,
+        )
+        values = _normalize_embedding_values(encoded)
+        if not values:
+            raise RuntimeError("dense query embedding returned no vector.")
+        return values[0], backend.model_name, False
+    return [float(value) for value in embed_text(query_text)], "hash-embedding-v1", True
+
+
+def rank_with_precomputed_embeddings(
+    query_text: str,
+    *,
+    item_ids: Iterable[str],
+    texts: Iterable[str],
+    passage_embeddings: Iterable[list[float]],
+    query_embedding: list[float],
+    retriever_config: RetrieverConfig | None = None,
+    top_k: int,
+) -> list[RankedText]:
+    config = retriever_config or build_retriever_config({})
+    ids = [str(item_id) for item_id in item_ids]
+    text_values = [str(text) for text in texts]
+    embedding_values = [[float(value) for value in row] for row in passage_embeddings]
+    if len(text_values) != len(embedding_values) or len(ids) != len(text_values):
+        raise ValueError("texts, item_ids, and passage_embeddings must have the same length")
+    if top_k <= 0 or not text_values:
+        return []
+
+    helper_config = replace(
+        config,
+        mode=RETRIEVAL_MODE_BM25_ONLY,
+        dense_embedding_required=False,
+        dense_fallback_enabled=False,
+        rerank_enabled=False,
+    )
+    helper = LocalTextRetriever(
+        item_ids=ids,
+        texts=text_values,
+        fallback_embeddings=embedding_values,
+        retriever_config=helper_config,
+    )
+    query_tokens = tokenize(query_text)
+    bm25_scores = helper._bm25_scores(query_tokens)  # noqa: SLF001 - shared scoring helper
+    technical_scores = helper._technical_scores(query_tokens)  # noqa: SLF001 - shared scoring helper
+    dense_scores = [cosine_similarity(query_embedding, embedding) for embedding in embedding_values]
+    bm25_norm = _max_normalize(bm25_scores)
+    dense_norm = [_normalize_dense(score) for score in dense_scores]
+    dense_weight, bm25_weight, technical_weight = config.fusion_weights()
+
+    ranked: list[RankedText] = []
+    for index in range(len(text_values)):
+        combined = (
+            dense_weight * dense_norm[index]
+            + bm25_weight * bm25_norm[index]
+            + technical_weight * technical_scores[index]
+        )
+        ranked.append(
+            RankedText(
+                index=index,
+                score=max(-1.0, min(1.0, (combined * 2.0) - 1.0)),
+                dense_score=dense_scores[index],
+                bm25_score=bm25_scores[index],
+                technical_score=technical_scores[index],
+            )
+        )
+    ranked.sort(key=lambda item: item.score, reverse=True)
+    return ranked[: min(top_k, len(ranked))]
 
 
 _MODEL_LOCK = threading.Lock()

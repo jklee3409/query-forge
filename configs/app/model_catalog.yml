@@ -37,6 +37,19 @@ dense_embedding_models:
     reason: ""
     default: true
 
+retrieval_backends:
+  - code: local
+    label: Local
+    status: active
+    availability: available
+    reason: ""
+    default: true
+  - code: db_ann
+    label: DB ANN
+    status: active
+    availability: available
+    reason: ""
+
 retriever_modes:
   - code: bm25_only
     label: BM25 Only

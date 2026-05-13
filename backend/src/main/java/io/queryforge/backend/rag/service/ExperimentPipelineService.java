@@ -34,6 +34,7 @@ public class ExperimentPipelineService {
             "generate-queries",
             "gate-queries",
             "build-memory",
+            "materialize-chunk-embeddings",
             "build-eval-dataset",
             "eval-retrieval",
             "eval-answer"

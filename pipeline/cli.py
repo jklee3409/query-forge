@@ -19,6 +19,7 @@ from preprocess.extract_anchor_candidates import extract_anchor_candidates_from_
 from preprocess.extract_glossary import build_glossary_only
 from preprocess.normalize_docs import normalize_documents
 from loaders.common import build_options
+from memory.materialize_chunk_embeddings import run_chunk_embedding_materialization_from_env
 from memory.build_memory import run_memory_build_from_env
 
 
@@ -31,6 +32,7 @@ COMMANDS = (
     "import-corpus",
     "generate-queries",
     "gate-queries",
+    "materialize-chunk-embeddings",
     "build-memory",
     "build-eval-dataset",
     "import-eval-jsonl",
@@ -133,6 +135,7 @@ def build_parser() -> argparse.ArgumentParser:
     for command in (
         "generate-queries",
         "gate-queries",
+        "materialize-chunk-embeddings",
         "build-memory",
         "build-eval-dataset",
         "eval-retrieval",
@@ -248,6 +251,12 @@ def main() -> int:
 
     if args.command == "gate-queries":
         summary = run_quality_gating_from_env(args.experiment)
+        LOGGER.info("[pipeline] command=%s finished summary=%s", args.command, summary)
+        print(json.dumps(summary, ensure_ascii=False, indent=2))
+        return 0
+
+    if args.command == "materialize-chunk-embeddings":
+        summary = run_chunk_embedding_materialization_from_env(args.experiment)
         LOGGER.info("[pipeline] command=%s finished summary=%s", args.command, summary)
         print(json.dumps(summary, ensure_ascii=False, indent=2))
         return 0

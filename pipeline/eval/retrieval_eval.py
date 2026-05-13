@@ -19,6 +19,7 @@ try:
     from common.experiment_run import ExperimentRunRecorder
     from loaders.common import connect, default_database_args
     from eval.runtime import (
+        DbAnnRuntimeRetrievalAdapter,
         EvalSample,
         RetrievalCandidate,
         build_memory_guided_query,
@@ -26,17 +27,20 @@ try:
         load_chunk_items,
         load_eval_samples,
         load_memory_items,
-        local_retriever_label,
         memory_top_n,
+        normalize_retrieval_backend,
         retrieval_metrics,
         retrieve_top_k,
         run_selective_rewrite,
+        runtime_retriever_label,
+        runtime_retriever_metadata,
     )
 except ModuleNotFoundError:  # pragma: no cover
     from pipeline.common.experiment_config import load_experiment_config
     from pipeline.common.experiment_run import ExperimentRunRecorder
     from pipeline.loaders.common import connect, default_database_args
     from pipeline.eval.runtime import (
+        DbAnnRuntimeRetrievalAdapter,
         EvalSample,
         RetrievalCandidate,
         build_memory_guided_query,
@@ -44,11 +48,13 @@ except ModuleNotFoundError:  # pragma: no cover
         load_chunk_items,
         load_eval_samples,
         load_memory_items,
-        local_retriever_label,
         memory_top_n,
+        normalize_retrieval_backend,
         retrieval_metrics,
         retrieve_top_k,
         run_selective_rewrite,
+        runtime_retriever_label,
+        runtime_retriever_metadata,
     )
 
 
@@ -234,6 +240,7 @@ def _evaluate_mode(
     memory_strategy_filters: list[str],
     source_gating_run_id: str | None,
     comparison_source_runs: dict[str, str],
+    retrieval_adapter: DbAnnRuntimeRetrievalAdapter | None,
 ) -> tuple[dict[str, float], dict[str, Any], list[Any]]:
     if mode == "raw_only":
         retrieval = retrieve_top_k(
@@ -241,6 +248,7 @@ def _evaluate_mode(
             chunks,
             top_k=config.retrieval_top_k,
             retriever_config=config.retriever_config,
+            retrieval_adapter=retrieval_adapter,
         )
         rewrite_info = {
             "rewrite_applied": False,
@@ -280,12 +288,14 @@ def _evaluate_mode(
             source_gate_run_id=source_run_filter,
             strategy_filters=memory_strategy_filters,
             retriever_config=config.retriever_config,
+            retrieval_adapter=retrieval_adapter,
         )
         raw_retrieval = retrieve_top_k(
             sample.query_text,
             chunks,
             top_k=config.retrieval_top_k,
             retriever_config=config.retriever_config,
+            retrieval_adapter=retrieval_adapter,
         )
         memory_lookup_intent_preserving_enabled = str(
             config.raw.get("memory_lookup_intent_preserving_enabled", False)
@@ -302,6 +312,7 @@ def _evaluate_mode(
                 chunks,
                 top_k=config.retrieval_top_k,
                 retriever_config=config.retriever_config,
+                retrieval_adapter=retrieval_adapter,
             )
             retrieval = _merge_retrieval_results(
                 strategy=str(config.raw.get("memory_lookup_retrieval_strategy") or "max_score"),
@@ -317,6 +328,7 @@ def _evaluate_mode(
                 chunks,
                 top_k=config.retrieval_top_k,
                 retriever_config=config.retriever_config,
+                retrieval_adapter=retrieval_adapter,
             )
             reason = f"memory_lookup:{preset_filter}"
         metrics = retrieval_metrics(
@@ -366,6 +378,7 @@ def _evaluate_mode(
         rewrite_failure_policy=str(config.raw.get("rewrite_failure_policy") or "fail_run"),
         rewrite_adoption_policy=config.rewrite_adoption_policy,
         retriever_config=config.retriever_config,
+        retrieval_adapter=retrieval_adapter,
     )
     metrics = retrieval_metrics(
         expected_chunk_ids=sample.expected_chunk_ids,
@@ -402,6 +415,7 @@ def _evaluate_sample_mode(
     memory_strategy_filters: list[str],
     source_gating_run_id: str | None,
     comparison_source_runs: dict[str, str],
+    retrieval_adapter: DbAnnRuntimeRetrievalAdapter | None,
 ) -> dict[str, Any]:
     started = time.perf_counter()
     metrics, rewrite_info, retrieval = _evaluate_mode(
@@ -413,6 +427,7 @@ def _evaluate_sample_mode(
         memory_strategy_filters=memory_strategy_filters,
         source_gating_run_id=source_gating_run_id,
         comparison_source_runs=comparison_source_runs,
+        retrieval_adapter=retrieval_adapter,
     )
     elapsed_ms = (time.perf_counter() - started) * 1000.0
     return {
@@ -463,6 +478,7 @@ def run_retrieval_eval(
             parameters={
                 "stage": "eval-retrieval",
                 "retriever_config": config.retriever_config.to_metadata(),
+                "retrieval_backend": normalize_retrieval_backend(str(config.raw.get("retrieval_backend") or "")),
             },
             run_label="eval-retrieval",
         )
@@ -497,6 +513,7 @@ def run_retrieval_eval(
         if synthetic_free_baseline:
             active_modes = ["raw_only"]
         eval_concurrency = _resolve_eval_concurrency(config.raw)
+        retrieval_backend = normalize_retrieval_backend(str(config.raw.get("retrieval_backend") or "local"))
 
         eval_query_language = str(config.raw.get("eval_query_language") or "ko").strip().lower()
         samples = load_eval_samples(connection, dataset_id=dataset_id, query_language=eval_query_language)
@@ -525,11 +542,22 @@ def run_retrieval_eval(
                 "retrieval_eval_dataset_scope_empty dataset_id=%s; falling back to full corpus",
                 dataset_id,
             )
-        chunks = load_chunk_items(
-            connection,
-            allowed_products=allowed_products if dataset_id else None,
-            include_document_ids=expected_doc_ids if dataset_id else None,
-        )
+        retrieval_adapter: DbAnnRuntimeRetrievalAdapter | None = None
+        if retrieval_backend == "db_ann":
+            retrieval_adapter = DbAnnRuntimeRetrievalAdapter(
+                connection,
+                allowed_products=sorted(allowed_products) if dataset_id else None,
+                include_document_ids=sorted(expected_doc_ids) if dataset_id else None,
+                memory_experiment_key=config.experiment_key,
+                retriever_config=config.retriever_config,
+            )
+            chunks = []
+        else:
+            chunks = load_chunk_items(
+                connection,
+                allowed_products=allowed_products if dataset_id else None,
+                include_document_ids=expected_doc_ids if dataset_id else None,
+            )
         if dataset_id:
             LOGGER.info(
                 "retrieval_eval_dataset_scope dataset_id=%s source_products=%s product_filters=%s expected_doc_ids=%s loaded_chunks=%s",
@@ -540,10 +568,12 @@ def run_retrieval_eval(
                 len(chunks),
             )
         needs_memory = any(mode != "raw_only" for mode in active_modes)
-        memories = (
-            load_memory_items(connection, memory_experiment_key=config.experiment_key)
-            if needs_memory
-            else []
+        memories = []
+        if needs_memory and retrieval_backend != "db_ann":
+            memories = load_memory_items(connection, memory_experiment_key=config.experiment_key)
+        retriever_metadata = runtime_retriever_metadata(
+            retriever_config=config.retriever_config,
+            retrieval_adapter=retrieval_adapter,
         )
         raw_metrics_by_sample: dict[str, dict[str, float]] = {}
         mode_scores: dict[str, list[dict[str, Any]]] = defaultdict(list)
@@ -585,6 +615,7 @@ def run_retrieval_eval(
                         memory_strategy_filters=memory_strategy_filters,
                         source_gating_run_id=source_gating_run_id,
                         comparison_source_runs=comparison_source_runs,
+                        retrieval_adapter=retrieval_adapter,
                     )
                 )
         else:
@@ -600,6 +631,7 @@ def run_retrieval_eval(
                         memory_strategy_filters=memory_strategy_filters,
                         source_gating_run_id=source_gating_run_id,
                         comparison_source_runs=comparison_source_runs,
+                        retrieval_adapter=retrieval_adapter,
                     )
                     for sample, mode in work_items
                 ]
@@ -713,7 +745,10 @@ def run_retrieval_eval(
                             rank,
                             None,
                             None,
-                            local_retriever_label(config.retriever_config),
+                            runtime_retriever_label(
+                                retriever_config=config.retriever_config,
+                                retrieval_adapter=retrieval_adapter,
+                            ),
                             item.score,
                             Jsonb(
                                 {
@@ -721,7 +756,7 @@ def run_retrieval_eval(
                                     "experiment_run_id": run_context.experiment_run_id,
                                     "retrieved_document_id": item.document_id,
                                     "retrieved_chunk_id": item.chunk_id,
-                                    "retriever_config": config.retriever_config.to_metadata(),
+                                    **retriever_metadata,
                                 }
                             ),
                         ),
@@ -824,9 +859,8 @@ def run_retrieval_eval(
             "memory_generation_strategies": memory_strategy_filters,
             "synthetic_free_baseline": synthetic_free_baseline,
             "memory_experiment_key": config.experiment_key if needs_memory else None,
-            "memory_entry_count_loaded": len(memories),
-            "retriever_config": config.retriever_config.to_metadata(),
-            "retriever_name": local_retriever_label(config.retriever_config),
+            "memory_entry_count_loaded": None if retrieval_backend == "db_ann" else len(memories),
+            **retriever_metadata,
             "active_modes": active_modes,
             "rewrite_llm_attempted_count": rewrite_llm_attempted_total,
             "rewrite_llm_success_count": rewrite_llm_success_total,

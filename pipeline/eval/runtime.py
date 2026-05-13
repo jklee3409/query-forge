@@ -21,9 +21,18 @@ try:
         normalize_anchor_text,
     )
     from common.cohere_reranker import CohereReranker, load_cohere_rerank_config
-    from common.embeddings import embed_text
+    from common.embeddings import embed_text, embedding_to_halfvec_literal
     from common.experiment_config import resolve_rewrite_adoption_policy
-    from common.local_retriever import RetrieverConfig, build_retriever_config, get_local_text_retriever, local_retriever_name
+    from common.local_retriever import (
+        RETRIEVAL_MODE_DENSE_ONLY,
+        RETRIEVAL_MODE_HYBRID,
+        RetrieverConfig,
+        build_retriever_config,
+        embed_query_with_retriever_config,
+        get_local_text_retriever,
+        local_retriever_name,
+        rank_with_precomputed_embeddings,
+    )
     from common.llm_client import LlmClient, load_stage_config
 except ModuleNotFoundError:  # pragma: no cover
     from pipeline.common.anchor_quality import (
@@ -33,9 +42,18 @@ except ModuleNotFoundError:  # pragma: no cover
         normalize_anchor_text,
     )
     from pipeline.common.cohere_reranker import CohereReranker, load_cohere_rerank_config
-    from pipeline.common.embeddings import embed_text
+    from pipeline.common.embeddings import embed_text, embedding_to_halfvec_literal
     from pipeline.common.experiment_config import resolve_rewrite_adoption_policy
-    from pipeline.common.local_retriever import RetrieverConfig, build_retriever_config, get_local_text_retriever, local_retriever_name
+    from pipeline.common.local_retriever import (
+        RETRIEVAL_MODE_DENSE_ONLY,
+        RETRIEVAL_MODE_HYBRID,
+        RetrieverConfig,
+        build_retriever_config,
+        embed_query_with_retriever_config,
+        get_local_text_retriever,
+        local_retriever_name,
+        rank_with_precomputed_embeddings,
+    )
     from pipeline.common.llm_client import LlmClient, load_stage_config
 
 
@@ -99,6 +117,290 @@ class RewriteOutcome:
     rewrite_heuristic_fallback_used: bool = False
     final_rewrite_latency_ms: float | None = None
     pure_rewrite_latency_ms: float | None = None
+
+
+RETRIEVAL_BACKEND_LOCAL = "local"
+RETRIEVAL_BACKEND_DB_ANN = "db_ann"
+
+
+def normalize_retrieval_backend(value: str | None) -> str:
+    normalized = str(value or RETRIEVAL_BACKEND_LOCAL).strip().lower().replace("-", "_")
+    return RETRIEVAL_BACKEND_DB_ANN if normalized == RETRIEVAL_BACKEND_DB_ANN else RETRIEVAL_BACKEND_LOCAL
+
+
+def _parse_halfvec_literal(raw: str) -> list[float]:
+    text = str(raw or "").strip()
+    if not text:
+        return []
+    if text.startswith("[") and text.endswith("]"):
+        text = text[1:-1]
+    if not text.strip():
+        return []
+    return [float(part.strip()) for part in text.split(",") if part.strip()]
+
+
+class DbAnnRuntimeRetrievalAdapter:
+    def __init__(
+        self,
+        connection: psycopg.Connection[Any],
+        *,
+        allowed_products: list[str] | None,
+        include_document_ids: list[str] | None,
+        memory_experiment_key: str | None,
+        retriever_config: RetrieverConfig | None = None,
+    ) -> None:
+        self.connection = connection
+        self.allowed_products = [str(item) for item in (allowed_products or []) if str(item).strip()]
+        self.include_document_ids = [str(item) for item in (include_document_ids or []) if str(item).strip()]
+        self.memory_experiment_key = str(memory_experiment_key).strip() if memory_experiment_key else None
+        self.config = retriever_config or build_retriever_config({})
+        if self.config.mode not in {RETRIEVAL_MODE_DENSE_ONLY, RETRIEVAL_MODE_HYBRID}:
+            raise RuntimeError("db-ann retrieval backend requires retriever_mode=dense_only or hybrid")
+        self.embedding_model = str(self.config.dense_embedding_model).strip()
+        if not self.embedding_model:
+            raise RuntimeError("db-ann retrieval backend requires dense_embedding_model")
+        if bool(self.config.dense_fallback_enabled):
+            raise RuntimeError("db-ann retrieval backend must not enable dense_fallback_enabled")
+        self.vector_store = "postgresql-pgvector"
+        self.backend = RETRIEVAL_BACKEND_DB_ANN
+        self.fallback_used = False
+        self._query_embedding_cache: dict[str, list[float]] = {}
+
+    @property
+    def retriever_name(self) -> str:
+        return f"db-ann:{self.config.mode}:{self.embedding_model}"
+
+    def metadata(self) -> dict[str, Any]:
+        return {
+            "retrieval_backend": self.backend,
+            "embedding_model": self.embedding_model,
+            "vector_store": self.vector_store,
+            "fallback_used": self.fallback_used,
+            "retriever_name": self.retriever_name,
+            "retriever_config": self.config.to_metadata(),
+        }
+
+    def retrieve_top_k(self, query_text: str, *, top_k: int) -> list[RetrievalCandidate]:
+        if top_k <= 0:
+            return []
+        query_embedding = self._query_embedding(query_text)
+        candidate_pool_k = top_k if self.config.mode == RETRIEVAL_MODE_DENSE_ONLY else max(top_k, self.config.candidate_pool_k)
+        rows = self._fetch_chunk_ann_pool(query_embedding, limit=candidate_pool_k)
+        if not rows:
+            return []
+        ranked = rank_with_precomputed_embeddings(
+            query_text,
+            item_ids=[row["chunk_id"] for row in rows],
+            texts=[row["chunk_text"] for row in rows],
+            passage_embeddings=[row["embedding"] for row in rows],
+            query_embedding=query_embedding,
+            retriever_config=self.config,
+            top_k=max(top_k, len(rows)),
+        )
+        reduced = [
+            RetrievalCandidate(
+                chunk_id=rows[item.index]["chunk_id"],
+                document_id=rows[item.index]["document_id"],
+                score=item.score,
+                text=rows[item.index]["chunk_text"],
+            )
+            for item in ranked
+        ]
+        return rerank_retrieval_candidates(
+            query_text,
+            reduced,
+            top_n=top_k,
+            retriever_config=self.config,
+        )
+
+    def memory_top_n(
+        self,
+        query_text: str,
+        *,
+        top_n: int,
+        preset_filter: str | None = None,
+        source_gate_run_id: str | None = None,
+        strategy_filters: list[str] | None = None,
+    ) -> list[dict[str, Any]]:
+        if top_n <= 0:
+            return []
+        if not self.memory_experiment_key:
+            return []
+        query_embedding = self._query_embedding(query_text)
+        strategy_values = [str(item).upper() for item in (strategy_filters or []) if str(item).strip()]
+        candidate_pool_k = top_n if self.config.mode == RETRIEVAL_MODE_DENSE_ONLY else max(top_n, self.config.candidate_pool_k)
+        rows = self._fetch_memory_ann_pool(
+            query_embedding,
+            limit=candidate_pool_k,
+            preset_filter=preset_filter,
+            source_gate_run_id=source_gate_run_id,
+            strategy_filters=strategy_values,
+        )
+        if not rows:
+            return []
+        ranked = rank_with_precomputed_embeddings(
+            query_text,
+            item_ids=[row["memory_id"] for row in rows],
+            texts=[row["query_text"] for row in rows],
+            passage_embeddings=[row["embedding"] for row in rows],
+            query_embedding=query_embedding,
+            retriever_config=self.config,
+            top_k=max(top_n, len(rows)),
+        )
+        scored: list[dict[str, Any]] = []
+        for item in ranked[:top_n]:
+            row = rows[item.index]
+            scored.append(
+                {
+                    "memory_id": row["memory_id"],
+                    "query_text": row["query_text"],
+                    "target_doc_id": row["target_doc_id"],
+                    "target_chunk_ids": row["target_chunk_ids"],
+                    "generation_strategy": row["generation_strategy"],
+                    "product": row["product"],
+                    "glossary_terms": row["glossary_terms"],
+                    "similarity": item.score,
+                    "dense_similarity": item.dense_score,
+                    "bm25_score": item.bm25_score,
+                    "technical_token_overlap": item.technical_score,
+                    "retriever": self.retriever_name,
+                }
+            )
+        return scored
+
+    def _query_embedding(self, query_text: str) -> list[float]:
+        cached = self._query_embedding_cache.get(query_text)
+        if cached is not None:
+            return cached
+        embedding, model_name, fallback_used = embed_query_with_retriever_config(
+            query_text,
+            retriever_config=self.config,
+            require_real_dense=True,
+        )
+        if fallback_used:
+            raise RuntimeError("db-ann retrieval backend must not fall back to hash-embedding-v1")
+        if str(model_name).strip() != self.embedding_model:
+            raise RuntimeError(
+                f"query embedding model mismatch: expected={self.embedding_model}, actual={model_name}"
+            )
+        self._query_embedding_cache[query_text] = embedding
+        return embedding
+
+    def _fetch_chunk_ann_pool(self, query_embedding: list[float], *, limit: int) -> list[dict[str, Any]]:
+        where_clauses = ["ce.embedding_model = %s"]
+        parameters: list[Any] = [self.embedding_model]
+        normalized_products = [
+            _normalize_product_scope_key(item)
+            for item in self.allowed_products
+            if str(item).strip()
+        ]
+        if normalized_products and self.include_document_ids:
+            where_clauses.append(
+                "(LOWER(COALESCE(d.product_name, '')) = ANY(%s) OR c.document_id = ANY(%s))"
+            )
+            parameters.extend([normalized_products, self.include_document_ids])
+        elif self.include_document_ids:
+            where_clauses.append("c.document_id = ANY(%s)")
+            parameters.append(self.include_document_ids)
+        elif normalized_products:
+            where_clauses.append("LOWER(COALESCE(d.product_name, '')) = ANY(%s)")
+            parameters.append(normalized_products)
+        embedding_literal = embedding_to_halfvec_literal(query_embedding)
+        sql_parameters = [embedding_literal, *parameters, embedding_literal, max(1, int(limit))]
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                f"""
+                SELECT c.chunk_id,
+                       c.document_id,
+                       c.chunk_text,
+                       ce.embedding::text AS embedding_literal,
+                       1 - (ce.embedding <=> CAST(%s AS halfvec)) AS ann_score
+                FROM chunk_embeddings ce
+                JOIN corpus_chunks c ON c.chunk_id = ce.chunk_id
+                JOIN corpus_documents d ON d.document_id = c.document_id
+                WHERE {' AND '.join(where_clauses)}
+                ORDER BY ce.embedding <=> CAST(%s AS halfvec)
+                LIMIT %s
+                """,
+                sql_parameters,
+            )
+            rows = cursor.fetchall()
+        return [
+            {
+                "chunk_id": str(row["chunk_id"]),
+                "document_id": str(row["document_id"]),
+                "chunk_text": str(row["chunk_text"] or ""),
+                "embedding": _parse_halfvec_literal(str(row["embedding_literal"] or "")),
+                "ann_score": float(row["ann_score"] or 0.0),
+            }
+            for row in rows
+        ]
+
+    def _fetch_memory_ann_pool(
+        self,
+        query_embedding: list[float],
+        *,
+        limit: int,
+        preset_filter: str | None,
+        source_gate_run_id: str | None,
+        strategy_filters: list[str],
+    ) -> list[dict[str, Any]]:
+        where_clauses = [
+            "m.query_embedding IS NOT NULL",
+            "m.metadata ->> 'memory_experiment_key' = %s",
+            "m.metadata ->> 'embedding_model' = %s",
+        ]
+        parameters: list[Any] = [self.memory_experiment_key, self.embedding_model]
+        normalized_preset = str(preset_filter).strip() if preset_filter else None
+        if normalized_preset:
+            where_clauses.append(
+                "COALESCE(NULLIF(m.metadata ->> 'gating_preset', ''), g.gating_preset, 'full_gating') = %s"
+            )
+            parameters.append(normalized_preset)
+        normalized_source_run_id = str(source_gate_run_id).strip() if source_gate_run_id else None
+        if normalized_source_run_id:
+            where_clauses.append("m.metadata ->> 'source_gate_run_id' = %s")
+            parameters.append(normalized_source_run_id)
+        if strategy_filters:
+            where_clauses.append("UPPER(m.generation_strategy) = ANY(%s)")
+            parameters.append(strategy_filters)
+        embedding_literal = embedding_to_halfvec_literal(query_embedding)
+        parameters.extend([embedding_literal, max(1, int(limit))])
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                f"""
+                SELECT m.memory_id,
+                       m.query_text,
+                       m.target_doc_id,
+                       m.target_chunk_ids,
+                       m.generation_strategy,
+                       m.product,
+                       m.glossary_terms,
+                       m.query_embedding::text AS embedding_literal,
+                       1 - (m.query_embedding <=> CAST(%s AS halfvec)) AS ann_score
+                FROM memory_entries m
+                LEFT JOIN synthetic_queries_gated g ON g.gated_query_id = m.source_gated_query_id
+                WHERE {' AND '.join(where_clauses)}
+                ORDER BY m.query_embedding <=> CAST(%s AS halfvec)
+                LIMIT %s
+                """,
+                [embedding_literal, *parameters],
+            )
+            rows = cursor.fetchall()
+        return [
+            {
+                "memory_id": str(row["memory_id"]),
+                "query_text": str(row["query_text"] or ""),
+                "target_doc_id": str(row["target_doc_id"] or ""),
+                "target_chunk_ids": list(row["target_chunk_ids"] or []),
+                "generation_strategy": str(row["generation_strategy"] or ""),
+                "product": str(row["product"]) if row["product"] else None,
+                "glossary_terms": [str(item) for item in (row["glossary_terms"] or []) if str(item).strip()],
+                "embedding": _parse_halfvec_literal(str(row["embedding_literal"] or "")),
+                "ann_score": float(row["ann_score"] or 0.0),
+            }
+            for row in rows
+        ]
 
 
 _REWRITE_CLIENT: LlmClient | None = None
@@ -827,7 +1129,10 @@ def retrieve_top_k(
     *,
     top_k: int,
     retriever_config: RetrieverConfig | None = None,
+    retrieval_adapter: DbAnnRuntimeRetrievalAdapter | None = None,
 ) -> list[RetrievalCandidate]:
+    if retrieval_adapter is not None:
+        return retrieval_adapter.retrieve_top_k(query_text, top_k=top_k)
     if not chunks:
         return []
     config = retriever_config or build_retriever_config({})
@@ -880,6 +1185,42 @@ def local_retriever_label(retriever_config: RetrieverConfig | None = None) -> st
     return local_retriever_name(retriever_config or build_retriever_config({}))
 
 
+def runtime_retriever_label(
+    *,
+    retriever_config: RetrieverConfig | None = None,
+    retrieval_adapter: DbAnnRuntimeRetrievalAdapter | None = None,
+) -> str:
+    if retrieval_adapter is not None:
+        return retrieval_adapter.retriever_name
+    return local_retriever_label(retriever_config)
+
+
+def runtime_retriever_metadata(
+    *,
+    retriever_config: RetrieverConfig | None = None,
+    retrieval_adapter: DbAnnRuntimeRetrievalAdapter | None = None,
+) -> dict[str, Any]:
+    if retrieval_adapter is not None:
+        return retrieval_adapter.metadata()
+    config = retriever_config or build_retriever_config({})
+    retriever_name = local_retriever_label(config)
+    fallback_used = config.requires_dense and "hash-embedding-v1" in retriever_name
+    return {
+        "retrieval_backend": RETRIEVAL_BACKEND_LOCAL,
+        "embedding_model": (
+            "hash-embedding-v1"
+            if fallback_used
+            else str(config.dense_embedding_model).strip()
+            if config.mode in {RETRIEVAL_MODE_DENSE_ONLY, RETRIEVAL_MODE_HYBRID}
+            else None
+        ),
+        "vector_store": None,
+        "fallback_used": fallback_used,
+        "retriever_name": retriever_name,
+        "retriever_config": config.to_metadata(),
+    }
+
+
 def rerank_retrieval_candidates(
     query_text: str,
     candidates: list[RetrievalCandidate],
@@ -927,7 +1268,16 @@ def memory_top_n(
     source_gate_run_id: str | None = None,
     strategy_filters: list[str] | None = None,
     retriever_config: RetrieverConfig | None = None,
+    retrieval_adapter: DbAnnRuntimeRetrievalAdapter | None = None,
 ) -> list[dict[str, Any]]:
+    if retrieval_adapter is not None:
+        return retrieval_adapter.memory_top_n(
+            query_text,
+            top_n=top_n,
+            preset_filter=preset_filter,
+            source_gate_run_id=source_gate_run_id,
+            strategy_filters=strategy_filters,
+        )
     strategy_set = {item.upper() for item in strategy_filters or [] if str(item).strip()}
     config = retriever_config or build_retriever_config({})
     eligible, retriever = _get_memory_eligible_and_retriever(
@@ -1638,6 +1988,7 @@ def run_selective_rewrite(
     rewrite_failure_policy: str | None = None,
     rewrite_adoption_policy: dict[str, Any] | None = None,
     retriever_config: RetrieverConfig | None = None,
+    retrieval_adapter: DbAnnRuntimeRetrievalAdapter | None = None,
 ) -> tuple[RewriteOutcome, list[RetrievalCandidate]]:
     # Staged selective-rewrite scoring:
     # 1) retrieval gain (confidence + shift)
@@ -1659,8 +2010,15 @@ def run_selective_rewrite(
         source_gate_run_id=source_gate_run_id,
         strategy_filters=strategy_filters,
         retriever_config=config,
+        retrieval_adapter=retrieval_adapter,
     )
-    raw_retrieval = retrieve_top_k(raw_query, chunks, top_k=retrieval_top_k, retriever_config=config)
+    raw_retrieval = retrieve_top_k(
+        raw_query,
+        chunks,
+        top_k=retrieval_top_k,
+        retriever_config=config,
+        retrieval_adapter=retrieval_adapter,
+    )
     raw_memory_affinity = memory_items[0]["similarity"] if memory_items else 0.0
     raw_confidence_base = confidence_score(raw_retrieval, raw_memory_affinity)
 
@@ -1740,7 +2098,13 @@ def run_selective_rewrite(
     best_candidate: dict[str, Any] | None = None
     best_eligible_candidate: dict[str, Any] | None = None
     for template in candidate_templates:
-        retrieved = retrieve_top_k(template["query"], chunks, top_k=retrieval_top_k, retriever_config=config)
+        retrieved = retrieve_top_k(
+            template["query"],
+            chunks,
+            top_k=retrieval_top_k,
+            retriever_config=config,
+            retrieval_adapter=retrieval_adapter,
+        )
         candidate_memory_items = memory_top_n(
             template["query"],
             memories,
@@ -1749,6 +2113,7 @@ def run_selective_rewrite(
             source_gate_run_id=source_gate_run_id,
             strategy_filters=strategy_filters,
             retriever_config=config,
+            retrieval_adapter=retrieval_adapter,
         )
         candidate_memory_affinity = (
             candidate_memory_items[0]["similarity"]

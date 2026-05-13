@@ -10,16 +10,22 @@ import psycopg
 from psycopg.types.json import Jsonb
 
 try:
-    from common.embeddings import embed_text, embedding_to_halfvec_literal
+    from common.embeddings import embedding_to_halfvec_literal
     from common.experiment_config import load_experiment_config
     from common.experiment_run import ExperimentRunRecorder
-    from common.local_retriever import build_retriever_config, get_local_text_retriever
+    from common.local_retriever import (
+        build_retriever_config,
+        embed_query_with_retriever_config,
+    )
     from loaders.common import connect, default_database_args
 except ModuleNotFoundError:  # pragma: no cover - direct module execution fallback
-    from pipeline.common.embeddings import embed_text, embedding_to_halfvec_literal
+    from pipeline.common.embeddings import embedding_to_halfvec_literal
     from pipeline.common.experiment_config import load_experiment_config
     from pipeline.common.experiment_run import ExperimentRunRecorder
-    from pipeline.common.local_retriever import build_retriever_config, get_local_text_retriever
+    from pipeline.common.local_retriever import (
+        build_retriever_config,
+        embed_query_with_retriever_config,
+    )
     from pipeline.loaders.common import connect, default_database_args
 
 
@@ -573,41 +579,23 @@ def _upsert_query_embedding(
         )
 
 
-def _embed_memory_query(text: str, *, retriever_config: Any) -> tuple[list[float], str]:
-    retriever = get_local_text_retriever(
-        namespace="memory-build-embedding",
-        item_ids=["memory-build"],
-        texts=[text],
+def _embed_memory_query(
+    text: str,
+    *,
+    retriever_config: Any,
+    require_real_dense: bool,
+) -> tuple[list[float], str, bool]:
+    embedding, embedding_model, fallback_used = embed_query_with_retriever_config(
+        text,
         retriever_config=retriever_config,
-    )
-    dense_passages = retriever._dense_passages  # noqa: SLF001 - internal cache reuse for single-vector extraction
-    if dense_passages is None:
-        raw_embedding = embed_text(text, dim=TARGET_EMBEDDING_DIMENSION)
-    else:
-        try:
-            passage_count = len(dense_passages)
-        except TypeError:
-            passage_count = 0
-        raw_embedding = (
-            dense_passages[0]
-            if passage_count > 0
-            else embed_text(text, dim=TARGET_EMBEDDING_DIMENSION)
-        )
-    if hasattr(raw_embedding, "tolist"):
-        embedding = [float(value) for value in raw_embedding.tolist()]
-    else:
-        embedding = [float(value) for value in raw_embedding]
-    embedding_model = (
-        retriever_config.dense_embedding_model
-        if str(retriever.dense_backend_name).startswith("sentence-transformers:")
-        else "hash-embedding-v1"
+        require_real_dense=require_real_dense,
     )
     if len(embedding) != TARGET_EMBEDDING_DIMENSION:
         if len(embedding) > TARGET_EMBEDDING_DIMENSION:
             embedding = embedding[:TARGET_EMBEDDING_DIMENSION]
         else:
             embedding = embedding + ([0.0] * (TARGET_EMBEDDING_DIMENSION - len(embedding)))
-    return embedding, embedding_model
+    return embedding, embedding_model, fallback_used
 
 
 def run_memory_build(
@@ -685,6 +673,9 @@ def run_memory_build(
         configured_gating_run_id = str(config.raw.get("source_gating_run_id") or "").strip() or None
         retriever_config = build_retriever_config(config.raw)
         summary_embedding_model = retriever_config.dense_embedding_model
+        retrieval_backend = str(config.raw.get("retrieval_backend") or "local").strip().lower().replace("-", "_")
+        require_real_dense = retrieval_backend == "db_ann"
+        memory_embedding_fallback_used = False
         stage_cutoff_enabled = bool(config.raw.get("stage_cutoff_enabled", False))
         stage_cutoff_level = _normalize_stage_cutoff_level(str(config.raw.get("stage_cutoff_level") or config.gating_preset))
         stage_cutoff_source_batch_id = str(
@@ -779,10 +770,14 @@ def run_memory_build(
             total_deleted_rows += deleted_rows
             for row in rows:
                 memory_id = str(uuid.uuid4())
-                embedding, embedding_model = _embed_memory_query(
+                embedding, embedding_model, fallback_used = _embed_memory_query(
                     row.query_text,
                     retriever_config=retriever_config,
+                    require_real_dense=require_real_dense,
                 )
+                memory_embedding_fallback_used = memory_embedding_fallback_used or fallback_used
+                if require_real_dense and fallback_used:
+                    raise RuntimeError("db-ann memory build must not fall back to hash-embedding-v1")
                 summary_embedding_model = embedding_model
                 embedding_literal = embedding_to_halfvec_literal(embedding)
                 with connection.cursor() as cursor:
@@ -854,6 +849,9 @@ def run_memory_build(
                                     "stage_cutoff_source_gating_batch_id": source_batch_id if stage_cutoff_enabled else None,
                                     "memory_build_run_id": run_context.experiment_run_id,
                                     "memory_experiment_key": config.experiment_key,
+                                    "embedding_model": embedding_model,
+                                    "retrieval_backend": retrieval_backend,
+                                    "fallback_used": fallback_used,
                                 }
                             ),
                         ),
@@ -899,6 +897,9 @@ def run_memory_build(
             "memory_experiment_key": config.experiment_key,
             "preview_memory_ids": inserted_memory_ids,
             "embedding_model": summary_embedding_model,
+            "retrieval_backend": retrieval_backend,
+            "vector_store": "postgresql-pgvector" if retrieval_backend == "db_ann" else None,
+            "fallback_used": memory_embedding_fallback_used,
             "stage_cutoff_enabled": stage_cutoff_enabled,
             "stage_cutoff_level": stage_cutoff_level if stage_cutoff_enabled else None,
             "stage_cutoff_source_gating_batch_id": stage_cutoff_source_batch_id if stage_cutoff_enabled else None,

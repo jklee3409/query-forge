@@ -21,15 +21,18 @@ try:
     from common.text_utils import copy_ratio, extract_extractive_summary
     from loaders.common import connect, default_database_args
     from eval.runtime import (
+        DbAnnRuntimeRetrievalAdapter,
         RewriteOutcome,
         derive_eval_corpus_scope,
         load_chunk_items,
         load_eval_samples,
         load_memory_items,
-        local_retriever_label,
+        normalize_retrieval_backend,
         rerank_retrieval_candidates,
         retrieve_top_k,
         run_selective_rewrite,
+        runtime_retriever_label,
+        runtime_retriever_metadata,
     )
 except ModuleNotFoundError:  # pragma: no cover
     from pipeline.common.experiment_config import load_experiment_config
@@ -37,15 +40,18 @@ except ModuleNotFoundError:  # pragma: no cover
     from pipeline.common.text_utils import copy_ratio, extract_extractive_summary
     from pipeline.loaders.common import connect, default_database_args
     from pipeline.eval.runtime import (
+        DbAnnRuntimeRetrievalAdapter,
         RewriteOutcome,
         derive_eval_corpus_scope,
         load_chunk_items,
         load_eval_samples,
         load_memory_items,
-        local_retriever_label,
+        normalize_retrieval_backend,
         rerank_retrieval_candidates,
         retrieve_top_k,
         run_selective_rewrite,
+        runtime_retriever_label,
+        runtime_retriever_metadata,
     )
 
 
@@ -181,6 +187,7 @@ def _evaluate_answer_sample(
     gating_applied: bool,
     source_gating_run_id: str | None,
     memory_strategy_filters: list[str],
+    retrieval_adapter: DbAnnRuntimeRetrievalAdapter | None,
 ) -> dict[str, Any]:
     # query_eval_total_latency_ms:
     #   measured from per-sample evaluation entry through answer text/metric/sample-row
@@ -208,6 +215,7 @@ def _evaluate_answer_sample(
             rewrite_failure_policy=str(config.raw.get("rewrite_failure_policy") or "fail_run"),
             rewrite_adoption_policy=config.rewrite_adoption_policy,
             retriever_config=config.retriever_config,
+            retrieval_adapter=retrieval_adapter,
         )
     else:
         retrieval = retrieve_top_k(
@@ -215,6 +223,7 @@ def _evaluate_answer_sample(
             chunks,
             top_k=config.retrieval_top_k,
             retriever_config=config.retriever_config,
+            retrieval_adapter=retrieval_adapter,
         )
         rewrite_outcome = RewriteOutcome(
             final_query=sample.query_text,
@@ -334,6 +343,7 @@ def run_answer_eval(
             parameters={
                 "stage": "eval-answer",
                 "retriever_config": config.retriever_config.to_metadata(),
+                "retrieval_backend": normalize_retrieval_backend(str(config.raw.get("retrieval_backend") or "")),
             },
             run_label="eval-answer",
         )
@@ -356,6 +366,7 @@ def run_answer_eval(
             selective_rewrite = False
             gating_applied = False
         eval_concurrency = _resolve_eval_concurrency(config.raw)
+        retrieval_backend = normalize_retrieval_backend(str(config.raw.get("retrieval_backend") or "local"))
         eval_query_language = str(config.raw.get("eval_query_language") or "ko").strip().lower()
         samples = load_eval_samples(connection, dataset_id=dataset_id, query_language=eval_query_language)
         LOGGER.info(
@@ -382,11 +393,22 @@ def run_answer_eval(
                 "answer_eval_dataset_scope_empty dataset_id=%s; falling back to full corpus",
                 dataset_id,
             )
-        chunks = load_chunk_items(
-            connection,
-            allowed_products=allowed_products if dataset_id else None,
-            include_document_ids=expected_doc_ids if dataset_id else None,
-        )
+        retrieval_adapter: DbAnnRuntimeRetrievalAdapter | None = None
+        if retrieval_backend == "db_ann":
+            retrieval_adapter = DbAnnRuntimeRetrievalAdapter(
+                connection,
+                allowed_products=sorted(allowed_products) if dataset_id else None,
+                include_document_ids=sorted(expected_doc_ids) if dataset_id else None,
+                memory_experiment_key=config.experiment_key,
+                retriever_config=config.retriever_config,
+            )
+            chunks = []
+        else:
+            chunks = load_chunk_items(
+                connection,
+                allowed_products=allowed_products if dataset_id else None,
+                include_document_ids=expected_doc_ids if dataset_id else None,
+            )
         if dataset_id:
             LOGGER.info(
                 "answer_eval_dataset_scope dataset_id=%s source_products=%s product_filters=%s expected_doc_ids=%s loaded_chunks=%s",
@@ -396,10 +418,12 @@ def run_answer_eval(
                 len(expected_doc_ids),
                 len(chunks),
             )
-        memories = (
-            load_memory_items(connection, memory_experiment_key=config.experiment_key)
-            if rewrite_enabled
-            else []
+        memories = []
+        if rewrite_enabled and retrieval_backend != "db_ann":
+            memories = load_memory_items(connection, memory_experiment_key=config.experiment_key)
+        retriever_metadata = runtime_retriever_metadata(
+            retriever_config=config.retriever_config,
+            retrieval_adapter=retrieval_adapter,
         )
 
         sample_rows: list[dict[str, Any]] = []
@@ -427,6 +451,7 @@ def run_answer_eval(
                         gating_applied=gating_applied,
                         source_gating_run_id=source_gating_run_id,
                         memory_strategy_filters=memory_strategy_filters,
+                        retrieval_adapter=retrieval_adapter,
                     )
                 )
         else:
@@ -443,6 +468,7 @@ def run_answer_eval(
                         gating_applied=gating_applied,
                         source_gating_run_id=source_gating_run_id,
                         memory_strategy_filters=memory_strategy_filters,
+                        retrieval_adapter=retrieval_adapter,
                     )
                     for sample in samples
                 ]
@@ -493,7 +519,7 @@ def run_answer_eval(
                             rank,
                             None,
                             None,
-                            f"cohere-or-{local_retriever_label(config.retriever_config)}",
+                            f"cohere-or-{runtime_retriever_label(retriever_config=config.retriever_config, retrieval_adapter=retrieval_adapter)}",
                             item.score,
                             Jsonb(
                                 {
@@ -501,7 +527,7 @@ def run_answer_eval(
                                     "final_query": final_query,
                                     "retrieved_document_id": item.document_id,
                                     "retrieved_chunk_id": item.chunk_id,
-                                    "retriever_config": config.retriever_config.to_metadata(),
+                                    **retriever_metadata,
                                 }
                             ),
                         ),
@@ -545,9 +571,8 @@ def run_answer_eval(
             "rewrite_enabled": rewrite_enabled,
             "selective_rewrite": selective_rewrite,
             "memory_experiment_key": config.experiment_key if rewrite_enabled else None,
-            "memory_entry_count_loaded": len(memories),
-            "retriever_config": config.retriever_config.to_metadata(),
-            "retriever_name": local_retriever_label(config.retriever_config),
+            "memory_entry_count_loaded": None if retrieval_backend == "db_ann" else len(memories),
+            **retriever_metadata,
             "rewrite_llm_attempted_count": int(rewrite_generation_stats["rewrite_llm_attempted_count"]),
             "rewrite_llm_success_count": int(rewrite_generation_stats["rewrite_llm_success_count"]),
             "rewrite_llm_failure_count": int(rewrite_generation_stats["rewrite_llm_failure_count"]),

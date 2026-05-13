@@ -1089,6 +1089,8 @@ export function RagPage({ notify }) {
     defaultLlmModel: '',
     denseEmbeddingModels: [],
     defaultDenseEmbeddingModel: '',
+    retrievalBackends: [],
+    defaultRetrievalBackend: 'local',
     retrieverModes: [],
     rewriteFailurePolicies: [],
   })
@@ -1098,6 +1100,9 @@ export function RagPage({ notify }) {
   const [compareRunIds, setCompareRunIds] = useState([])
   const [activeCompareMetricKey, setActiveCompareMetricKey] = useState('')
   const [deletingRunId, setDeletingRunId] = useState('')
+  const [chunkEmbeddingStatus, setChunkEmbeddingStatus] = useState(null)
+  const [chunkEmbeddingStatusLoading, setChunkEmbeddingStatusLoading] = useState(false)
+  const [chunkEmbeddingMaterializing, setChunkEmbeddingMaterializing] = useState(false)
 
   const [form, setForm] = useState({
     datasetId: '',
@@ -1114,6 +1119,7 @@ export function RagPage({ notify }) {
     threshold: '0.14',
     retrievalTopK: '10',
     rerankTopN: '5',
+    retrievalBackend: 'local',
     ...retrieverPresetForMode('bm25_only', ''),
     syntheticFreeBaseline: false,
     gatingApplied: true,
@@ -1142,6 +1148,9 @@ export function RagPage({ notify }) {
     const denseEmbeddingModels = Array.isArray(payload.denseEmbeddingModels)
       ? payload.denseEmbeddingModels.filter(Boolean)
       : []
+    const retrievalBackends = Array.isArray(payload.retrievalBackends)
+      ? payload.retrievalBackends.filter(Boolean)
+      : []
     const retrieverModes = Array.isArray(payload.retrieverModes)
       ? payload.retrieverModes.filter(Boolean)
       : []
@@ -1150,6 +1159,7 @@ export function RagPage({ notify }) {
       : []
     const defaultLlmModel = payload.defaultLlmModel || llmModels[0] || ''
     const defaultDenseEmbeddingModel = payload.defaultDenseEmbeddingModel || denseEmbeddingModels[0] || ''
+    const defaultRetrievalBackend = payload.defaultRetrievalBackend || retrievalBackends[0] || 'local'
     const resolvedRetrieverMode = retrieverModes.includes(form.retrieverMode)
       ? form.retrieverMode
       : (retrieverModes[0] || form.retrieverMode || '')
@@ -1158,12 +1168,17 @@ export function RagPage({ notify }) {
       defaultLlmModel,
       denseEmbeddingModels,
       defaultDenseEmbeddingModel,
+      retrievalBackends,
+      defaultRetrievalBackend,
       retrieverModes,
       rewriteFailurePolicies,
     })
     setForm((prev) => ({
       ...prev,
       llmModel: prev.llmModel || defaultLlmModel,
+      retrievalBackend: retrievalBackends.includes(prev.retrievalBackend)
+        ? prev.retrievalBackend
+        : defaultRetrievalBackend,
       denseEmbeddingModel: prev.denseEmbeddingModel || defaultDenseEmbeddingModel,
       ...retrieverPresetForMode(
         retrieverModes.includes(prev.retrieverMode) ? prev.retrieverMode : resolvedRetrieverMode,
@@ -1207,7 +1222,9 @@ export function RagPage({ notify }) {
     setLlmJobsLoading(true)
     try {
       const rows = await requestJson('/api/admin/console/llm-jobs?limit=120')
-      const filtered = (Array.isArray(rows) ? rows : []).filter((job) => job.jobType === 'RUN_RAG_TEST' || job.ragTestRunId)
+      const filtered = (Array.isArray(rows) ? rows : []).filter(
+        (job) => job.jobType === 'RUN_RAG_TEST' || job.jobType === 'MATERIALIZE_CHUNK_EMBEDDINGS' || job.ragTestRunId,
+      )
       setLlmJobs(filtered)
       setLlmJobsLoaded(true)
     } finally {
@@ -1215,10 +1232,58 @@ export function RagPage({ notify }) {
     }
   }
 
+  const loadChunkEmbeddingStatus = async (embeddingModel) => {
+    if (!embeddingModel) {
+      setChunkEmbeddingStatus(null)
+      return
+    }
+    setChunkEmbeddingStatusLoading(true)
+    try {
+      const status = await requestJson(`/api/admin/console/rag/chunk-embeddings/status?embedding_model=${encodeURIComponent(embeddingModel)}`)
+      setChunkEmbeddingStatus(status && typeof status === 'object' ? status : null)
+    } finally {
+      setChunkEmbeddingStatusLoading(false)
+    }
+  }
+
+  const materializeChunkEmbeddings = async () => {
+    if (!form.denseEmbeddingModel) {
+      notify('Dense embedding model을 먼저 선택하세요.', 'error')
+      return
+    }
+    setChunkEmbeddingMaterializing(true)
+    try {
+      await requestJson('/api/admin/console/rag/chunk-embeddings/materialize', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          embeddingModel: form.denseEmbeddingModel,
+          createdBy: null,
+        }),
+      })
+      await Promise.all([loadChunkEmbeddingStatus(form.denseEmbeddingModel), loadLlmJobs()])
+      notify('Chunk embedding materialization job을 생성했습니다.')
+    } catch (error) {
+      notify(error.message, 'error')
+    } finally {
+      setChunkEmbeddingMaterializing(false)
+    }
+  }
+
   useEffect(() => {
     Promise.all([loadMethods(), loadDatasets(), loadTests(), loadGatingBatches(), loadRuntimeOptions()])
       .catch((error) => notify(error.message, 'error'))
   }, [])
+
+  useEffect(() => {
+    if (form.retrievalBackend !== 'db_ann') {
+      setChunkEmbeddingStatus(null)
+      setChunkEmbeddingStatusLoading(false)
+      return
+    }
+    if (!form.denseEmbeddingModel) return
+    loadChunkEmbeddingStatus(form.denseEmbeddingModel).catch((error) => notify(error.message, 'error'))
+  }, [form.retrievalBackend, form.denseEmbeddingModel])
 
   useEffect(() => {
     if (!form.datasetId) return
@@ -1395,6 +1460,7 @@ export function RagPage({ notify }) {
   const runRag = async (event) => {
     event.preventDefault()
     const syntheticFreeBaseline = Boolean(form.syntheticFreeBaseline)
+    const usingDbAnn = form.retrievalBackend === 'db_ann'
     if (!syntheticFreeBaseline && methodCodesForRun.length === 0) {
       notify('최소 1개 생성 방식을 선택해야 합니다.', 'error')
       return
@@ -1405,6 +1471,18 @@ export function RagPage({ notify }) {
     }
     if (!form.denseEmbeddingModel) {
       notify('Dense embedding 모델을 선택하세요.', 'error')
+      return
+    }
+    if (usingDbAnn && form.retrieverMode === 'bm25_only') {
+      notify('db-ann backend는 dense_only 또는 hybrid mode가 필요합니다.', 'error')
+      return
+    }
+    if (usingDbAnn && chunkEmbeddingStatusLoading) {
+      notify('Chunk embedding 상태를 확인하는 중입니다. 잠시 후 다시 시도하세요.', 'error')
+      return
+    }
+    if (usingDbAnn && (!chunkEmbeddingStatus || !chunkEmbeddingStatus.ready)) {
+      notify('db-ann 실행 전 chunk embedding materialization이 필요합니다.', 'error')
       return
     }
     const officialRun = !syntheticFreeBaseline && form.runDiscipline === 'official'
@@ -1524,6 +1602,7 @@ export function RagPage({ notify }) {
           rewriteFailurePolicy: form.rewriteFailurePolicy || 'fail_run',
           llmModel: form.llmModel || runtimeOptions.defaultLlmModel || null,
           threshold: toNumber(form.threshold),
+          retrievalBackend: form.retrievalBackend,
           retrievalTopK: toNumber(form.retrievalTopK),
           rerankTopN: toNumber(form.rerankTopN),
           retrieverConfig: {
@@ -2111,6 +2190,19 @@ export function RagPage({ notify }) {
           </div>
 
           <div className="form-grid form-grid--3">
+            <label className="filter-field filter-field--small">Retrieval Backend
+              <select
+                value={form.retrievalBackend}
+                onChange={(event) => setForm((prev) => ({ ...prev, retrievalBackend: event.target.value }))}
+              >
+                {(runtimeOptions.retrievalBackends.length > 0 ? runtimeOptions.retrievalBackends : [form.retrievalBackend])
+                  .filter(Boolean)
+                  .map((backend) => (
+                    <option key={backend} value={backend}>{backend}</option>
+                  ))}
+              </select>
+              <span className="field-hint">local / db-ann backend 선택</span>
+            </label>
             <label className="filter-field filter-field--small">Retriever Mode
               <select value={form.retrieverMode} onChange={(event) => setForm((prev) => ({
                 ...prev,
@@ -2149,6 +2241,35 @@ export function RagPage({ notify }) {
               <input type="number" min="0" max="1" step="0.01" value={form.retrieverTechnicalWeight} disabled readOnly />
             </label>
           </div>
+
+          {form.retrievalBackend === 'db_ann' && (
+            <div className="state-note">
+              <strong>DB ANN 준비 상태:</strong>{' '}
+              {chunkEmbeddingStatusLoading
+                ? '확인 중'
+                : chunkEmbeddingStatus
+                  ? `${chunkEmbeddingStatus.embeddingModel} / ${chunkEmbeddingStatus.materializedChunkCount} of ${chunkEmbeddingStatus.totalChunkCount} chunks / ${chunkEmbeddingStatus.ready ? 'ready' : 'materialization required'}`
+                  : 'unknown'}
+              <div className="form-actions" style={{ marginTop: 8 }}>
+                <button
+                  type="button"
+                  className="button"
+                  onClick={materializeChunkEmbeddings}
+                  disabled={chunkEmbeddingMaterializing || chunkEmbeddingStatusLoading || (chunkEmbeddingStatus && chunkEmbeddingStatus.ready)}
+                >
+                  {chunkEmbeddingMaterializing ? 'Materializing...' : 'Chunk Embedding Materialize'}
+                </button>
+                <button
+                  type="button"
+                  className="button"
+                  onClick={() => loadChunkEmbeddingStatus(form.denseEmbeddingModel).catch((error) => notify(error.message, 'error'))}
+                  disabled={chunkEmbeddingStatusLoading || !form.denseEmbeddingModel}
+                >
+                  상태 새로고침
+                </button>
+              </div>
+            </div>
+          )}
 
           <div className="checkbox-row">
             <label className={`check-pill ${form.syntheticFreeBaseline ? 'is-active' : ''}`}>

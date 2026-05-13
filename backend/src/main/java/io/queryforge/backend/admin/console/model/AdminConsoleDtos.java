@@ -362,6 +362,7 @@ public final class AdminConsoleDtos {
             String llmModel,
             Integer topK,
             Double threshold,
+            String retrievalBackend,
             Integer retrievalTopK,
             Integer rerankTopN,
             RetrieverConfigRequest retrieverConfig,
@@ -374,14 +375,34 @@ public final class AdminConsoleDtos {
             String defaultLlmModel,
             List<String> denseEmbeddingModels,
             String defaultDenseEmbeddingModel,
+            List<String> retrievalBackends,
+            String defaultRetrievalBackend,
             List<String> retrieverModes,
             List<String> rewriteFailurePolicies,
             List<RuntimeOption> llmProviderOptions,
             List<RuntimeOption> llmModelOptions,
             List<RuntimeOption> denseEmbeddingModelOptions,
+            List<RuntimeOption> retrievalBackendOptions,
             List<RuntimeOption> retrieverModeOptions,
             List<RuntimeOption> rewriteFailurePolicyOptions,
             Map<String, RuntimeParameterRange> defaultParameterRanges
+    ) {
+    }
+
+    public record ChunkEmbeddingMaterializationRequest(
+            String embeddingModel,
+            String createdBy
+    ) {
+    }
+
+    public record ChunkEmbeddingMaterializationStatusResponse(
+            String embeddingModel,
+            String vectorStore,
+            long totalChunkCount,
+            long materializedChunkCount,
+            long missingChunkCount,
+            boolean ready,
+            Instant latestUpdatedAt
     ) {
     }
 
