@@ -3,6 +3,12 @@
 ## Overview
 High-level pipeline progress tracking.
 
+## [2026-05-13] Session Summary (Admin RAG DB-ANN Eval Path + Chunk Embedding Materialization)
+- What was done: Added `memory/materialize_chunk_embeddings.py` and CLI command `materialize-chunk-embeddings` to precompute per-model chunk vectors into `chunk_embeddings` without recollecting documents. Refactored retrieval/answer eval runtime to support `retrieval_backend=db_ann`, reusing one pgvector ANN adapter for raw retrieval, memory lookup, rewrite candidate retrieval, and rewrite candidate memory lookup.
+- Key decisions: Preserved A/B/C/D/E/F/G split storage and snapshot/source identity filters while keeping online hash embedding behavior separate from admin dense eval. `db-ann` rejects dense fallback and enforces query/chunk embedding model equality.
+- Issues encountered: None during targeted unit-test and py-compile validation.
+- Next steps: Run one real admin `db-ann` evaluation against a materialized model and compare retrieval/rewrite latency against the local full-load path.
+
 ## [2026-05-13] Session Summary (RAG Latency Measurement Redesign for Answer Eval)
 - What was done: Added per-sample latency measurement for `query_eval_total_latency_ms`, `final_rewrite_latency_ms`, and `pure_rewrite_latency_ms` across `eval/runtime.py` and `eval/answer_eval.py`, then aggregated them into run-level averages with `eval_sample_count`, `rewrite_sample_count`, `pure_rewrite_sample_count`, and `excluded_sample_count`. Extended answer-eval CSV coverage to tolerate and verify the new fields.
 - Key decisions: `avg_final_rewrite_latency_ms` is averaged only over samples where rewrite was actually applied/finalized; `avg_pure_rewrite_latency_ms` is averaged only over samples where the rewrite LLM call actually happened; legacy runs are not backfilled from retrieval latency summaries or rewrite-overhead deltas.

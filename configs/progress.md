@@ -3,6 +3,12 @@
 ## Overview
 High-level progress tracking for the project.
 
+## [2026-05-13] Session Summary (Model Catalog Retrieval Backend Allowlist)
+- What was done: Extended `configs/app/model_catalog.yml` with `retrieval_backends` entries for `local` and `db_ann` so Admin runtime option selection can be allowlist-driven for retrieval backend as well as model/mode/policy.
+- Key decisions: Left default backend as `local` to avoid implicit `db-ann` selection before chunk embeddings are materialized.
+- Issues encountered: None.
+- Next steps: If environment-specific policy is needed later, use the same catalog metadata fields (`status`, `availability`, `reason`) to gate `db_ann`.
+
 ## [2026-05-12] Session Summary (Selective Rewrite Prompt Guard Rollback)
 - What was done: Rolled back the extra intent-locked query-expansion wording in `prompts/rewrite/selective_rewrite_v2.md` to the previous rewrite-candidate style while preserving the same prompt id/schema and terminology-hint inputs.
 - Key decisions: Kept basic intent preservation and technical-token preservation, but removed the stricter "raw target only/minimal expansion/topic-shift prohibition" wording that over-constrained short Korean query rewrites.

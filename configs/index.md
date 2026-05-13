@@ -9,7 +9,7 @@
 - `README.md`: 설정 디렉토리 사용 가이드
 - `app/application.yml`, `app/application-docker.yml`: 애플리케이션 공통 및 Docker 프로파일 설정
 - `app/chunking.yml`: 문서 청킹 파라미터
-- `app/model_catalog.yml`: Admin runtime options/model allowlist 카탈로그 (`llm_providers`, `llm_models`, `dense_embedding_models`, `retriever_modes`, `rewrite_failure_policies`, `default_parameter_ranges`)
+- `app/model_catalog.yml`: Admin runtime options/model allowlist 카탈로그 (`llm_providers`, `llm_models`, `dense_embedding_models`, `retrieval_backends`, `retriever_modes`, `rewrite_failure_policies`, `default_parameter_ranges`)
 - `app/sources/*.yaml`: 수집 대상 소스 정의(Spring Boot/Data/Framework/Security)
 - `experiments/*.yaml`: generation/gating/eval 실험 프리셋(`gen_*`, `e2e_*`, `rule_*`, `rewrite_*` 등)
 - `prompts/query_generation/gen_[a-g]_v1.md`: 전략별 합성 질의 프롬프트

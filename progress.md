@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-05-13] Session Summary (Admin RAG DB-ANN Evaluation Path)
+- What was done: Added end-to-end admin-side `db-ann` RAG evaluation support without document recollection by introducing model-specific chunk-vector materialization, pgvector ANN evaluation runtime, backend preflight/materialization APIs, and frontend readiness controls for `/admin/rag-tests`.
+- Key decisions: Kept strategy-separated synthetic storage and snapshot/source identity rules intact, and explicitly isolated online hash retrieval from admin dense-eval retrieval so `hash-embedding-v1` and `multilingual-e5-small` are not mixed.
+- Issues encountered: Validation was intentionally limited to targeted Python unit tests and backend Java compilation; no full pipeline/evaluation run was executed.
+- Next steps: Run one real `db-ann` admin evaluation in an environment with the selected dense model available and compare retrieval/rewrite latency against the local backend.
+
 ## [2026-05-12] Session Summary (Short-User Memory-Target Guard for Generic Rewrite Rejection)
 - What was done: Added a second rewrite-runtime patch that extracts lightweight target tokens from the top memory query/glossary, penalizes and rejects short-user rewrites that stay generic under strong memory evidence, and rewards candidates that recover the missing target anchor.
 - Key decisions: Preserved the low-cost direction from 1차 patch by keeping the change entirely in pipeline runtime/policy and avoiding prompt churn, new retriever modes, or added database work.

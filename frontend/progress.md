@@ -3,6 +3,12 @@
 ## Overview
 High-level progress tracking for the project.
 
+## [2026-05-13] Session Summary (RAG UI DB-ANN Backend + Materialization Readiness)
+- What was done: Extended `/admin/rag-tests` to consume backend-provided `retrievalBackends`, added `local/db-ann` backend selection, surfaced chunk-embedding readiness via `/api/admin/console/rag/chunk-embeddings/status`, and added a materialization trigger that enqueues the backend `materialize-chunk-embeddings` job. LLM job filtering now includes chunk-embedding materialization jobs.
+- Key decisions: Kept the existing RAG form layout and added readiness/materialization as an additive state block that appears only when `db-ann` is selected.
+- Issues encountered: Existing mixed-encoding strings in `RagPage.jsx` limited text-surface cleanup, so the implementation focused on behavior and state wiring.
+- Next steps: Browser-smoke the `db-ann` operator flow and confirm readiness refresh after materialization job completion.
+
 ## [2026-05-13] Session Summary (RAG Performance UI Redesign + Legacy Result Guard)
 - What was done: Reworked `/admin/rag-tests` Performance rendering to use only the new latency metrics (`avg_query_eval_total_latency_ms`, `avg_final_rewrite_latency_ms`, `avg_pure_rewrite_latency_ms`) with ms+seconds formatting and sample-count basis. Removed dependence on old representative/rewrite-overhead latency fields in detail modal, compare overview, and latest summary cards.
 - Key decisions: Legacy runs without the new latency payload render a clear fallback message (`Legacy result (new latency metrics unavailable)`) instead of attempting lossy reconstruction from removed fields.

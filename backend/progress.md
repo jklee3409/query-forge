@@ -3,6 +3,12 @@
 ## Overview
 High-level backend progress tracking.
 
+## [2026-05-13] Session Summary (Admin RAG DB-ANN Backend + Chunk Embedding Materialization)
+- What was done: Added Flyway `V29__add_chunk_embeddings_for_db_ann_eval.sql`, admin chunk-embedding status/materialization APIs, runtime-option support for `retrieval_backend=local|db_ann`, and RAG-run preflight validation that blocks `db-ann` execution until the selected dense model has fully materialized chunk vectors. Added backend job wiring for `materialize-chunk-embeddings`.
+- Key decisions: Kept online `ask` hash retrieval isolated from admin dense evaluation by using `chunk_embeddings` for evaluation chunk ANN and switching online memory lookup to `query_embeddings(hash-embedding-v1)`, leaving `memory_entries.query_embedding` dedicated to dense eval memory ANN.
+- Issues encountered: None during compile-only validation.
+- Next steps: Smoke the new admin endpoints against a running DB with real dense model availability and verify `status -> materialize -> run` operator flow.
+
 ## [2026-05-13] Session Summary (RAG Performance Payload Redesign)
 - What was done: Updated `LlmJobService` RAG finalization so `metrics_json.performance` now exposes only the new latency trio (`avg_query_eval_total_latency_ms`, `avg_final_rewrite_latency_ms`, `avg_pure_rewrite_latency_ms`) and sample counts. Deprecated retrieval-side latency payloads are sanitized out of stored retrieval summaries, and legacy summary response payloads no longer expose removed performance fields.
 - Key decisions: Deprecated acceptance/rejection/confidence-delta summary columns are no longer populated for new RAG summary writes; no fallback recomputation from representative mode or rewrite-overhead math was added.
