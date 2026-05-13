@@ -12,7 +12,7 @@
 - `src/main.jsx`: 앱 부트스트랩
 - `src/App.jsx`: 페이지 조합/라우팅 진입
 - `src/pages/ChatPage.jsx`, `PipelinePage.jsx`, `SyntheticPage.jsx`, `GatingPage.jsx`, `RagPage.jsx`: 관리자 화면 페이지
-- `src/components/Common.jsx`, `LlmJobsTable.jsx`: 공통 UI 컴포넌트
+- `src/components/AdminUi.jsx`, `Common.jsx`, `LlmJobsTable.jsx`: admin card/section/metric/dialog primitives and shared UI components
 - `src/lib/api.js`, `format.js`, `hooks.js`: API 호출/포맷/커스텀 훅 유틸
 - `src/styles.css`: 전역 스타일
 
@@ -34,6 +34,9 @@
 ---
 
 ## Recent Update
+- `/admin/synthetic-queries` now renders generation methods as strategy cards with visual flow chips, prompt/status metadata, and quick query counts. Batch history now uses timeline-style job cards with progress bars, ETA, retry context, client-side search/filter/sort, and a confirm dialog for delete.
+- `/admin/rag-tests` run creation now uses a sectioned Experiment Builder layout: Experiment Overview, Rewrite Strategy, Retrieval Config, collapsed Advanced Options, fusion balance bar, rewrite threshold slider, and a sticky run-summary preview. Existing request payload fields and validation rules are unchanged.
+- Shared admin UI primitives were added in `src/components/AdminUi.jsx` for section headers, metric cards, strategy flows, progress metrics, batch cards, experiment sections, config summaries, balance bars, empty states, and confirm dialogs.
 - `/admin/synthetic-queries` run form now resolves method dropdown from context-aware backend options (`/api/admin/console/synthetic/methods?source_id=...&source_document_id=...`), so Spring sources expose `A~E` and Python KR source exposes `F/G` only.
 - `/admin/rag-tests` 실행 상세 모달은 샘플별 `원본 질의`와 `최종 재작성 합성 질의`를 기본 화면에 우선 노출하고, 나머지 지표/후보/청크 로그는 드롭다운(Disclosure)으로 접어서 확인하는 구조로 재구성되었다.
 - Admin pages now use section-scoped lazy loading for secondary data areas: `/admin/pipeline` Anchors + Anchor Eval history, `/admin/synthetic-queries` LLM jobs, `/admin/quality-gating` LLM jobs, and `/admin/rag-tests` rewrite logs + LLM jobs are fetched on demand instead of at initial mount.

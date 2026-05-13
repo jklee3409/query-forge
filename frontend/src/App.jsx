@@ -7,24 +7,28 @@ import { SyntheticPage } from './pages/SyntheticPage.jsx'
 
 export const ADMIN_PAGE_META = {
   pipeline: {
-    title: '문서 파이프라인 관리',
-    subtitle: '수집부터 청킹, 용어 추출까지 문서 파이프라인 상태를 운영 관점으로 모니터링합니다.',
+    title: 'Pipeline Operations',
+    subtitle: 'Monitor collection, preprocessing, chunking, glossary extraction, and corpus import runs.',
     path: '/admin/pipeline',
+    icon: 'PL',
   },
   synthetic: {
-    title: '합성 질의 생성 관리',
-    subtitle: 'A/B/C/D/E 방식의 생성 배치 이력과 품질 메타데이터를 추적합니다.',
+    title: 'Synthetic Query Studio',
+    subtitle: 'Operate A/B/C/D/E/F/G generation strategies, prompt versions, batch progress, and query inventory.',
     path: '/admin/synthetic-queries',
+    icon: 'SQ',
   },
   gating: {
-    title: 'Quality Gating 운영',
-    subtitle: 'Rule/LLM/Utility/Diversity 단계별 게이트를 프리셋과 파라미터로 제어합니다.',
+    title: 'Quality Gating',
+    subtitle: 'Control rule, LLM, utility, and diversity gates with reproducible runtime parameters.',
     path: '/admin/quality-gating',
+    icon: 'GT',
   },
   rag: {
-    title: 'RAG 품질·성능 테스트',
-    subtitle: '게이팅 스냅샷, 리라이트, 검색 파라미터를 조합해 실험을 반복 비교합니다.',
+    title: 'RAG Evaluation Lab',
+    subtitle: 'Run snapshot-pinned quality and performance experiments for retrieval, rewrite, and answer evaluation.',
     path: '/admin/rag-tests',
+    icon: 'RG',
   },
 }
 
@@ -68,7 +72,9 @@ function App() {
 
   return (
     <Fragment>
-      {deferredPath.startsWith('/admin') ? <AdminApp path={deferredPath} navigate={navigate} notify={notify} /> : <ChatPage navigate={navigate} notify={notify} />}
+      {deferredPath.startsWith('/admin')
+        ? <AdminApp path={deferredPath} navigate={navigate} notify={notify} />
+        : <ChatPage navigate={navigate} notify={notify} />}
       <div className="toast-stack">
         {toasts.map((toast) => (
           <div key={toast.id} className={`toast toast--${toast.tone}`}>
@@ -90,10 +96,10 @@ function AdminApp({ path, navigate, notify }) {
   }, [path])
   const meta = ADMIN_PAGE_META[pageKey]
   const navItems = [
-    { key: 'pipeline', label: 'Pipeline Ops', path: ADMIN_PAGE_META.pipeline.path },
-    { key: 'synthetic', label: 'Synthetic Query', path: ADMIN_PAGE_META.synthetic.path },
-    { key: 'gating', label: 'Quality Gating', path: ADMIN_PAGE_META.gating.path },
-    { key: 'rag', label: 'RAG Eval Lab', path: ADMIN_PAGE_META.rag.path },
+    { key: 'pipeline', label: 'Pipeline Ops', meta: 'Corpus runtime', path: ADMIN_PAGE_META.pipeline.path, icon: ADMIN_PAGE_META.pipeline.icon },
+    { key: 'synthetic', label: 'Synthetic Studio', meta: 'Strategy batches', path: ADMIN_PAGE_META.synthetic.path, icon: ADMIN_PAGE_META.synthetic.icon },
+    { key: 'gating', label: 'Quality Gating', meta: 'Snapshot control', path: ADMIN_PAGE_META.gating.path, icon: ADMIN_PAGE_META.gating.icon },
+    { key: 'rag', label: 'RAG Eval Lab', meta: 'Quality + latency', path: ADMIN_PAGE_META.rag.path, icon: ADMIN_PAGE_META.rag.icon },
   ]
 
   return (
@@ -103,11 +109,11 @@ function AdminApp({ path, navigate, notify }) {
           <div className="admin-sidebar__logo">QF</div>
           <div>
             <div className="admin-sidebar__title">Query Forge Console</div>
-            <div className="admin-sidebar__subtitle">Research Backoffice</div>
+            <div className="admin-sidebar__subtitle">RAG observability backoffice</div>
           </div>
         </div>
-        <div className="admin-sidebar__badge">Production-like Experiment UI</div>
-        <nav className="admin-nav">
+        <div className="admin-sidebar__badge">Snapshot-safe experiment ops</div>
+        <nav className="admin-nav" aria-label="Admin navigation">
           {navItems.map((item) => (
             <button
               key={item.key}
@@ -118,28 +124,39 @@ function AdminApp({ path, navigate, notify }) {
                 navigate(item.path)
               }}
             >
-              {item.label}
+              <span className="admin-nav__icon" aria-hidden="true">{item.icon}</span>
+              <span className="admin-nav__copy">
+                <span>{item.label}</span>
+                <small>{item.meta}</small>
+              </span>
             </button>
           ))}
         </nav>
         <div className="admin-sidebar__section">
-          <div className="admin-sidebar__section-title">Quick Link</div>
-          <button type="button" className="admin-nav__link" onClick={() => navigate('/')}>Chat 화면</button>
+          <div className="admin-sidebar__section-title">Workspace</div>
+          <button type="button" className="admin-nav__link" onClick={() => navigate('/')}>
+            <span className="admin-nav__icon" aria-hidden="true">CH</span>
+            <span className="admin-nav__copy">
+              <span>Chat Surface</span>
+              <small>Operator query UI</small>
+            </span>
+          </button>
         </div>
       </aside>
       <section className="admin-main">
         <header className="admin-topbar">
-          <button type="button" className="admin-topbar__menu" onClick={() => setSidebarOpen((prev) => !prev)}>메뉴</button>
+          <button type="button" className="admin-topbar__menu" onClick={() => setSidebarOpen((prev) => !prev)}>Menu</button>
           <div className="admin-topbar__meta">
             <div className="admin-topbar__title">{meta.title}</div>
             <div className="admin-topbar__subtitle">{meta.subtitle}</div>
           </div>
           <div className="admin-topbar__actions">
-            <button type="button" className="button button--primary" onClick={() => navigate(ADMIN_PAGE_META.rag.path)}>RAG Eval</button>
+            <button type="button" className="button button--primary" onClick={() => navigate(ADMIN_PAGE_META.rag.path)}>Run RAG Eval</button>
           </div>
         </header>
         <main className="admin-content">
           <section className="page-header">
+            <div className="page-header__eyebrow">Admin Console</div>
             <h1 className="page-header__title">{meta.title}</h1>
             <p className="page-header__subtitle">{meta.subtitle}</p>
           </section>

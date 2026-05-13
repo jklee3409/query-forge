@@ -3,6 +3,12 @@
 ## Overview
 High-level progress tracking for the project.
 
+## [2026-05-13] Session Summary (Admin Console UI/UX Modernization)
+- What was done: Added reusable admin UI primitives (`AdminUi.jsx`) and redesigned `/admin/synthetic-queries` with strategy-card flow visualization, modern generation builder controls, metric cards, client-side batch search/filter/sort, timeline-style batch job cards, progress bars, ETA display, and confirm dialog delete UX. Reworked `/admin/rag-tests` run form into a sectioned Experiment Builder with overview, rewrite, retrieval, advanced options, fusion balance bar, threshold slider, and run-summary preview.
+- Key decisions: Kept existing React page/container structure, API calls, request payload fields, strategy semantics, source-scoped method restrictions, snapshot requirements, and RAG validation flow unchanged. No new runtime dependency was added.
+- Issues encountered: `npm run build` passed. `npm run lint` remains blocked by existing `vite.config.js` `process` no-undef plus pre-existing hook dependency warnings.
+- Next steps: Browser-smoke both redesigned admin pages with live method/batch/snapshot data and refine density if operators need more compact cards.
+
 ## [2026-05-13] Session Summary (RAG UI DB-ANN Backend + Materialization Readiness)
 - What was done: Extended `/admin/rag-tests` to consume backend-provided `retrievalBackends`, added `local/db-ann` backend selection, surfaced chunk-embedding readiness via `/api/admin/console/rag/chunk-embeddings/status`, and added a materialization trigger that enqueues the backend `materialize-chunk-embeddings` job. LLM job filtering now includes chunk-embedding materialization jobs.
 - Key decisions: Kept the existing RAG form layout and added readiness/materialization as an additive state block that appears only when `db-ann` is selected.

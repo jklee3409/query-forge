@@ -1,4 +1,10 @@
 import { useEffect, useMemo, useState } from 'react'
+import {
+  BalanceBar,
+  ConfigSummaryCard,
+  ExperimentSection,
+  SectionHeader,
+} from '../components/AdminUi.jsx'
 import { DetailCard, IdBadge, Modal, StatusBadge } from '../components/Common.jsx'
 import { LlmJobsTable } from '../components/LlmJobsTable.jsx'
 import { RemainingEta } from '../components/RemainingEta.jsx'
@@ -1979,15 +1985,48 @@ export function RagPage({ notify }) {
     ]
   }, [tests, compareRunIds])
 
+  const selectedDataset = datasets.find((dataset) => dataset.datasetId === form.datasetId) || null
+  const selectedMethodSummary = methodCodesForRun.length > 0 ? methodCodesForRun.join(', ') : 'synthetic-free baseline'
+  const selectedSnapshotSummary = selectedSnapshot
+    ? `${shortId(selectedSnapshot.gatingBatchId)} / ${selectedSnapshot.gatingPreset} / ${selectedSnapshot.methodCode || '-'}`
+    : (form.syntheticFreeBaseline ? 'not used' : 'required')
+  const retrievalBalanceItems = [
+    { label: 'Dense', value: form.retrieverDenseWeight, tone: 'blue' },
+    { label: 'BM25', value: form.retrieverBm25Weight, tone: 'green' },
+    { label: 'Technical', value: form.retrieverTechnicalWeight, tone: 'amber' },
+  ]
+  const runPreviewItems = [
+    { label: 'Dataset', value: selectedDataset ? `${selectedDataset.datasetName} (${selectedDataset.totalItems})` : '-' },
+    { label: 'Language', value: form.evalQueryLanguage },
+    { label: 'Run discipline', value: form.syntheticFreeBaseline ? 'exploratory baseline' : form.runDiscipline },
+    { label: 'Methods', value: selectedMethodSummary },
+    { label: 'Snapshot', value: selectedSnapshotSummary },
+    { label: 'Gating', value: runGatingPreset },
+    { label: 'Rewrite', value: form.rewriteEnabled ? (form.selectiveRewrite ? 'selective' : 'always') : 'off' },
+    { label: 'Retriever', value: `${form.retrievalBackend} / ${retrieverModeLabel(form.retrieverMode)}` },
+  ]
+
   return (
     <>
-      <section className="panel panel--hero">
+      <section className="admin-card experiment-builder-card">
         <div className="table-title">RAG 품질/성능 테스트 실행</div>
         <p className="panel-subtitle">
           스냅샷 기반 재현성, Rewrite 전략, 검색 파라미터를 실험 단위로 비교할 수 있도록 구성했습니다.
         </p>
-        <form className="filter-bar filter-bar--stack" onSubmit={runRag}>
-          <div className="form-grid form-grid--2">
+        <SectionHeader
+          eyebrow="Experiment Builder"
+          title="RAG Quality + Performance Run"
+          description="Dataset, snapshot, rewrite, retrieval, and advanced runtime options are grouped without changing the existing request contract."
+        />
+        <form className="experiment-builder-form" onSubmit={runRag}>
+          <div className="experiment-builder-layout">
+            <div className="experiment-builder-main">
+              <ExperimentSection
+                title="Experiment Overview"
+                description="Choose the dataset, run naming discipline, official comparison mode, source snapshot, and generation method scope."
+                badge={form.evalQueryLanguage}
+              >
+                <div className="form-grid form-grid--2">
             <label className="filter-field">평가 데이터셋
               <select value={form.datasetId} onChange={(event) => setForm((prev) => ({ ...prev, datasetId: event.target.value }))}>
                 {datasets.map((dataset) => <option key={dataset.datasetId} value={dataset.datasetId}>{dataset.datasetName} ({dataset.totalItems})</option>)}
@@ -2143,9 +2182,15 @@ export function RagPage({ notify }) {
                   : '스냅샷 미선택 또는 legacy 스냅샷에서는 수동 선택이 필요합니다.'}
               </span>
             </label>
-          </div>
+                </div>
+              </ExperimentSection>
 
-          <div className="form-grid form-grid--3">
+              <ExperimentSection
+                title="Rewrite Strategy"
+                description="Rewrite enablement, selective threshold, stage cutoff, and RAG candidate sizing."
+                badge={form.rewriteEnabled ? 'rewrite on' : 'rewrite off'}
+              >
+                <div className="form-grid form-grid--3">
             <label className="filter-field filter-field--small">Stage Cutoff Level
               <select
                 value={form.stageCutoffLevel}
@@ -2168,15 +2213,27 @@ export function RagPage({ notify }) {
               <span className="field-hint">generation/self-eval/rewrite 단계 공통 모델</span>
             </label>
             <label className="filter-field filter-field--small">Rewrite Threshold
-              <input
-                type="number"
-                min="0"
-                max="1"
-                step="0.01"
-                value={form.threshold}
-                disabled={!form.rewriteEnabled || !form.selectiveRewrite}
-                onChange={(event) => setForm((prev) => ({ ...prev, threshold: event.target.value }))}
-              />
+              <div className="slider-field">
+                <input
+                  type="range"
+                  min="0"
+                  max="1"
+                  step="0.01"
+                  value={form.threshold}
+                  disabled={!form.rewriteEnabled || !form.selectiveRewrite}
+                  onChange={(event) => setForm((prev) => ({ ...prev, threshold: event.target.value }))}
+                  aria-label="Rewrite threshold slider"
+                />
+                <input
+                  type="number"
+                  min="0"
+                  max="1"
+                  step="0.01"
+                  value={form.threshold}
+                  disabled={!form.rewriteEnabled || !form.selectiveRewrite}
+                  onChange={(event) => setForm((prev) => ({ ...prev, threshold: event.target.value }))}
+                />
+              </div>
               <span className="field-hint">`rewrite_threshold`: selective 모드에서 후보 쿼리 채택 임계값</span>
             </label>
             <label className="filter-field filter-field--small">Retrieval Top-K
@@ -2187,9 +2244,15 @@ export function RagPage({ notify }) {
               <input type="number" min="1" value={form.rerankTopN} onChange={(event) => setForm((prev) => ({ ...prev, rerankTopN: event.target.value }))} />
               <span className="field-hint">`rerank_top_n`: answer eval에서 최종 재정렬에 쓰는 개수</span>
             </label>
-          </div>
+                </div>
+              </ExperimentSection>
 
-          <div className="form-grid form-grid--3">
+              <ExperimentSection
+                title="Retrieval Config"
+                description="Backend, retriever mode, candidate pool, rerank size, and dense/BM25/technical fusion balance."
+                badge={retrieverModeLabel(form.retrieverMode)}
+              >
+                <div className="form-grid form-grid--3">
             <label className="filter-field filter-field--small">Retrieval Backend
               <select
                 value={form.retrievalBackend}
@@ -2240,9 +2303,10 @@ export function RagPage({ notify }) {
             <label className="filter-field filter-field--small">Technical Weight
               <input type="number" min="0" max="1" step="0.01" value={form.retrieverTechnicalWeight} disabled readOnly />
             </label>
-          </div>
+                </div>
+                <BalanceBar items={retrievalBalanceItems} />
 
-          {form.retrievalBackend === 'db_ann' && (
+                {form.retrievalBackend === 'db_ann' && (
             <div className="state-note">
               <strong>DB ANN 준비 상태:</strong>{' '}
               {chunkEmbeddingStatusLoading
@@ -2269,9 +2333,17 @@ export function RagPage({ notify }) {
                 </button>
               </div>
             </div>
-          )}
+                )}
+              </ExperimentSection>
 
-          <div className="checkbox-row">
+              <ExperimentSection
+                title="Advanced Options"
+                description="Baseline, gating reflection, stage cutoff, rewrite retrieval mode, session context, and failure policy."
+                badge="collapsed by default"
+                collapsible
+                defaultOpen={false}
+              >
+                <div className="checkbox-row">
             <label className={`check-pill ${form.syntheticFreeBaseline ? 'is-active' : ''}`}>
               <input type="checkbox" checked={form.syntheticFreeBaseline} onChange={(event) => setForm((prev) => ({ ...prev, syntheticFreeBaseline: event.target.checked }))} />
               <span className="check-pill__box" aria-hidden="true">{form.syntheticFreeBaseline ? '✓' : ''}</span>
@@ -2331,9 +2403,14 @@ export function RagPage({ notify }) {
             </div>
           )}
 
-          <div className="form-actions">
-            <button type="submit" className="button button--primary">테스트 실행</button>
-            <button type="button" className="button" onClick={() => Promise.all([loadTests(), loadGatingBatches()]).catch((error) => notify(error.message, 'error'))}>목록 새로고침</button>
+              </ExperimentSection>
+
+              <div className="form-actions form-actions--end">
+                <button type="submit" className="button button--primary">Run Test</button>
+                <button type="button" className="button" onClick={() => Promise.all([loadTests(), loadGatingBatches()]).catch((error) => notify(error.message, 'error'))}>Refresh Lists</button>
+              </div>
+            </div>
+            <ConfigSummaryCard title="Experiment Summary" items={runPreviewItems} />
           </div>
         </form>
       </section>

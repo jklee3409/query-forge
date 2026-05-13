@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-05-13] Session Summary (Admin Console UI/UX Modernization)
+- What was done: Redesigned the React admin presentation layer for synthetic generation and RAG evaluation without changing backend APIs or experiment contracts. Added strategy cards/flows, batch timeline cards with progress and filters, a sectioned RAG experiment builder, reusable admin UI primitives, responsive styling, and dark-mode-ready tokens.
+- Key decisions: Kept all synthetic/RAG request payload fields, snapshot selection rules, gating/rewrite/eval semantics, and source-scoped method restrictions unchanged; avoided new heavy dependencies and used existing React/Vite structure.
+- Issues encountered: Frontend build passed. `npm run lint` still fails on the existing `vite.config.js` `process` no-undef rule, with unrelated hook-dependency warnings in existing pages.
+- Next steps: Browser-smoke `/admin/synthetic-queries` and `/admin/rag-tests` against a live backend to tune copy/density with real data.
+
 ## [2026-05-13] Session Summary (LLM Job Constraint Sync Hotfix)
 - What was done: Fixed admin chunk-embedding materialization job creation failure by adding a new Flyway migration that expands `llm_job.job_type` check constraint to include `MATERIALIZE_CHUNK_EMBEDDINGS`, and added a backend test that checks Java job-type definitions against the migration values.
 - Key decisions: Used a forward-only migration instead of rewriting the historical `V16` migration, because the bug is affecting already-migrated local/runtime databases.
