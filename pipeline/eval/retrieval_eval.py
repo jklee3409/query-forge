@@ -102,9 +102,19 @@ def _mean(rows: list[float]) -> float:
 
 
 def _write_csv(path: Path, rows: list[dict[str, Any]], fieldnames: list[str]) -> None:
+    resolved_fieldnames = list(fieldnames or [])
+    known = set(resolved_fieldnames)
+    for row in rows:
+        if not isinstance(row, dict):
+            continue
+        for key in row.keys():
+            if key in known:
+                continue
+            resolved_fieldnames.append(key)
+            known.add(key)
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", encoding="utf-8", newline="") as target:
-        writer = csv.DictWriter(target, fieldnames=fieldnames)
+        writer = csv.DictWriter(target, fieldnames=resolved_fieldnames, extrasaction="ignore")
         writer.writeheader()
         for row in rows:
             writer.writerow(row)
@@ -120,7 +130,6 @@ def _render_report(
     report_path: Path,
     summary_rows: list[dict[str, Any]],
     category_rows: list[dict[str, Any]],
-    latency_rows: list[dict[str, Any]],
 ) -> None:
     lines = [
         "# Latest Retrieval Report",
@@ -159,20 +168,6 @@ def _render_report(
         lines.append(
             f"| {row['mode']} | {row['category']} | {row['recall@5']:.4f} | {row['hit@5']:.4f} | "
             f"{row['mrr@10']:.4f} | {row['ndcg@10']:.4f} |"
-        )
-
-    lines.extend(
-        [
-            "",
-            "## Latency",
-            "",
-            "| mode | avg_latency_ms | p95_latency_ms |",
-            "| --- | ---: | ---: |",
-        ]
-    )
-    for row in latency_rows:
-        lines.append(
-            f"| {row['mode']} | {row['avg_latency_ms']:.2f} | {row['p95_latency_ms']:.2f} |"
         )
 
     report_path.parent.mkdir(parents=True, exist_ok=True)
@@ -258,6 +253,8 @@ def _evaluate_mode(
             "rewrite_llm_attempted": False,
             "rewrite_llm_succeeded": False,
             "rewrite_heuristic_fallback_used": False,
+            "final_rewrite_latency_ms": None,
+            "pure_rewrite_latency_ms": None,
         }
         metrics = retrieval_metrics(
             expected_chunk_ids=sample.expected_chunk_ids,
@@ -340,6 +337,8 @@ def _evaluate_mode(
                 "rewrite_llm_attempted": False,
                 "rewrite_llm_succeeded": False,
                 "rewrite_heuristic_fallback_used": False,
+                "final_rewrite_latency_ms": None,
+                "pure_rewrite_latency_ms": None,
             },
             retrieval,
         )
@@ -386,6 +385,8 @@ def _evaluate_mode(
             "rewrite_llm_attempted": rewrite_outcome.rewrite_llm_attempted,
             "rewrite_llm_succeeded": rewrite_outcome.rewrite_llm_succeeded,
             "rewrite_heuristic_fallback_used": rewrite_outcome.rewrite_heuristic_fallback_used,
+            "final_rewrite_latency_ms": rewrite_outcome.final_rewrite_latency_ms,
+            "pure_rewrite_latency_ms": rewrite_outcome.pure_rewrite_latency_ms,
         },
         retrieval,
     )
@@ -546,7 +547,6 @@ def run_retrieval_eval(
         )
         raw_metrics_by_sample: dict[str, dict[str, float]] = {}
         mode_scores: dict[str, list[dict[str, Any]]] = defaultdict(list)
-        latency_by_mode: dict[str, list[float]] = defaultdict(list)
         rewrite_rows: dict[str, list[dict[str, Any]]] = defaultdict(list)
         rewrite_generation_stats_by_mode: dict[str, dict[str, int]] = defaultdict(
             lambda: {
@@ -626,9 +626,6 @@ def run_retrieval_eval(
             metrics = row["metrics"]
             rewrite_info = row["rewrite_info"]
             retrieval = row["retrieval"]
-            elapsed_ms = float(row["elapsed_ms"])
-
-            latency_by_mode[mode].append(elapsed_ms)
             rewrite_generation_stats = rewrite_generation_stats_by_mode[mode]
             rewrite_generation_stats["rewrite_llm_attempted_count"] += (
                 1 if rewrite_info.get("rewrite_llm_attempted") else 0
@@ -656,7 +653,8 @@ def run_retrieval_eval(
                         rewrite_info.get("best_candidate_confidence", 0.0)
                         - rewrite_info.get("raw_confidence", 0.0)
                     ),
-                    "latency_ms": elapsed_ms,
+                    "final_rewrite_latency_ms": rewrite_info.get("final_rewrite_latency_ms"),
+                    "pure_rewrite_latency_ms": rewrite_info.get("pure_rewrite_latency_ms"),
                 }
             )
             rewrite_rows[mode].append(
@@ -672,6 +670,8 @@ def run_retrieval_eval(
                     "rewrite_llm_attempted": bool(rewrite_info.get("rewrite_llm_attempted")),
                     "rewrite_llm_succeeded": bool(rewrite_info.get("rewrite_llm_succeeded")),
                     "rewrite_heuristic_fallback_used": bool(rewrite_info.get("rewrite_heuristic_fallback_used")),
+                    "final_rewrite_latency_ms": rewrite_info.get("final_rewrite_latency_ms"),
+                    "pure_rewrite_latency_ms": rewrite_info.get("pure_rewrite_latency_ms"),
                     "raw_mrr": raw_metrics_by_sample.get(sample.sample_id, {}).get("mrr@10", 0.0),
                     "mode_mrr": metrics["mrr@10"],
                     "raw_ndcg": raw_metrics_by_sample.get(sample.sample_id, {}).get("ndcg@10", 0.0),
@@ -729,8 +729,6 @@ def run_retrieval_eval(
 
         summary_rows: list[dict[str, Any]] = []
         category_rows: list[dict[str, Any]] = []
-        latency_rows: list[dict[str, Any]] = []
-
         raw_baseline_mrr = _mean([float(row["mrr@10"]) for row in mode_scores.get("raw_only", [])])
         raw_baseline_ndcg = _mean([float(row["ndcg@10"]) for row in mode_scores.get("raw_only", [])])
 
@@ -785,20 +783,9 @@ def run_retrieval_eval(
                     }
                 )
 
-            sorted_latency = sorted(latency_by_mode.get(mode, []))
-            p95_index = max(0, int(round(len(sorted_latency) * 0.95)) - 1)
-            latency_rows.append(
-                {
-                    "mode": mode,
-                    "avg_latency_ms": _mean(sorted_latency),
-                    "p95_latency_ms": sorted_latency[p95_index] if sorted_latency else 0.0,
-                }
-            )
-
         summary_path = output_root / f"retrieval_summary_{config.experiment_key}.json"
         summary_csv_path = output_root / f"retrieval_summary_{config.experiment_key}.csv"
         category_csv_path = output_root / f"retrieval_by_category_{config.experiment_key}.csv"
-        latency_csv_path = output_root / f"latency_{config.experiment_key}.csv"
         rewrite_case_path = output_root / f"rewrite_cases_{config.experiment_key}.json"
         summary_path.parent.mkdir(parents=True, exist_ok=True)
         rewrite_stats_by_mode_payload = {
@@ -848,7 +835,6 @@ def run_retrieval_eval(
             "rewrite_generation_stats": rewrite_stats_by_mode_payload,
             "summary": summary_rows,
             "category_summary": category_rows,
-            "latency_summary": latency_rows,
         }
         summary_path.write_text(
             json.dumps(summary_payload, ensure_ascii=False, indent=2),
@@ -869,7 +855,6 @@ def run_retrieval_eval(
             ],
         )
         _write_csv(category_csv_path, category_rows, ["mode", "category", *METRIC_KEYS])
-        _write_csv(latency_csv_path, latency_rows, ["mode", "avg_latency_ms", "p95_latency_ms"])
 
         rewrite_flat_rows = [row for rows in rewrite_rows.values() for row in rows]
         rewrite_case_path.write_text(
@@ -920,7 +905,6 @@ def run_retrieval_eval(
             report_path=latest_report_path,
             summary_rows=summary_rows,
             category_rows=category_rows,
-            latency_rows=latency_rows,
         )
 
         recorder.finish_run(
@@ -929,12 +913,10 @@ def run_retrieval_eval(
             metrics={
                 "summary_rows": summary_rows,
                 "category_rows": category_rows[:25],
-                "latency_rows": latency_rows,
                 "report_paths": {
                     "summary_json": str(summary_path),
                     "summary_csv": str(summary_csv_path),
                     "category_csv": str(category_csv_path),
-                    "latency_csv": str(latency_csv_path),
                     "latest_report_md": str(latest_report_path),
                     "bad_rewrite_md": str(bad_case_md),
                     "best_rewrite_md": str(best_case_md),

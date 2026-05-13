@@ -38,13 +38,15 @@ It combines quality signals and performance signals in one operational view.
   - optional: `metadata.retry_count > 0`
 - Goal: catch provider instability and model mismatch.
 
-### E. Rewrite Overhead Watch (derived)
+### E. Rewrite Latency Watch
 
-- Source: RAG summary payload (`metrics_json.performance.rewrite_overhead_avg_latency_ms`)
+- Source: RAG summary payload
+  - `metrics_json.performance.avg_final_rewrite_latency_ms`
+  - `metrics_json.performance.avg_pure_rewrite_latency_ms`
 - Display:
   - latest value by run
   - trend by run timestamp
-- Goal: verify rewrite improves quality without unacceptable latency overhead.
+- Goal: separate rewrite pipeline latency from pure rewrite LLM-call latency.
 
 ## 3) Suggested Filters for Daily Ops
 
@@ -58,7 +60,8 @@ It combines quality signals and performance signals in one operational view.
 - Error rate by purpose > 5% (5m window)
 - p95 latency by purpose > baseline x 1.5
 - fallback ratio > 10%
-- rewrite overhead average (`rewrite_overhead_avg_latency_ms`) exceeds agreed SLO
+- final rewrite latency average (`avg_final_rewrite_latency_ms`) exceeds agreed SLO
+- pure rewrite latency average (`avg_pure_rewrite_latency_ms`) exceeds agreed SLO
 
 ## 5) Query Forge Field Mapping
 

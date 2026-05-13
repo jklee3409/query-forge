@@ -3,6 +3,12 @@
 ## Overview
 High-level progress tracking for the project.
 
+## [2026-05-13] Session Summary (RAG Performance UI Redesign + Legacy Result Guard)
+- What was done: Reworked `/admin/rag-tests` Performance rendering to use only the new latency metrics (`avg_query_eval_total_latency_ms`, `avg_final_rewrite_latency_ms`, `avg_pure_rewrite_latency_ms`) with ms+seconds formatting and sample-count basis. Removed dependence on old representative/rewrite-overhead latency fields in detail modal, compare overview, and latest summary cards.
+- Key decisions: Legacy runs without the new latency payload render a clear fallback message (`Legacy result (new latency metrics unavailable)`) instead of attempting lossy reconstruction from removed fields.
+- Issues encountered: Existing mixed-encoding literals in `RagPage.jsx` caused one build-time parse error after the block replacement; fixed by normalizing the affected latest-summary card labels.
+- Next steps: UI-smoke one fresh run and one historical run together in compare mode to confirm the legacy fallback and new latency cards read clearly for operators.
+
 ## [2026-05-11] Session Summary (Synthetic Batch Delete Action + ETA Exposure)
 - What was done: Updated `SyntheticPage.jsx` to add generation-batch delete action (calls `DELETE /api/admin/console/synthetic/batches/{batchId}`) and to surface live generation ETA/context using backend-provided fields (`targetQueryCount`, `estimatedSecondsPerQuery`, `estimatedRemainingSeconds`, LLM job/item status + retry state) inside batch history rows.
 - Key decisions: Kept existing batch-history table structure and integrated ETA/delete as additive row details to minimize UI churn under mixed-encoding source constraints.

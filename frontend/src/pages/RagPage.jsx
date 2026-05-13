@@ -67,23 +67,49 @@ const ANSWER_METRIC_DEFS = [
   { key: 'context_recall', label: 'Context Recall (문맥 재현율)', max: 1, precision: 3, trend: 'higher' },
 ]
 
+const LEGACY_PERFORMANCE_MESSAGE = 'Legacy result (new latency metrics unavailable)'
+
 const PERFORMANCE_METRIC_DEFS = [
-  { key: 'total_duration_ms', label: 'Total Duration (총 소요 시간)', precision: 0, unit: 'ms', trend: 'lower' },
-  { key: 'build_memory_ms', label: 'Build-Memory Stage (메모리 구축 단계)', precision: 0, unit: 'ms', trend: 'lower' },
-  { key: 'eval_retrieval_ms', label: 'Eval-Retrieval Stage (검색 평가 단계)', precision: 0, unit: 'ms', trend: 'lower' },
-  { key: 'eval_answer_ms', label: 'Eval-Answer Stage (답변 평가 단계)', precision: 0, unit: 'ms', trend: 'lower' },
-  { key: 'orchestration_overhead_ms', label: 'Orchestration Overhead (오케스트레이션 오버헤드)', precision: 0, unit: 'ms', trend: 'lower' },
-  { key: 'latency_avg_ms', label: 'Research Mode Avg Latency', precision: 2, unit: 'ms', trend: 'lower', priority: 'core' },
-  { key: 'latency_p95_ms', label: 'Research Mode P95 Latency', precision: 2, unit: 'ms', trend: 'lower', priority: 'core' },
-  { key: 'rewrite_overhead_avg_latency_ms', label: 'Rewrite Overhead (Avg) (리라이트 오버헤드 평균)', precision: 2, unit: 'ms', trend: 'lower' },
+  {
+    key: 'avg_query_eval_total_latency_ms',
+    label: '질의 전체 평가 평균 시간',
+    precision: 2,
+    unit: 'ms',
+    trend: 'lower',
+    priority: 'core',
+    sampleCountKey: 'eval_sample_count',
+    sampleCountLabel: '전체 평가 성공 샘플 기준',
+    description: '질의 입력부터 최종 평가 결과 생성 완료까지의 평균 시간',
+  },
+  {
+    key: 'avg_final_rewrite_latency_ms',
+    label: '최종 재작성 확정 평균 시간',
+    precision: 2,
+    unit: 'ms',
+    trend: 'lower',
+    priority: 'core',
+    sampleCountKey: 'rewrite_sample_count',
+    sampleCountLabel: 'rewrite 확정 샘플 기준',
+    description: '최종 rewrite query 확정까지 걸린 평균 시간',
+  },
+  {
+    key: 'avg_pure_rewrite_latency_ms',
+    label: '순수 쿼리 재작성 평균 시간',
+    precision: 2,
+    unit: 'ms',
+    trend: 'lower',
+    priority: 'core',
+    sampleCountKey: 'pure_rewrite_sample_count',
+    sampleCountLabel: '순수 rewrite 호출 샘플 기준',
+    description: '순수 LLM rewrite 호출 시간 평균',
+  },
 ]
 
 const METRIC_GROUP_DEFS = [
-  { key: 'retrieval', label: 'Retrieval Quality', description: '검색 품질 핵심 지표', metrics: RETRIEVAL_METRIC_DEFS },
-  { key: 'answer', label: 'Answer Quality', description: '답변 신뢰도 및 정합성 지표', metrics: ANSWER_METRIC_DEFS },
-  { key: 'performance', label: 'Performance', description: '응답 지연 및 단계별 실행 시간', metrics: PERFORMANCE_METRIC_DEFS },
+  { key: 'retrieval', label: 'Retrieval Quality', description: 'retrieval quality metrics', metrics: RETRIEVAL_METRIC_DEFS },
+  { key: 'answer', label: 'Answer Quality', description: 'answer quality metrics', metrics: ANSWER_METRIC_DEFS },
+  { key: 'performance', label: 'Performance', description: '신규 latency metric 요약', metrics: PERFORMANCE_METRIC_DEFS },
 ]
-
 const METRIC_META_MAP = METRIC_GROUP_DEFS.reduce((acc, group) => {
   for (const metric of group.metrics) {
     acc[metric.key] = {
@@ -96,14 +122,19 @@ const METRIC_META_MAP = METRIC_GROUP_DEFS.reduce((acc, group) => {
 }, {})
 
 const COMPARE_FOCUS_RETRIEVAL_KEYS = ['recall_at_5', 'hit_at_5', 'mrr_at_10', 'ndcg_at_10']
-const COMPARE_FOCUS_LATENCY_KEYS = ['latency_avg_ms', 'latency_p95_ms']
+const COMPARE_FOCUS_LATENCY_KEYS = [
+  'avg_query_eval_total_latency_ms',
+  'avg_final_rewrite_latency_ms',
+  'avg_pure_rewrite_latency_ms',
+]
 const KPI_METRIC_KEYS = new Set([
   'recall_at_5',
   'hit_at_5',
   'mrr_at_10',
   'ndcg_at_10',
-  'latency_avg_ms',
-  'latency_p95_ms',
+  'avg_query_eval_total_latency_ms',
+  'avg_final_rewrite_latency_ms',
+  'avg_pure_rewrite_latency_ms',
 ])
 
 const REWRITE_RETRIEVAL_OPTION_META = {
@@ -155,7 +186,7 @@ function firstMetricNumber(values) {
   return null
 }
 
-const RESEARCH_MODE_PRIORITY = [
+const RUN_METRIC_MODE_PRIORITY = [
   'selective_rewrite_with_session',
   'selective_rewrite',
   'rewrite_always',
@@ -166,12 +197,19 @@ const RESEARCH_MODE_PRIORITY = [
   'memory_only_ungated',
 ]
 
-function pickResearchMode(byMode) {
-  for (const mode of RESEARCH_MODE_PRIORITY) {
+function pickRunMetricMode(byMode) {
+  for (const mode of RUN_METRIC_MODE_PRIORITY) {
     if (byMode?.[mode]) return mode
   }
   const fallback = Object.keys(byMode || {})[0]
   return fallback || ''
+}
+
+function hasNewPerformanceMetrics(performancePayload) {
+  if (!performancePayload || typeof performancePayload !== 'object') return false
+  return PERFORMANCE_METRIC_DEFS.some((metric) => Object.prototype.hasOwnProperty.call(performancePayload, metric.key))
+    || ['eval_sample_count', 'rewrite_sample_count', 'pure_rewrite_sample_count', 'excluded_sample_count']
+      .some((key) => Object.prototype.hasOwnProperty.call(performancePayload, key))
 }
 
 function extractRunMetrics(metricsJson) {
@@ -179,8 +217,6 @@ function extractRunMetrics(metricsJson) {
   const retrievalPayload = parseMetricsNode(payload.retrieval || payload.metrics_json?.retrieval || payload)
   const answerPayload = parseMetricsNode(payload.answer || payload.metrics_json?.answer)
   const performancePayload = parseMetricsNode(payload.performance || payload.metrics_json?.performance)
-  const stageDurationPayload = parseMetricsNode(performancePayload.stage_duration_ms)
-  const latencyByModePayload = parseMetricsNode(performancePayload.latency_by_mode_ms || payload.latency_by_mode || payload.latency_by_mode_ms)
   const answerSummary = parseMetricsNode(answerPayload.summary || answerPayload)
   const summaryRaw = Array.isArray(retrievalPayload.summary) ? retrievalPayload.summary : []
   const byMode = summaryRaw.reduce((acc, row) => {
@@ -189,12 +225,11 @@ function extractRunMetrics(metricsJson) {
     acc[mode] = row
     return acc
   }, {})
-  const researchMode = pickResearchMode(byMode)
-  const summary = byMode[researchMode] || {}
-  const latencyForMode = parseMetricsNode(latencyByModePayload[researchMode])
+  const selectedMode = pickRunMetricMode(byMode)
+  const summary = byMode[selectedMode] || {}
+  const legacyPerformance = !hasNewPerformanceMetrics(performancePayload)
   return {
-    representative_mode: summary.mode || researchMode || '-',
-    research_mode: summary.mode || researchMode || '-',
+    selected_mode: summary.mode || selectedMode || '-',
     by_mode: byMode,
     recall_at_5: firstMetricNumber([payload.recall_at_5, payload.recallAt5, summary.recall_at_5, summary['recall@5']]),
     hit_at_5: firstMetricNumber([payload.hit_at_5, payload.hitAt5, summary.hit_at_5, summary['hit@5']]),
@@ -206,14 +241,15 @@ function extractRunMetrics(metricsJson) {
     answer_relevance: firstMetricNumber([payload.answer_relevance, answerSummary.answer_relevance]),
     faithfulness: firstMetricNumber([payload.faithfulness, answerSummary.faithfulness]),
     context_recall: firstMetricNumber([payload.context_recall, answerSummary.context_recall]),
-    total_duration_ms: firstMetricNumber([performancePayload.total_duration_ms]),
-    build_memory_ms: firstMetricNumber([stageDurationPayload.build_memory_ms]),
-    eval_retrieval_ms: firstMetricNumber([stageDurationPayload.eval_retrieval_ms]),
-    eval_answer_ms: firstMetricNumber([stageDurationPayload.eval_answer_ms]),
-    orchestration_overhead_ms: firstMetricNumber([performancePayload.orchestration_overhead_ms]),
-    latency_avg_ms: firstMetricNumber([latencyForMode.avg_latency_ms, performancePayload.representative_mode_latency_avg_ms, payload.latency_avg_ms]),
-    latency_p95_ms: firstMetricNumber([latencyForMode.p95_latency_ms, performancePayload.representative_mode_latency_p95_ms]),
-    rewrite_overhead_avg_latency_ms: firstMetricNumber([performancePayload.rewrite_overhead_avg_latency_ms]),
+    avg_query_eval_total_latency_ms: firstMetricNumber([performancePayload.avg_query_eval_total_latency_ms]),
+    avg_final_rewrite_latency_ms: firstMetricNumber([performancePayload.avg_final_rewrite_latency_ms]),
+    avg_pure_rewrite_latency_ms: firstMetricNumber([performancePayload.avg_pure_rewrite_latency_ms]),
+    eval_sample_count: firstMetricNumber([performancePayload.eval_sample_count]),
+    rewrite_sample_count: firstMetricNumber([performancePayload.rewrite_sample_count]),
+    pure_rewrite_sample_count: firstMetricNumber([performancePayload.pure_rewrite_sample_count]),
+    excluded_sample_count: firstMetricNumber([performancePayload.excluded_sample_count]),
+    legacy_performance: legacyPerformance,
+    legacy_performance_message: legacyPerformance ? LEGACY_PERFORMANCE_MESSAGE : '',
   }
 }
 
@@ -943,16 +979,78 @@ function buildRewriteTags(run) {
 }
 
 function buildCoreMetricTags(metrics) {
-  const totalDuration = formatDurationDisplay(metrics?.total_duration_ms, {
-    precisionMs: 0,
+  const queryEvalLatency = formatDurationDisplay(metrics?.avg_query_eval_total_latency_ms, {
+    precisionMs: 2,
     precisionSeconds: 2,
     includeRawMs: false,
   }).primary
   return [
     toHistoryTag('metric', 'R5', `Recall@5 ${formatMetric(metrics?.recall_at_5)}`),
     toHistoryTag('metric', 'ND', `nDCG@10 ${formatMetric(metrics?.ndcg_at_10)}`),
-    toHistoryTag('metric', 'TM', `Total ${totalDuration}`),
+    metrics?.legacy_performance
+      ? toHistoryTag('metric', 'LG', 'Latency legacy')
+      : toHistoryTag('metric', 'QE', `Eval ${queryEvalLatency}`),
   ]
+}
+
+function formatMetricSampleBasis(metricDef, metrics) {
+  if (!metricDef?.sampleCountKey) return ''
+  const count = toMetricNumber(metrics?.[metricDef.sampleCountKey])
+  const label = metricDef.sampleCountLabel || 'sample'
+  return count == null ? `${label} n=-` : `${label} n=${formatTableNumber(count, 0)}`
+}
+
+function formatCompareMetricSampleBasis(row) {
+  if (!row?.sampleCountLabel) return ''
+  const leftCount = toMetricNumber(row.leftSampleCount)
+  const rightCount = toMetricNumber(row.rightSampleCount)
+  if (leftCount == null && rightCount == null) return ''
+  if (leftCount != null && rightCount != null) {
+    return `${row.sampleCountLabel} A n=${formatTableNumber(leftCount, 0)} / B n=${formatTableNumber(rightCount, 0)}`
+  }
+  const resolvedCount = leftCount != null ? leftCount : rightCount
+  return `${row.sampleCountLabel} n=${formatTableNumber(resolvedCount, 0)}`
+}
+
+function metricSupportText(row) {
+  const parts = []
+  if (row?.description) parts.push(row.description)
+  const sampleBasis = formatCompareMetricSampleBasis(row)
+  if (sampleBasis) parts.push(sampleBasis)
+  return parts.join(' | ')
+}
+
+function renderPerformanceCards(metrics) {
+  if (metrics?.legacy_performance) {
+    return <div className="empty-state">{metrics.legacy_performance_message || LEGACY_PERFORMANCE_MESSAGE}</div>
+  }
+  return (
+    <section className="run-mode-compare">
+      <div className="run-mode-compare__header">
+        <div>
+          <strong>Performance</strong>
+          <div className="run-mode-compare__subtitle">sample 기준 신규 latency metrics</div>
+        </div>
+      </div>
+      <div className="summary-grid">
+        {PERFORMANCE_METRIC_DEFS.map((metricDef) => {
+          const value = formatDurationDisplay(metrics?.[metricDef.key], {
+            precisionMs: metricDef.precision,
+            precisionSeconds: 2,
+            includeRawMs: true,
+          })
+          return (
+            <article key={metricDef.key} className="summary-card" title={metricDef.description}>
+              <div className="summary-card__label">{metricDef.label}</div>
+              <div className="summary-card__value">{value.primary}</div>
+              <div className="summary-card__meta">{value.secondary || metricDef.description}</div>
+              <div className="summary-card__meta">{formatMetricSampleBasis(metricDef, metrics)}</div>
+            </article>
+          )
+        })}
+      </div>
+    </section>
+  )
 }
 
 function resolveMetricOutcome(metricDef, left, right) {
@@ -1527,9 +1625,12 @@ export function RagPage({ notify }) {
       const runRow = payload.run || {}
       const summary = payload.summary || {}
       const metricsJson = parseMetricsNode(summary.metrics_json)
+      const runMetrics = extractRunMetrics(metricsJson)
       const performance = parseMetricsNode(metricsJson.performance)
-      const retrievalByMode = parseMetricsNode(metricsJson.retrieval_by_mode)
-      const retrievalByModeRows = Object.values(retrievalByMode).filter((row) => row && typeof row === 'object')
+      const retrievalPayload = parseMetricsNode(metricsJson.retrieval)
+      const retrievalSummaryRows = Array.isArray(retrievalPayload.summary)
+        ? retrievalPayload.summary.filter((row) => row && typeof row === 'object')
+        : []
       const details = Array.isArray(payload.details) ? payload.details : []
       const rewriteMode = resolveRewriteMode(runRow)
       const anchorEnabled = resolveRewriteAnchorEnabled(runRow)
@@ -1541,14 +1642,15 @@ export function RagPage({ notify }) {
             <details className="rag-detail-disclosure rag-detail-disclosure--group">
               <summary>실행 요약 지표 보기</summary>
               <div className="rag-detail-disclosure__content rag-detail-disclosure__content--group">
-                {renderRunDetailModeSummary(retrievalByModeRows)}
-                {renderRunDetailModeComparison(retrievalByModeRows)}
+                {renderPerformanceCards(runMetrics)}
+                {renderRunDetailModeSummary(retrievalSummaryRows)}
+                {renderRunDetailModeComparison(retrievalSummaryRows)}
                 {renderRagDetailJsonDisclosure('실행 프로필', {
                   rewrite_mode: rewriteMode.label,
                   rewrite_anchor_injection_enabled: anchorEnabled,
                 })}
                 {renderRagDetailJsonDisclosure('성능 지표', performance)}
-                {renderRagDetailJsonDisclosure('모드별 검색 지표', retrievalByModeRows)}
+                {renderRagDetailJsonDisclosure('모드별 검색 지표', retrievalSummaryRows)}
               </div>
             </details>
           </div>
@@ -1558,7 +1660,6 @@ export function RagPage({ notify }) {
       notify(error.message, 'error')
     }
   }
-
   const deleteRun = async (runId) => {
     if (!window.confirm('선택한 RAG 테스트 이력과 결과를 삭제할까요?')) return
     setDeletingRunId(runId)
@@ -1649,6 +1750,8 @@ export function RagPage({ notify }) {
           priority: KPI_METRIC_KEYS.has(metricDef.key) ? 'core' : metricMeta.priority,
           left,
           right,
+          leftSampleCount: metricDef.sampleCountKey ? leftMetrics[metricDef.sampleCountKey] : null,
+          rightSampleCount: metricDef.sampleCountKey ? rightMetrics[metricDef.sampleCountKey] : null,
           delta,
           deltaRate,
           outcome: resolveMetricOutcome(metricDef, left, right),
@@ -1712,15 +1815,29 @@ export function RagPage({ notify }) {
       ? (retrievalDelta / Math.abs(retrievalAvgA)) * 100
       : null
     const focusLatencyRows = compareMetricRows.filter((row) => COMPARE_FOCUS_LATENCY_KEYS.includes(row.key))
-    const avgLatencyRow = focusLatencyRows.find((row) => row.key === 'latency_avg_ms') || null
-    const p95LatencyRow = focusLatencyRows.find((row) => row.key === 'latency_p95_ms') || null
-    const avgLatencyInsight = avgLatencyRow ? buildWorkspaceChangeInsight(avgLatencyRow) : null
-    const p95LatencyInsight = p95LatencyRow ? buildWorkspaceChangeInsight(p95LatencyRow) : null
+    const queryEvalLatencyRow = focusLatencyRows.find((row) => row.key === 'avg_query_eval_total_latency_ms') || null
+    const finalRewriteLatencyRow = focusLatencyRows.find((row) => row.key === 'avg_final_rewrite_latency_ms') || null
+    const pureRewriteLatencyRow = focusLatencyRows.find((row) => row.key === 'avg_pure_rewrite_latency_ms') || null
     const headline = overallWinner === 'tie'
       ? `No clear winner. Weighted score ${compactLeftLabel} ${scoreA} : ${compactRightLabel} ${scoreB}.`
       : overallWinner === 'right'
       ? `${compactRightLabel} is ahead in weighted KPI score (${scoreB} vs ${scoreA}).`
       : `${compactLeftLabel} is ahead in weighted KPI score (${scoreA} vs ${scoreB}).`
+
+    const buildLatencyCard = (label, row) => {
+      const insight = row ? buildWorkspaceChangeInsight(row) : null
+      const supportText = row ? metricSupportText(row) : ''
+      return {
+        label,
+        value: insight ? insight.summary : '-',
+        meta: insight
+          ? [insight.detail, compareOutcomeLabel(row.outcome, compactLeftLabel, compactRightLabel), supportText]
+            .filter(Boolean)
+            .join(' | ')
+          : 'No comparable data',
+      }
+    }
+
     return {
       headline,
       cards: [
@@ -1734,23 +1851,13 @@ export function RagPage({ notify }) {
           value: retrievalDelta == null ? '-' : formatDelta(retrievalDelta, { precision: 3 }),
           meta: retrievalDelta == null ? 'No comparable data' : `${compactRightLabel} vs ${compactLeftLabel} (${formatDeltaRate(retrievalDeltaRate)})`,
         },
-        {
-          label: 'Representative Avg Latency',
-          value: avgLatencyInsight ? avgLatencyInsight.summary : '-',
-          meta: avgLatencyInsight
-            ? `${avgLatencyInsight.detail} | ${compareOutcomeLabel(avgLatencyRow.outcome, compactLeftLabel, compactRightLabel)}`
-            : 'No comparable data',
-        },
-        {
-          label: 'Representative P95 Latency',
-          value: p95LatencyInsight ? p95LatencyInsight.summary : '-',
-          meta: p95LatencyInsight
-            ? `${p95LatencyInsight.detail} | ${compareOutcomeLabel(p95LatencyRow.outcome, compactLeftLabel, compactRightLabel)}`
-            : 'No comparable data',
-        },
+        buildLatencyCard('질의 전체 평가 평균 시간', queryEvalLatencyRow),
+        buildLatencyCard('최종 재작성 확정 평균 시간', finalRewriteLatencyRow),
+        buildLatencyCard('순수 쿼리 재작성 평균 시간', pureRewriteLatencyRow),
       ],
     }
   }, [compareMetricRows, compareRunMeta])
+
   const historyTotalPages = Math.max(1, Math.ceil(tests.length / historyPageSize))
   const currentHistoryPage = Math.min(historyPage, historyTotalPages - 1)
   const pagedTests = tests.slice(currentHistoryPage * historyPageSize, (currentHistoryPage + 1) * historyPageSize)
@@ -1759,23 +1866,37 @@ export function RagPage({ notify }) {
     const completedRuns = tests.filter((run) => String(run.status || '').toLowerCase() === 'completed')
     const lastRun = completedRuns[0]
     const lastMetrics = lastRun ? extractRunMetrics(lastRun.metricsJson) : {}
-    const latestTotalDuration = formatDurationDisplay(lastMetrics.total_duration_ms, {
-      precisionMs: 0,
-      precisionSeconds: 2,
-      includeRawMs: false,
-    }).primary
-    const latestAvgLatency = formatDurationDisplay(lastMetrics.latency_avg_ms, {
+    const latestQueryEval = formatDurationDisplay(lastMetrics.avg_query_eval_total_latency_ms, {
       precisionMs: 2,
       precisionSeconds: 2,
       includeRawMs: false,
     }).primary
+    const latestFinalRewrite = formatDurationDisplay(lastMetrics.avg_final_rewrite_latency_ms, {
+      precisionMs: 2,
+      precisionSeconds: 2,
+      includeRawMs: false,
+    }).primary
+    const latestQueryEvalMeta = lastRun
+      ? (lastMetrics.legacy_performance ? LEGACY_PERFORMANCE_MESSAGE : formatMetricSampleBasis(PERFORMANCE_METRIC_DEFS[0], lastMetrics))
+      : '-'
+    const latestFinalRewriteMeta = lastRun
+      ? (lastMetrics.legacy_performance ? LEGACY_PERFORMANCE_MESSAGE : formatMetricSampleBasis(PERFORMANCE_METRIC_DEFS[1], lastMetrics))
+      : '-'
     return [
-      { label: '완료된 테스트 수', value: String(completedRuns.length), meta: '최근 50개 실행 기준' },
-      { label: '선택된 비교 대상', value: String(compareRunIds.length), meta: compareRunIds.length === 2 ? '비교 준비 완료' : '2개 선택 시 비교 차트 표시' },
-      { label: '최근 Recall@5', value: formatMetric(lastMetrics.recall_at_5), meta: lastRun ? `run ${shortId(lastRun.ragTestRunId)}` : '완료된 실행 없음' },
-      { label: '최근 nDCG@10', value: formatMetric(lastMetrics.ndcg_at_10), meta: lastRun ? fmtTime(lastRun.finishedAt || lastRun.startedAt) : '-' },
-      { label: 'Latest Total Duration', value: latestTotalDuration, meta: 'RAG end-to-end' },
-      { label: 'Latest Avg Latency', value: latestAvgLatency, meta: `research mode (${lastMetrics.research_mode || '-'})` },
+      { label: 'Completed Runs', value: String(completedRuns.length), meta: 'Latest 50 runs' },
+      { label: 'Selected Compare', value: String(compareRunIds.length), meta: compareRunIds.length === 2 ? 'Compare ready' : 'Select 2 runs to compare' },
+      { label: 'Latest Recall@5', value: formatMetric(lastMetrics.recall_at_5), meta: lastRun ? `run ${shortId(lastRun.ragTestRunId)}` : 'No completed run' },
+      { label: 'Latest nDCG@10', value: formatMetric(lastMetrics.ndcg_at_10), meta: lastRun ? fmtTime(lastRun.finishedAt || lastRun.startedAt) : '-' },
+      {
+        label: 'Latest Query Eval',
+        value: lastRun ? (lastMetrics.legacy_performance ? 'Legacy' : latestQueryEval) : '-',
+        meta: latestQueryEvalMeta,
+      },
+      {
+        label: 'Latest Final Rewrite',
+        value: lastRun ? (lastMetrics.legacy_performance ? 'Legacy' : latestFinalRewrite) : '-',
+        meta: latestFinalRewriteMeta,
+      },
     ]
   }, [tests, compareRunIds])
 
@@ -2187,7 +2308,7 @@ export function RagPage({ notify }) {
                               <span className={`metric-chip metric-chip--${row.outcome}`}>{compareOutcomeLabel(row.outcome, leftRunLabel, rightRunLabel)}</span>
                             </div>
                           </div>
-                          <div className="compare-metric-card__hint">{METRIC_TREND_LABEL[row.trend] || METRIC_TREND_LABEL.higher}</div>
+                          <div className="compare-metric-card__hint">{metricSupportText(row) || (METRIC_TREND_LABEL[row.trend] || METRIC_TREND_LABEL.higher)}</div>
                           <div className={`compare-metric-card__decision compare-metric-card__decision--${changeInsight.tone}`}>
                             <strong className="compare-metric-card__decision-main">{changeInsight.summary}</strong>
                             <span className="compare-metric-card__decision-detail">{changeInsight.detail}</span>
@@ -2278,7 +2399,7 @@ export function RagPage({ notify }) {
                     const rightValue = formatTableMetricValue(row.right, row)
                     const deltaInfo = buildDeltaInterpretation(row)
                     const resultInfo = buildResultLabel(row, compareRunMeta[0]?.tableLabel, compareRunMeta[1]?.tableLabel)
-                    const trendLabel = METRIC_TREND_LABEL[row.trend] || METRIC_TREND_LABEL.higher
+                    const trendLabel = metricSupportText(row) || (METRIC_TREND_LABEL[row.trend] || METRIC_TREND_LABEL.higher)
                     return (
                       <tr
                         key={`${row.groupKey}:${row.key}`}
@@ -2546,3 +2667,5 @@ export function RagPage({ notify }) {
     </>
   )
 }
+
+

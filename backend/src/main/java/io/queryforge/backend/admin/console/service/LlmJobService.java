@@ -432,35 +432,25 @@ public class LlmJobService {
             JsonNode answerSummary = resultByCommand.getOrDefault("eval-answer", objectMapper.createObjectNode());
             JsonNode memorySummary = resultByCommand.getOrDefault("build-memory", objectMapper.createObjectNode());
             JsonNode summaryRows = retrievalSummary.path("summary");
-            JsonNode latencyRows = retrievalSummary.path("latency_summary");
             Map<String, JsonNode> summaryByMode = rowsByMode(summaryRows);
-            Map<String, JsonNode> latencyByMode = rowsByMode(latencyRows);
             JsonNode summaryRow = selectRepresentativeModeRow(summaryByMode);
-            JsonNode latencyRow = selectLatencyRow(summaryRow, latencyByMode);
             JsonNode answerMetrics = answerSummary.path("summary");
+            JsonNode sanitizedRetrievalSummary = sanitizeRetrievalSummary(retrievalSummary);
 
             Double recall = nullableDouble(summaryRow.path("recall@5"));
             Double hit = nullableDouble(summaryRow.path("hit@5"));
             Double mrr = nullableDouble(summaryRow.path("mrr@10"));
             Double ndcg = nullableDouble(summaryRow.path("ndcg@10"));
-            Double latency = nullableDouble(latencyRow.path("avg_latency_ms"));
-            Double adoption = nullableDouble(summaryRow.path("adoption_rate"));
-            Double rejectionRate = nullableDouble(summaryRow.path("rewrite_rejection_rate"));
-            Double avgConfidenceDelta = nullableDouble(summaryRow.path("avg_confidence_delta"));
-            Map<String, Object> performance = buildRagPerformanceMetrics(
-                    summaryByMode,
-                    latencyByMode,
-                    commandDurationMs,
-                    totalJobDurationMs
-            );
+            Double latency = null;
+            Double adoption = null;
+            Double rejectionRate = null;
+            Double avgConfidenceDelta = null;
+            Map<String, Object> performance = buildRagPerformanceMetrics(answerSummary);
 
             Map<String, Object> metrics = new LinkedHashMap<>();
-            metrics.put("retrieval", retrievalSummary);
+            metrics.put("retrieval", sanitizedRetrievalSummary);
             metrics.put("answer", answerSummary);
             metrics.put("memory", memorySummary);
-            metrics.put("retrieval_by_mode", objectMapper.valueToTree(summaryByMode));
-            metrics.put("latency_by_mode", objectMapper.valueToTree(latencyByMode));
-            metrics.put("representative_mode", summaryRow.path("mode").asText(""));
             metrics.put("performance", objectMapper.valueToTree(performance));
             JsonNode metricsJson = objectMapper.valueToTree(metrics);
             UUID sourceExperimentRunId = asUuid(retrievalSummary.path("experiment_run_id").asText(null));
@@ -672,6 +662,14 @@ public class LlmJobService {
                 metricContributionPayload.put("best_candidate_confidence", row.path("best_candidate_confidence").asDouble(0.0));
                 metricContributionPayload.put("confidence_delta", row.path("confidence_delta").asDouble(0.0));
                 metricContributionPayload.put("rewrite_reason", row.path("rewrite_reason").asText(""));
+                metricContributionPayload.put(
+                        "final_rewrite_latency_ms",
+                        nullableDouble(row.get("final_rewrite_latency_ms"))
+                );
+                metricContributionPayload.put(
+                        "pure_rewrite_latency_ms",
+                        nullableDouble(row.get("pure_rewrite_latency_ms"))
+                );
                 JsonNode metricContribution = objectMapper.valueToTree(metricContributionPayload);
                 boolean hitTarget = row.path("mode_mrr").asDouble(0.0) > 0.0 || row.path("mode_ndcg").asDouble(0.0) > 0.0;
                 details.add(new AdminConsoleDtos.RagTestResultDetailRow(
@@ -720,97 +718,31 @@ public class LlmJobService {
         return meta.userQueryEn() == null ? "" : meta.userQueryEn();
     }
 
-    private Map<String, Object> buildRagPerformanceMetrics(
-            Map<String, JsonNode> summaryByMode,
-            Map<String, JsonNode> latencyByMode,
-            Map<String, Long> commandDurationMs,
-            long totalJobDurationMs
-    ) {
-        long buildMemoryMs = stageDurationMs(commandDurationMs, "build-memory");
-        long evalRetrievalMs = stageDurationMs(commandDurationMs, "eval-retrieval");
-        long evalAnswerMs = stageDurationMs(commandDurationMs, "eval-answer");
-        long stageTotalMs = buildMemoryMs + evalRetrievalMs + evalAnswerMs;
-        long effectiveTotalJobDurationMs = Math.max(totalJobDurationMs, stageTotalMs);
-        long orchestrationOverheadMs = Math.max(0L, effectiveTotalJobDurationMs - stageTotalMs);
-
-        JsonNode representativeSummary = selectRepresentativeModeRow(summaryByMode);
-        JsonNode representativeLatency = selectLatencyRow(representativeSummary, latencyByMode);
-        Double representativeLatencyAvg = nullableDouble(representativeLatency.path("avg_latency_ms"));
-        Double representativeLatencyP95 = nullableDouble(representativeLatency.path("p95_latency_ms"));
-
-        String rewriteMode = selectRewriteMode(summaryByMode);
-        Double rewriteAdoptionRate = null;
-        if (rewriteMode != null) {
-            JsonNode rewriteRow = summaryByMode.get(rewriteMode);
-            rewriteAdoptionRate = nullableDouble(rewriteRow == null ? null : rewriteRow.path("adoption_rate"));
-        }
-        Double rewriteOverheadAvgLatencyMs = computeRewriteOverheadLatencyMs(latencyByMode, rewriteMode);
-
-        Map<String, Object> latencyByModeMs = new LinkedHashMap<>();
-        for (Map.Entry<String, JsonNode> entry : latencyByMode.entrySet()) {
-            JsonNode row = entry.getValue();
-            if (row == null || row.isMissingNode()) {
-                continue;
-            }
-            Map<String, Object> latency = new LinkedHashMap<>();
-            latency.put("avg_latency_ms", nullableDouble(row.path("avg_latency_ms")));
-            latency.put("p95_latency_ms", nullableDouble(row.path("p95_latency_ms")));
-            latencyByModeMs.put(entry.getKey(), latency);
-        }
-
-        Map<String, Object> stageDurationMs = new LinkedHashMap<>();
-        stageDurationMs.put("build_memory_ms", buildMemoryMs);
-        stageDurationMs.put("eval_retrieval_ms", evalRetrievalMs);
-        stageDurationMs.put("eval_answer_ms", evalAnswerMs);
-        stageDurationMs.put("stage_total_ms", stageTotalMs);
-
+    private Map<String, Object> buildRagPerformanceMetrics(JsonNode answerSummary) {
+        JsonNode performanceNode = answerSummary == null
+                ? objectMapper.createObjectNode()
+                : answerSummary.path("performance");
         Map<String, Object> performance = new LinkedHashMap<>();
-        performance.put("total_duration_ms", effectiveTotalJobDurationMs);
-        performance.put("orchestration_overhead_ms", orchestrationOverheadMs);
-        performance.put("stage_duration_ms", stageDurationMs);
-        performance.put("representative_mode", representativeSummary.path("mode").asText(""));
-        performance.put("representative_mode_latency_avg_ms", representativeLatencyAvg);
-        performance.put("representative_mode_latency_p95_ms", representativeLatencyP95);
-        performance.put("rewrite_mode", rewriteMode);
-        performance.put("rewrite_adoption_rate", rewriteAdoptionRate);
-        performance.put("rewrite_overhead_avg_latency_ms", rewriteOverheadAvgLatencyMs);
-        performance.put("latency_by_mode_ms", latencyByModeMs);
+        performance.put(
+                "avg_query_eval_total_latency_ms",
+                nullableDouble(performanceNode.path("avg_query_eval_total_latency_ms"))
+        );
+        performance.put(
+                "avg_final_rewrite_latency_ms",
+                nullableDouble(performanceNode.path("avg_final_rewrite_latency_ms"))
+        );
+        performance.put(
+                "avg_pure_rewrite_latency_ms",
+                nullableDouble(performanceNode.path("avg_pure_rewrite_latency_ms"))
+        );
+        performance.put("eval_sample_count", nullableInteger(performanceNode.path("eval_sample_count")));
+        performance.put("rewrite_sample_count", nullableInteger(performanceNode.path("rewrite_sample_count")));
+        performance.put(
+                "pure_rewrite_sample_count",
+                nullableInteger(performanceNode.path("pure_rewrite_sample_count"))
+        );
+        performance.put("excluded_sample_count", nullableInteger(performanceNode.path("excluded_sample_count")));
         return performance;
-    }
-
-    private Double computeRewriteOverheadLatencyMs(Map<String, JsonNode> latencyByMode, String rewriteMode) {
-        if (rewriteMode == null || rewriteMode.isBlank()) {
-            return null;
-        }
-        JsonNode rawRow = latencyByMode.get("raw_only");
-        JsonNode rewriteRow = latencyByMode.get(rewriteMode);
-        Double rawAvg = nullableDouble(rawRow == null ? null : rawRow.path("avg_latency_ms"));
-        Double rewriteAvg = nullableDouble(rewriteRow == null ? null : rewriteRow.path("avg_latency_ms"));
-        if (rawAvg == null || rewriteAvg == null) {
-            return null;
-        }
-        return rewriteAvg - rawAvg;
-    }
-
-    private String selectRewriteMode(Map<String, JsonNode> summaryByMode) {
-        for (String mode : List.of("selective_rewrite_with_session", "selective_rewrite", "rewrite_always")) {
-            JsonNode row = summaryByMode.get(mode);
-            if (row != null && !row.isMissingNode()) {
-                return mode;
-            }
-        }
-        return null;
-    }
-
-    private long stageDurationMs(Map<String, Long> commandDurationMs, String command) {
-        if (commandDurationMs == null || command == null || command.isBlank()) {
-            return 0L;
-        }
-        Long value = commandDurationMs.get(command);
-        if (value == null) {
-            return 0L;
-        }
-        return Math.max(0L, value);
     }
 
     private long elapsedMillis(long startedAtNano) {
@@ -866,23 +798,15 @@ public class LlmJobService {
         return rowsByMode.values().iterator().next();
     }
 
-    private JsonNode selectLatencyRow(JsonNode summaryRow, Map<String, JsonNode> latencyByMode) {
-        if (summaryRow == null || summaryRow.isMissingNode() || latencyByMode.isEmpty()) {
+    private JsonNode sanitizeRetrievalSummary(JsonNode retrievalSummary) {
+        if (retrievalSummary == null || retrievalSummary.isMissingNode() || !retrievalSummary.isObject()) {
             return objectMapper.createObjectNode();
         }
-        String mode = summaryRow.path("mode").asText("");
-        JsonNode row = latencyByMode.get(mode);
-        if (row == null || row.isMissingNode()) {
-            return objectMapper.createObjectNode();
+        JsonNode sanitized = retrievalSummary.deepCopy();
+        if (sanitized.isObject()) {
+            ((com.fasterxml.jackson.databind.node.ObjectNode) sanitized).remove("latency_summary");
         }
-        return row;
-    }
-
-    private JsonNode firstArrayItem(JsonNode node) {
-        if (node == null || !node.isArray() || node.isEmpty()) {
-            return objectMapper.createObjectNode();
-        }
-        return node.get(0);
+        return sanitized;
     }
 
     private Double nullableDouble(JsonNode node) {
@@ -890,6 +814,13 @@ public class LlmJobService {
             return null;
         }
         return node.asDouble();
+    }
+
+    private Integer nullableInteger(JsonNode node) {
+        if (node == null || node.isMissingNode() || node.isNull() || !node.isNumber()) {
+            return null;
+        }
+        return node.asInt();
     }
 
     private String firstNonBlank(String... values) {

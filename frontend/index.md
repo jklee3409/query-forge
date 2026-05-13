@@ -56,10 +56,10 @@
 - Gating run Rule stage supports configurable Korean-ratio input (`ruleMinKoreanRatio`).
 - RAG run form supports snapshot-based evaluation through `sourceGatingBatchId`, listing all completed snapshots and validating source run/preset/method compatibility at run-time.
 - RAG run form now distinguishes `official` vs `exploratory` discipline, with official bundled comparison controls (`gating_effect` / `rewrite_effect`) and explicit snapshot identity payloads.
-- RAG run detail now exposes retrieval per-mode payload (`retrieval_by_mode`) instead of relying only on single collapsed summary values.
+- RAG run detail now renders the redesigned Performance section from run-level latency metrics only: `avg_query_eval_total_latency_ms`, `avg_final_rewrite_latency_ms`, `avg_pure_rewrite_latency_ms`, with per-metric sample-count basis.
+- Legacy RAG results that do not contain the new latency payload are rendered with a guarded fallback message (`Legacy result (new latency metrics unavailable)`) instead of `NaN`/`undefined` values.
 - RAG page now includes option-meaning helper text, snapshot-method deduplication lock, and two-run visual comparison charts for quality/performance test review.
-- RAG compare chart now uses vertical metric cards, and test-history compare selection uses labeled custom checkbox controls for clearer state visibility.
-- RAG compare area now includes an integrated quality + performance table (delta view) using run-level metrics (`metrics_json.performance`).
+- RAG compare area now uses the same three latency metrics in both overview cards and the integrated quality/performance comparison table.
 - RAG run form supports `Synthetic-free baseline` mode that disables snapshot/method/gating/rewrite controls and sends baseline-only payload fields to backend.
 - Global admin theme/layout has been refreshed to a modern production-style dashboard aesthetic via `App.jsx` + `styles.css`.
 - Gating funnel summary cards support method-based filtering (`전체 + DB 등록 전략 코드`).

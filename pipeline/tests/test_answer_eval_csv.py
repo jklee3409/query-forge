@@ -17,6 +17,9 @@ class AnswerEvalCsvTests(unittest.TestCase):
                 "rewrite_llm_attempted": True,
                 "rewrite_llm_succeeded": False,
                 "rewrite_heuristic_fallback_used": True,
+                "query_eval_total_latency_ms": 1234.5,
+                "final_rewrite_latency_ms": None,
+                "pure_rewrite_latency_ms": 456.7,
             }
         ]
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -29,12 +32,18 @@ class AnswerEvalCsvTests(unittest.TestCase):
                 self.assertIn("rewrite_llm_attempted", fieldnames)
                 self.assertIn("rewrite_llm_succeeded", fieldnames)
                 self.assertIn("rewrite_heuristic_fallback_used", fieldnames)
+                self.assertIn("query_eval_total_latency_ms", fieldnames)
+                self.assertIn("final_rewrite_latency_ms", fieldnames)
+                self.assertIn("pure_rewrite_latency_ms", fieldnames)
                 written = next(reader)
 
             self.assertEqual(written["sample_id"], "sample-1")
             self.assertEqual(written["rewrite_llm_attempted"], "True")
             self.assertEqual(written["rewrite_llm_succeeded"], "False")
             self.assertEqual(written["rewrite_heuristic_fallback_used"], "True")
+            self.assertEqual(written["query_eval_total_latency_ms"], "1234.5")
+            self.assertEqual(written["final_rewrite_latency_ms"], "")
+            self.assertEqual(written["pure_rewrite_latency_ms"], "456.7")
 
 
 if __name__ == "__main__":

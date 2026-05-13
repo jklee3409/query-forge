@@ -3,6 +3,12 @@
 ## Overview
 High-level pipeline progress tracking.
 
+## [2026-05-13] Session Summary (RAG Latency Measurement Redesign for Answer Eval)
+- What was done: Added per-sample latency measurement for `query_eval_total_latency_ms`, `final_rewrite_latency_ms`, and `pure_rewrite_latency_ms` across `eval/runtime.py` and `eval/answer_eval.py`, then aggregated them into run-level averages with `eval_sample_count`, `rewrite_sample_count`, `pure_rewrite_sample_count`, and `excluded_sample_count`. Extended answer-eval CSV coverage to tolerate and verify the new fields.
+- Key decisions: `avg_final_rewrite_latency_ms` is averaged only over samples where rewrite was actually applied/finalized; `avg_pure_rewrite_latency_ms` is averaged only over samples where the rewrite LLM call actually happened; legacy runs are not backfilled from retrieval latency summaries or rewrite-overhead deltas.
+- Issues encountered: None in runtime logic; validation continued through targeted `unittest` because full project build/test was intentionally out of scope.
+- Next steps: Use the next fresh RAG evaluation run to inspect how often `excluded_sample_count` stays at zero under normal answer-eval completion.
+
 ## [2026-05-12] Session Summary (Short-User Memory-Target Guard for Generic Rewrite Rejection)
 - What was done: Added lightweight content-token based `memory target` scoring in `eval/runtime.py` so short-user rewrites can derive compact target anchors from the top memory query/glossary, reject underspecified generic rewrites that omit those anchors (`missing_memory_target`), and reward candidates that add them. Extended `common/experiment_config.py` with policy knobs (`underspecified_memory_norm_cutoff`, `memory_target_missing`, `memory_target_presence`) and added regression tests in `tests/test_eval_runtime.py`.
 - Key decisions: Kept this as a runtime-only heuristic layer with no extra LLM calls, no extra DB queries, and no prompt change, so low-spec laptop evaluation cost stays flat.

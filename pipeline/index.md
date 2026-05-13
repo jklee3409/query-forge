@@ -48,8 +48,9 @@ Python pipeline for data processing, synthetic query generation, quality gating,
 - Short-user rewrite scoring now derives lightweight `memory target` content tokens from the top memory query/glossary, rejects underspecified generic rewrites that omit those targets under strong memory confidence, and rewards candidates that add the missing target anchor without extra LLM or DB work.
 - Cohere rerank fallback returns no artificial relevance scores; callers preserve local hybrid ranking when external rerank is unavailable.
 - Synthetic-free baseline config (`synthetic_free_baseline=true`) is supported with `build-memory` no-op and eval-time memory loading bypass for raw-only baseline execution.
-- Retrieval eval supports official bundled comparison modes with per-preset snapshot mapping (`comparison_snapshots`) and preserves per-mode summaries/latencies.
-- Answer eval outputs explicit end-to-end metrics required by AGENTS 3.6 (`correctness`, `grounding`, `hallucination_rate`) alongside legacy overlap metrics.
+- Retrieval eval supports official bundled comparison modes with per-preset snapshot mapping (`comparison_snapshots`) and preserves per-mode quality summaries; deprecated retrieval-side latency aggregates are no longer used by stored RAG Performance payloads.
+- Answer eval now records per-sample latency fields (`query_eval_total_latency_ms`, `final_rewrite_latency_ms`, `pure_rewrite_latency_ms`) and writes the corresponding averaged run-level payload (`avg_query_eval_total_latency_ms`, `avg_final_rewrite_latency_ms`, `avg_pure_rewrite_latency_ms`) with sample counts and exclusion count.
+- Legacy RAG results are not backfilled from old retrieval latency rows or rewrite-overhead math; the new latency payload exists only for newly executed runs.
 - Answer eval CSV export is additive-field tolerant: detail CSV fieldnames are auto-extended from row payload keys so newly introduced rewrite observability columns do not fail `eval-answer`.
 - Memory build and eval-dataset sampling now require valid corpus joins (`corpus_documents`/`corpus_chunks`) to block stale ID propagation.
 - Eval runtime chunk loading excludes orphan chunks by joining `corpus_documents`, and import skips chunk rows with missing corpus document references.

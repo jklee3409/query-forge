@@ -6,6 +6,7 @@ import math
 import os
 import re
 import threading
+import time
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -96,6 +97,8 @@ class RewriteOutcome:
     rewrite_llm_attempted: bool = False
     rewrite_llm_succeeded: bool = False
     rewrite_heuristic_fallback_used: bool = False
+    final_rewrite_latency_ms: float | None = None
+    pure_rewrite_latency_ms: float | None = None
 
 
 _REWRITE_CLIENT: LlmClient | None = None
@@ -1190,6 +1193,7 @@ def build_rewrite_candidates_v2(
             max_terms=rewrite_terminology_hints_max_count,
         )
     try:
+        llm_started = time.perf_counter()
         response = _rewrite_client().chat_json(
             system_prompt=_rewrite_prompt_text(),
             user_prompt=json.dumps(
@@ -1201,7 +1205,11 @@ def build_rewrite_candidates_v2(
             request_purpose="selective_rewrite",
             trace_id=trace_id,
         )
+        if rewrite_runtime_stats is not None:
+            rewrite_runtime_stats["pure_rewrite_latency_ms"] = (time.perf_counter() - llm_started) * 1000.0
     except Exception as exception:
+        if rewrite_runtime_stats is not None:
+            rewrite_runtime_stats["pure_rewrite_latency_ms"] = (time.perf_counter() - llm_started) * 1000.0
         return _handle_failure(exception)
     candidate_rows = response.get("candidates")
     if not isinstance(candidate_rows, list):
@@ -1637,7 +1645,12 @@ def run_selective_rewrite(
     # 3) memory alignment
     # 4) verbosity + preservation penalties
     # Final adoption is gated by configurable thresholds/floors (category-aware).
+    #
+    # final_rewrite_latency_ms:
+    #   measured from rewrite-stage entry through candidate validation/scoring and
+    #   final rewrite-query adoption decision, excluding downstream answer scoring.
     config = retriever_config or build_retriever_config({})
+    rewrite_started = time.perf_counter()
     memory_items = memory_top_n(
         raw_query,
         memories,
@@ -1712,6 +1725,11 @@ def run_selective_rewrite(
     rewrite_llm_attempted = rewrite_runtime_stats.get("llm_attempted_count", 0) > 0
     rewrite_llm_succeeded = rewrite_runtime_stats.get("llm_success_count", 0) > 0
     rewrite_heuristic_fallback_used = rewrite_runtime_stats.get("heuristic_fallback_count", 0) > 0
+    pure_rewrite_latency_ms = (
+        float(rewrite_runtime_stats["pure_rewrite_latency_ms"])
+        if "pure_rewrite_latency_ms" in rewrite_runtime_stats
+        else None
+    )
     anchor_context = _build_rewrite_anchor_candidates(
         raw_query=raw_query,
         query_language=query_language,
@@ -1854,6 +1872,7 @@ def run_selective_rewrite(
             best_eligible_candidate = candidate
 
     if best_candidate is None:
+        rewrite_elapsed_ms = (time.perf_counter() - rewrite_started) * 1000.0
         return (
             RewriteOutcome(
                 final_query=raw_query,
@@ -1866,6 +1885,8 @@ def run_selective_rewrite(
                 rewrite_llm_attempted=rewrite_llm_attempted,
                 rewrite_llm_succeeded=rewrite_llm_succeeded,
                 rewrite_heuristic_fallback_used=rewrite_heuristic_fallback_used,
+                final_rewrite_latency_ms=None,
+                pure_rewrite_latency_ms=pure_rewrite_latency_ms,
             ),
             raw_retrieval,
         )
@@ -1900,6 +1921,7 @@ def run_selective_rewrite(
         if selected_rejection_reason
         else "delta_below_threshold"
     )
+    rewrite_elapsed_ms = (time.perf_counter() - rewrite_started) * 1000.0
 
     return (
         RewriteOutcome(
@@ -1947,6 +1969,8 @@ def run_selective_rewrite(
             rewrite_llm_attempted=rewrite_llm_attempted,
             rewrite_llm_succeeded=rewrite_llm_succeeded,
             rewrite_heuristic_fallback_used=rewrite_heuristic_fallback_used,
+            final_rewrite_latency_ms=rewrite_elapsed_ms if should_apply else None,
+            pure_rewrite_latency_ms=pure_rewrite_latency_ms,
         ),
         final_retrieval,
     )

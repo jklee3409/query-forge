@@ -3,6 +3,12 @@
 ## Overview
 High-level backend progress tracking.
 
+## [2026-05-13] Session Summary (RAG Performance Payload Redesign)
+- What was done: Updated `LlmJobService` RAG finalization so `metrics_json.performance` now exposes only the new latency trio (`avg_query_eval_total_latency_ms`, `avg_final_rewrite_latency_ms`, `avg_pure_rewrite_latency_ms`) and sample counts. Deprecated retrieval-side latency payloads are sanitized out of stored retrieval summaries, and legacy summary response payloads no longer expose removed performance fields.
+- Key decisions: Deprecated acceptance/rejection/confidence-delta summary columns are no longer populated for new RAG summary writes; no fallback recomputation from representative mode or rewrite-overhead math was added.
+- Issues encountered: None.
+- Next steps: When a backend-side RAG summary DTO cleanup or migration is scheduled, the deprecated DB columns can be formally dropped instead of left null-populated.
+
 ## [2026-05-11] Session Summary (RAG Run Preflight Ordering: No Planned Run on 400)
 - What was done: Moved `runRagTest` rewrite-stage preflight validation ahead of `rag_test_run` row creation so `400 Bad Request` cases (e.g., missing rewrite API key) no longer leave `planned` run residue.
 - Key decisions: Kept request-validation semantics unchanged and limited the change to operation ordering (`validateRewriteStageLlmConfig` before `createRagTestRun`).

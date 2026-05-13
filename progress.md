@@ -57,6 +57,12 @@
 ## Overview
 High-level progress tracking for the project.
 
+## [2026-05-13] Session Summary (RAG Performance Metric Redesign: New Latency Trio + Legacy Guard)
+- What was done: Reworked RAG test Performance handling end-to-end so new runs persist and render only `avg_query_eval_total_latency_ms`, `avg_final_rewrite_latency_ms`, and `avg_pure_rewrite_latency_ms`. Added per-sample latency capture in pipeline answer/rewrite runtime, sample-count metadata (`eval/rewrite/pure_rewrite/excluded`), backend API sanitization of deprecated latency payloads, and frontend legacy-result fallback rendering.
+- Key decisions: Did not backfill legacy runs from `rewrite_overhead`, `representative_mode`, or retrieval per-mode latency rows. New latency metrics are source-of-truth only for newly executed runs; old results remain readable but explicitly marked legacy.
+- Issues encountered: `RagPage.jsx` contains mixed-encoding historical strings, so the frontend update required safe block replacement plus a build pass to catch one broken summary-card literal.
+- Next steps: Re-run a fresh Admin RAG test and confirm operators can compare the three new latency cards against a legacy run in the same history table.
+
 ## [2026-05-11] Session Summary (F/G Generate-queries MAX_TOKENS 절단 해결: 범위 한정 패치)
 - What was done: Applied a scoped pipeline fix so only `F/G` Korean summary generation path hardens against truncation with (1) summary output-token floor `2048` and (2) truncation-only retry using progressively shortened source text candidates.
 - Key decisions: Avoided broad refactor and preserved generation strategy/prompt semantics; changes are limited to explicit failing path and only trigger on `category=max_tokens_truncated`.

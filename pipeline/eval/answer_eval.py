@@ -3,9 +3,11 @@ from __future__ import annotations
 import csv
 import json
 import logging
+import math
 import os
 import re
 import statistics
+import time
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
 from typing import Any
@@ -95,6 +97,51 @@ def _write_csv(path: Path, rows: list[dict[str, Any]], fieldnames: list[str]) ->
             writer.writerow(row)
 
 
+def _normalize_latency_ms(value: Any) -> float | None:
+    if value is None:
+        return None
+    try:
+        parsed = float(value)
+    except (TypeError, ValueError):
+        return None
+    if not math.isfinite(parsed) or parsed < 0.0:
+        return None
+    return parsed
+
+
+def _average_latency_ms(values: list[Any]) -> tuple[float | None, int]:
+    normalized = [
+        latency
+        for latency in (_normalize_latency_ms(value) for value in values)
+        if latency is not None
+    ]
+    if not normalized:
+        return None, 0
+    return _mean(normalized), len(normalized)
+
+
+def _build_latency_summary(sample_rows: list[dict[str, Any]]) -> dict[str, Any]:
+    total_sample_count = len(sample_rows)
+    avg_query_eval_total_latency_ms, eval_sample_count = _average_latency_ms(
+        [row.get("query_eval_total_latency_ms") for row in sample_rows]
+    )
+    avg_final_rewrite_latency_ms, rewrite_sample_count = _average_latency_ms(
+        [row.get("final_rewrite_latency_ms") for row in sample_rows]
+    )
+    avg_pure_rewrite_latency_ms, pure_rewrite_sample_count = _average_latency_ms(
+        [row.get("pure_rewrite_latency_ms") for row in sample_rows]
+    )
+    return {
+        "avg_query_eval_total_latency_ms": avg_query_eval_total_latency_ms,
+        "avg_final_rewrite_latency_ms": avg_final_rewrite_latency_ms,
+        "avg_pure_rewrite_latency_ms": avg_pure_rewrite_latency_ms,
+        "eval_sample_count": eval_sample_count,
+        "rewrite_sample_count": rewrite_sample_count,
+        "pure_rewrite_sample_count": pure_rewrite_sample_count,
+        "excluded_sample_count": max(0, total_sample_count - eval_sample_count),
+    }
+
+
 def _resolve_eval_concurrency(raw_config: dict[str, Any]) -> int:
     value = (
         raw_config.get("answer_eval_concurrency")
@@ -135,6 +182,10 @@ def _evaluate_answer_sample(
     source_gating_run_id: str | None,
     memory_strategy_filters: list[str],
 ) -> dict[str, Any]:
+    # query_eval_total_latency_ms:
+    #   measured from per-sample evaluation entry through answer text/metric/sample-row
+    #   assembly, excluding later DB flush / CSV write / report serialization.
+    started = time.perf_counter()
     if rewrite_enabled:
         rewrite_outcome, retrieval = run_selective_rewrite(
             raw_query=sample.query_text,
@@ -173,6 +224,8 @@ def _evaluate_answer_sample(
             best_candidate_confidence=0.0,
             memory_top_n=[],
             candidates=[],
+            final_rewrite_latency_ms=None,
+            pure_rewrite_latency_ms=None,
         )
     reranked = rerank_retrieval_candidates(
         rewrite_outcome.final_query if rewrite_enabled else sample.query_text,
@@ -217,6 +270,10 @@ def _evaluate_answer_sample(
         "context_recall": context_recall,
         "rewrite_applied": rewrite_outcome.rewrite_applied,
     }
+    query_eval_total_latency_ms = (time.perf_counter() - started) * 1000.0
+    metrics["query_eval_total_latency_ms"] = query_eval_total_latency_ms
+    metrics["final_rewrite_latency_ms"] = rewrite_outcome.final_rewrite_latency_ms
+    metrics["pure_rewrite_latency_ms"] = rewrite_outcome.pure_rewrite_latency_ms
     return {
         "sample": sample,
         "metrics": metrics,
@@ -229,6 +286,9 @@ def _evaluate_answer_sample(
             "rewrite_llm_attempted": bool(rewrite_outcome.rewrite_llm_attempted),
             "rewrite_llm_succeeded": bool(rewrite_outcome.rewrite_llm_succeeded),
             "rewrite_heuristic_fallback_used": bool(rewrite_outcome.rewrite_heuristic_fallback_used),
+            "query_eval_total_latency_ms": query_eval_total_latency_ms,
+            "final_rewrite_latency_ms": rewrite_outcome.final_rewrite_latency_ms,
+            "pure_rewrite_latency_ms": rewrite_outcome.pure_rewrite_latency_ms,
             **metrics,
         },
         "reranked": reranked,
@@ -458,6 +518,7 @@ def run_answer_eval(
             "context_recall": _mean([row["context_recall"] for row in sample_rows]),
             "rewrite_adoption_rate": _mean([1.0 if row["rewrite_applied"] else 0.0 for row in sample_rows]),
         }
+        performance = _build_latency_summary(sample_rows)
         rewrite_generation_stats = {
             "rewrite_llm_attempted_count": sum(1 for row in sample_rows if row.get("rewrite_llm_attempted")),
             "rewrite_llm_success_count": sum(1 for row in sample_rows if row.get("rewrite_llm_succeeded")),
@@ -493,6 +554,7 @@ def run_answer_eval(
             "rewrite_heuristic_fallback_count": int(rewrite_generation_stats["rewrite_heuristic_fallback_count"]),
             "rewrite_generation_stats": rewrite_generation_stats,
             "summary": summary,
+            "performance": performance,
             "sample_count": len(sample_rows),
         }
         output_root.mkdir(parents=True, exist_ok=True)
@@ -526,6 +588,9 @@ def run_answer_eval(
                 "context_precision",
                 "context_recall",
                 "rewrite_applied",
+                "query_eval_total_latency_ms",
+                "final_rewrite_latency_ms",
+                "pure_rewrite_latency_ms",
             ],
         )
 
