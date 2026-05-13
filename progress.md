@@ -1,5 +1,41 @@
 # progress.md
 
+## [2026-05-13] Session Summary (Synthetic Strategy Flow Slider + KR Label Fix)
+- What was done: Corrected frontend-only `/admin/synthetic-queries` strategy flow labels by replacing visible `KO` with `KR`, fixing B/F flow descriptions, and adding overflow-aware auto-slide behavior for long strategy pipelines inside cards.
+- Key decisions: Kept method codes, backend APIs, request payloads, generation pipeline behavior, and research strategy semantics unchanged.
+- Issues encountered: Root `progress.md` already contained unrelated local dataset/script notes in the working tree; this entry was added without touching those files.
+- Next steps: Browser-smoke the synthetic strategy card grid at desktop and narrow widths.
+
+## [2026-05-13] Session Summary (Admin Sidebar Spacing + AI Ops Core Emphasis)
+- What was done: Polished the frontend sidebar only by increasing spacing between nav icons and labels, slightly enlarging nav icons, and making the `AI Ops Core` presence card larger with stronger signal size, glow, contrast, and typography.
+- Key decisions: CSS-only UI adjustment. Navigation routes, React state, backend APIs, pipeline flow, and gating logic were unchanged.
+- Issues encountered: `npm run build` passed and refreshed generated React static assets.
+- Next steps: Visual-smoke the sidebar in dark mode to confirm nav labels no longer feel cramped and the AI Ops Core card remains balanced with the brand block.
+
+## [2026-05-13] Session Summary (Quality Gating Runtime Context Spacing Polish)
+- What was done: Tightened `/admin/quality-gating` Runtime Context spacing by grouping source-selection controls separately from strategy-runtime controls, preventing stretched console height from expanding same-control gaps while keeping larger separation between different content groups.
+- Key decisions: Frontend layout/CSS-only adjustment. Gating API, request payloads, backend validation, pipeline execution, and gating logic were unchanged.
+- Issues encountered: `npm run build` passed and refreshed generated React static assets.
+- Next steps: Browser-smoke Runtime Context with populated batch lists to confirm compact same-group rhythm and clearer cross-group separation.
+
+## [2026-05-13] Session Summary (Quality Gating Launch Placement Polish)
+- What was done: Moved the `/admin/quality-gating` Launch panel from the left runtime context rail to the right-side runtime column bottom, keeping the final threshold and execution button together at the natural end of the operator scan path.
+- Key decisions: Frontend layout-only adjustment. Gating request payloads, API contracts, backend validation, pipeline execution, and gating logic were unchanged.
+- Issues encountered: `npm run build` passed and refreshed generated React static assets.
+- Next steps: Browser-smoke the Gating page at desktop/tablet widths to confirm the Launch panel remains easy to find after retriever/active-config review.
+
+## [2026-05-13] Session Summary (Quality Gating Runtime Console UX Redesign)
+- What was done: Redesigned `/admin/quality-gating` as a frontend-only runtime console. Replaced the single vertical settings dump with a three-zone layout for runtime context/launch, gate network, retriever/active config; grouped utility scoring into Top-K Retrieval, Document Consistency, and Penalty/Bonus panels; added stage-linked enabled/disabled surfaces, pipeline state chips, capability chips, stronger launch feedback, and dark layered console styling.
+- Key decisions: Kept backend API, DTO/schema, pipeline execution, gating payload keys, runtime option loading, and gating semantics unchanged. The production React build refreshed only generated static frontend assets under backend resources.
+- Issues encountered: `npm run build` passed. `npm run lint` still fails on the existing `vite.config.js` `process` no-undef error and pre-existing hook dependency warnings.
+- Next steps: Browser-smoke `/admin/quality-gating` with live runtime options and batches in dark mode, especially multi-batch selection, disabled gate fields, retriever mode switching, and launch disabled/queued states.
+
+## [2026-05-13] Session Summary (Frontend AI Console Theme System Refresh)
+- What was done: Implemented a frontend-only AI console visual refresh with explicit light/dark theme tokens, persisted theme toggle, system-theme bootstrap, sidebar AI Ops Core presence, customized control styling, and dark-surface normalization across admin cards/forms/tables/modals/dropdowns.
+- Key decisions: Kept backend API, DTO/schema, database, pipeline, evaluation, synthetic generation, snapshot, dataset, and experiment-flow contracts unchanged. The production frontend build only refreshed generated static React assets under backend resources.
+- Issues encountered: `npm run build` passed. `npm run lint` still fails on the existing `vite.config.js` `process` no-undef error and pre-existing hook dependency warnings. Existing unrelated worktree changes in `data/` and `scripts/` were left untouched.
+- Next steps: Browser-smoke the four admin routes in both themes with live data, especially native select/checkbox/number/range controls and dense RAG comparison tables.
+
 ## [2026-05-13] Session Summary (Admin UI Polish: Strategy Density, Dark Selected States, Korean Copy)
 - What was done: Polished the React admin UI presentation layer only. Simplified synthetic strategy cards to code/status/compact flow/prompt/query count, normalized selected-state color tokens for dark mode, localized new admin shell/Synthetic/RAG/Gating/shared UI text to Korean-first wording, and emphasized run/delete actions with semantic success/danger button variants.
 - Key decisions: Kept backend APIs, DTOs, eval/dataset/snapshot contracts, strategy semantics, generation/gating/rewrite/evaluation logic, and request payload fields unchanged. Applied the dark-mode fix at shared token/variant level instead of one-off page patches.
@@ -622,6 +658,12 @@ High-level progress tracking for the project.
 - Key decisions: Kept DB schema unchanged and implemented ETA as read-time derived values; for gating ETA target counts now resolve from multi-source batch IDs in `stage_config_json` instead of single-batch-only assumptions.
 - Issues encountered: Existing admin UI tables had no shared ETA renderer and one job-table file had encoding-drifted labels, so component-level consolidation and table refresh were required together.
 - Next steps: Monitor ETA accuracy under real workloads (especially long eval-answer runs) and tune historical sample windows/compact rendering density from operator feedback.
+
+## [2026-05-13] Session Summary (Short-User 80 Dataset Grounding Refinement)
+- What was done: Added `scripts/audit_short_user_dataset.py` and `scripts/refine_short_user_dataset.py`, refreshed `data/eval/human_eval_short_user_test_80.jsonl`, and rewrote dataset `b2d47254-8655-4c9c-81ac-7615677ec5bd` in DB with stronger short-query wording, grounded answer key points, and corrected `expected_chunk_ids` for misaligned samples.
+- Key decisions: Preserved dataset ID/key, sample IDs, synthetic provenance metadata, and legacy schema while using the frozen snapshot report `data/reports/short_user_current_dump_2026-05-13.json` as the deterministic refinement baseline.
+- Issues encountered: Many existing samples were structurally valid for pipeline loading but weakly grounded (`Overlap context...`, summary-only chunks, wrong schema sections), so the refinement split query rewriting from chunk retargeting and only changed `expected_chunk_ids` where actual corpus chunk text justified it.
+- Next steps: Use the new pre/post audit reports and refinement report for manual spot QA on residual compressed-query edge cases before the next rewrite-effect comparison run.
 
 ---
 
