@@ -600,12 +600,12 @@ export function PipelinePage({ notify }) {
             })}
           </div>
         </div>
-        <div className="toolbar">
+        <div className="toolbar pipeline-run-toolbar">
           <button type="button" className="button button--primary" disabled={busyRunType === 'collect'} onClick={() => triggerPipeline('collect')}>문서 수집</button>
           <button type="button" className="button button--primary" disabled={busyRunType === 'normalize'} onClick={() => triggerPipeline('normalize')}>문서 정제</button>
           <button type="button" className="button button--primary" disabled={busyRunType === 'chunk'} onClick={() => triggerPipeline('chunk')}>청킹</button>
           <button type="button" className="button button--primary" disabled={busyRunType === 'glossary'} onClick={() => triggerPipeline('glossary')}>용어 추출</button>
-          <button type="button" className="button" disabled={busyRunType === 'full_ingest'} onClick={() => triggerPipeline('full_ingest')}>전체 실행</button>
+          <button type="button" className="button button--success" disabled={busyRunType === 'full_ingest'} onClick={() => triggerPipeline('full_ingest')}>전체 실행</button>
         </div>
       </section>
 

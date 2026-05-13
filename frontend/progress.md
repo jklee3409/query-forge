@@ -3,6 +3,18 @@
 ## Overview
 High-level progress tracking for the project.
 
+## [2026-05-13] Session Summary (RAG Compare Readability Polish)
+- What was done: Updated `/admin/rag-tests` comparison UI so top summary cards omit verbose meta text, latency fast/slow results get direct tone coloring, detailed comparison table sections are separated by spacer rows and group-tinted borders, and dark-mode secondary text tokens are brighter.
+- Key decisions: UI/CSS-only refinement plus small JSX rendering changes. Existing metric extraction, delta math, run selection, API calls, and backend contracts were preserved.
+- Issues encountered: `npm run build` passed and regenerated backend-served React assets.
+- Next steps: Browser-smoke dark-mode compare with two completed runs and verify `답변 품질` remains visually distinct from `검색 품질` and `성능`.
+
+## [2026-05-13] Session Summary (Pipeline Monitor Execution Toolbar Spacing)
+- What was done: Updated `/admin/pipeline` so the execution-control toolbar has an explicit top margin below the source picker, and changed the 전체 실행 button to `button--success` to match the topbar `Run Retrieval Eval` action color.
+- Key decisions: UI-only adjustment in `PipelinePage.jsx` and `styles.css`; the existing `triggerPipeline('full_ingest')` API flow and other stage buttons were preserved.
+- Issues encountered: `npm run build` passed and regenerated backend-served React assets.
+- Next steps: Browser-smoke the Pipeline Monitor at desktop and narrower widths to confirm the new spacing remains balanced.
+
 ## [2026-05-13] Session Summary (Synthetic Strategy Flow Slider + KR Label Fix)
 - What was done: Updated `/admin/synthetic-queries` strategy flow labels so `KO` is consistently shown as `KR`, corrected B to `EN Doc -> KR Doc -> KR Summary -> KR Query`, and corrected F to `KR Doc -> KR Summary -> KR Query -> EN Query`. Strategy flow chips now measure overflow and automatically slide within the card when the full pipeline exceeds the available width.
 - Key decisions: Frontend display-only change. Synthetic method IDs, backend method metadata, request payloads, generation strategy semantics, and pipeline logic were unchanged.
@@ -312,6 +324,24 @@ High-level progress tracking for the project.
 - Key decisions: Centralized duration/rate/progress formatting in one utility layer and used a single UI component with compact/default variants so ETA rendering remains consistent across admin surfaces.
 - Issues encountered: Existing `LlmJobsTable.jsx` contained encoding-drifted labels; it was normalized and rebuilt while preserving job action behavior.
 - Next steps: Collect operator feedback on ETA readability/density and tune compact mode spacing/labels if needed.
+
+## [2026-05-13] Session Summary (RAG Dataset-Scoped Strategy Options)
+- What was done: Added dataset-scoped option filtering in `src/pages/RagPage.jsx`: Python KR short-user eval datasets now show only F/G strategy chips and F/G gating snapshots, while Spring/default eval datasets show only A/B/C/D/E.
+- Key decisions: Used dataset key/name/profile hints to mirror backend scope rules and sanitize stale selected methods/snapshots whenever the selected dataset changes.
+- Issues encountered: Source snapshot selection previously listed all completed snapshots and relied on incompatible labels plus submit-time validation, which was too noisy for fixed-scope eval datasets.
+- Next steps: Verify the form with Python KR KO/EN, Spring KR KO/EN, and `human_eval_default` datasets against real gating snapshot rows.
+
+## [2026-05-13] Session Summary (RAG Compare Dock + Detail Cards)
+- What was done: Updated `src/pages/RagPage.jsx` and `src/styles.css` so selected RAG compare runs appear in a fixed bottom dock with individual/clear removal actions, and RAG run details render metric contribution, memory candidates, rewrite candidates, and retrieved chunks as structured cards instead of raw JSON.
+- Key decisions: Reused existing run labels/secondary labels and theme tokens; detail disclosure text now relies on semantic `text-primary`/`text-secondary` colors for dark-mode readability.
+- Issues encountered: `npm run lint` is blocked by the existing `vite.config.js` `process` no-undef error; the touched `RagPage.jsx` file passes without new errors and only existing hook dependency warnings remain.
+- Next steps: Verify the fixed dock does not obscure table pagination on small screens and confirm detail cards with large memory/chunk payloads remain scannable.
+
+## [2026-05-13] Session Summary (Synthetic Strategy Source Scope UX)
+- What was done: Updated `src/pages/SyntheticPage.jsx` so the selected synthetic generation strategy has a visible selected badge/summary, source options are filtered by A-E vs F/G scope, and "전체 허용 소스" sends only scoped source IDs. `arahansa-github-io-docs-spring` is filtered out before rendering and request construction.
+- Key decisions: Used frontend allowlists matching backend source policy and fan out all-source runs into per-source POST requests because the existing API accepts a single `sourceId`.
+- Issues encountered: Source-document mode remains single-source by design; the document selector is disabled until a scoped source is selected.
+- Next steps: Smoke-test strategy switching, all-source launch request bodies, and chunk sampling/limit placeholder readability in dark mode.
 
 ---
 

@@ -3,6 +3,18 @@
 ## Overview
 High-level backend progress tracking.
 
+## [2026-05-13] Session Summary (RAG Compare Static UI Bundle Refresh)
+- What was done: Refreshed the backend-served React static bundle after the frontend `/admin/rag-tests` comparison summary/table readability changes.
+- Key decisions: No backend Java API, DTO, service, repository, migration, or RAG evaluation behavior changed.
+- Issues encountered: Frontend `npm run build` passed and produced new static asset hashes under `src/main/resources/static/react`.
+- Next steps: Serve the refreshed admin bundle and visually verify the RAG compare workspace in the active backend environment.
+
+## [2026-05-13] Session Summary (Pipeline Monitor Static UI Bundle Refresh)
+- What was done: Refreshed the backend-served React static bundle after the frontend `/admin/pipeline` execution toolbar spacing and 전체 실행 button color adjustment.
+- Key decisions: No backend Java API, DTO, service, repository, migration, or pipeline execution behavior changed.
+- Issues encountered: Frontend `npm run build` passed and produced new static asset hashes under `src/main/resources/static/react`.
+- Next steps: Serve the refreshed admin bundle and visually verify `/admin/pipeline` in the active backend environment.
+
 ## [2026-05-13] Session Summary (LLM Job Type Constraint Hotfix for Chunk Embedding Materialization)
 - What was done: Added Flyway `V30__allow_materialize_chunk_embeddings_llm_job_type.sql` to recreate `llm_job_job_type_check` with `MATERIALIZE_CHUNK_EMBEDDINGS` included, and centralized Java-side job type definitions in `LlmJobType` so `LlmJobService` no longer hardcodes the new materialization type ad hoc.
 - Key decisions: Fixed the production failure with an additive migration instead of editing old applied migration `V16`, so existing databases can migrate forward cleanly without document/pipeline rework.
@@ -328,6 +340,24 @@ High-level backend progress tracking.
 - Key decisions: Kept schema unchanged and implemented ETA as read-time derived values; for gating, target query count now resolves from multi-source batch IDs (`stage_config_json.source_generation_batch_ids`) instead of single-batch assumptions.
 - Issues encountered: Legacy UI/API payloads had no ETA primitives for RAG/gating, so mapping/query layers required additive field expansion while preserving existing contracts.
 - Next steps: Monitor ETA stability against real workloads and tune historical sample windows if operator-observed variance is high.
+
+## [2026-05-13] Session Summary (Admin React Static Bundle Refresh)
+- What was done: Rebuilt the Admin React static bundle after RAG dataset-scoped strategy filtering changes, updating `src/main/resources/static/react/index.html` and hashed assets.
+- Key decisions: Left backend Java validation unchanged because `AdminConsoleService` already enforces dataset method scope for RAG runs.
+- Issues encountered: The frontend bundle hash changed as expected after the RAG form update.
+- Next steps: Serve the backend app and smoke-test `/admin/rag-tests` dataset switching against the bundled static UI.
+
+## [2026-05-13] Session Summary (Admin React Bundle Refresh - RAG Detail UI)
+- What was done: Rebuilt the Admin React static bundle after RAG compare dock and run-detail readability updates, replacing the hashed JS/CSS assets referenced by `src/main/resources/static/react/index.html`.
+- Key decisions: No backend API/DTO changes were needed because the existing RAG detail payload already contains the candidate, metric, and chunk JSON nodes.
+- Issues encountered: Static asset hashes changed as expected after the frontend rebuild.
+- Next steps: Serve the backend app and smoke-test `/admin/rag-tests` detail modal in dark mode.
+
+## [2026-05-13] Session Summary (Synthetic Source Allowlist Guard)
+- What was done: Added synthetic-generation source allowlist validation in `AdminConsoleService` so A/B/C/D/E accept only the five Spring reference sources, F/G accepts only `docs-python-org-ko-3-14`, and `arahansa-github-io-docs-spring` is rejected for method listing and run creation.
+- Key decisions: Preserved the single-source request DTO and enforced the new policy at service validation rather than adding multi-source API shape.
+- Issues encountered: None in backend compile; the frontend build refreshed the bundled React assets under `src/main/resources/static/react`.
+- Next steps: Confirm real Admin GUI launch configs contain only the allowed `source_id` values for each strategy family.
 
 ---
 

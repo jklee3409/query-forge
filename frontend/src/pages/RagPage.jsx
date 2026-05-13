@@ -57,6 +57,46 @@ function retrieverModeLabel(mode) {
   return mode || '-'
 }
 
+const SPRING_TECHDOC_METHOD_CODES = ['A', 'B', 'C', 'D', 'E']
+const PYTHON_KR_METHOD_CODES = ['F', 'G']
+
+function normalizeStrategyHint(value) {
+  return String(value || '').trim().toLowerCase()
+}
+
+function normalizeStrategyMethodCode(value) {
+  return String(value || '').trim().toUpperCase()
+}
+
+function resolveDatasetAllowedMethodCodes(dataset) {
+  if (!dataset) return null
+  const datasetKey = normalizeStrategyHint(dataset.datasetKey)
+  const datasetName = normalizeStrategyHint(dataset.datasetName)
+  const strategyProfile = normalizeStrategyHint(
+    dataset.strategyProfile || dataset.metadataStrategyProfile || dataset.metadata?.strategy_profile,
+  )
+  const hint = `${datasetKey} ${datasetName} ${strategyProfile}`
+  if (strategyProfile === 'python_kr' || datasetKey.includes('python_kr') || hint.includes('python kr')) {
+    return PYTHON_KR_METHOD_CODES
+  }
+  if (
+    strategyProfile === 'spring_techdoc'
+    || datasetKey === 'human_eval_default'
+    || datasetKey.startsWith('human_eval_short_user')
+    || hint.includes('build-eval-dataset')
+    || hint.includes('spring')
+  ) {
+    return SPRING_TECHDOC_METHOD_CODES
+  }
+  return null
+}
+
+function isSnapshotAllowedForMethodSet(batch, allowedMethodSet) {
+  if (!allowedMethodSet) return true
+  const methodCode = normalizeStrategyMethodCode(batch?.methodCode)
+  return Boolean(methodCode && allowedMethodSet.has(methodCode))
+}
+
 const RETRIEVAL_METRIC_DEFS = [
   { key: 'recall_at_5', label: 'Recall@5', max: 1, precision: 3, trend: 'higher', priority: 'core' },
   { key: 'hit_at_5', label: 'Hit@5', max: 1, precision: 3, trend: 'higher', priority: 'core' },
@@ -437,33 +477,264 @@ function hasDetailPayload(value) {
   return String(value).trim().length > 0
 }
 
-function toPrettyJsonText(value) {
-  if (value == null) return '-'
-  if (typeof value === 'string') {
-    const normalized = value.trim()
-    if (!normalized) return '-'
-    try {
-      return JSON.stringify(JSON.parse(normalized), null, 2)
-    } catch {
-      return normalized
-    }
-  }
+function parseDetailPayload(value) {
+  if (typeof value !== 'string') return value
+  const normalized = value.trim()
+  if (!normalized) return null
   try {
-    return JSON.stringify(value, null, 2)
+    return JSON.parse(normalized)
   } catch {
-    return String(value)
+    return normalized
   }
 }
 
-function renderRagDetailJsonDisclosure(label, value) {
-  const isEmpty = !hasDetailPayload(value)
+function isPlainDetailObject(value) {
+  return value != null && typeof value === 'object' && !Array.isArray(value)
+}
+
+function detailArray(value, nestedKeys = []) {
+  const payload = parseDetailPayload(value)
+  if (Array.isArray(payload)) return payload
+  if (isPlainDetailObject(payload)) {
+    for (const key of nestedKeys) {
+      if (Array.isArray(payload[key])) return payload[key]
+    }
+  }
+  return []
+}
+
+function firstDetailValue(source, keys) {
+  if (!isPlainDetailObject(source)) return null
+  for (const key of keys) {
+    const value = source[key]
+    if (value !== null && value !== undefined && value !== '') return value
+  }
+  return null
+}
+
+function formatDetailNumber(value, precision = 3) {
+  const number = Number(value)
+  if (!Number.isFinite(number)) return '-'
+  return number.toFixed(precision)
+}
+
+function formatDetailCompactValue(value) {
+  if (value == null || value === '') return '-'
+  if (typeof value === 'boolean') return value ? 'true' : 'false'
+  if (typeof value === 'number') return Number.isInteger(value) ? String(value) : formatDetailNumber(value)
+  if (Array.isArray(value)) return value.length ? `${value.length}개` : '-'
+  if (typeof value === 'object') return Object.keys(value).length ? `${Object.keys(value).length} fields` : '-'
+  return String(value)
+}
+
+function detailKeyLabel(key) {
+  const labels = {
+    mode: '모드',
+    raw_mrr: 'Raw MRR',
+    mode_mrr: 'Mode MRR',
+    raw_ndcg: 'Raw nDCG',
+    mode_ndcg: 'Mode nDCG',
+    raw_confidence: '원본 신뢰도',
+    best_candidate_confidence: '최고 후보 신뢰도',
+    confidence_delta: '신뢰도 변화',
+    rewrite_reason: '재작성 판단',
+    final_rewrite_latency_ms: '최종 재작성 시간',
+    pure_rewrite_latency_ms: '순수 재작성 시간',
+    rewrite_mode: '재작성 모드',
+    rewrite_anchor_injection_enabled: '앵커 주입',
+  }
+  return labels[key] || String(key).replaceAll('_', ' ')
+}
+
+function renderDetailEmpty() {
+  return <div className="rag-detail-disclosure__empty">데이터 없음</div>
+}
+
+function renderDetailTokenList(values) {
+  const items = Array.isArray(values) ? values.filter((item) => item != null && String(item).trim()) : []
+  if (!items.length) return null
+  return (
+    <div className="rag-detail-token-list">
+      {items.slice(0, 12).map((item, index) => (
+        <span key={`${String(item)}-${index}`} className="rag-detail-token">{String(item)}</span>
+      ))}
+    </div>
+  )
+}
+
+function renderGenericDetailValue(value) {
+  const payload = parseDetailPayload(value)
+  if (!hasDetailPayload(payload)) return renderDetailEmpty()
+  if (Array.isArray(payload)) {
+    return (
+      <div className="rag-structured-list">
+        {payload.map((item, index) => (
+          <article key={index} className="rag-structured-card">
+            {isPlainDetailObject(item) ? renderGenericDetailValue(item) : <p className="rag-structured-card__text">{String(item)}</p>}
+          </article>
+        ))}
+      </div>
+    )
+  }
+  if (isPlainDetailObject(payload)) {
+    return (
+      <div className="rag-detail-kv-grid">
+        {Object.entries(payload).map(([key, item]) => (
+          <div key={key} className="rag-detail-kv">
+            <span>{detailKeyLabel(key)}</span>
+            <strong>{formatDetailCompactValue(item)}</strong>
+          </div>
+        ))}
+      </div>
+    )
+  }
+  return <p className="rag-structured-card__text">{String(payload)}</p>
+}
+
+function renderMetricContributionDetail(value) {
+  const payload = parseDetailPayload(value)
+  if (!isPlainDetailObject(payload)) return renderGenericDetailValue(payload)
+  const metricRows = [
+    { label: 'MRR@10', raw: payload.raw_mrr, mode: payload.mode_mrr },
+    { label: 'nDCG@10', raw: payload.raw_ndcg, mode: payload.mode_ndcg },
+    { label: '신뢰도', raw: payload.raw_confidence, mode: payload.best_candidate_confidence, delta: payload.confidence_delta },
+  ]
+  const latencyItems = [
+    { label: '최종 재작성', value: payload.final_rewrite_latency_ms },
+    { label: '순수 재작성', value: payload.pure_rewrite_latency_ms },
+  ].filter((item) => item.value != null)
+
+  return (
+    <div className="rag-detail-metric-panel">
+      <div className="rag-detail-metric-panel__header">
+        <span className="rag-detail-mode-chip">{payload.mode || '-'}</span>
+        {payload.rewrite_reason && <span className="rag-detail-reason">{payload.rewrite_reason}</span>}
+      </div>
+      <div className="rag-detail-metric-grid">
+        {metricRows.map((item) => {
+          const delta = item.delta ?? (Number.isFinite(Number(item.raw)) && Number.isFinite(Number(item.mode)) ? Number(item.mode) - Number(item.raw) : null)
+          const tone = delta == null || delta === 0 ? 'neutral' : delta > 0 ? 'positive' : 'negative'
+          return (
+            <div key={item.label} className="rag-detail-metric-card">
+              <span>{item.label}</span>
+              <strong>{formatDetailNumber(item.mode)}</strong>
+              <small>raw {formatDetailNumber(item.raw)}</small>
+              <em data-tone={tone}>{delta == null ? '-' : formatDelta(delta, { precision: 3 })}</em>
+            </div>
+          )
+        })}
+      </div>
+      {latencyItems.length > 0 && (
+        <div className="rag-detail-kv-grid rag-detail-kv-grid--compact">
+          {latencyItems.map((item) => (
+            <div key={item.label} className="rag-detail-kv">
+              <span>{item.label}</span>
+              <strong>{formatDurationDisplay(item.value, { precisionMs: 1 }).primary}</strong>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
+function renderMemoryCandidateDetail(value) {
+  const candidates = detailArray(value, ['memory_top_n', 'top_memory_candidates', 'memory_candidates', 'candidates', 'items'])
+  if (!candidates.length) return renderGenericDetailValue(value)
+  return (
+    <div className="rag-structured-list">
+      {candidates.slice(0, 8).map((candidate, index) => {
+        const queryText = firstDetailValue(candidate, ['query_text', 'queryText', 'query', 'text'])
+        const score = firstDetailValue(candidate, ['similarity', 'score', 'bm25_score', 'bm25Score'])
+        const product = firstDetailValue(candidate, ['product', 'source_product', 'sourceProduct'])
+        const retriever = firstDetailValue(candidate, ['retriever', 'retriever_name', 'retrieverName'])
+        const docId = firstDetailValue(candidate, ['target_doc_id', 'document_id', 'doc_id'])
+        const memoryId = firstDetailValue(candidate, ['memory_id', 'memoryId'])
+        const terms = detailArray(candidate?.glossary_terms || candidate?.anchor_terms || candidate?.terms)
+        return (
+          <article key={memoryId || `${queryText}-${index}`} className="rag-structured-card rag-structured-card--candidate">
+            <div className="rag-structured-card__topline">
+              <span className="rag-structured-rank">#{index + 1}</span>
+              {score != null && <span className="rag-structured-score">score {formatDetailNumber(score)}</span>}
+            </div>
+            <p className="rag-structured-card__text">{queryText || '-'}</p>
+            <div className="rag-structured-card__meta">
+              {product && <span>{product}</span>}
+              {retriever && <span>{retriever}</span>}
+              {docId && <span>doc {shortId(docId)}</span>}
+              {memoryId && <span>memory {shortId(memoryId)}</span>}
+            </div>
+            {renderDetailTokenList(terms)}
+          </article>
+        )
+      })}
+    </div>
+  )
+}
+
+function renderRewriteCandidateDetail(value) {
+  const candidates = detailArray(value, ['rewrite_candidates', 'candidates', 'items'])
+  if (!candidates.length) return renderGenericDetailValue(value)
+  return (
+    <div className="rag-structured-list">
+      {candidates.slice(0, 8).map((candidate, index) => {
+        const label = firstDetailValue(candidate, ['label', 'name', 'strategy']) || `candidate_${index + 1}`
+        const query = firstDetailValue(candidate, ['query', 'query_text', 'text', 'rewrite_query'])
+        const confidence = firstDetailValue(candidate, ['confidence', 'score', 'candidate_confidence'])
+        const reason = firstDetailValue(candidate, ['reason', 'decision_reason', 'why'])
+        return (
+          <article key={`${label}-${index}`} className="rag-structured-card rag-structured-card--rewrite">
+            <div className="rag-structured-card__topline">
+              <span className="rag-detail-mode-chip">{label}</span>
+              {confidence != null && <span className="rag-structured-score">confidence {formatDetailNumber(confidence)}</span>}
+            </div>
+            <p className="rag-structured-card__text">{query || '-'}</p>
+            {reason && <div className="rag-structured-card__note">{reason}</div>}
+          </article>
+        )
+      })}
+    </div>
+  )
+}
+
+function renderRetrievedChunkDetail(value) {
+  const chunks = detailArray(value, ['retrieved_top_k', 'retrieved_chunks', 'chunks', 'items'])
+  if (!chunks.length) return renderGenericDetailValue(value)
+  return (
+    <div className="rag-structured-list">
+      {chunks.slice(0, 8).map((chunk, index) => {
+        const chunkId = firstDetailValue(chunk, ['chunk_id', 'chunkId'])
+        const documentId = firstDetailValue(chunk, ['document_id', 'documentId', 'doc_id'])
+        const title = firstDetailValue(chunk, ['title', 'section_title', 'heading'])
+        const content = firstDetailValue(chunk, ['content', 'text', 'chunk_text', 'snippet'])
+        const score = firstDetailValue(chunk, ['score', 'rerank_score', 'retrieval_score'])
+        return (
+          <article key={chunkId || `${documentId}-${index}`} className="rag-structured-card rag-structured-card--chunk">
+            <div className="rag-structured-card__topline">
+              <span className="rag-structured-rank">#{index + 1}</span>
+              {score != null && <span className="rag-structured-score">score {formatDetailNumber(score)}</span>}
+            </div>
+            <div className="rag-structured-card__meta">
+              {documentId && <span>doc {shortId(documentId)}</span>}
+              {chunkId && <span>chunk {shortId(chunkId)}</span>}
+            </div>
+            {title && <strong className="rag-structured-card__title">{title}</strong>}
+            {content && <p className="rag-structured-card__snippet">{String(content).slice(0, 520)}</p>}
+          </article>
+        )
+      })}
+    </div>
+  )
+}
+
+function renderRagDetailJsonDisclosure(label, value, renderer = renderGenericDetailValue) {
+  const parsed = parseDetailPayload(value)
+  const isEmpty = !hasDetailPayload(parsed)
   return (
     <details className="rag-detail-disclosure">
       <summary>{label}</summary>
       <div className="rag-detail-disclosure__content">
-        {isEmpty
-          ? <div className="rag-detail-disclosure__empty">데이터 없음</div>
-          : <pre className="rag-detail-json">{toPrettyJsonText(value)}</pre>}
+        {isEmpty ? renderDetailEmpty() : renderer(parsed)}
       </div>
     </details>
   )
@@ -508,10 +779,10 @@ function renderRagQueryDetailRows(details) {
             <details className="rag-detail-disclosure rag-detail-disclosure--group">
               <summary>세부 데이터 보기</summary>
               <div className="rag-detail-disclosure__content rag-detail-disclosure__content--group">
-                {renderRagDetailJsonDisclosure('지표 기여', row?.metricContribution)}
-                {renderRagDetailJsonDisclosure('추천 합성 질의 후보', row?.memoryCandidates)}
-                {renderRagDetailJsonDisclosure('재작성 후보 로그', row?.rewriteCandidates)}
-                {renderRagDetailJsonDisclosure('검색 청크 결과', row?.retrievedChunks)}
+                {renderRagDetailJsonDisclosure('지표 기여', row?.metricContribution, renderMetricContributionDetail)}
+                {renderRagDetailJsonDisclosure('추천 합성 질의 후보', row?.memoryCandidates, renderMemoryCandidateDetail)}
+                {renderRagDetailJsonDisclosure('재작성 후보 로그', row?.rewriteCandidates, renderRewriteCandidateDetail)}
+                {renderRagDetailJsonDisclosure('검색 청크 결과', row?.retrievedChunks, renderRetrievedChunkDetail)}
               </div>
             </details>
           </article>
@@ -527,12 +798,6 @@ function formatDelta(value, def) {
   const sign = value > 0 ? '+' : ''
   const text = `${sign}${Number(value).toFixed(precision)}`
   return def?.unit ? `${text} ${def.unit}` : text
-}
-
-function formatDeltaRate(value) {
-  if (value == null) return '-'
-  const sign = value > 0 ? '+' : ''
-  return `${sign}${Number(value).toFixed(1)}%`
 }
 
 function resolveTableNumberFormatter(precision) {
@@ -758,6 +1023,7 @@ function buildWorkspaceChangeInsight(row) {
       summary,
       detail: detailParts.join(' '),
       tone: improved ? 'right' : 'left',
+      speedTone: improved ? 'fast' : 'slow',
     }
   }
   const changeWord = row.trend === 'higher'
@@ -1300,6 +1566,43 @@ export function RagPage({ notify }) {
     setForm((prev) => ({ ...prev, evalQueryLanguage: preferredLanguage }))
   }, [datasets, form.datasetId, form.evalQueryLanguage])
 
+  const selectedDataset = useMemo(
+    () => datasets.find((dataset) => dataset.datasetId === form.datasetId) || null,
+    [datasets, form.datasetId],
+  )
+  const datasetAllowedMethodCodes = useMemo(
+    () => resolveDatasetAllowedMethodCodes(selectedDataset),
+    [selectedDataset],
+  )
+  const datasetAllowedMethodKey = datasetAllowedMethodCodes ? datasetAllowedMethodCodes.join(',') : ''
+  const datasetAllowedMethodSet = useMemo(
+    () => (datasetAllowedMethodCodes ? new Set(datasetAllowedMethodCodes) : null),
+    [datasetAllowedMethodCodes],
+  )
+  const selectableMethods = useMemo(
+    () => (
+      datasetAllowedMethodSet
+        ? methods.filter((method) => datasetAllowedMethodSet.has(normalizeStrategyMethodCode(method.methodCode)))
+        : methods
+    ),
+    [methods, datasetAllowedMethodSet],
+  )
+
+  useEffect(() => {
+    if (!datasetAllowedMethodCodes || form.syntheticFreeBaseline) return
+    setSelectedMethods((prev) => {
+      const filtered = prev
+        .map(normalizeStrategyMethodCode)
+        .filter((methodCode) => datasetAllowedMethodCodes.includes(methodCode))
+      const next = filtered.length > 0 ? filtered : [datasetAllowedMethodCodes[0]]
+      const current = prev.map(normalizeStrategyMethodCode)
+      if (next.length === current.length && next.every((methodCode, index) => methodCode === current[index])) {
+        return prev
+      }
+      return next
+    })
+  }, [datasetAllowedMethodCodes, datasetAllowedMethodKey, form.syntheticFreeBaseline])
+
   useEffect(() => {
     const totalPages = Math.max(1, Math.ceil(tests.length / historyPageSize))
     if (historyPage > totalPages - 1) {
@@ -1312,7 +1615,9 @@ export function RagPage({ notify }) {
     [gatingBatches, form.sourceGatingBatchId],
   )
   const snapshotMethodCode = selectedSnapshot?.methodCode ? String(selectedSnapshot.methodCode).toUpperCase() : null
-  const methodSelectionLocked = !form.syntheticFreeBaseline && Boolean(form.sourceGatingBatchId && snapshotMethodCode)
+  const selectedSnapshotAllowedForDataset = isSnapshotAllowedForMethodSet(selectedSnapshot, datasetAllowedMethodSet)
+  const methodSelectionLocked = !form.syntheticFreeBaseline
+    && Boolean(form.sourceGatingBatchId && snapshotMethodCode && selectedSnapshotAllowedForDataset)
 
   useEffect(() => {
     if (!methodSelectionLocked || !snapshotMethodCode) return
@@ -1382,20 +1687,29 @@ export function RagPage({ notify }) {
     () => gatingBatches.filter((batch) => batch && String(batch.status || '').toLowerCase() === 'completed'),
     [gatingBatches],
   )
-  const sourceSnapshotOptions = useMemo(
-    () => (stageCutoffEnabledForRun ? snapshotBatches.filter((batch) => batch.gatingPreset === 'full_gating') : snapshotBatches),
-    [snapshotBatches, stageCutoffEnabledForRun],
+  const datasetSnapshotBatches = useMemo(
+    () => snapshotBatches.filter((batch) => isSnapshotAllowedForMethodSet(batch, datasetAllowedMethodSet)),
+    [snapshotBatches, datasetAllowedMethodSet],
   )
-  const methodCodesForRun = form.syntheticFreeBaseline
+  const sourceSnapshotOptions = useMemo(
+    () => datasetSnapshotBatches.filter((batch) => batch.gatingPreset === sourceSnapshotExpectedPreset),
+    [datasetSnapshotBatches, sourceSnapshotExpectedPreset],
+  )
+  const rawMethodCodesForRun = form.syntheticFreeBaseline
     ? []
     : (methodSelectionLocked && snapshotMethodCode ? [snapshotMethodCode] : selectedMethods)
+  const methodCodesForRun = form.syntheticFreeBaseline
+    ? []
+    : rawMethodCodesForRun
+      .map(normalizeStrategyMethodCode)
+      .filter((methodCode) => !datasetAllowedMethodSet || datasetAllowedMethodSet.has(methodCode))
 
   useEffect(() => {
     if (!form.sourceGatingBatchId) return
-    const exists = gatingBatches.some((batch) => batch.gatingBatchId === form.sourceGatingBatchId)
-    if (exists) return
+    const batch = gatingBatches.find((item) => item.gatingBatchId === form.sourceGatingBatchId)
+    if (batch && isSnapshotAllowedForMethodSet(batch, datasetAllowedMethodSet)) return
     setForm((prev) => ({ ...prev, sourceGatingBatchId: '' }))
-  }, [form.sourceGatingBatchId, gatingBatches])
+  }, [form.sourceGatingBatchId, gatingBatches, datasetAllowedMethodSet])
 
   useEffect(() => {
     if (form.runDiscipline !== 'official' || form.officialComparisonType !== 'gating_effect') return
@@ -1404,13 +1718,14 @@ export function RagPage({ notify }) {
   }, [form.runDiscipline, form.officialComparisonType, form.sourceGatingBatchId])
 
   useEffect(() => {
-    const hasUngated = gatingBatches.some((batch) => batch.gatingBatchId === form.officialGatingUngatedBatchId)
-    const hasRuleOnly = gatingBatches.some((batch) => batch.gatingBatchId === form.officialGatingRuleOnlyBatchId)
-    const hasFullGating = gatingBatches.some((batch) => batch.gatingBatchId === form.officialGatingFullGatingBatchId)
-    if (hasUngated && hasRuleOnly && hasFullGating) return
-    const nextUngated = hasUngated ? form.officialGatingUngatedBatchId : ''
-    const nextRuleOnly = hasRuleOnly ? form.officialGatingRuleOnlyBatchId : ''
-    const nextFullGating = hasFullGating ? form.officialGatingFullGatingBatchId : ''
+    const resolveAllowedSnapshotId = (snapshotId) => {
+      if (!snapshotId) return ''
+      const batch = gatingBatches.find((item) => item.gatingBatchId === snapshotId)
+      return batch && isSnapshotAllowedForMethodSet(batch, datasetAllowedMethodSet) ? snapshotId : ''
+    }
+    const nextUngated = resolveAllowedSnapshotId(form.officialGatingUngatedBatchId)
+    const nextRuleOnly = resolveAllowedSnapshotId(form.officialGatingRuleOnlyBatchId)
+    const nextFullGating = resolveAllowedSnapshotId(form.officialGatingFullGatingBatchId)
     if (
       nextUngated === form.officialGatingUngatedBatchId
       && nextRuleOnly === form.officialGatingRuleOnlyBatchId
@@ -1429,6 +1744,7 @@ export function RagPage({ notify }) {
     form.officialGatingRuleOnlyBatchId,
     form.officialGatingFullGatingBatchId,
     gatingBatches,
+    datasetAllowedMethodSet,
   ])
 
   useEffect(() => {
@@ -1447,19 +1763,22 @@ export function RagPage({ notify }) {
     return methodCodes.includes(String(batch.methodCode).toUpperCase())
   }
 
-  function snapshotOptionLabel(batch, expectedPreset = null) {
+  function snapshotOptionLabel(batch, expectedPreset = null, methodCodes = methodCodesForRun) {
     const compatible = expectedPreset
-      ? isSnapshotCompatible(batch, expectedPreset, methodCodesForRun)
-      : isSnapshotCompatible(batch, sourceSnapshotExpectedPreset, methodCodesForRun)
+      ? isSnapshotCompatible(batch, expectedPreset, methodCodes)
+      : isSnapshotCompatible(batch, sourceSnapshotExpectedPreset, methodCodes)
     const runnable = Boolean(batch?.sourceGatingRunId)
     return `${shortId(batch.gatingBatchId)} | ${batch.gatingPreset} | ${batch.methodCode || '-'} | ${fmtTime(batch.finishedAt)}${runnable ? '' : ' | unavailable(no source run)'}${compatible ? '' : ' | incompatible'}`
   }
 
   const handleToggleMethod = (methodCode, checked) => {
+    const normalizedMethodCode = normalizeStrategyMethodCode(methodCode)
+    if (datasetAllowedMethodSet && !datasetAllowedMethodSet.has(normalizedMethodCode)) return
     if (methodSelectionLocked) return
     setSelectedMethods((prev) => {
-      if (checked) return prev.includes(methodCode) ? prev : [...prev, methodCode]
-      return prev.filter((value) => value !== methodCode)
+      const normalized = prev.map(normalizeStrategyMethodCode)
+      if (checked) return normalized.includes(normalizedMethodCode) ? prev : [...normalized, normalizedMethodCode]
+      return normalized.filter((value) => value !== normalizedMethodCode)
     })
   }
 
@@ -1656,6 +1975,10 @@ export function RagPage({ notify }) {
       return
     }
     setCompareRunIds((prev) => (prev.includes(runId) ? prev.filter((id) => id !== runId) : [...prev, runId]))
+  }
+
+  const clearCompareRuns = () => {
+    setCompareRunIds([])
   }
 
   const openJobDetail = async (jobId) => {
@@ -1896,32 +2219,25 @@ export function RagPage({ notify }) {
     const retrievalAvgA = averageMetric(retrievalRows.map((row) => row.left))
     const retrievalAvgB = averageMetric(retrievalRows.map((row) => row.right))
     const retrievalDelta = retrievalAvgA != null && retrievalAvgB != null ? retrievalAvgB - retrievalAvgA : null
-    const retrievalDeltaRate = (retrievalAvgA != null && retrievalAvgA !== 0 && retrievalDelta != null)
-      ? (retrievalDelta / Math.abs(retrievalAvgA)) * 100
-      : null
     const focusLatencyRows = compareMetricRows.filter((row) => COMPARE_FOCUS_LATENCY_KEYS.includes(row.key))
     const queryEvalLatencyRow = focusLatencyRows.find((row) => row.key === 'avg_query_eval_total_latency_ms') || null
     const finalRewriteLatencyRow = focusLatencyRows.find((row) => row.key === 'avg_final_rewrite_latency_ms') || null
     const pureRewriteLatencyRow = focusLatencyRows.find((row) => row.key === 'avg_pure_rewrite_latency_ms') || null
     const headline = overallWinner === 'tie'
-      ? `뚜렷한 우세 없음. 가중 점수 ${compactLeftLabel} ${scoreA} : ${compactRightLabel} ${scoreB}.`
+      ? '뚜렷한 우세 없음'
       : overallWinner === 'right'
-      ? `${compactRightLabel} 가중 KPI 우세 (${scoreB} vs ${scoreA}).`
-      : `${compactLeftLabel} 가중 KPI 우세 (${scoreA} vs ${scoreB}).`
+      ? `${compactRightLabel} 우세`
+      : `${compactLeftLabel} 우세`
 
     const buildLatencyCard = (label, row) => {
       const insight = row ? buildWorkspaceChangeInsight(row) : null
-      const supportText = row ? metricSupportText(row) : ''
       return {
         label,
         value: insight ? insight.summary : '-',
-        meta: insight
-          ? [insight.detail, compareOutcomeLabel(row.outcome, compactLeftLabel, compactRightLabel), supportText]
-            .filter(Boolean)
-            .join(' | ')
-          : '비교 데이터 없음',
+        tone: insight?.speedTone || 'neutral',
       }
     }
+    const retrievalTone = retrievalDelta == null || retrievalDelta === 0 ? 'neutral' : retrievalDelta > 0 ? 'right' : 'left'
 
     return {
       headline,
@@ -1929,12 +2245,12 @@ export function RagPage({ notify }) {
         {
           label: '종합 우세',
           value: overallWinner === 'tie' ? '동률' : overallWinner === 'right' ? compactRightLabel : compactLeftLabel,
-          meta: `가중 점수 ${compactLeftLabel} ${scoreA} / ${compactRightLabel} ${scoreB}`,
+          tone: overallWinner === 'tie' ? 'neutral' : overallWinner,
         },
         {
           label: '검색 핵심 차이',
           value: retrievalDelta == null ? '-' : formatDelta(retrievalDelta, { precision: 3 }),
-          meta: retrievalDelta == null ? '비교 데이터 없음' : `${compactRightLabel} vs ${compactLeftLabel} (${formatDeltaRate(retrievalDeltaRate)})`,
+          tone: retrievalTone,
         },
         buildLatencyCard('질의 전체 평가 평균 시간', queryEvalLatencyRow),
         buildLatencyCard('최종 재작성 확정 평균 시간', finalRewriteLatencyRow),
@@ -1985,7 +2301,6 @@ export function RagPage({ notify }) {
     ]
   }, [tests, compareRunIds])
 
-  const selectedDataset = datasets.find((dataset) => dataset.datasetId === form.datasetId) || null
   const selectedMethodSummary = methodCodesForRun.length > 0 ? methodCodesForRun.join(', ') : '합성 질의 제외'
   const selectedSnapshotSummary = selectedSnapshot
     ? `${shortId(selectedSnapshot.gatingBatchId)} / ${selectedSnapshot.gatingPreset} / ${selectedSnapshot.methodCode || '-'}`
@@ -2075,8 +2390,8 @@ export function RagPage({ notify }) {
                 <label className="filter-field">공식 스냅샷 (ungated)
                   <select value={form.officialGatingUngatedBatchId} onChange={(event) => setForm((prev) => ({ ...prev, officialGatingUngatedBatchId: event.target.value }))}>
                     <option value="">ungated 스냅샷 선택</option>
-                    {snapshotBatches
-                      .filter((batch) => batch.gatingPreset === 'ungated')
+                    {datasetSnapshotBatches
+                      .filter((batch) => isSnapshotCompatible(batch, 'ungated', methodCodesForRun))
                       .map((batch) => (
                         <option key={batch.gatingBatchId} value={batch.gatingBatchId}>
                           {snapshotOptionLabel(batch, 'ungated')}
@@ -2088,8 +2403,8 @@ export function RagPage({ notify }) {
                 <label className="filter-field">공식 스냅샷 (rule_only)
                   <select value={form.officialGatingRuleOnlyBatchId} onChange={(event) => setForm((prev) => ({ ...prev, officialGatingRuleOnlyBatchId: event.target.value }))}>
                     <option value="">rule_only 스냅샷 선택</option>
-                    {snapshotBatches
-                      .filter((batch) => batch.gatingPreset === 'rule_only')
+                    {datasetSnapshotBatches
+                      .filter((batch) => isSnapshotCompatible(batch, 'rule_only', methodCodesForRun))
                       .map((batch) => (
                         <option key={batch.gatingBatchId} value={batch.gatingBatchId}>
                           {snapshotOptionLabel(batch, 'rule_only')}
@@ -2101,8 +2416,8 @@ export function RagPage({ notify }) {
                 <label className="filter-field">공식 스냅샷 (full_gating)
                   <select value={form.officialGatingFullGatingBatchId} onChange={(event) => setForm((prev) => ({ ...prev, officialGatingFullGatingBatchId: event.target.value }))}>
                     <option value="">full_gating 스냅샷 선택</option>
-                    {snapshotBatches
-                      .filter((batch) => batch.gatingPreset === 'full_gating')
+                    {datasetSnapshotBatches
+                      .filter((batch) => isSnapshotCompatible(batch, 'full_gating', methodCodesForRun))
                       .map((batch) => (
                         <option key={batch.gatingBatchId} value={batch.gatingBatchId}>
                           {snapshotOptionLabel(batch, 'full_gating')}
@@ -2129,7 +2444,7 @@ export function RagPage({ notify }) {
                 {sourceSnapshotOptions.map((batch) => {
                   return (
                     <option key={batch.gatingBatchId} value={batch.gatingBatchId}>
-                      {snapshotOptionLabel(batch)}
+                      {snapshotOptionLabel(batch, null, [])}
                     </option>
                   )
                 })}
@@ -2157,21 +2472,24 @@ export function RagPage({ notify }) {
             </label>
             <label className="filter-field">생성 전략
               <div className="method-row">
-                {methods.map((method) => (
-                  <label
-                    key={method.methodCode}
-                    className={`check-pill ${methodCodesForRun.includes(method.methodCode) ? 'is-active' : ''} ${(form.syntheticFreeBaseline || methodSelectionLocked) ? 'is-disabled' : ''}`}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={methodCodesForRun.includes(method.methodCode)}
-                      disabled={form.syntheticFreeBaseline || methodSelectionLocked}
-                      onChange={(event) => handleToggleMethod(method.methodCode, event.target.checked)}
-                    />
-                    <span className="check-pill__box" aria-hidden="true">{methodCodesForRun.includes(method.methodCode) ? '✓' : ''}</span>
-                    <span className="check-pill__text">{method.methodCode}</span>
-                  </label>
-                ))}
+                {selectableMethods.map((method) => {
+                  const methodCode = normalizeStrategyMethodCode(method.methodCode)
+                  return (
+                    <label
+                      key={methodCode}
+                      className={`check-pill ${methodCodesForRun.includes(methodCode) ? 'is-active' : ''} ${(form.syntheticFreeBaseline || methodSelectionLocked) ? 'is-disabled' : ''}`}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={methodCodesForRun.includes(methodCode)}
+                        disabled={form.syntheticFreeBaseline || methodSelectionLocked}
+                        onChange={(event) => handleToggleMethod(methodCode, event.target.checked)}
+                      />
+                      <span className="check-pill__box" aria-hidden="true">{methodCodesForRun.includes(methodCode) ? '✓' : ''}</span>
+                      <span className="check-pill__text">{methodCode}</span>
+                    </label>
+                  )
+                })}
               </div>
               <span className="field-hint">
                 {form.syntheticFreeBaseline
@@ -2457,10 +2775,10 @@ export function RagPage({ notify }) {
                   <div className="compare-overview__headline">{compareSummary.headline}</div>
                   <div className="compare-overview__cards">
                     {compareSummary.cards.map((card) => (
-                      <article key={card.label} className="compare-overview-card">
+                      <article key={card.label} className="compare-overview-card" data-tone={card.tone || 'neutral'}>
                         <div className="compare-overview-card__label">{card.label}</div>
                         <div className="compare-overview-card__value">{card.value}</div>
-                        <div className="compare-overview-card__meta">{card.meta}</div>
+                        {card.meta && <div className="compare-overview-card__meta">{card.meta}</div>}
                       </article>
                     ))}
                   </div>
@@ -2580,8 +2898,13 @@ export function RagPage({ notify }) {
                   <th className="compare-data-table__result-col">결과</th>
                 </tr>
               </thead>
-              {compareTableGroups.map((group) => (
+              {compareTableGroups.map((group, groupIndex) => (
                 <tbody key={group.key} className={`compare-data-table__section compare-data-table__section--${group.key}`}>
+                  {groupIndex > 0 && (
+                    <tr className="compare-data-table__section-spacer" aria-hidden="true">
+                      <td colSpan="5" />
+                    </tr>
+                  )}
                   <tr className="compare-data-table__section-row">
                     <th colSpan={5}>
                       <div className="compare-data-table__section-head">
@@ -2859,6 +3182,36 @@ export function RagPage({ notify }) {
           </div>
         )}
       </section>
+
+      {compareRuns.length > 0 && (
+        <aside className="rag-compare-selection-dock" aria-live="polite">
+          <div className="rag-compare-selection-dock__status">
+            <span>테스트 결과 비교</span>
+            <strong>{compareRuns.length} / 2 선택</strong>
+          </div>
+          <div className="rag-compare-selection-dock__items">
+            {compareRuns.map((run, index) => (
+              <button
+                type="button"
+                key={run.ragTestRunId}
+                className="rag-compare-selection-pill"
+                onClick={() => toggleCompareRun(run.ragTestRunId)}
+                title="선택 해제"
+              >
+                <span className={`rag-compare-selection-pill__index rag-compare-selection-pill__index--${index + 1}`}>{index + 1}</span>
+                <span className="rag-compare-selection-pill__body">
+                  <strong>{resolveCompareRunPrimaryLabel(run, 'RAG 테스트')}</strong>
+                  <small>{resolveCompareRunSecondaryLabel(run)}</small>
+                </span>
+                <span className="rag-compare-selection-pill__remove">해제</span>
+              </button>
+            ))}
+          </div>
+          <button type="button" className="button button--ghost rag-compare-selection-dock__clear" onClick={clearCompareRuns}>
+            전체 해제
+          </button>
+        </aside>
+      )}
 
       <Modal data={modal} onClose={() => setModal(null)} />
     </>

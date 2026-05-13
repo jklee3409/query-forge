@@ -1,5 +1,17 @@
 # progress.md
 
+## [2026-05-13] Session Summary (RAG Compare Dark-Mode Readability Polish)
+- What was done: Simplified `/admin/rag-tests` two-run comparison summary cards to show only headline values, added tone coloring for fast/slow latency outcomes, separated detailed compare table groups with spacer rows and tinted borders, and increased dark-mode secondary text contrast.
+- Key decisions: Frontend-only presentation change. RAG metrics, delta calculations, backend result APIs, snapshot rules, and evaluation semantics were unchanged.
+- Issues encountered: `npm run build` passed and refreshed generated React static assets under backend resources.
+- Next steps: Visual-smoke the RAG compare workspace in dark mode with two completed runs, especially answer-quality section labeling and performance cards.
+
+## [2026-05-13] Session Summary (Pipeline Monitor Execution Button Spacing)
+- What was done: Added dedicated spacing above the `/admin/pipeline` execution-control toolbar and changed the `full_ingest` 전체 실행 button to the same success styling used by the topbar `Run Retrieval Eval` action.
+- Key decisions: Frontend-only UI polish. Pipeline run buttons still call the same backend endpoints and preserve collect/normalize/chunk/glossary/full_ingest behavior.
+- Issues encountered: `npm run build` passed and refreshed generated React static assets under backend resources.
+- Next steps: Visual-smoke `/admin/pipeline` in dark mode to confirm the execution toolbar has enough breathing room below the source picker.
+
 ## [2026-05-13] Session Summary (Synthetic Strategy Flow Slider + KR Label Fix)
 - What was done: Corrected frontend-only `/admin/synthetic-queries` strategy flow labels by replacing visible `KO` with `KR`, fixing B/F flow descriptions, and adding overflow-aware auto-slide behavior for long strategy pipelines inside cards.
 - Key decisions: Kept method codes, backend APIs, request payloads, generation pipeline behavior, and research strategy semantics unchanged.
@@ -664,6 +676,24 @@ High-level progress tracking for the project.
 - Key decisions: Preserved dataset ID/key, sample IDs, synthetic provenance metadata, and legacy schema while using the frozen snapshot report `data/reports/short_user_current_dump_2026-05-13.json` as the deterministic refinement baseline.
 - Issues encountered: Many existing samples were structurally valid for pipeline loading but weakly grounded (`Overlap context...`, summary-only chunks, wrong schema sections), so the refinement split query rewriting from chunk retargeting and only changed `expected_chunk_ids` where actual corpus chunk text justified it.
 - Next steps: Use the new pre/post audit reports and refinement report for manual spot QA on residual compressed-query edge cases before the next rewrite-effect comparison run.
+
+## [2026-05-13] Session Summary (Admin RAG Dataset Strategy Lock)
+- What was done: Updated the Admin RAG run form so Python KR short-user datasets expose only F/G generation strategies and matching gating snapshots, while Spring/default eval datasets expose only A/B/C/D/E options.
+- Key decisions: Kept backend validation as the source of enforcement and added frontend filtering/state cleanup so stale incompatible strategy or snapshot selections are cleared when the dataset changes.
+- Issues encountered: The previous snapshot dropdown intentionally showed the full completed snapshot inventory, which made incompatible A-E snapshots visible for Python KR eval datasets.
+- Next steps: Smoke-test `/admin/rag-tests` by switching between Python KR, Spring KR, and default datasets and verifying the strategy chips plus snapshot dropdown narrow immediately.
+
+## [2026-05-13] Session Summary (Admin RAG Detail Readability)
+- What was done: Added a fixed bottom compare-selection dock to `/admin/rag-tests` and replaced raw JSON blocks in RAG run detail with structured cards for metric contribution, memory candidates, rewrite candidates, and retrieved chunks.
+- Key decisions: Kept API payloads unchanged and handled readability in the React rendering layer, using existing admin theme tokens for dark-mode contrast.
+- Issues encountered: Full frontend lint still reports the existing `vite.config.js` `process` global error; `RagPage.jsx` targeted lint has only pre-existing hook dependency warnings.
+- Next steps: Smoke-test run-history compare selection and RAG detail modal on dark mode with real completed runs.
+
+## [2026-05-13] Session Summary (Synthetic Source Scope Lock)
+- What was done: Updated `/admin/synthetic-queries` so selected generation strategy is visually emphasized, chunk sampling selection is highlighted, and all-source execution expands only to allowed source IDs: Spring reference sources for A/B/C/D/E and `docs-python-org-ko-3-14` for F/G.
+- Key decisions: Kept the backend run API single-source and made the frontend split an all-source launch into per-allowed-source requests; added backend validation to reject `arahansa-github-io-docs-spring` and out-of-scope source/method combinations.
+- Issues encountered: Backend uses a single `source_id` payload contract for synthetic generation, so multi-source "all" behavior is intentionally client-side fan-out rather than a DTO/schema change.
+- Next steps: Smoke-test A/B/C/D/E and F/G all-source launches from the Admin GUI and confirm generated experiment configs contain only the expected `source_id` values.
 
 ---
 

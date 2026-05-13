@@ -46,6 +46,72 @@ const STRATEGY_UI_META = {
   },
 }
 
+const SPRING_SYNTHETIC_SOURCE_IDS = [
+  'spring-boot-reference',
+  'spring-data-commons-reference',
+  'spring-data-jpa-reference',
+  'spring-framework-reference',
+  'spring-security-reference',
+]
+const PYTHON_SYNTHETIC_SOURCE_IDS = ['docs-python-org-ko-3-14']
+const HIDDEN_SYNTHETIC_SOURCE_IDS = new Set(['arahansa-github-io-docs-spring'])
+const SPRING_METHOD_CODES = new Set(['A', 'B', 'C', 'D', 'E'])
+const PYTHON_METHOD_CODES = new Set(['F', 'G'])
+
+function normalizeMethodCode(value) {
+  return String(value || '').trim().toUpperCase()
+}
+
+function normalizeSourceId(value) {
+  return String(value || '').trim()
+}
+
+function isHiddenSyntheticSource(sourceId) {
+  return HIDDEN_SYNTHETIC_SOURCE_IDS.has(normalizeSourceId(sourceId))
+}
+
+function syntheticSourceScope(methodCode) {
+  const normalized = normalizeMethodCode(methodCode)
+  if (SPRING_METHOD_CODES.has(normalized)) return 'spring'
+  if (PYTHON_METHOD_CODES.has(normalized)) return 'python'
+  return 'unknown'
+}
+
+function allowedSyntheticSourceIds(methodCode) {
+  const scope = syntheticSourceScope(methodCode)
+  if (scope === 'spring') return SPRING_SYNTHETIC_SOURCE_IDS
+  if (scope === 'python') return PYTHON_SYNTHETIC_SOURCE_IDS
+  return []
+}
+
+function isSourceAllowedForMethod(sourceId, methodCode) {
+  const normalizedSourceId = normalizeSourceId(sourceId)
+  if (!normalizedSourceId || isHiddenSyntheticSource(normalizedSourceId)) return false
+  const allowedIds = allowedSyntheticSourceIds(methodCode)
+  return allowedIds.length === 0 || allowedIds.includes(normalizedSourceId)
+}
+
+function sanitizeSyntheticSources(rows) {
+  return (Array.isArray(rows) ? rows : []).filter((source) => source?.sourceId && !isHiddenSyntheticSource(source.sourceId))
+}
+
+function sourcesForMethod(rows, methodCode) {
+  const sanitized = sanitizeSyntheticSources(rows)
+  const allowedIds = allowedSyntheticSourceIds(methodCode)
+  if (allowedIds.length === 0) return sanitized
+  const rank = new Map(allowedIds.map((sourceId, index) => [sourceId, index]))
+  return sanitized
+    .filter((source) => allowedIds.includes(source.sourceId))
+    .sort((left, right) => (rank.get(left.sourceId) ?? 999) - (rank.get(right.sourceId) ?? 999))
+}
+
+function scopeHintForMethod(methodCode, sourceCount) {
+  const scope = syntheticSourceScope(methodCode)
+  if (scope === 'python') return `F/G 전략은 Python KR 공식 문서 ${sourceCount}개만 사용합니다.`
+  if (scope === 'spring') return `A/B/C/D/E 전략은 Spring 공식 레퍼런스 ${sourceCount}개만 사용합니다.`
+  return '선택한 전략에 맞는 허용 소스만 실행 파라미터로 전송합니다.'
+}
+
 function strategyMeta(method) {
   return STRATEGY_UI_META[String(method?.methodCode || '').toUpperCase()] || {
     flow: [method?.methodCode ? `전략 ${method.methodCode}` : '전략'].filter(Boolean),
@@ -155,11 +221,11 @@ export function SyntheticPage({ notify }) {
       })
       sourceRows = Array.from(dedup.values())
     }
-    setSources(Array.isArray(sourceRows) ? sourceRows : [])
+    setSources(sanitizeSyntheticSources(sourceRows))
   }
 
   const loadSourceDocuments = async (sourceId) => {
-    if (!sourceId) {
+    if (!sourceId || isHiddenSyntheticSource(sourceId)) {
       setSourceDocuments([])
       return
     }
@@ -265,37 +331,71 @@ export function SyntheticPage({ notify }) {
     }
   }, [batches, filterForm.batch_id])
 
+  useEffect(() => {
+    setRunForm((prev) => {
+      if (!prev.sourceId || isSourceAllowedForMethod(prev.sourceId, prev.methodCode)) return prev
+      return { ...prev, sourceId: '', sourceDocumentId: '' }
+    })
+  }, [runForm.methodCode, sources])
+
+  const buildRunRequestBodies = () => {
+    const baseBody = {
+      methodCode: runForm.methodCode || null,
+      versionName: runForm.versionName || null,
+      limitChunks: toNumber(runForm.limitChunks),
+      avgQueriesPerChunk: toNumber(runForm.avgQueriesPerChunk),
+      maxTotalQueries: toNumber(runForm.maxTotalQueries),
+      randomChunkSampling: runForm.chunkSamplingMode === 'random',
+      llmModel: runForm.llmModel || runtimeOptions.defaultLlmModel || null,
+      llmRpm: toNumber(runForm.llmRpm),
+    }
+    if (runForm.sourceDocumentId) {
+      const sourceId = normalizeSourceId(runForm.sourceId)
+      return [{
+        ...baseBody,
+        sourceId: sourceId && isSourceAllowedForMethod(sourceId, runForm.methodCode) ? sourceId : null,
+        sourceDocumentId: runForm.sourceDocumentId,
+      }]
+    }
+    if (runForm.sourceId) {
+      const sourceId = normalizeSourceId(runForm.sourceId)
+      if (!isSourceAllowedForMethod(sourceId, runForm.methodCode)) return []
+      return [{ ...baseBody, sourceId, sourceDocumentId: null }]
+    }
+    return sourcesForMethod(sources, runForm.methodCode).map((source) => ({
+      ...baseBody,
+      sourceId: source.sourceId,
+      sourceDocumentId: null,
+    }))
+  }
+
   const executeRun = async (event) => {
     event.preventDefault()
-    if (!runForm.sourceId && !runForm.sourceDocumentId) {
-      notify('Select a source or source document before starting generation.', 'error')
+    if (!runForm.methodCode) {
+      notify('생성 전략을 선택하세요.', 'error')
       return
     }
     if (!runForm.llmModel) {
       notify('Select an LLM model.', 'error')
       return
     }
+    const runRequestBodies = buildRunRequestBodies()
+    if (runRequestBodies.length === 0 || runRequestBodies.some((body) => isHiddenSyntheticSource(body.sourceId))) {
+      notify('선택한 전략에 사용할 수 있는 허용 소스가 없습니다.', 'error')
+      return
+    }
     try {
-      await requestJson('/api/admin/console/synthetic/batches/run', {
+      await Promise.all(runRequestBodies.map((body) => requestJson('/api/admin/console/synthetic/batches/run', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          methodCode: runForm.methodCode || null,
-          sourceId: runForm.sourceId || null,
-          sourceDocumentId: runForm.sourceDocumentId || null,
-          versionName: runForm.versionName || null,
-          limitChunks: toNumber(runForm.limitChunks),
-          avgQueriesPerChunk: toNumber(runForm.avgQueriesPerChunk),
-          maxTotalQueries: toNumber(runForm.maxTotalQueries),
-          randomChunkSampling: runForm.chunkSamplingMode === 'random',
-          llmModel: runForm.llmModel || runtimeOptions.defaultLlmModel || null,
-          llmRpm: toNumber(runForm.llmRpm),
-        }),
-      })
+        body: JSON.stringify(body),
+      })))
       const refreshTasks = [loadBatches(), loadStats(), loadQueries(queryPage)]
       if (llmJobsLoaded) refreshTasks.push(loadLlmJobs())
       await Promise.all(refreshTasks)
-      notify('합성 질의 생성 배치가 대기열에 등록되었습니다.')
+      notify(runRequestBodies.length > 1
+        ? `${runRequestBodies.length}개 허용 소스의 합성 질의 생성 배치를 등록했습니다.`
+        : '합성 질의 생성 배치를 등록했습니다.')
     } catch (error) {
       notify(error.message, 'error')
     }
@@ -390,7 +490,12 @@ export function SyntheticPage({ notify }) {
   const byType = stats.byQueryType || []
   const total = byMethod.reduce((sum, item) => sum + Number(item.count || 0), 0)
   const queryFilterBatchOptions = batches.filter(isBatchSelectableInQueryFilter)
-  const runMethodOptions = runMethods.length > 0 ? runMethods : methods
+  const runMethodOptions = methods.length > 0 ? methods : runMethods
+  const availableSources = sourcesForMethod(sources, runForm.methodCode)
+  const selectedSourceCount = runForm.sourceDocumentId || runForm.sourceId ? 1 : availableSources.length
+  const selectedMethodMeta = strategyMeta({ methodCode: runForm.methodCode })
+  const sourceScopeHint = scopeHintForMethod(runForm.methodCode, selectedSourceCount)
+  const chunkSamplingLabel = runForm.chunkSamplingMode === 'random' ? '랜덤 샘플링 선택됨' : '문서 순서 샘플링 선택됨'
   const methodCountMap = new Map(byMethod.map((item) => [String(item.method_code || item.methodCode || '').toUpperCase(), Number(item.count || 0)]))
   const batchStatusOptions = Array.from(new Set(batches.map((batch) => compactStatus(batch.status)).filter(Boolean))).sort()
   const batchMethodOptions = Array.from(new Set(batches.map((batch) => String(batch.methodCode || '').toUpperCase()).filter(Boolean))).sort()
@@ -464,26 +569,40 @@ export function SyntheticPage({ notify }) {
                   type="button"
                   className={`strategy-selector-card ${selected ? 'is-selected' : ''}`}
                   data-accent={meta.accent}
-                  onClick={() => setRunForm((prev) => ({ ...prev, methodCode: method.methodCode }))}
+                  onClick={() => setRunForm((prev) => {
+                    const sourceAllowed = !prev.sourceId || isSourceAllowedForMethod(prev.sourceId, method.methodCode)
+                    return {
+                      ...prev,
+                      methodCode: method.methodCode,
+                      sourceId: sourceAllowed ? prev.sourceId : '',
+                      sourceDocumentId: sourceAllowed ? prev.sourceDocumentId : '',
+                    }
+                  })}
                   aria-pressed={selected}
                 >
                   <span>{method.methodCode}</span>
                   <strong>전략 {method.methodCode}</strong>
                   <small>{method.promptTemplateVersion || '프롬프트 없음'}</small>
+                  {selected && <em className="strategy-selector-card__status">선택됨</em>}
                 </button>
               )
             })}
           </div>
+          <div className="strategy-selection-summary" data-accent={selectedMethodMeta.accent}>
+            <span className="strategy-selection-summary__badge">{runForm.methodCode || '-'}</span>
+            <strong>{runForm.methodCode ? `전략 ${runForm.methodCode}` : '전략 선택'}</strong>
+            <small>{sourceScopeHint}</small>
+          </div>
           <div className="form-grid form-grid--3">
             <label className="filter-field">소스
               <select value={runForm.sourceId} onChange={(event) => setRunForm((prev) => ({ ...prev, sourceId: event.target.value, sourceDocumentId: '' }))}>
-                <option value="">전체 소스</option>
-                {sources.map((source) => <option key={source.sourceId} value={source.sourceId}>{source.sourceId} ({source.productName || '-'})</option>)}
+                <option value="">전체 허용 소스 ({availableSources.length})</option>
+                {availableSources.map((source) => <option key={source.sourceId} value={source.sourceId}>{source.sourceId} ({source.productName || '-'})</option>)}
               </select>
-              <span className="field-hint">F/G 문서 제약은 기존 옵션을 그대로 따릅니다.</span>
+              <span className="field-hint">{sourceScopeHint}</span>
             </label>
             <label className="filter-field">소스 문서
-              <select value={runForm.sourceDocumentId} onChange={(event) => setRunForm((prev) => ({ ...prev, sourceDocumentId: event.target.value }))}>
+              <select value={runForm.sourceDocumentId} disabled={!runForm.sourceId} onChange={(event) => setRunForm((prev) => ({ ...prev, sourceDocumentId: event.target.value }))}>
                 <option value="">전체 활성 문서</option>
                 {sourceDocuments.map((doc) => <option key={doc.documentId} value={doc.documentId}>{doc.documentId} | {doc.title}</option>)}
               </select>
@@ -492,7 +611,7 @@ export function SyntheticPage({ notify }) {
               <input value={runForm.versionName} placeholder="c-main-v1" onChange={(event) => setRunForm((prev) => ({ ...prev, versionName: event.target.value }))} />
             </label>
             <label className="filter-field filter-field--small">청크 수
-              <input type="number" min="1" value={runForm.limitChunks} onChange={(event) => setRunForm((prev) => ({ ...prev, limitChunks: event.target.value }))} />
+              <input type="number" min="1" value={runForm.limitChunks} placeholder="최대 청크 수 (비우면 제한 없음)" onChange={(event) => setRunForm((prev) => ({ ...prev, limitChunks: event.target.value }))} />
             </label>
             <label className="filter-field filter-field--small">청크당 질의
               <input type="number" min="0.2" max="20" step="0.1" value={runForm.avgQueriesPerChunk} onChange={(event) => setRunForm((prev) => ({ ...prev, avgQueriesPerChunk: event.target.value }))} />
@@ -505,6 +624,7 @@ export function SyntheticPage({ notify }) {
                 <button type="button" className={`segmented__option ${runForm.chunkSamplingMode === 'random' ? 'is-active' : ''}`} onClick={() => setRunForm((prev) => ({ ...prev, chunkSamplingMode: 'random' }))}>랜덤</button>
                 <button type="button" className={`segmented__option ${runForm.chunkSamplingMode === 'ordered' ? 'is-active' : ''}`} onClick={() => setRunForm((prev) => ({ ...prev, chunkSamplingMode: 'ordered' }))}>문서 순서</button>
               </div>
+              <span className="field-hint field-hint--selected">{chunkSamplingLabel}</span>
             </label>
             <label className="filter-field">LLM 모델
               <select value={runForm.llmModel} onChange={(event) => setRunForm((prev) => ({ ...prev, llmModel: event.target.value }))}>
