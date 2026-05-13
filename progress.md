@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-05-13] Session Summary (LLM Job Constraint Sync Hotfix)
+- What was done: Fixed admin chunk-embedding materialization job creation failure by adding a new Flyway migration that expands `llm_job.job_type` check constraint to include `MATERIALIZE_CHUNK_EMBEDDINGS`, and added a backend test that checks Java job-type definitions against the migration values.
+- Key decisions: Used a forward-only migration instead of rewriting the historical `V16` migration, because the bug is affecting already-migrated local/runtime databases.
+- Issues encountered: The new DB-ANN materialization flow was wired end-to-end but failed at `llm_job` insert time due to job-type constraint drift.
+- Next steps: Run the new migration against the active DB and retry the Admin materialization endpoint.
+
 ## [2026-05-13] Session Summary (Admin RAG DB-ANN Evaluation Path)
 - What was done: Added end-to-end admin-side `db-ann` RAG evaluation support without document recollection by introducing model-specific chunk-vector materialization, pgvector ANN evaluation runtime, backend preflight/materialization APIs, and frontend readiness controls for `/admin/rag-tests`.
 - Key decisions: Kept strategy-separated synthetic storage and snapshot/source identity rules intact, and explicitly isolated online hash retrieval from admin dense-eval retrieval so `hash-embedding-v1` and `multilingual-e5-small` are not mixed.

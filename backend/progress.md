@@ -3,6 +3,12 @@
 ## Overview
 High-level backend progress tracking.
 
+## [2026-05-13] Session Summary (LLM Job Type Constraint Hotfix for Chunk Embedding Materialization)
+- What was done: Added Flyway `V30__allow_materialize_chunk_embeddings_llm_job_type.sql` to recreate `llm_job_job_type_check` with `MATERIALIZE_CHUNK_EMBEDDINGS` included, and centralized Java-side job type definitions in `LlmJobType` so `LlmJobService` no longer hardcodes the new materialization type ad hoc.
+- Key decisions: Fixed the production failure with an additive migration instead of editing old applied migration `V16`, so existing databases can migrate forward cleanly without document/pipeline rework.
+- Issues encountered: The new admin chunk-embedding materialization path could enqueue a valid backend command but failed on insert because DB constraint and Java job-type additions were out of sync.
+- Next steps: Apply Flyway migration in the running DB and re-run `/api/admin/console/rag/chunk-embeddings/materialize` to confirm job creation succeeds.
+
 ## [2026-05-13] Session Summary (Admin RAG DB-ANN Backend + Chunk Embedding Materialization)
 - What was done: Added Flyway `V29__add_chunk_embeddings_for_db_ann_eval.sql`, admin chunk-embedding status/materialization APIs, runtime-option support for `retrieval_backend=local|db_ann`, and RAG-run preflight validation that blocks `db-ann` execution until the selected dense model has fully materialized chunk vectors. Added backend job wiring for `materialize-chunk-embeddings`.
 - Key decisions: Kept online `ask` hash retrieval isolated from admin dense evaluation by using `chunk_embeddings` for evaluation chunk ANN and switching online memory lookup to `query_embeddings(hash-embedding-v1)`, leaving `memory_entries.query_embedding` dedicated to dense eval memory ANN.

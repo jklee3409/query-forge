@@ -3,6 +3,7 @@ package io.queryforge.backend.admin.console.service;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.queryforge.backend.admin.console.model.AdminConsoleDtos;
+import io.queryforge.backend.admin.console.model.LlmJobType;
 import io.queryforge.backend.admin.console.repository.AdminConsoleRepository;
 import io.queryforge.backend.admin.console.repository.LlmJobRepository;
 import io.queryforge.backend.admin.pipeline.config.AdminPipelineProperties;
@@ -106,7 +107,7 @@ public class LlmJobService {
     public UUID createGenerationJob(UUID generationBatchId, String experimentName, String createdBy) {
         JsonNode commandArgs = objectMapper.valueToTree(Map.of("experiment", experimentName, "command", "generate-queries"));
         UUID jobId = llmJobRepository.createJob(
-                "GENERATE_SYNTHETIC_QUERY",
+                LlmJobType.GENERATE_SYNTHETIC_QUERY.name(),
                 "generate-queries",
                 experimentName,
                 commandArgs,
@@ -126,7 +127,7 @@ public class LlmJobService {
     public UUID createGatingJob(UUID gatingBatchId, String experimentName, String createdBy) {
         JsonNode commandArgs = objectMapper.valueToTree(Map.of("experiment", experimentName, "command", "gate-queries"));
         UUID jobId = llmJobRepository.createJob(
-                "RUN_LLM_SELF_EVAL",
+                LlmJobType.RUN_LLM_SELF_EVAL.name(),
                 "gate-queries",
                 experimentName,
                 commandArgs,
@@ -148,7 +149,7 @@ public class LlmJobService {
                 Map.of("experiment", experimentName, "command", "materialize-chunk-embeddings")
         );
         UUID jobId = llmJobRepository.createJob(
-                "MATERIALIZE_CHUNK_EMBEDDINGS",
+                LlmJobType.MATERIALIZE_CHUNK_EMBEDDINGS.name(),
                 "materialize-chunk-embeddings",
                 experimentName,
                 commandArgs,
@@ -168,7 +169,7 @@ public class LlmJobService {
     public UUID createRagTestJob(UUID ragTestRunId, String experimentName, String createdBy) {
         JsonNode commandArgs = objectMapper.valueToTree(Map.of("experiment", experimentName));
         UUID jobId = llmJobRepository.createJob(
-                "RUN_RAG_TEST",
+                LlmJobType.RUN_RAG_TEST.name(),
                 "rag-pipeline",
                 experimentName,
                 commandArgs,
@@ -419,7 +420,7 @@ public class LlmJobService {
             Map<String, Long> commandDurationMs,
             long totalJobDurationMs
     ) {
-        if ("GENERATE_SYNTHETIC_QUERY".equals(job.jobType()) && job.generationBatchId() != null) {
+        if (LlmJobType.GENERATE_SYNTHETIC_QUERY.name().equals(job.jobType()) && job.generationBatchId() != null) {
             JsonNode summary = resultByCommand.getOrDefault("generate-queries", objectMapper.createObjectNode());
             UUID sourceRunId = asUuid(summary.path("experiment_run_id").asText(null));
             int generatedCount = summary.path("generated_queries").asInt(0);
@@ -429,7 +430,7 @@ public class LlmJobService {
             }
             return;
         }
-        if ("RUN_LLM_SELF_EVAL".equals(job.jobType()) && job.gatingBatchId() != null) {
+        if (LlmJobType.RUN_LLM_SELF_EVAL.name().equals(job.jobType()) && job.gatingBatchId() != null) {
             JsonNode summary = resultByCommand.getOrDefault("gate-queries", objectMapper.createObjectNode());
             UUID sourceRunId = asUuid(summary.path("experiment_run_id").asText(null));
             int processed = summary.path("processed_queries").asInt(0);
@@ -449,7 +450,7 @@ public class LlmJobService {
             }
             return;
         }
-        if ("RUN_RAG_TEST".equals(job.jobType()) && job.ragTestRunId() != null) {
+        if (LlmJobType.RUN_RAG_TEST.name().equals(job.jobType()) && job.ragTestRunId() != null) {
             JsonNode retrievalSummary = resultByCommand.getOrDefault("eval-retrieval", objectMapper.createObjectNode());
             JsonNode answerSummary = resultByCommand.getOrDefault("eval-answer", objectMapper.createObjectNode());
             JsonNode memorySummary = resultByCommand.getOrDefault("build-memory", objectMapper.createObjectNode());
@@ -549,7 +550,7 @@ public class LlmJobService {
         int nextRetry = (job.retryCount() == null ? 0 : job.retryCount()) + 1;
         int maxRetries = job.maxRetries() == null ? 0 : job.maxRetries();
         String errorMessage = exception.getMessage() == null ? "job_failed" : exception.getMessage();
-        boolean unlimitedRetry = "GENERATE_SYNTHETIC_QUERY".equals(job.jobType()) && maxRetries < 0;
+        boolean unlimitedRetry = LlmJobType.GENERATE_SYNTHETIC_QUERY.name().equals(job.jobType()) && maxRetries < 0;
         if (unlimitedRetry || nextRetry <= maxRetries) {
             long backoffSeconds = (long) Math.min(60, Math.pow(2, nextRetry) * 2);
             Instant nextRunAt = Instant.now().plusSeconds(backoffSeconds);
