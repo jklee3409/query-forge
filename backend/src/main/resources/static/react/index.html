@@ -5,8 +5,23 @@
     <link rel="icon" type="image/svg+xml" href="/react/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Query Forge Console</title>
-    <script type="module" crossorigin src="/react/assets/index-DRJozDMe.js"></script>
-    <link rel="stylesheet" crossorigin href="/react/assets/index-CrN4KSkA.css">
+    <script>
+      (function () {
+        try {
+          var stored = window.localStorage.getItem('query-forge-theme')
+          var theme = stored === 'light' || stored === 'dark'
+            ? stored
+            : (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
+          document.documentElement.dataset.theme = theme
+          document.documentElement.style.colorScheme = theme
+        } catch (error) {
+          document.documentElement.dataset.theme = 'dark'
+          document.documentElement.style.colorScheme = 'dark'
+        }
+      })()
+    </script>
+    <script type="module" crossorigin src="/react/assets/index-GO_IsjQL.js"></script>
+    <link rel="stylesheet" crossorigin href="/react/assets/index-BezCCKyn.css">
   </head>
   <body>
     <div id="root"></div>

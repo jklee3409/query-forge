@@ -3,6 +3,36 @@
 ## Overview
 High-level progress tracking for the project.
 
+## [2026-05-13] Session Summary (Admin Sidebar Spacing + AI Ops Core Emphasis)
+- What was done: Increased the sidebar nav icon-to-label gap, enlarged the PF/SQ/GT/RG-style icon boxes slightly, and amplified the `AI Ops Core` presence block with a larger signal tile, stronger glow, richer surface, and clearer typography.
+- Key decisions: CSS-only frontend polish. No route, API, payload, or runtime behavior changed.
+- Issues encountered: `npm run build` passed and refreshed backend static React assets.
+- Next steps: Visual-smoke the sidebar at desktop width and verify long labels still fit after the wider icon/text spacing.
+
+## [2026-05-13] Session Summary (Quality Gating Runtime Context Spacing Polish)
+- What was done: Refined the `/admin/quality-gating` Runtime Context panel spacing by introducing grouped context sections (`Source Selection`, `Strategy Runtime`) and CSS rules that keep same-group controls compact even when the panel stretches vertically.
+- Key decisions: UI-only spacing adjustment. Existing state, submit handler, API payload, runtime options, and gating execution behavior were preserved.
+- Issues encountered: `npm run build` passed and refreshed backend static React assets.
+- Next steps: Visual-smoke Runtime Context with multiple batch options and confirm the selected preset/LLM controls no longer inherit oversized vertical gaps.
+
+## [2026-05-13] Session Summary (Quality Gating Launch Placement Polish)
+- What was done: Repositioned the `/admin/quality-gating` Launch panel into the right sidecar after Retriever and Active Config, and adjusted the console grid so the execution action sits at the right-column bottom on desktop while remaining responsive on narrower widths.
+- Key decisions: UI layout-only change. Existing form state, submit handler, request payload, runtime options, and gating execution behavior were left unchanged.
+- Issues encountered: `npm run build` passed and refreshed backend static React assets.
+- Next steps: Visual-smoke the Gating console at desktop and responsive breakpoints with the attached reference layout in mind.
+
+## [2026-05-13] Session Summary (Quality Gating Runtime Console UX Redesign)
+- What was done: Rebuilt `/admin/quality-gating` presentation as a runtime-console layout: left runtime context/launch rail, center gate network, and right retriever/active-config sidecar. Added local form primitives (`ControlField`, `SelectField`, `GateCard`, `ScoreGroup`, `CapabilityChip`), Top-K/Document/Penalty utility score grouping, stage-linked dim/active states, pipeline chips, config summary, and a stronger queued launch button.
+- Key decisions: Frontend-only UX/UI change. Existing request body keys, state values, API endpoints, runtime option loading, gating stage flags, score thresholds, retriever config fields, and history/result/funnel data flows were preserved.
+- Issues encountered: `npm run build` passed and refreshed the production React bundle in backend static resources. `npm run lint` remains blocked by the existing `vite.config.js` `process` no-undef error plus pre-existing hook dependency warnings.
+- Next steps: Smoke-test the Gating page with real method/runtime options and completed batches in dark mode, including BM25-only disabled Dense controls and inactive stage field dimming.
+
+## [2026-05-13] Session Summary (AI Console Theme System + Visual Polish)
+- What was done: Added explicit light/dark theme selection with localStorage persistence, early system-theme detection in `index.html`, smooth theme transitions, and a topbar theme toggle. Rebuilt the admin shell visual language around semantic design tokens, dark layered surfaces, custom form controls, refined sidebar rhythm, and a subtle AI Ops Core presence indicator.
+- Key decisions: Kept all API helpers, request payload fields, data flow, experiment/snapshot semantics, and page execution logic unchanged. Styling changes are centralized in `styles.css` through semantic tokens and a final design-system normalization layer so legacy page classes inherit the same hierarchy.
+- Issues encountered: `npm run build` passed and refreshed generated static React assets in backend resources. `npm run lint` still fails on the existing `vite.config.js` `process` no-undef error and pre-existing hook dependency warnings.
+- Next steps: Browser-smoke `/admin/pipeline`, `/admin/synthetic-queries`, `/admin/quality-gating`, and `/admin/rag-tests` in both light/dark mode with live data.
+
 ## [2026-05-13] Session Summary (Admin UI Polish: Strategy Density, Dark Selected States, Korean Copy)
 - What was done: Reduced `/admin/synthetic-queries` strategy cards to compact operator-facing essentials, replaced verbose names/descriptions/tag clusters with one-line flow text, and localized admin shell/Synthetic/RAG/Gating/shared UI copy to Korean-first terminology. Added common selected-state tokens and semantic success/danger button variants for dark-mode-safe active controls.
 - Key decisions: UI-only polishing. Existing API calls, form state keys, request payloads, strategy meanings, source-scoped method restrictions, snapshot requirements, and evaluation/gating/rewrite logic were left unchanged.
