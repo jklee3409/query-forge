@@ -39,6 +39,12 @@ High-level progress tracking for the project.
 - Issues encountered: Initial generation produced over-short prompts and hard-failed on lexical-overlap checks; script was refined to strengthen query-quality filtering and treat low-overlap as warning, not structural failure.
 - Next steps: Reuse the script for future 80->N expansion with adjusted `--target-total` and keep warning-sample manual review in loop.
 
+## [2026-05-13] Session Summary (Short-User 80 Audit + Refinement Scripts)
+- What was done: Added `scripts/audit_short_user_dataset.py` for dependency-aware short-user dataset auditing and `scripts/refine_short_user_dataset.py` for deterministic query/chunk refinement, JSONL rewrite, DB upsert, and per-sample change reporting.
+- Key decisions: The refinement script reads the frozen snapshot report `data/reports/short_user_current_dump_2026-05-13.json`, preserves existing synthetic provenance metadata, and only retargets `expected_chunk_ids` through explicit override tables backed by inspected chunk text.
+- Issues encountered: Runtime compatibility depends on DB row metadata and active dataset bindings, so the script updates `eval_samples`, `eval_dataset_item`, and `eval_dataset` together instead of editing only the JSONL file.
+- Next steps: Keep the override tables and generated report (`data/reports/short_user_dataset_80_refined_2026-05-13.json`) synchronized when future manual curation rounds adjust additional samples.
+
 ---
 
 ## [2026-04-13] Session Summary

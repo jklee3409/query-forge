@@ -53,6 +53,12 @@ High-level progress tracking for the project.
 - Issues encountered: Early generations produced unnatural token artifacts; generator term filters were tightened and rerun until structural issues were zero and synthetic text overlap was zero.
 - Next steps: Run rewrite-effect A/C comparison with the regenerated 80 set and perform spot manual QA on edge technical terms.
 
+## [2026-05-13] Session Summary (Short User Eval Dataset 80 Manual Grounding Refinement)
+- What was done: Refined `data/eval/human_eval_short_user_test_80.jsonl` and active dataset `b2d47254-8655-4c9c-81ac-7615677ec5bd` using stronger Korean short-query wording, grounded `expected_answer_key_points`, and corrected `expected_chunk_ids`/`expected_doc_ids` for 20 misaligned samples. Added supporting reports `data/reports/short_user_dataset_80_audit_pre_refine_2026-05-13.json`, `data/reports/short_user_dataset_80_audit_post_refine_2026-05-13.json`, and `data/reports/short_user_dataset_80_refined_2026-05-13.json`.
+- Key decisions: Preserved sample IDs, dataset ID/key, source synthetic provenance, and eval schema while allowing cross-doc retargeting only when inspected chunk text provided stronger retrieval grounding than the previous mapping.
+- Issues encountered: The previous 80 set loaded successfully in pipeline code but still contained summary-only targets, overlap-context answer points, and a few outright wrong schema/section mappings, so refinement needed both query rewrites and chunk-level retargeting.
+- Next steps: Use the refinement report for residual manual QA on compressed-query edge cases and keep future KO/EN companion datasets aligned to the updated Korean grounding.
+
 ---
 
 ## Notes
