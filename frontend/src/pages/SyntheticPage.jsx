@@ -17,15 +17,15 @@ import { usePolling } from '../lib/hooks.js'
 
 const STRATEGY_UI_META = {
   A: {
-    flow: ['EN Doc', 'EN Summary', 'EN Query', 'KO Query'],
+    flow: ['EN Doc', 'EN Summary', 'EN Query', 'KR Query'],
     accent: 'blue',
   },
   B: {
-    flow: ['EN Doc', 'KO Summary', 'KO Query'],
+    flow: ['EN Doc', 'KR Doc', 'KR Summary', 'KR Query'],
     accent: 'green',
   },
   C: {
-    flow: ['EN Doc', 'KO Summary', 'Structured KO Query'],
+    flow: ['EN Doc', 'KR Summary', 'Structured KR Query'],
     accent: 'violet',
   },
   D: {
@@ -37,7 +37,7 @@ const STRATEGY_UI_META = {
     accent: 'slate',
   },
   F: {
-    flow: ['KR Doc', 'KR Summary', 'EN Query'],
+    flow: ['KR Doc', 'KR Summary', 'KR Query', 'EN Query'],
     accent: 'cyan',
   },
   G: {

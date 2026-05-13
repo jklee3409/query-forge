@@ -1,3 +1,5 @@
+import { useEffect, useRef, useState } from 'react'
+
 export function SectionHeader({ eyebrow, title, description, actions }) {
   return (
     <div className="section-heading">
@@ -33,15 +35,54 @@ export function EmptyState({ title = '데이터 없음', description, action }) 
 
 export function StrategyFlow({ steps }) {
   const normalized = Array.isArray(steps) ? steps.filter(Boolean) : []
+  const flowKey = normalized.join('|')
+  const shellRef = useRef(null)
+  const trackRef = useRef(null)
+  const [slideDistance, setSlideDistance] = useState(0)
+
+  useEffect(() => {
+    const shell = shellRef.current
+    const track = trackRef.current
+    if (!shell || !track) return undefined
+
+    const measure = () => {
+      const distance = Math.ceil(track.scrollWidth - shell.clientWidth)
+      setSlideDistance(distance > 4 ? distance : 0)
+    }
+
+    measure()
+    if (typeof ResizeObserver === 'undefined') {
+      window.addEventListener('resize', measure)
+      return () => window.removeEventListener('resize', measure)
+    }
+
+    const observer = new ResizeObserver(measure)
+    observer.observe(shell)
+    observer.observe(track)
+    return () => observer.disconnect()
+  }, [flowKey])
+
   if (normalized.length === 0) return null
+  const durationSeconds = Math.max(6, Math.min(14, slideDistance / 18))
+
   return (
-    <div className="strategy-flow" aria-label="전략 흐름">
-      {normalized.map((step, index) => (
-        <span className="strategy-flow__item" key={`${step}-${index}`}>
-          <span className="strategy-flow__chip">{step}</span>
-          {index < normalized.length - 1 && <span className="strategy-flow__arrow" aria-hidden="true">→</span>}
-        </span>
-      ))}
+    <div
+      className={`strategy-flow ${slideDistance > 0 ? 'is-scrollable' : ''}`}
+      aria-label="전략 흐름"
+      ref={shellRef}
+      style={{
+        '--strategy-flow-shift': `${slideDistance}px`,
+        '--strategy-flow-duration': `${durationSeconds}s`,
+      }}
+    >
+      <div className="strategy-flow__track" ref={trackRef}>
+        {normalized.map((step, index) => (
+          <span className="strategy-flow__item" key={`${step}-${index}`}>
+            <span className="strategy-flow__chip">{step}</span>
+            {index < normalized.length - 1 && <span className="strategy-flow__arrow" aria-hidden="true">→</span>}
+          </span>
+        ))}
+      </div>
     </div>
   )
 }

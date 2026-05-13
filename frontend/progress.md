@@ -3,6 +3,12 @@
 ## Overview
 High-level progress tracking for the project.
 
+## [2026-05-13] Session Summary (Synthetic Strategy Flow Slider + KR Label Fix)
+- What was done: Updated `/admin/synthetic-queries` strategy flow labels so `KO` is consistently shown as `KR`, corrected B to `EN Doc -> KR Doc -> KR Summary -> KR Query`, and corrected F to `KR Doc -> KR Summary -> KR Query -> EN Query`. Strategy flow chips now measure overflow and automatically slide within the card when the full pipeline exceeds the available width.
+- Key decisions: Frontend display-only change. Synthetic method IDs, backend method metadata, request payloads, generation strategy semantics, and pipeline logic were unchanged.
+- Issues encountered: None during implementation.
+- Next steps: Visual-smoke strategy cards at desktop and narrow widths to confirm overflow flows remain readable without manual horizontal scrolling.
+
 ## [2026-05-13] Session Summary (Admin Sidebar Spacing + AI Ops Core Emphasis)
 - What was done: Increased the sidebar nav icon-to-label gap, enlarged the PF/SQ/GT/RG-style icon boxes slightly, and amplified the `AI Ops Core` presence block with a larger signal tile, stronger glow, richer surface, and clearer typography.
 - Key decisions: CSS-only frontend polish. No route, API, payload, or runtime behavior changed.
