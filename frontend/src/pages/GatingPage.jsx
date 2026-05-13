@@ -620,7 +620,7 @@ export function GatingPage({ notify }) {
                         return { ...prev, generationBatchIds: nextIds }
                       })}
                     />
-                    <span className="check-pill__box" aria-hidden="true">{checked ? 'v' : ''}</span>
+                    <span className="check-pill__box" aria-hidden="true">{checked ? '✓' : ''}</span>
                     <span className="check-pill__text">{batch.methodCode}:{batch.versionName}</span>
                   </label>
                 )
@@ -637,7 +637,7 @@ export function GatingPage({ notify }) {
             </select>
           </label>
           <div className="stage-config-grid">
-            <StageCard title="Rule" checked={form.enableRuleFilter} onToggle={(checked) => setForm((prev) => ({ ...prev, enableRuleFilter: checked }))}>
+            <StageCard title="규칙" checked={form.enableRuleFilter} onToggle={(checked) => setForm((prev) => ({ ...prev, enableRuleFilter: checked }))}>
               <NumberInput label="짧은 질의 최소 길이" value={form.ruleMinLengthShort} onChange={(value) => setForm((prev) => ({ ...prev, ruleMinLengthShort: value }))} />
               <NumberInput label="짧은 질의 최대 길이" value={form.ruleMaxLengthShort} onChange={(value) => setForm((prev) => ({ ...prev, ruleMaxLengthShort: value }))} />
               <NumberInput label="일반 질의 최소 길이" value={form.ruleMinLengthLong} onChange={(value) => setForm((prev) => ({ ...prev, ruleMinLengthLong: value }))} />
@@ -646,11 +646,11 @@ export function GatingPage({ notify }) {
               <NumberInput label="최대 토큰(단어 수 상한)" value={form.ruleMaxTokens} onChange={(value) => setForm((prev) => ({ ...prev, ruleMaxTokens: value }))} />
               <NumberInput label="최소 한글 비중(0~1, 비우면 기본값)" step="0.01" value={form.ruleMinKoreanRatio} onChange={(value) => setForm((prev) => ({ ...prev, ruleMinKoreanRatio: value }))} />
             </StageCard>
-            <StageCard title="LLM" checked={form.enableLlmSelfEval} onToggle={(checked) => setForm((prev) => ({ ...prev, enableLlmSelfEval: checked }))}>
+            <StageCard title="LLM 평가" checked={form.enableLlmSelfEval} onToggle={(checked) => setForm((prev) => ({ ...prev, enableLlmSelfEval: checked }))}>
               <NumberInput label="LLM 가중치" step="0.01" value={form.llmWeight} onChange={(value) => setForm((prev) => ({ ...prev, llmWeight: value }))} />
             </StageCard>
-            <StageCard title="Utility" checked={form.enableRetrievalUtility} onToggle={(checked) => setForm((prev) => ({ ...prev, enableRetrievalUtility: checked }))}>
-              <NumberInput label="Utility 가중치" step="0.01" value={form.utilityWeight} onChange={(value) => setForm((prev) => ({ ...prev, utilityWeight: value }))} />
+            <StageCard title="검색 효용" checked={form.enableRetrievalUtility} onToggle={(checked) => setForm((prev) => ({ ...prev, enableRetrievalUtility: checked }))}>
+              <NumberInput label="검색 효용 가중치" step="0.01" value={form.utilityWeight} onChange={(value) => setForm((prev) => ({ ...prev, utilityWeight: value }))} />
               <NumberInput label="Target Top1 점수" step="0.01" value={form.utilityTargetTop1Score} onChange={(value) => setForm((prev) => ({ ...prev, utilityTargetTop1Score: value }))} />
               <NumberInput label="Target Top3 점수" step="0.01" value={form.utilityTargetTop3Score} onChange={(value) => setForm((prev) => ({ ...prev, utilityTargetTop3Score: value }))} />
               <NumberInput label="Target Top5 점수" step="0.01" value={form.utilityTargetTop5Score} onChange={(value) => setForm((prev) => ({ ...prev, utilityTargetTop5Score: value }))} />
@@ -664,18 +664,18 @@ export function GatingPage({ notify }) {
             </StageCard>
             <article className="stage-card">
               <div className="stage-card__header">
-                <div className="stage-card__title">Retriever</div>
+                <div className="stage-card__title">검색기</div>
                 <span className="metric-chip">{form.retrieverMode}</span>
               </div>
               <div className="stage-card__body">
-                <label className="filter-field">Retriever Mode
+                <label className="filter-field">검색 모드
                   <select value={form.retrieverMode} onChange={(event) => setForm((prev) => ({ ...prev, retrieverMode: event.target.value, denseEmbeddingRequired: event.target.value === 'bm25_only' ? false : prev.denseEmbeddingRequired }))}>
                     {(runtimeOptions.retrieverModes.length > 0 ? runtimeOptions.retrieverModes : [form.retrieverMode]).filter(Boolean).map((mode) => (
                       <option key={mode} value={mode}>{retrieverModeLabel(mode)}</option>
                     ))}
                   </select>
                 </label>
-                <label className="filter-field">Dense Model
+                <label className="filter-field">Dense 모델
                   <select
                     value={form.denseEmbeddingModel}
                     disabled={form.retrieverMode === 'bm25_only'}
@@ -684,18 +684,18 @@ export function GatingPage({ notify }) {
                     {runtimeOptions.denseEmbeddingModels.map((model) => <option key={model} value={model}>{model}</option>)}
                   </select>
                 </label>
-                <NumberInput label="Candidate Pool" value={form.retrieverCandidatePoolK} onChange={(value) => setForm((prev) => ({ ...prev, retrieverCandidatePoolK: value }))} />
-                <NumberInput label="Dense Weight" step="0.01" value={form.retrieverDenseWeight} onChange={(value) => setForm((prev) => ({ ...prev, retrieverDenseWeight: value }))} />
-                <NumberInput label="BM25 Weight" step="0.01" value={form.retrieverBm25Weight} onChange={(value) => setForm((prev) => ({ ...prev, retrieverBm25Weight: value }))} />
-                <NumberInput label="Technical Weight" step="0.01" value={form.retrieverTechnicalWeight} onChange={(value) => setForm((prev) => ({ ...prev, retrieverTechnicalWeight: value }))} />
+                <NumberInput label="검색 후보 수" value={form.retrieverCandidatePoolK} onChange={(value) => setForm((prev) => ({ ...prev, retrieverCandidatePoolK: value }))} />
+                <NumberInput label="Dense 가중치" step="0.01" value={form.retrieverDenseWeight} onChange={(value) => setForm((prev) => ({ ...prev, retrieverDenseWeight: value }))} />
+                <NumberInput label="BM25 가중치" step="0.01" value={form.retrieverBm25Weight} onChange={(value) => setForm((prev) => ({ ...prev, retrieverBm25Weight: value }))} />
+                <NumberInput label="기술어 가중치" step="0.01" value={form.retrieverTechnicalWeight} onChange={(value) => setForm((prev) => ({ ...prev, retrieverTechnicalWeight: value }))} />
                 <div className="checkbox-row">
-                  <label><input type="checkbox" checked={form.denseEmbeddingRequired} disabled={form.retrieverMode === 'bm25_only'} onChange={(event) => setForm((prev) => ({ ...prev, denseEmbeddingRequired: event.target.checked }))} />Dense required</label>
-                  <label><input type="checkbox" checked={form.denseFallbackEnabled} disabled={form.retrieverMode === 'bm25_only'} onChange={(event) => setForm((prev) => ({ ...prev, denseFallbackEnabled: event.target.checked }))} />Hash fallback</label>
-                  <label><input type="checkbox" checked={form.retrieverRerankEnabled} onChange={(event) => setForm((prev) => ({ ...prev, retrieverRerankEnabled: event.target.checked }))} />Cohere rerank</label>
+                  <label><input type="checkbox" checked={form.denseEmbeddingRequired} disabled={form.retrieverMode === 'bm25_only'} onChange={(event) => setForm((prev) => ({ ...prev, denseEmbeddingRequired: event.target.checked }))} />Dense 필수</label>
+                  <label><input type="checkbox" checked={form.denseFallbackEnabled} disabled={form.retrieverMode === 'bm25_only'} onChange={(event) => setForm((prev) => ({ ...prev, denseFallbackEnabled: event.target.checked }))} />해시 fallback</label>
+                  <label><input type="checkbox" checked={form.retrieverRerankEnabled} onChange={(event) => setForm((prev) => ({ ...prev, retrieverRerankEnabled: event.target.checked }))} />Cohere 재정렬</label>
                 </div>
               </div>
             </article>
-            <StageCard title="Diversity" checked={form.enableDiversity} onToggle={(checked) => setForm((prev) => ({ ...prev, enableDiversity: checked }))}>
+            <StageCard title="다양성" checked={form.enableDiversity} onToggle={(checked) => setForm((prev) => ({ ...prev, enableDiversity: checked }))}>
               <NumberInput label="Diversity 가중치" step="0.01" value={form.diversityWeight} onChange={(value) => setForm((prev) => ({ ...prev, diversityWeight: value }))} />
               <NumberInput label="동일 청크 임계치" step="0.01" value={form.diversityThresholdSameChunk} onChange={(value) => setForm((prev) => ({ ...prev, diversityThresholdSameChunk: value }))} />
               <NumberInput label="동일 문서 임계치" step="0.01" value={form.diversityThresholdSameDoc} onChange={(value) => setForm((prev) => ({ ...prev, diversityThresholdSameDoc: value }))} />
@@ -704,7 +704,7 @@ export function GatingPage({ notify }) {
           <label className="filter-field filter-field--small">최종 점수 임계치
             <input type="number" step="0.01" min="0" max="1" value={form.finalScoreThreshold} onChange={(event) => setForm((prev) => ({ ...prev, finalScoreThreshold: event.target.value }))} />
           </label>
-          <div className="filter-field filter-field--small"><button type="submit" className="button button--primary" disabled={((form.generationBatchIds || []).length === 0) && !form.generationBatchId}>게이팅 실행</button></div>
+          <div className="filter-field filter-field--small"><button type="submit" className="button button--success" disabled={((form.generationBatchIds || []).length === 0) && !form.generationBatchId}>게이팅 실행</button></div>
         </form>
       </section>
 

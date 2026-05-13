@@ -28,14 +28,14 @@ export function LlmJobsTable({ jobs, onAction, onDetail, loaded = true, loading 
     return (
       <section className="table-shell">
         <div className="table-header">
-          <div className="table-title">LLM Async Job Status</div>
+          <div className="table-title">LLM 비동기 작업 상태</div>
           {onLoad && (
             <button type="button" className="button" onClick={onLoad}>
               불러오기
             </button>
           )}
         </div>
-        <div className="empty-state">LLM jobs are lazy-loaded. Click &quot;불러오기&quot; when needed.</div>
+        <div className="empty-state">LLM 작업은 필요할 때 불러옵니다.</div>
       </section>
     )
   }
@@ -43,10 +43,10 @@ export function LlmJobsTable({ jobs, onAction, onDetail, loaded = true, loading 
   return (
     <section className="table-shell">
       <div className="table-header">
-        <div className="table-title">LLM 비동기 Job 상태</div>
+        <div className="table-title">LLM 비동기 작업 상태</div>
         {onLoad && (
           <button type="button" className="button" disabled={loading} onClick={onLoad}>
-            {loading ? 'Loading...' : (loaded ? '새로고침' : '불러오기')}
+            {loading ? '불러오는 중...' : (loaded ? '새로고침' : '불러오기')}
           </button>
         )}
       </div>
@@ -55,13 +55,13 @@ export function LlmJobsTable({ jobs, onAction, onDetail, loaded = true, loading 
           <thead>
             <tr>
               <th>job_id</th>
-              <th>type</th>
-              <th>status</th>
-              <th>progress</th>
+              <th>유형</th>
+              <th>상태</th>
+              <th>진행률</th>
               <th>ETA</th>
-              <th>retry</th>
+              <th>재시도</th>
               <th>related_id</th>
-              <th>actions</th>
+              <th>작업</th>
             </tr>
           </thead>
           <tbody>

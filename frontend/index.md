@@ -34,6 +34,8 @@
 ---
 
 ## Recent Update
+- Admin UI polishing pass: `/admin/synthetic-queries` strategy cards now show only strategy code, active state, compact one-line flow, prompt version, and query count; verbose descriptions/tag clusters were removed. Shared selected-state tokens now prevent dark-mode light-background/white-text collisions across strategy selectors, dropdown options, segmented controls, check pills, source cards, compare checkboxes, and linked compare rows.
+- Admin copy is now Korean-first across the shell and recently redesigned Synthetic/RAG/Gating/shared controls, using consistent terms such as 질의, 재작성, 검색, 배치, 전략, 스냅샷, 평가. Run actions use success styling and destructive actions use danger styling.
 - `/admin/synthetic-queries` now renders generation methods as strategy cards with visual flow chips, prompt/status metadata, and quick query counts. Batch history now uses timeline-style job cards with progress bars, ETA, retry context, client-side search/filter/sort, and a confirm dialog for delete.
 - `/admin/rag-tests` run creation now uses a sectioned Experiment Builder layout: Experiment Overview, Rewrite Strategy, Retrieval Config, collapsed Advanced Options, fusion balance bar, rewrite threshold slider, and a sticky run-summary preview. Existing request payload fields and validation rules are unchanged.
 - Shared admin UI primitives were added in `src/components/AdminUi.jsx` for section headers, metric cards, strategy flows, progress metrics, batch cards, experiment sections, config summaries, balance bars, empty states, and confirm dialogs.

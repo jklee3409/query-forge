@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-05-13] Session Summary (Admin UI Polish: Strategy Density, Dark Selected States, Korean Copy)
+- What was done: Polished the React admin UI presentation layer only. Simplified synthetic strategy cards to code/status/compact flow/prompt/query count, normalized selected-state color tokens for dark mode, localized new admin shell/Synthetic/RAG/Gating/shared UI text to Korean-first wording, and emphasized run/delete actions with semantic success/danger button variants.
+- Key decisions: Kept backend APIs, DTOs, eval/dataset/snapshot contracts, strategy semantics, generation/gating/rewrite/evaluation logic, and request payload fields unchanged. Applied the dark-mode fix at shared token/variant level instead of one-off page patches.
+- Issues encountered: Frontend production build passed. `npm run lint` remains blocked by the existing `vite.config.js` `process` no-undef error and pre-existing hook dependency warnings.
+- Next steps: Browser-smoke the updated admin pages with real data in dark mode, especially selected strategy chips, dropdown selected rows, compare checkboxes, and delete/run buttons.
+
 ## [2026-05-13] Session Summary (Admin Console UI/UX Modernization)
 - What was done: Redesigned the React admin presentation layer for synthetic generation and RAG evaluation without changing backend APIs or experiment contracts. Added strategy cards/flows, batch timeline cards with progress and filters, a sectioned RAG experiment builder, reusable admin UI primitives, responsive styling, and dark-mode-ready tokens.
 - Key decisions: Kept all synthetic/RAG request payload fields, snapshot selection rules, gating/rewrite/eval semantics, and source-scoped method restrictions unchanged; avoided new heavy dependencies and used existing React/Vite structure.

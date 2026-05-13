@@ -3,6 +3,12 @@
 ## Overview
 High-level progress tracking for the project.
 
+## [2026-05-13] Session Summary (Admin UI Polish: Strategy Density, Dark Selected States, Korean Copy)
+- What was done: Reduced `/admin/synthetic-queries` strategy cards to compact operator-facing essentials, replaced verbose names/descriptions/tag clusters with one-line flow text, and localized admin shell/Synthetic/RAG/Gating/shared UI copy to Korean-first terminology. Added common selected-state tokens and semantic success/danger button variants for dark-mode-safe active controls.
+- Key decisions: UI-only polishing. Existing API calls, form state keys, request payloads, strategy meanings, source-scoped method restrictions, snapshot requirements, and evaluation/gating/rewrite logic were left unchanged.
+- Issues encountered: `npm run build` passed. `npm run lint` still fails on the existing `vite.config.js` `process` no-undef rule and hook-dependency warnings.
+- Next steps: Dark-mode browser smoke on strategy selector, segmented controls, dropdown selected items, compare checkboxes, linked compare rows, and delete/run buttons.
+
 ## [2026-05-13] Session Summary (Admin Console UI/UX Modernization)
 - What was done: Added reusable admin UI primitives (`AdminUi.jsx`) and redesigned `/admin/synthetic-queries` with strategy-card flow visualization, modern generation builder controls, metric cards, client-side batch search/filter/sort, timeline-style batch job cards, progress bars, ETA display, and confirm dialog delete UX. Reworked `/admin/rag-tests` run form into a sectioned Experiment Builder with overview, rewrite, retrieval, advanced options, fusion balance bar, threshold slider, and run-summary preview.
 - Key decisions: Kept existing React page/container structure, API calls, request payload fields, strategy semantics, source-scoped method restrictions, snapshot requirements, and RAG validation flow unchanged. No new runtime dependency was added.

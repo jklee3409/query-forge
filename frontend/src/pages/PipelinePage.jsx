@@ -994,7 +994,7 @@ export function PipelinePage({ notify }) {
               <span className="anchor-eval-chip">source: {selectedSourceForEval?.sourceId || 'all'}</span>
               <span className="anchor-eval-chip">docs: {anchorEvalForm.selectedDocumentIds.length}</span>
               <span className="anchor-eval-chip">chunks: {anchorEvalForm.selectedChunkIds.length}</span>
-              {anchorEvalLoadingScope && <span className="anchor-eval-chip is-loading">loading...</span>}
+              {anchorEvalLoadingScope && <span className="anchor-eval-chip is-loading">불러오는 중...</span>}
             </div>
           </div>
           <div className="filter-field filter-field--small">
@@ -1009,7 +1009,7 @@ export function PipelinePage({ notify }) {
             <tbody>
               {!anchorEvalRunsLoaded && (
                 <tr>
-                  <td colSpan={6}>{anchorEvalRunsLoading ? 'Loading Anchor Eval runs...' : 'Anchor Eval history is lazy-loaded. Click refresh to load runs.'}</td>
+                  <td colSpan={6}>{anchorEvalRunsLoading ? 'Anchor 평가 실행을 불러오는 중...' : 'Anchor 평가 이력은 필요할 때 새로고침합니다.'}</td>
                 </tr>
               )}
               {anchorEvalRunsLoaded && anchorEvalRuns.map((run) => (

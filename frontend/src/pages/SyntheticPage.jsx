@@ -17,54 +17,38 @@ import { usePolling } from '../lib/hooks.js'
 
 const STRATEGY_UI_META = {
   A: {
-    flow: ['EN Doc', 'EN Summary', 'EN Query', 'KO Translation'],
-    badges: ['Spring EN', 'translation path', 'KO output'],
-    purpose: 'English-first generation with Korean translated user-facing queries.',
+    flow: ['EN Doc', 'EN Summary', 'EN Query', 'KO Query'],
     accent: 'blue',
   },
   B: {
-    flow: ['EN Doc', 'KO Summary', 'Natural KO Query'],
-    badges: ['Spring EN', 'natural KO', 'summary guided'],
-    purpose: 'Natural Korean developer questions grounded in English technical docs.',
+    flow: ['EN Doc', 'KO Summary', 'KO Query'],
     accent: 'green',
   },
   C: {
     flow: ['EN Doc', 'KO Summary', 'Structured KO Query'],
-    badges: ['Spring EN', 'precise', 'multi-step'],
-    purpose: 'Structured Korean queries for precise retrieval and multi-chunk reasoning.',
     accent: 'violet',
   },
   D: {
-    flow: ['EN Doc', 'Anchors', 'KO + Code Query'],
-    badges: ['Spring EN', 'code-mixed', 'anchor preserving'],
-    purpose: 'Code-mixed Korean queries that preserve technical tokens.',
+    flow: ['EN Doc', 'Anchor', 'Code-Mixed Query'],
     accent: 'amber',
   },
   E: {
     flow: ['EN Doc', 'EN Summary', 'EN Query'],
-    badges: ['Spring EN', 'English-native', 'anchor preserving'],
-    purpose: 'English-native developer questions grounded in the Spring corpus.',
     accent: 'slate',
   },
   F: {
-    flow: ['KR Doc', 'KR Summary', 'KR Query', 'EN Query'],
-    badges: ['Python KR', 'dual language', 'translation bridge'],
-    purpose: 'Korean-source flow that emits Korean and English query variants.',
+    flow: ['KR Doc', 'KR Summary', 'EN Query'],
     accent: 'cyan',
   },
   G: {
     flow: ['KR Doc', 'KR Summary', 'KR Query'],
-    badges: ['Python KR', 'Korean-native', 'source strict'],
-    purpose: 'Korean-native generation flow for Korean technical documents.',
     accent: 'rose',
   },
 }
 
 function strategyMeta(method) {
   return STRATEGY_UI_META[String(method?.methodCode || '').toUpperCase()] || {
-    flow: [method?.queryLanguageStrategy || 'Query Strategy'].filter(Boolean),
-    badges: ['DB-driven'],
-    purpose: method?.description || 'Server-provided strategy metadata.',
+    flow: [method?.methodCode ? `전략 ${method.methodCode}` : '전략'].filter(Boolean),
     accent: 'slate',
   }
 }
@@ -311,7 +295,7 @@ export function SyntheticPage({ notify }) {
       const refreshTasks = [loadBatches(), loadStats(), loadQueries(queryPage)]
       if (llmJobsLoaded) refreshTasks.push(loadLlmJobs())
       await Promise.all(refreshTasks)
-      notify('Synthetic generation batch has been queued.')
+      notify('합성 질의 생성 배치가 대기열에 등록되었습니다.')
     } catch (error) {
       notify(error.message, 'error')
     }
@@ -321,12 +305,12 @@ export function SyntheticPage({ notify }) {
     try {
       const payload = await requestJson(`/api/admin/console/synthetic/queries/${queryId}`)
       setModal({
-        title: `Synthetic query detail - ${shortId(queryId)}`,
+        title: `합성 질의 상세 - ${shortId(queryId)}`,
         body: (
           <div className="detail-grid detail-grid--single">
-            <DetailCard label="query text" value={payload.queryText || '-'} mono={false} />
-            <DetailCard label="method / type" value={`${payload.generationMethod || '-'} / ${payload.queryType || '-'}`} />
-            <DetailCard label="batch / language" value={`${payload.generationBatchId || '-'} / ${payload.languageProfile || '-'}`} />
+            <DetailCard label="질의" value={payload.queryText || '-'} mono={false} />
+            <DetailCard label="전략 / 유형" value={`${payload.generationMethod || '-'} / ${payload.queryType || '-'}`} />
+            <DetailCard label="배치 / 언어" value={`${payload.generationBatchId || '-'} / ${payload.languageProfile || '-'}`} />
             <DetailCard label="source_chunk" value={JSON.stringify(payload.sourceChunk || {}, null, 2)} />
             <DetailCard label="source_links" value={JSON.stringify(payload.sourceLinks || {}, null, 2)} />
             <DetailCard label="mapped_anchors" value={JSON.stringify(payload.mappedAnchors || [], null, 2)} />
@@ -345,7 +329,7 @@ export function SyntheticPage({ notify }) {
       const refreshTasks = [loadBatches(), loadStats(), loadQueries(queryPage)]
       if (llmJobsLoaded) refreshTasks.push(loadLlmJobs())
       await Promise.all(refreshTasks)
-      notify(`JOB ${action} request has been sent.`)
+      notify(`JOB ${action} 요청을 전송했습니다.`)
     } catch (error) {
       notify(error.message, 'error')
     }
@@ -354,7 +338,7 @@ export function SyntheticPage({ notify }) {
   const deleteBatch = async (batch) => {
     if (!batch?.batchId) return
     if (!isBatchDeletable(batch)) {
-      notify('Running batch cannot be deleted. Cancel the job first.', 'error')
+      notify('실행 중인 배치는 삭제할 수 없습니다. 먼저 작업을 취소하세요.', 'error')
       return
     }
     setPendingDeleteBatch(batch)
@@ -369,7 +353,7 @@ export function SyntheticPage({ notify }) {
       const refreshTasks = [loadBatches(), loadStats(), loadQueries(queryPage)]
       if (llmJobsLoaded) refreshTasks.push(loadLlmJobs())
       await Promise.all(refreshTasks)
-      notify('Synthetic batch history deleted.')
+      notify('합성 배치 이력을 삭제했습니다.')
       setPendingDeleteBatch(null)
     } catch (error) {
       notify(error.message, 'error')
@@ -385,12 +369,12 @@ export function SyntheticPage({ notify }) {
         requestJson(`/api/admin/console/llm-jobs/${jobId}/items`),
       ])
       setModal({
-        title: `LLM job detail - ${shortId(jobId)}`,
+        title: `LLM 작업 상세 - ${shortId(jobId)}`,
         body: (
           <div className="detail-grid detail-grid--single">
-            <DetailCard label="command / experiment" value={`${job.commandName || '-'} / ${job.experimentName || '-'}`} />
+            <DetailCard label="명령 / 실험" value={`${job.commandName || '-'} / ${job.experimentName || '-'}`} />
             <DetailCard
-              label="progress"
+              label="진행률"
               value={`${job.processedItems ?? 0} / ${job.totalItems ?? 0} (${job.progressPct == null ? '-' : `${Number(job.progressPct).toFixed(1)}%`})`}
             />
             <DetailCard label="job_items" value={JSON.stringify(items || [], null, 2)} />
@@ -440,9 +424,8 @@ export function SyntheticPage({ notify }) {
     <>
       <section className="admin-card strategy-dashboard">
         <SectionHeader
-          eyebrow="Generation Methods"
-          title="Strategy Cards"
-          description="A/G strategy metadata is still loaded from the backend. The cards only change how the same contract is displayed."
+          eyebrow="생성 전략"
+          title="전략 카드"
         />
         <div className="strategy-card-grid">
           {methods.map((method) => {
@@ -452,20 +435,12 @@ export function SyntheticPage({ notify }) {
               <article className="strategy-card" data-accent={meta.accent} key={method.methodCode}>
                 <div className="strategy-card__top">
                   <div className="strategy-card__code">{method.methodCode}</div>
-                  <StatusBadge value={method.active ? 'success' : 'failed'} label={method.active ? 'Active' : 'Inactive'} />
+                  <StatusBadge value={method.active ? 'success' : 'failed'} label={method.active ? '활성' : '비활성'} />
                 </div>
-                <h3>{method.methodName || `Strategy ${method.methodCode}`}</h3>
-                <p>{method.description || meta.purpose}</p>
                 <StrategyFlow steps={meta.flow} />
-                <div className="strategy-card__badges">
-                  {meta.badges.map((badge) => <span key={badge}>{badge}</span>)}
-                  {method.queryLanguageStrategy && <span>{method.queryLanguageStrategy}</span>}
-                  {method.summaryStrategy && <span>{method.summaryStrategy}</span>}
-                </div>
                 <div className="strategy-card__meta">
-                  <div><span>Prompt</span><strong>{method.promptTemplateVersion || '-'}</strong></div>
-                  <div><span>Queries</span><strong>{methodCountMap.get(code) ?? 0}</strong></div>
-                  <div><span>Terminology</span><strong>{method.terminologyPreservationRule || '-'}</strong></div>
+                  <div><span>프롬프트</span><strong>{method.promptTemplateVersion || '-'}</strong></div>
+                  <div><span>질의 수</span><strong>{methodCountMap.get(code) ?? 0}</strong></div>
                 </div>
               </article>
             )
@@ -475,12 +450,11 @@ export function SyntheticPage({ notify }) {
 
       <section className="admin-card">
         <SectionHeader
-          eyebrow="Run Builder"
-          title="Synthetic Generation"
-          description="Source-scoped method options and request payload fields are unchanged."
+          eyebrow="생성 실행"
+          title="합성 질의 생성"
         />
         <form className="builder-form" onSubmit={executeRun}>
-          <div className="strategy-selector-grid" role="radiogroup" aria-label="Generation strategy">
+          <div className="strategy-selector-grid" role="radiogroup" aria-label="생성 전략">
             {runMethodOptions.map((method) => {
               const selected = runForm.methodCode === method.methodCode
               const meta = strategyMeta(method)
@@ -494,47 +468,47 @@ export function SyntheticPage({ notify }) {
                   aria-pressed={selected}
                 >
                   <span>{method.methodCode}</span>
-                  <strong>{method.methodName || `Strategy ${method.methodCode}`}</strong>
-                  <small>{method.promptTemplateVersion || 'prompt version n/a'}</small>
+                  <strong>전략 {method.methodCode}</strong>
+                  <small>{method.promptTemplateVersion || '프롬프트 없음'}</small>
                 </button>
               )
             })}
           </div>
           <div className="form-grid form-grid--3">
-            <label className="filter-field">Source
+            <label className="filter-field">소스
               <select value={runForm.sourceId} onChange={(event) => setRunForm((prev) => ({ ...prev, sourceId: event.target.value, sourceDocumentId: '' }))}>
-                <option value="">All sources</option>
+                <option value="">전체 소스</option>
                 {sources.map((source) => <option key={source.sourceId} value={source.sourceId}>{source.sourceId} ({source.productName || '-'})</option>)}
               </select>
-              <span className="field-hint">F/G restrictions remain enforced by source-scoped backend options.</span>
+              <span className="field-hint">F/G 문서 제약은 기존 옵션을 그대로 따릅니다.</span>
             </label>
-            <label className="filter-field">Source Document
+            <label className="filter-field">소스 문서
               <select value={runForm.sourceDocumentId} onChange={(event) => setRunForm((prev) => ({ ...prev, sourceDocumentId: event.target.value }))}>
-                <option value="">All active documents</option>
+                <option value="">전체 활성 문서</option>
                 {sourceDocuments.map((doc) => <option key={doc.documentId} value={doc.documentId}>{doc.documentId} | {doc.title}</option>)}
               </select>
             </label>
-            <label className="filter-field">Batch Version
+            <label className="filter-field">배치 버전
               <input value={runForm.versionName} placeholder="c-main-v1" onChange={(event) => setRunForm((prev) => ({ ...prev, versionName: event.target.value }))} />
             </label>
-            <label className="filter-field filter-field--small">Chunk Limit
+            <label className="filter-field filter-field--small">청크 수
               <input type="number" min="1" value={runForm.limitChunks} onChange={(event) => setRunForm((prev) => ({ ...prev, limitChunks: event.target.value }))} />
             </label>
-            <label className="filter-field filter-field--small">Avg Queries / Chunk
+            <label className="filter-field filter-field--small">청크당 질의
               <input type="number" min="0.2" max="20" step="0.1" value={runForm.avgQueriesPerChunk} onChange={(event) => setRunForm((prev) => ({ ...prev, avgQueriesPerChunk: event.target.value }))} />
             </label>
-            <label className="filter-field filter-field--small">Target Queries
+            <label className="filter-field filter-field--small">목표 질의 수
               <input type="number" min="1" max="2000" value={runForm.maxTotalQueries} onChange={(event) => setRunForm((prev) => ({ ...prev, maxTotalQueries: event.target.value }))} />
             </label>
-            <label className="filter-field filter-field--small">Chunk Sampling
+            <label className="filter-field filter-field--small">청크 샘플링
               <div className="segmented">
-                <button type="button" className={`segmented__option ${runForm.chunkSamplingMode === 'random' ? 'is-active' : ''}`} onClick={() => setRunForm((prev) => ({ ...prev, chunkSamplingMode: 'random' }))}>Random</button>
-                <button type="button" className={`segmented__option ${runForm.chunkSamplingMode === 'ordered' ? 'is-active' : ''}`} onClick={() => setRunForm((prev) => ({ ...prev, chunkSamplingMode: 'ordered' }))}>Document order</button>
+                <button type="button" className={`segmented__option ${runForm.chunkSamplingMode === 'random' ? 'is-active' : ''}`} onClick={() => setRunForm((prev) => ({ ...prev, chunkSamplingMode: 'random' }))}>랜덤</button>
+                <button type="button" className={`segmented__option ${runForm.chunkSamplingMode === 'ordered' ? 'is-active' : ''}`} onClick={() => setRunForm((prev) => ({ ...prev, chunkSamplingMode: 'ordered' }))}>문서 순서</button>
               </div>
             </label>
-            <label className="filter-field">LLM Model
+            <label className="filter-field">LLM 모델
               <select value={runForm.llmModel} onChange={(event) => setRunForm((prev) => ({ ...prev, llmModel: event.target.value }))}>
-                <option value="" disabled>Select LLM model</option>
+                <option value="" disabled>LLM 모델 선택</option>
                 {runtimeOptions.llmModels.map((model) => <option key={model} value={model}>{model}</option>)}
               </select>
             </label>
@@ -543,52 +517,52 @@ export function SyntheticPage({ notify }) {
             </label>
           </div>
           <div className="form-actions form-actions--end">
-            <button type="submit" className="button button--primary">Start Generation</button>
+            <button type="submit" className="button button--success">생성 시작</button>
           </div>
         </form>
       </section>
 
       <section className="metric-grid">
-        <MetricCard label="Total Synthetic Queries" value={total} meta="Current filter-aware inventory" tone="primary" />
-        <MetricCard label="Strategy Coverage" value={byMethod.length} meta={byMethod.map((item) => `${item.method_code}:${item.count}`).join(' / ') || '-'} />
-        <MetricCard label="Query Types" value={byType.length} meta={byType.map((item) => `${item.query_type}:${item.count}`).join(' / ') || '-'} />
-        <MetricCard label="Active Batches" value={batches.filter((batch) => ['planned', 'queued', 'running'].includes(compactStatus(batch.status))).length} meta="planned / queued / running" tone="running" />
+        <MetricCard label="합성 질의" value={total} meta="현재 필터 기준" tone="primary" />
+        <MetricCard label="전략 수" value={byMethod.length} meta={byMethod.map((item) => `${item.method_code}:${item.count}`).join(' / ') || '-'} />
+        <MetricCard label="질의 유형" value={byType.length} meta={byType.map((item) => `${item.query_type}:${item.count}`).join(' / ') || '-'} />
+        <MetricCard label="활성 배치" value={batches.filter((batch) => ['planned', 'queued', 'running'].includes(compactStatus(batch.status))).length} meta="대기/실행 포함" tone="running" />
       </section>
 
       <section className="admin-card">
         <SectionHeader
-          eyebrow="Batch History"
-          title="Batch Timeline"
-          description="Progress, ETA, retry state, and generated counts are rendered from the existing batch response."
-          actions={<button type="button" className="button" onClick={() => Promise.all([loadBatches(), loadQueries(queryPage), loadStats()]).catch((error) => notify(error.message, 'error'))}>Refresh</button>}
+          eyebrow="배치 이력"
+          title="배치 타임라인"
+          description="진행률, ETA, 재시도 상태를 표시합니다."
+          actions={<button type="button" className="button" onClick={() => Promise.all([loadBatches(), loadQueries(queryPage), loadStats()]).catch((error) => notify(error.message, 'error'))}>새로고침</button>}
         />
         <div className="batch-toolbar">
-          <label className="filter-field">Search
-            <input value={batchFilters.search} placeholder="batch id, version, source run" onChange={(event) => setBatchFilters((prev) => ({ ...prev, search: event.target.value }))} />
+          <label className="filter-field">검색
+            <input value={batchFilters.search} placeholder="배치 ID, 버전, 소스 run" onChange={(event) => setBatchFilters((prev) => ({ ...prev, search: event.target.value }))} />
           </label>
-          <label className="filter-field filter-field--small">Status
+          <label className="filter-field filter-field--small">상태
             <select value={batchFilters.status} onChange={(event) => setBatchFilters((prev) => ({ ...prev, status: event.target.value }))}>
-              <option value="all">All</option>
+              <option value="all">전체</option>
               {batchStatusOptions.map((status) => <option key={status} value={status}>{status}</option>)}
             </select>
           </label>
-          <label className="filter-field filter-field--small">Strategy
+          <label className="filter-field filter-field--small">전략
             <select value={batchFilters.method} onChange={(event) => setBatchFilters((prev) => ({ ...prev, method: event.target.value }))}>
-              <option value="all">All</option>
+              <option value="all">전체</option>
               {batchMethodOptions.map((method) => <option key={method} value={method}>{method}</option>)}
             </select>
           </label>
-          <label className="filter-field filter-field--small">Sort
+          <label className="filter-field filter-field--small">정렬
             <select value={batchFilters.sort} onChange={(event) => setBatchFilters((prev) => ({ ...prev, sort: event.target.value }))}>
-              <option value="newest">Newest first</option>
-              <option value="oldest">Oldest first</option>
-              <option value="generated_desc">Generated high to low</option>
-              <option value="generated_asc">Generated low to high</option>
+              <option value="newest">최신순</option>
+              <option value="oldest">오래된순</option>
+              <option value="generated_desc">생성 많은순</option>
+              <option value="generated_asc">생성 적은순</option>
             </select>
           </label>
         </div>
         {pagedBatches.length === 0 ? (
-          <EmptyState title="No batches match the current filters" description="Adjust status, strategy, or search text." />
+          <EmptyState title="조건에 맞는 배치 없음" description="상태, 전략, 검색어를 조정하세요." />
         ) : (
           <div className="batch-timeline">
             {pagedBatches.map((batch) => (
@@ -599,32 +573,32 @@ export function SyntheticPage({ notify }) {
                 statusSlot={<StatusBadge value={batch.status} />}
                 idSlot={<IdBadge value={batch.batchId} />}
                 meta={[
-                  { label: 'Strategy', value: batch.methodName || batch.methodCode || '-' },
-                  { label: 'Source Run', value: batch.sourceGenerationRunId ? shortId(batch.sourceGenerationRunId) : '-' },
+                  { label: '전략', value: batch.methodName || batch.methodCode || '-' },
+                  { label: '소스 Run', value: batch.sourceGenerationRunId ? shortId(batch.sourceGenerationRunId) : '-' },
                   { label: 'LLM Job', value: formatLlmJobState(batch) },
                 ]}
                 metrics={[
-                  { label: 'Generated', value: batch.totalGeneratedCount ?? 0, meta: `target ${batch.targetQueryCount ?? '-'}`, tone: 'primary' },
-                  { label: 'Avg Latency', value: batch.estimatedSecondsPerQuery == null ? '-' : `${Number(batch.estimatedSecondsPerQuery).toFixed(2)}s`, meta: 'per query' },
-                  { label: 'Retry', value: batch.llmRetryCount ?? 0, meta: `max ${Number(batch.llmMaxRetries) < 0 ? 'unlimited' : (batch.llmMaxRetries ?? 0)}` },
+                  { label: '생성됨', value: batch.totalGeneratedCount ?? 0, meta: `목표 ${batch.targetQueryCount ?? '-'}`, tone: 'primary' },
+                  { label: '평균 지연', value: batch.estimatedSecondsPerQuery == null ? '-' : `${Number(batch.estimatedSecondsPerQuery).toFixed(2)}s`, meta: '질의당' },
+                  { label: '재시도', value: batch.llmRetryCount ?? 0, meta: `최대 ${Number(batch.llmMaxRetries) < 0 ? '무제한' : (batch.llmMaxRetries ?? 0)}` },
                 ]}
                 progress={(
                   <ProgressMetric
-                    label="Generation progress"
+                    label="생성 진행률"
                     value={batch.totalGeneratedCount ?? 0}
                     max={batch.targetQueryCount ?? 0}
-                    helper={<RemainingEta remainingSeconds={batch.estimatedRemainingSeconds} secondsPerUnit={batch.estimatedSecondsPerQuery} completedCount={batch.totalGeneratedCount} totalCount={batch.targetQueryCount} unitLabel="query" status={batch.status} compact />}
+                    helper={<RemainingEta remainingSeconds={batch.estimatedRemainingSeconds} secondsPerUnit={batch.estimatedSecondsPerQuery} completedCount={batch.totalGeneratedCount} totalCount={batch.targetQueryCount} unitLabel="질의" status={batch.status} compact />}
                   />
                 )}
                 actions={(
                   <button
                     type="button"
-                    title="Delete batch history"
+                    title="배치 이력 삭제"
                     className="button button--danger-ghost"
                     disabled={!isBatchDeletable(batch) || deletingBatchId === batch.batchId}
                     onClick={() => deleteBatch(batch)}
                   >
-                    Delete
+                    삭제
                   </button>
                 )}
               />
@@ -632,9 +606,9 @@ export function SyntheticPage({ notify }) {
           </div>
         )}
         <div className="pagination">
-          <button type="button" className="button" disabled={currentHistoryPage === 0} onClick={() => setHistoryPage((prev) => Math.max(0, prev - 1))}>Previous</button>
-          <div className="pagination__label">Page {currentHistoryPage + 1} / {historyTotalPages} ({filteredBatches.length} batches)</div>
-          <button type="button" className="button" disabled={currentHistoryPage + 1 >= historyTotalPages} onClick={() => setHistoryPage((prev) => Math.min(historyTotalPages - 1, prev + 1))}>Next</button>
+          <button type="button" className="button" disabled={currentHistoryPage === 0} onClick={() => setHistoryPage((prev) => Math.max(0, prev - 1))}>이전</button>
+          <div className="pagination__label">페이지 {currentHistoryPage + 1} / {historyTotalPages} ({filteredBatches.length}개 배치)</div>
+          <button type="button" className="button" disabled={currentHistoryPage + 1 >= historyTotalPages} onClick={() => setHistoryPage((prev) => Math.min(historyTotalPages - 1, prev + 1))}>다음</button>
         </div>
       </section>
 
@@ -648,33 +622,33 @@ export function SyntheticPage({ notify }) {
       />
 
       <section className="table-shell modern-data-section">
-        <div className="table-header"><div className="table-title">Synthetic Query Inventory</div></div>
+        <div className="table-header"><div className="table-title">합성 질의 목록</div></div>
         <form className="filter-bar" onSubmit={(event) => { event.preventDefault(); setQueryPage(0); loadQueries(0).then(loadStats).catch((error) => notify(error.message, 'error')) }}>
-          <label className="filter-field">Strategy
+          <label className="filter-field">전략
             <select value={filterForm.method_code} onChange={(event) => setFilterForm((prev) => ({ ...prev, method_code: event.target.value }))}>
-              <option value="">All</option>
+              <option value="">전체</option>
               {methods.map((method) => <option key={method.methodCode} value={method.methodCode}>{method.methodCode}</option>)}
             </select>
           </label>
-          <label className="filter-field">Batch
+          <label className="filter-field">배치
             <select value={filterForm.batch_id} onChange={(event) => setFilterForm((prev) => ({ ...prev, batch_id: event.target.value }))}>
-              <option value="">All</option>
+              <option value="">전체</option>
               {queryFilterBatchOptions.map((batch) => <option key={batch.batchId} value={batch.batchId}>{batch.versionName} ({batch.methodCode})</option>)}
             </select>
           </label>
-          <label className="filter-field">Query Type
+          <label className="filter-field">질의 유형
             <input value={filterForm.query_type} placeholder="definition" onChange={(event) => setFilterForm((prev) => ({ ...prev, query_type: event.target.value }))} />
           </label>
-          <label className="filter-field">Gated
+          <label className="filter-field">게이팅
             <select value={filterForm.gated} onChange={(event) => setFilterForm((prev) => ({ ...prev, gated: event.target.value }))}>
-              <option value="">All</option><option value="true">Passed</option><option value="false">Not passed</option>
+              <option value="">전체</option><option value="true">통과</option><option value="false">미통과</option>
             </select>
           </label>
-          <div className="filter-field filter-field--small"><button type="submit" className="button button--primary">Apply</button></div>
+          <div className="filter-field filter-field--small"><button type="submit" className="button button--primary">적용</button></div>
         </form>
         <div className="table-wrap">
           <table className="data-table">
-            <thead><tr><th>Query ID</th><th>Query Text</th><th>Type</th><th>Strategy</th><th>Batch</th><th>Gated</th><th>Detail</th></tr></thead>
+            <thead><tr><th>질의 ID</th><th>질의</th><th>유형</th><th>전략</th><th>배치</th><th>게이팅</th><th>상세</th></tr></thead>
             <tbody>
               {queries.map((query) => (
                 <tr key={query.queryId}>
@@ -683,30 +657,30 @@ export function SyntheticPage({ notify }) {
                   <td>{query.queryType || '-'}</td>
                   <td>{query.generationMethod || '-'}</td>
                   <td>{query.generationBatchVersion || '-'}</td>
-                  <td>{query.gated ? <StatusBadge value="success" label="Passed" /> : <StatusBadge value="failed" label="Not passed" />}</td>
-                  <td><button type="button" className="button button--ghost" onClick={() => openQueryDetail(query.queryId)}>Detail</button></td>
+                  <td>{query.gated ? <StatusBadge value="success" label="통과" /> : <StatusBadge value="failed" label="미통과" />}</td>
+                  <td><button type="button" className="button button--ghost" onClick={() => openQueryDetail(query.queryId)}>상세</button></td>
                 </tr>
               ))}
               {queries.length === 0 && (
                 <tr>
-                  <td colSpan={7}>No synthetic queries found.</td>
+                  <td colSpan={7}>합성 질의가 없습니다.</td>
                 </tr>
               )}
             </tbody>
           </table>
         </div>
         <div className="pagination">
-          <button type="button" className="button" disabled={queryPage === 0} onClick={() => { const next = Math.max(0, queryPage - 1); setQueryPage(next); loadQueries(next).catch((error) => notify(error.message, 'error')) }}>Previous</button>
-          <div className="pagination__label">Page {queryPage + 1}</div>
-          <button type="button" className="button" disabled={!hasNextPage} onClick={() => { const next = queryPage + 1; setQueryPage(next); loadQueries(next).catch((error) => notify(error.message, 'error')) }}>Next</button>
+          <button type="button" className="button" disabled={queryPage === 0} onClick={() => { const next = Math.max(0, queryPage - 1); setQueryPage(next); loadQueries(next).catch((error) => notify(error.message, 'error')) }}>이전</button>
+          <div className="pagination__label">페이지 {queryPage + 1}</div>
+          <button type="button" className="button" disabled={!hasNextPage} onClick={() => { const next = queryPage + 1; setQueryPage(next); loadQueries(next).catch((error) => notify(error.message, 'error')) }}>다음</button>
         </div>
       </section>
 
       <ConfirmDialog
         open={Boolean(pendingDeleteBatch)}
-        title="Delete generation batch history?"
-        description={pendingDeleteBatch ? `Batch ${pendingDeleteBatch.batchId} and linked synthetic rows will be deleted by the existing backend endpoint.` : ''}
-        confirmLabel="Delete"
+        title="생성 배치 이력을 삭제할까요?"
+        description={pendingDeleteBatch ? `배치 ${pendingDeleteBatch.batchId}와 연결된 합성 질의가 기존 삭제 API로 삭제됩니다.` : ''}
+        confirmLabel="삭제"
         loading={Boolean(deletingBatchId)}
         onCancel={() => setPendingDeleteBatch(null)}
         onConfirm={confirmDeleteBatch}

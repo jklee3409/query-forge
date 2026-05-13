@@ -16,8 +16,8 @@ export function IdBadge({ value, plain = false }) {
 
 export function CopyButton({ value }) {
   return (
-    <button type="button" className="copy-button" aria-label="Copy id" onClick={() => navigator.clipboard?.writeText(value)}>
-      Copy
+    <button type="button" className="copy-button" aria-label="ID 복사" onClick={() => navigator.clipboard?.writeText(value)}>
+      복사
     </button>
   )
 }
@@ -38,7 +38,7 @@ export function Modal({ data, onClose }) {
       <div className="modal" onClick={(event) => event.stopPropagation()} role="dialog" aria-modal="true">
         <header className="modal__header">
           <h2 className="modal__title">{data.title}</h2>
-          <button type="button" className="button button--ghost" onClick={onClose}>Close</button>
+          <button type="button" className="button button--ghost" onClick={onClose}>닫기</button>
         </header>
         <div className="modal__body">{data.body}</div>
       </div>
@@ -65,7 +65,7 @@ export function StageCard({ title, checked, onToggle, children }) {
           <span className="toggle-switch__track" aria-hidden="true">
             <span className="toggle-switch__thumb" />
           </span>
-          <span className="toggle-switch__label">{checked ? 'On' : 'Off'}</span>
+          <span className="toggle-switch__label">{checked ? '켬' : '끔'}</span>
         </label>
       </div>
       <div className="stage-card__body">{children}</div>

@@ -4,7 +4,7 @@ export function SelectDropdown({
   value,
   options,
   onChange,
-  placeholder = 'Select an option',
+  placeholder = '항목 선택',
   clearLabel = '전체',
   emptyLabel = '선택 가능한 항목이 없습니다.',
   searchPlaceholder = '검색어 입력...',

@@ -21,7 +21,7 @@ export function MetricCard({ label, value, meta, tone = 'neutral' }) {
   )
 }
 
-export function EmptyState({ title = 'No data', description, action }) {
+export function EmptyState({ title = '데이터 없음', description, action }) {
   return (
     <div className="empty-state empty-state--panel">
       <div className="empty-state__title">{title}</div>
@@ -35,11 +35,11 @@ export function StrategyFlow({ steps }) {
   const normalized = Array.isArray(steps) ? steps.filter(Boolean) : []
   if (normalized.length === 0) return null
   return (
-    <div className="strategy-flow" aria-label="strategy flow">
+    <div className="strategy-flow" aria-label="전략 흐름">
       {normalized.map((step, index) => (
         <span className="strategy-flow__item" key={`${step}-${index}`}>
           <span className="strategy-flow__chip">{step}</span>
-          {index < normalized.length - 1 && <span className="strategy-flow__arrow" aria-hidden="true">-&gt;</span>}
+          {index < normalized.length - 1 && <span className="strategy-flow__arrow" aria-hidden="true">→</span>}
         </span>
       ))}
     </div>
@@ -134,7 +134,7 @@ export function ExperimentSection({ title, description, badge, children, collaps
   )
 }
 
-export function ConfigSummaryCard({ title = 'Run Preview', items }) {
+export function ConfigSummaryCard({ title = '실행 요약', items }) {
   return (
     <aside className="config-summary-card">
       <h3>{title}</h3>
@@ -182,8 +182,8 @@ export function ConfirmDialog({
   open,
   title,
   description,
-  confirmLabel = 'Confirm',
-  cancelLabel = 'Cancel',
+  confirmLabel = '확인',
+  cancelLabel = '취소',
   loading = false,
   tone = 'danger',
   onConfirm,
@@ -199,7 +199,7 @@ export function ConfirmDialog({
         <div className="confirm-dialog__actions">
           <button type="button" className="button" onClick={onCancel} disabled={loading}>{cancelLabel}</button>
           <button type="button" className={`button ${tone === 'danger' ? 'button--danger' : 'button--primary'}`} onClick={onConfirm} disabled={loading}>
-            {loading ? 'Working...' : confirmLabel}
+            {loading ? '처리 중...' : confirmLabel}
           </button>
         </div>
       </section>

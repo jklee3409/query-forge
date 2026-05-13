@@ -73,7 +73,7 @@ const ANSWER_METRIC_DEFS = [
   { key: 'context_recall', label: 'Context Recall (문맥 재현율)', max: 1, precision: 3, trend: 'higher' },
 ]
 
-const LEGACY_PERFORMANCE_MESSAGE = 'Legacy result (new latency metrics unavailable)'
+const LEGACY_PERFORMANCE_MESSAGE = '레거시 결과: 신규 지연 시간 지표 없음'
 
 const PERFORMANCE_METRIC_DEFS = [
   {
@@ -95,26 +95,26 @@ const PERFORMANCE_METRIC_DEFS = [
     trend: 'lower',
     priority: 'core',
     sampleCountKey: 'rewrite_sample_count',
-    sampleCountLabel: 'rewrite 확정 샘플 기준',
-    description: '최종 rewrite query 확정까지 걸린 평균 시간',
+    sampleCountLabel: '재작성 확정 샘플 기준',
+    description: '최종 재작성 질의 확정까지 걸린 평균 시간',
   },
   {
     key: 'avg_pure_rewrite_latency_ms',
-    label: '순수 쿼리 재작성 평균 시간',
+    label: '순수 질의 재작성 평균 시간',
     precision: 2,
     unit: 'ms',
     trend: 'lower',
     priority: 'core',
     sampleCountKey: 'pure_rewrite_sample_count',
-    sampleCountLabel: '순수 rewrite 호출 샘플 기준',
-    description: '순수 LLM rewrite 호출 시간 평균',
+    sampleCountLabel: '순수 재작성 호출 샘플 기준',
+    description: '순수 LLM 재작성 호출 시간 평균',
   },
 ]
 
 const METRIC_GROUP_DEFS = [
-  { key: 'retrieval', label: 'Retrieval Quality', description: 'retrieval quality metrics', metrics: RETRIEVAL_METRIC_DEFS },
-  { key: 'answer', label: 'Answer Quality', description: 'answer quality metrics', metrics: ANSWER_METRIC_DEFS },
-  { key: 'performance', label: 'Performance', description: '신규 latency metric 요약', metrics: PERFORMANCE_METRIC_DEFS },
+  { key: 'retrieval', label: '검색 품질', description: '검색 품질 지표', metrics: RETRIEVAL_METRIC_DEFS },
+  { key: 'answer', label: '답변 품질', description: '답변 품질 지표', metrics: ANSWER_METRIC_DEFS },
+  { key: 'performance', label: '성능', description: '지연 시간 요약', metrics: PERFORMANCE_METRIC_DEFS },
 ]
 const METRIC_META_MAP = METRIC_GROUP_DEFS.reduce((acc, group) => {
   for (const metric of group.metrics) {
@@ -159,8 +159,8 @@ const REWRITE_RETRIEVAL_OPTION_META = {
 }
 
 const METRIC_TREND_LABEL = {
-  higher: 'Higher is better',
-  lower: 'Lower is better',
+  higher: '높을수록 좋음',
+  lower: '낮을수록 좋음',
 }
 
 const TABLE_NUMBER_FORMATTERS = new Map()
@@ -340,8 +340,8 @@ function renderRunDetailModeSummary(retrievalByModeRows) {
     <section className="run-mode-compare">
       <div className="run-mode-compare__header">
         <div>
-          <strong>Retrieval Summary by Mode</strong>
-          <div className="run-mode-compare__subtitle">All displayed values are mode-level metrics, not representative KPI.</div>
+          <strong>모드별 검색 요약</strong>
+          <div className="run-mode-compare__subtitle">표시 값은 모드별 지표입니다.</div>
         </div>
       </div>
       <div className="summary-grid">
@@ -370,7 +370,7 @@ function renderRunDetailModeComparison(retrievalByModeRows) {
 
   const baselineOnly = !rewriteRow
   const rewriteMode = normalizeModeName(rewriteRow)
-  const comparisonLabel = isQueryRewriteMode(rewriteMode) ? 'Raw vs query rewrite' : 'Raw vs synthetic memory'
+  const comparisonLabel = isQueryRewriteMode(rewriteMode) ? '원본 vs 질의 재작성' : '원본 vs 합성 메모리'
   const comparisonRows = RUN_DETAIL_COMPARISON_METRICS
     .map((metric) => {
       const raw = metric.rewriteOnly ? null : metricFromRow(rawRow, metric.aliases)
@@ -386,7 +386,7 @@ function renderRunDetailModeComparison(retrievalByModeRows) {
     <article className="run-mode-compare">
       <div className="run-mode-compare__header">
         <div>
-          <div className="detail-item__label">{baselineOnly ? 'Baseline mode' : comparisonLabel}</div>
+          <div className="detail-item__label">{baselineOnly ? 'Baseline 모드' : comparisonLabel}</div>
           <div className="run-mode-compare__subtitle">{baselineOnly ? 'raw_only' : `raw_only / ${rewriteMode}`}</div>
         </div>
         <span className="metric-chip metric-chip--core">{baselineOnly ? 'raw_only' : rewriteMode}</span>
@@ -395,10 +395,10 @@ function renderRunDetailModeComparison(retrievalByModeRows) {
         <table className="run-mode-compare__table">
           <thead>
             <tr>
-              <th>Metric</th>
+              <th>지표</th>
               <th>raw_only</th>
               {!baselineOnly && <th>{rewriteMode}</th>}
-              {!baselineOnly && <th>Delta</th>}
+              {!baselineOnly && <th>차이</th>}
             </tr>
           </thead>
           <tbody>
@@ -725,22 +725,22 @@ function formatWorkspaceDeltaRate(value) {
 function buildWorkspaceChangeInsight(row) {
   if (!row || row.outcome === 'na') {
     return {
-      summary: 'No comparable data',
-      detail: 'A/B values unavailable',
+      summary: '비교 데이터 없음',
+      detail: 'A/B 값 없음',
       tone: 'na',
     }
   }
   const deltaDisplay = formatWorkspaceDeltaValue(row)
   if (row.outcome === 'tie' || row.delta === 0) {
     return {
-      summary: 'No change',
-      detail: `Delta ${deltaDisplay.primary}`,
+      summary: '변화 없음',
+      detail: `차이 ${deltaDisplay.primary}`,
       tone: 'tie',
     }
   }
   const improved = row.outcome === 'right'
   if (row.unit === 'ms' || row.groupKey === 'performance') {
-    const speedWord = improved ? 'faster' : 'slower'
+    const speedWord = improved ? '빠름' : '느림'
     const ratio = (row.left != null && row.right != null && row.left > 0 && row.right > 0)
       ? (improved ? row.left / row.right : row.right / row.left)
       : null
@@ -750,7 +750,7 @@ function buildWorkspaceChangeInsight(row) {
     } else if (row.deltaRate != null) {
       summary = `${formatTableNumber(Math.abs(row.deltaRate), 1)}% ${speedWord}`
     }
-    const detailParts = [`Delta ${deltaDisplay.primary}`]
+    const detailParts = [`차이 ${deltaDisplay.primary}`]
     if (row.deltaRate != null && !summary.includes('%')) {
       detailParts.push(`${formatTableNumber(Math.abs(row.deltaRate), 1)}% ${speedWord}`)
     }
@@ -761,10 +761,10 @@ function buildWorkspaceChangeInsight(row) {
     }
   }
   const changeWord = row.trend === 'higher'
-    ? (improved ? 'higher' : 'lower')
-    : (improved ? 'lower' : 'higher')
+    ? (improved ? '상승' : '하락')
+    : (improved ? '하락' : '상승')
   const summary = row.deltaRate != null ? `${formatTableNumber(Math.abs(row.deltaRate), 1)}% ${changeWord}` : changeWord
-  const detailParts = [`Delta ${deltaDisplay.primary}`]
+  const detailParts = [`차이 ${deltaDisplay.primary}`]
   return {
     summary,
     detail: detailParts.join(' '),
@@ -775,8 +775,8 @@ function buildWorkspaceChangeInsight(row) {
 function buildDeltaInterpretation(row) {
   if (!row || row.outcome === 'na') {
     return {
-      headline: 'No comparable data',
-      detail: 'A/B values unavailable',
+      headline: '비교 데이터 없음',
+      detail: 'A/B 값 없음',
       tone: 'na',
     }
   }
@@ -785,7 +785,7 @@ function buildDeltaInterpretation(row) {
     const tieDetail = [`Δ ${deltaDisplay.main}`]
     if (deltaDisplay.sub) tieDetail.push(`raw ${deltaDisplay.sub}`)
     return {
-      headline: 'No change',
+      headline: '변화 없음',
       detail: tieDetail.join(' | '),
       tone: 'tie',
     }
@@ -795,7 +795,7 @@ function buildDeltaInterpretation(row) {
   const symbol = improved ? '▲' : '▼'
   let headline = ''
   if (isLatencyLike) {
-    const speedWord = improved ? 'faster' : 'slower'
+    const speedWord = improved ? '빠름' : '느림'
     const ratio = (row.left != null && row.right != null && row.left > 0 && row.right > 0)
       ? (improved ? row.left / row.right : row.right / row.left)
       : null
@@ -807,7 +807,7 @@ function buildDeltaInterpretation(row) {
       headline = `${symbol} ${formatTableDeltaMagnitude(row)} ${speedWord}`
     }
   } else {
-    const qualityWord = improved ? 'improved' : 'regressed'
+    const qualityWord = improved ? '개선' : '하락'
     headline = row.deltaRate != null
       ? `${symbol} ${formatTableNumber(Math.abs(row.deltaRate), 1)}% ${qualityWord}`
       : `${symbol} ${formatTableDeltaMagnitude(row)} ${qualityWord}`
@@ -826,8 +826,8 @@ function buildDeltaInterpretation(row) {
 }
 
 function buildResultLabel(row, leftLabel = 'A', rightLabel = 'B') {
-  if (!row || row.outcome === 'na') return { main: 'Not Comparable', sub: 'Check source metrics' }
-  if (row.outcome === 'tie') return { main: 'No Change', sub: METRIC_TREND_LABEL[row.trend] || '' }
+  if (!row || row.outcome === 'na') return { main: '비교 불가', sub: '원본 지표 확인' }
+  if (row.outcome === 'tie') return { main: '변화 없음', sub: METRIC_TREND_LABEL[row.trend] || '' }
   if (row.outcome === 'right') return { main: compareOutcomeLabel(row.outcome, leftLabel, rightLabel), sub: METRIC_TREND_LABEL[row.trend] || '' }
   return { main: compareOutcomeLabel(row.outcome, leftLabel, rightLabel), sub: METRIC_TREND_LABEL[row.trend] || '' }
 }
@@ -876,17 +876,17 @@ function resolveCompareRunPrimaryLabel(run, fallbackTitle) {
     return compactText(runLabelRaw, 40)
   }
   if (run?.ragTestRunId) {
-    return compactText(`Legacy RAG Test ${shortId(run.ragTestRunId)}`, 40)
+    return compactText(`레거시 RAG 테스트 ${shortId(run.ragTestRunId)}`, 40)
   }
   const methodLabel = compactText(formatGenerationMethodLabel(run?.generationMethodCodes), 40)
   return methodLabel === '-' ? fallbackTitle : methodLabel
 }
 
 function compareOutcomeLabel(outcome, leftLabel = 'A', rightLabel = 'B') {
-  if (outcome === 'right') return `${compactText(rightLabel, 24)} Better`
-  if (outcome === 'left') return `${compactText(leftLabel, 24)} Better`
-  if (outcome === 'tie') return 'No Change'
-  return 'No Data'
+  if (outcome === 'right') return `${compactText(rightLabel, 24)} 우세`
+  if (outcome === 'left') return `${compactText(leftLabel, 24)} 우세`
+  if (outcome === 'tie') return '변화 없음'
+  return '데이터 없음'
 }
 
 function resolveCompareRunSecondaryLabel(run) {
@@ -897,7 +897,7 @@ function resolveCompareRunSecondaryLabel(run) {
 }
 
 function formatGenerationMethodLabel(methodCodes) {
-  if (!Array.isArray(methodCodes) || methodCodes.length === 0) return 'synthetic-free baseline'
+  if (!Array.isArray(methodCodes) || methodCodes.length === 0) return '합성 질의 제외'
   return methodCodes.join(', ')
 }
 
@@ -1034,8 +1034,8 @@ function renderPerformanceCards(metrics) {
     <section className="run-mode-compare">
       <div className="run-mode-compare__header">
         <div>
-          <strong>Performance</strong>
-          <div className="run-mode-compare__subtitle">sample 기준 신규 latency metrics</div>
+          <strong>성능</strong>
+          <div className="run-mode-compare__subtitle">샘플 기준 지연 시간 지표</div>
         </div>
       </div>
       <div className="summary-grid">
@@ -1254,7 +1254,7 @@ export function RagPage({ notify }) {
 
   const materializeChunkEmbeddings = async () => {
     if (!form.denseEmbeddingModel) {
-      notify('Dense embedding model을 먼저 선택하세요.', 'error')
+      notify('Dense 임베딩 모델을 먼저 선택하세요.', 'error')
       return
     }
     setChunkEmbeddingMaterializing(true)
@@ -1268,7 +1268,7 @@ export function RagPage({ notify }) {
         }),
       })
       await Promise.all([loadChunkEmbeddingStatus(form.denseEmbeddingModel), loadLlmJobs()])
-      notify('Chunk embedding materialization job을 생성했습니다.')
+      notify('청크 임베딩 생성 작업을 등록했습니다.')
     } catch (error) {
       notify(error.message, 'error')
     } finally {
@@ -1468,7 +1468,7 @@ export function RagPage({ notify }) {
     const syntheticFreeBaseline = Boolean(form.syntheticFreeBaseline)
     const usingDbAnn = form.retrievalBackend === 'db_ann'
     if (!syntheticFreeBaseline && methodCodesForRun.length === 0) {
-      notify('최소 1개 생성 방식을 선택해야 합니다.', 'error')
+      notify('최소 1개 생성 전략을 선택해야 합니다.', 'error')
       return
     }
     if (!form.llmModel) {
@@ -1476,19 +1476,19 @@ export function RagPage({ notify }) {
       return
     }
     if (!form.denseEmbeddingModel) {
-      notify('Dense embedding 모델을 선택하세요.', 'error')
+      notify('Dense 임베딩 모델을 선택하세요.', 'error')
       return
     }
     if (usingDbAnn && form.retrieverMode === 'bm25_only') {
-      notify('db-ann backend는 dense_only 또는 hybrid mode가 필요합니다.', 'error')
+      notify('db-ann 검색 엔진은 dense_only 또는 hybrid 모드가 필요합니다.', 'error')
       return
     }
     if (usingDbAnn && chunkEmbeddingStatusLoading) {
-      notify('Chunk embedding 상태를 확인하는 중입니다. 잠시 후 다시 시도하세요.', 'error')
+      notify('청크 임베딩 상태를 확인 중입니다. 잠시 후 다시 시도하세요.', 'error')
       return
     }
     if (usingDbAnn && (!chunkEmbeddingStatus || !chunkEmbeddingStatus.ready)) {
-      notify('db-ann 실행 전 chunk embedding materialization이 필요합니다.', 'error')
+      notify('db-ann 실행 전 청크 임베딩 생성이 필요합니다.', 'error')
       return
     }
     const officialRun = !syntheticFreeBaseline && form.runDiscipline === 'official'
@@ -1497,29 +1497,29 @@ export function RagPage({ notify }) {
     const stageCutoffEnabled = !syntheticFreeBaseline && Boolean(form.stageCutoffEnabled)
     const stageCutoffLevel = stageCutoffEnabled ? (form.stageCutoffLevel || 'full_gating') : null
     if (syntheticFreeBaseline && form.runDiscipline === 'official') {
-      notify('Synthetic-free baseline은 exploratory 실행에서만 지원됩니다.', 'error')
+      notify('합성 질의 제외 baseline은 exploratory 실행에서만 지원됩니다.', 'error')
       return
     }
     const runGatingPreset = syntheticFreeBaseline ? 'ungated' : (stageCutoffEnabled ? 'full_gating' : effectiveGatingPreset)
     const sourceSnapshotPreset = stageCutoffEnabled ? 'full_gating' : runGatingPreset
     if (stageCutoffEnabled && officialRun) {
-      notify('stage-cutoff은 exploratory 실행에서만 사용할 수 있습니다.', 'error')
+      notify('스테이지 컷오프는 exploratory 실행에서만 사용할 수 있습니다.', 'error')
       return
     }
     if (stageCutoffEnabled && !form.gatingApplied) {
-      notify('stage-cutoff 사용 시 gating 적용이 필요합니다.', 'error')
+      notify('스테이지 컷오프 사용 시 게이팅 적용이 필요합니다.', 'error')
       return
     }
     if (requiresExplicitSourceSnapshot && !form.sourceGatingBatchId) {
-      notify('Source snapshot selection is required for this RAG run.', 'error')
+      notify('이 RAG 실행에는 소스 스냅샷 선택이 필요합니다.', 'error')
       return
     }
     if (stageCutoffEnabled && !form.sourceGatingBatchId) {
-      notify('stage-cutoff 사용 시 full_gating source snapshot을 선택해야 합니다.', 'error')
+      notify('스테이지 컷오프 사용 시 full_gating 소스 스냅샷을 선택해야 합니다.', 'error')
       return
     }
     if (!syntheticFreeBaseline && officialRun && form.officialComparisonType === 'rewrite_effect' && !form.sourceGatingBatchId) {
-      notify('공식 rewrite-effect 실행은 source snapshot 선택이 필수입니다.', 'error')
+      notify('공식 rewrite-effect 실행은 소스 스냅샷 선택이 필수입니다.', 'error')
       return
     }
     if (!syntheticFreeBaseline && officialRun && form.officialComparisonType === 'gating_effect') {
@@ -1535,15 +1535,15 @@ export function RagPage({ notify }) {
       for (const required of requiredSnapshots) {
         const snapshot = snapshotBatches.find((batch) => batch.gatingBatchId === required.id)
         if (!snapshot) {
-          notify(`공식 gating-effect ${required.label} snapshot을 찾을 수 없습니다.`, 'error')
+          notify(`공식 gating-effect ${required.label} 스냅샷을 찾을 수 없습니다.`, 'error')
           return
         }
         if (!snapshot.sourceGatingRunId) {
-          notify(`공식 gating-effect ${required.label} snapshot에 source_gating_run_id가 없습니다.`, 'error')
+          notify(`공식 gating-effect ${required.label} 스냅샷에 source_gating_run_id가 없습니다.`, 'error')
           return
         }
         if (!isSnapshotCompatible(snapshot, required.preset, methodCodesForRun)) {
-          notify(`공식 gating-effect ${required.label} snapshot이 preset/method와 호환되지 않습니다.`, 'error')
+          notify(`공식 gating-effect ${required.label} 스냅샷이 preset/전략과 호환되지 않습니다.`, 'error')
           return
         }
       }
@@ -1559,7 +1559,7 @@ export function RagPage({ notify }) {
         return
       }
       if (!isSnapshotCompatible(snapshot, sourceSnapshotPreset, methodCodesForRun)) {
-        notify('선택한 스냅샷이 현재 게이팅 preset/method 조건과 호환되지 않습니다.', 'error')
+        notify('선택한 스냅샷이 현재 게이팅 preset/전략 조건과 호환되지 않습니다.', 'error')
         return
       }
     }
@@ -1771,10 +1771,10 @@ export function RagPage({ notify }) {
     try {
       const payload = await requestJson(`/api/admin/console/rewrite/logs/${rewriteLogId}`)
       setModal({
-        title: `Rewrite 로그 상세 · ${shortId(rewriteLogId)}`,
+        title: `재작성 로그 상세 · ${shortId(rewriteLogId)}`,
         body: (
           <div className="detail-grid detail-grid--single">
-            <DetailCard label="raw / final" value={`${payload.rewrite?.rawQuery || '-'}\n${payload.rewrite?.finalQuery || '-'}`} />
+            <DetailCard label="원본 / 최종" value={`${payload.rewrite?.rawQuery || '-'}\n${payload.rewrite?.finalQuery || '-'}`} />
             <DetailCard label="결정" value={`${payload.rewrite?.decisionReason || '-'} / delta=${payload.rewrite?.confidenceDelta == null ? '-' : Number(payload.rewrite.confidenceDelta).toFixed(4)}`} />
             <DetailCard label="memory_retrievals" value={JSON.stringify(payload.memoryRetrievals || [], null, 2)} />
             <DetailCard label="candidate_logs" value={JSON.stringify(payload.candidateLogs || [], null, 2)} />
@@ -1862,12 +1862,12 @@ export function RagPage({ notify }) {
     const leftLabel = compareRunMeta[0]?.tableLabel || 'A'
     const rightLabel = compareRunMeta[1]?.tableLabel || 'B'
     const summaryParts = [
-      `${compactText(rightLabel, 24)} better ${outcomeSummary.right}`,
-      `${compactText(leftLabel, 24)} better ${outcomeSummary.left}`,
-      `No change ${outcomeSummary.tie}`,
+      `${compactText(rightLabel, 24)} 우세 ${outcomeSummary.right}`,
+      `${compactText(leftLabel, 24)} 우세 ${outcomeSummary.left}`,
+      `변화 없음 ${outcomeSummary.tie}`,
     ]
     if (outcomeSummary.na > 0) {
-      summaryParts.push(`No data ${outcomeSummary.na}`)
+      summaryParts.push(`데이터 없음 ${outcomeSummary.na}`)
     }
     return {
       ...group,
@@ -1904,10 +1904,10 @@ export function RagPage({ notify }) {
     const finalRewriteLatencyRow = focusLatencyRows.find((row) => row.key === 'avg_final_rewrite_latency_ms') || null
     const pureRewriteLatencyRow = focusLatencyRows.find((row) => row.key === 'avg_pure_rewrite_latency_ms') || null
     const headline = overallWinner === 'tie'
-      ? `No clear winner. Weighted score ${compactLeftLabel} ${scoreA} : ${compactRightLabel} ${scoreB}.`
+      ? `뚜렷한 우세 없음. 가중 점수 ${compactLeftLabel} ${scoreA} : ${compactRightLabel} ${scoreB}.`
       : overallWinner === 'right'
-      ? `${compactRightLabel} is ahead in weighted KPI score (${scoreB} vs ${scoreA}).`
-      : `${compactLeftLabel} is ahead in weighted KPI score (${scoreA} vs ${scoreB}).`
+      ? `${compactRightLabel} 가중 KPI 우세 (${scoreB} vs ${scoreA}).`
+      : `${compactLeftLabel} 가중 KPI 우세 (${scoreA} vs ${scoreB}).`
 
     const buildLatencyCard = (label, row) => {
       const insight = row ? buildWorkspaceChangeInsight(row) : null
@@ -1919,7 +1919,7 @@ export function RagPage({ notify }) {
           ? [insight.detail, compareOutcomeLabel(row.outcome, compactLeftLabel, compactRightLabel), supportText]
             .filter(Boolean)
             .join(' | ')
-          : 'No comparable data',
+          : '비교 데이터 없음',
       }
     }
 
@@ -1927,18 +1927,18 @@ export function RagPage({ notify }) {
       headline,
       cards: [
         {
-          label: 'Overall Winner',
-          value: overallWinner === 'tie' ? 'Tie' : overallWinner === 'right' ? compactRightLabel : compactLeftLabel,
-          meta: `Weighted score ${compactLeftLabel} ${scoreA} / ${compactRightLabel} ${scoreB}`,
+          label: '종합 우세',
+          value: overallWinner === 'tie' ? '동률' : overallWinner === 'right' ? compactRightLabel : compactLeftLabel,
+          meta: `가중 점수 ${compactLeftLabel} ${scoreA} / ${compactRightLabel} ${scoreB}`,
         },
         {
-          label: 'Retrieval Core Delta',
+          label: '검색 핵심 차이',
           value: retrievalDelta == null ? '-' : formatDelta(retrievalDelta, { precision: 3 }),
-          meta: retrievalDelta == null ? 'No comparable data' : `${compactRightLabel} vs ${compactLeftLabel} (${formatDeltaRate(retrievalDeltaRate)})`,
+          meta: retrievalDelta == null ? '비교 데이터 없음' : `${compactRightLabel} vs ${compactLeftLabel} (${formatDeltaRate(retrievalDeltaRate)})`,
         },
         buildLatencyCard('질의 전체 평가 평균 시간', queryEvalLatencyRow),
         buildLatencyCard('최종 재작성 확정 평균 시간', finalRewriteLatencyRow),
-        buildLatencyCard('순수 쿼리 재작성 평균 시간', pureRewriteLatencyRow),
+        buildLatencyCard('순수 질의 재작성 평균 시간', pureRewriteLatencyRow),
       ],
     }
   }, [compareMetricRows, compareRunMeta])
@@ -1968,42 +1968,42 @@ export function RagPage({ notify }) {
       ? (lastMetrics.legacy_performance ? LEGACY_PERFORMANCE_MESSAGE : formatMetricSampleBasis(PERFORMANCE_METRIC_DEFS[1], lastMetrics))
       : '-'
     return [
-      { label: 'Completed Runs', value: String(completedRuns.length), meta: 'Latest 50 runs' },
-      { label: 'Selected Compare', value: String(compareRunIds.length), meta: compareRunIds.length === 2 ? 'Compare ready' : 'Select 2 runs to compare' },
-      { label: 'Latest Recall@5', value: formatMetric(lastMetrics.recall_at_5), meta: lastRun ? `run ${shortId(lastRun.ragTestRunId)}` : 'No completed run' },
-      { label: 'Latest nDCG@10', value: formatMetric(lastMetrics.ndcg_at_10), meta: lastRun ? fmtTime(lastRun.finishedAt || lastRun.startedAt) : '-' },
+      { label: '완료 실행', value: String(completedRuns.length), meta: '최근 50개' },
+      { label: '비교 선택', value: String(compareRunIds.length), meta: compareRunIds.length === 2 ? '비교 가능' : '2개 선택 필요' },
+      { label: '최근 Recall@5', value: formatMetric(lastMetrics.recall_at_5), meta: lastRun ? `run ${shortId(lastRun.ragTestRunId)}` : '완료 실행 없음' },
+      { label: '최근 nDCG@10', value: formatMetric(lastMetrics.ndcg_at_10), meta: lastRun ? fmtTime(lastRun.finishedAt || lastRun.startedAt) : '-' },
       {
-        label: 'Latest Query Eval',
-        value: lastRun ? (lastMetrics.legacy_performance ? 'Legacy' : latestQueryEval) : '-',
+        label: '최근 평가 시간',
+        value: lastRun ? (lastMetrics.legacy_performance ? '레거시' : latestQueryEval) : '-',
         meta: latestQueryEvalMeta,
       },
       {
-        label: 'Latest Final Rewrite',
-        value: lastRun ? (lastMetrics.legacy_performance ? 'Legacy' : latestFinalRewrite) : '-',
+        label: '최근 재작성 시간',
+        value: lastRun ? (lastMetrics.legacy_performance ? '레거시' : latestFinalRewrite) : '-',
         meta: latestFinalRewriteMeta,
       },
     ]
   }, [tests, compareRunIds])
 
   const selectedDataset = datasets.find((dataset) => dataset.datasetId === form.datasetId) || null
-  const selectedMethodSummary = methodCodesForRun.length > 0 ? methodCodesForRun.join(', ') : 'synthetic-free baseline'
+  const selectedMethodSummary = methodCodesForRun.length > 0 ? methodCodesForRun.join(', ') : '합성 질의 제외'
   const selectedSnapshotSummary = selectedSnapshot
     ? `${shortId(selectedSnapshot.gatingBatchId)} / ${selectedSnapshot.gatingPreset} / ${selectedSnapshot.methodCode || '-'}`
-    : (form.syntheticFreeBaseline ? 'not used' : 'required')
+    : (form.syntheticFreeBaseline ? '미사용' : '필수')
   const retrievalBalanceItems = [
     { label: 'Dense', value: form.retrieverDenseWeight, tone: 'blue' },
     { label: 'BM25', value: form.retrieverBm25Weight, tone: 'green' },
-    { label: 'Technical', value: form.retrieverTechnicalWeight, tone: 'amber' },
+    { label: '기술', value: form.retrieverTechnicalWeight, tone: 'amber' },
   ]
   const runPreviewItems = [
-    { label: 'Dataset', value: selectedDataset ? `${selectedDataset.datasetName} (${selectedDataset.totalItems})` : '-' },
-    { label: 'Language', value: form.evalQueryLanguage },
-    { label: 'Run discipline', value: form.syntheticFreeBaseline ? 'exploratory baseline' : form.runDiscipline },
-    { label: 'Methods', value: selectedMethodSummary },
-    { label: 'Snapshot', value: selectedSnapshotSummary },
-    { label: 'Gating', value: runGatingPreset },
-    { label: 'Rewrite', value: form.rewriteEnabled ? (form.selectiveRewrite ? 'selective' : 'always') : 'off' },
-    { label: 'Retriever', value: `${form.retrievalBackend} / ${retrieverModeLabel(form.retrieverMode)}` },
+    { label: '데이터셋', value: selectedDataset ? `${selectedDataset.datasetName} (${selectedDataset.totalItems})` : '-' },
+    { label: '언어', value: form.evalQueryLanguage },
+    { label: '실행 규칙', value: form.syntheticFreeBaseline ? '탐색 baseline' : form.runDiscipline },
+    { label: '전략', value: selectedMethodSummary },
+    { label: '스냅샷', value: selectedSnapshotSummary },
+    { label: '게이팅', value: runGatingPreset },
+    { label: '재작성', value: form.rewriteEnabled ? (form.selectiveRewrite ? '선택적' : '항상') : '꺼짐' },
+    { label: '검색', value: `${form.retrievalBackend} / ${retrieverModeLabel(form.retrieverMode)}` },
   ]
 
   return (
@@ -2011,19 +2011,18 @@ export function RagPage({ notify }) {
       <section className="admin-card experiment-builder-card">
         <div className="table-title">RAG 품질/성능 테스트 실행</div>
         <p className="panel-subtitle">
-          스냅샷 기반 재현성, Rewrite 전략, 검색 파라미터를 실험 단위로 비교할 수 있도록 구성했습니다.
+          스냅샷 기반 재현성, 재작성 전략, 검색 파라미터를 실험 단위로 비교합니다.
         </p>
         <SectionHeader
-          eyebrow="Experiment Builder"
-          title="RAG Quality + Performance Run"
-          description="Dataset, snapshot, rewrite, retrieval, and advanced runtime options are grouped without changing the existing request contract."
+          eyebrow="실험 빌더"
+          title="RAG 품질/성능 실행"
         />
         <form className="experiment-builder-form" onSubmit={runRag}>
           <div className="experiment-builder-layout">
             <div className="experiment-builder-main">
               <ExperimentSection
-                title="Experiment Overview"
-                description="Choose the dataset, run naming discipline, official comparison mode, source snapshot, and generation method scope."
+                title="실험 개요"
+                description="데이터셋, 실행 규칙, 비교 방식, 스냅샷, 생성 전략을 선택합니다."
                 badge={form.evalQueryLanguage}
               >
                 <div className="form-grid form-grid--2">
@@ -2033,23 +2032,23 @@ export function RagPage({ notify }) {
               </select>
               <span className="field-hint">테스트 입력 샘플 집합입니다.</span>
             </label>
-            <label className="filter-field">Eval Query Language
+            <label className="filter-field">평가 질의 언어
               <select value={form.evalQueryLanguage} onChange={(event) => setForm((prev) => ({ ...prev, evalQueryLanguage: event.target.value }))}>
                 <option value="ko">ko</option>
                 <option value="en">en</option>
               </select>
-              <span className="field-hint">eval runtime rewrite/retrieval input language</span>
+              <span className="field-hint">재작성/검색 입력 언어</span>
             </label>
-            <label className="filter-field">Test Name
+            <label className="filter-field">테스트 이름
               <input
                 value={form.runName}
                 maxLength={120}
-                placeholder="Dense Hybrid v1"
+                placeholder="Hybrid v1"
                 onChange={(event) => setForm((prev) => ({ ...prev, runName: event.target.value }))}
               />
               <span className="field-hint">run_label</span>
             </label>
-            <label className="filter-field">Run Discipline
+            <label className="filter-field">실행 규칙
               <select
                 value={form.runDiscipline}
                 disabled={form.syntheticFreeBaseline}
@@ -2058,9 +2057,9 @@ export function RagPage({ notify }) {
                 <option value="exploratory">exploratory</option>
                 <option value="official">official</option>
               </select>
-              <span className="field-hint">official 실행은 snapshot/비교 조건 강제 검증이 적용됩니다.</span>
+              <span className="field-hint">official은 스냅샷/비교 조건을 검증합니다.</span>
             </label>
-            <label className="filter-field">Official Comparison Type
+            <label className="filter-field">공식 비교 유형
               <select
                 value={form.officialComparisonType}
                 disabled={form.syntheticFreeBaseline || form.runDiscipline !== 'official'}
@@ -2069,13 +2068,13 @@ export function RagPage({ notify }) {
                 <option value="rewrite_effect">rewrite_effect</option>
                 <option value="gating_effect">gating_effect</option>
               </select>
-              <span className="field-hint">official 전용: 한 번에 하나의 비교축만 허용합니다.</span>
+              <span className="field-hint">official은 비교축 하나만 허용합니다.</span>
             </label>
             {!form.syntheticFreeBaseline && form.runDiscipline === 'official' && form.officialComparisonType === 'gating_effect' && (
               <>
-                <label className="filter-field">Official Snapshot (ungated)
+                <label className="filter-field">공식 스냅샷 (ungated)
                   <select value={form.officialGatingUngatedBatchId} onChange={(event) => setForm((prev) => ({ ...prev, officialGatingUngatedBatchId: event.target.value }))}>
-                    <option value="">Select ungated snapshot</option>
+                    <option value="">ungated 스냅샷 선택</option>
                     {snapshotBatches
                       .filter((batch) => batch.gatingPreset === 'ungated')
                       .map((batch) => (
@@ -2084,11 +2083,11 @@ export function RagPage({ notify }) {
                         </option>
                       ))}
                   </select>
-                  <span className="field-hint">공식 gating-effect 비교용 ungated snapshot입니다.</span>
+                  <span className="field-hint">gating-effect 비교용 ungated 스냅샷</span>
                 </label>
-                <label className="filter-field">Official Snapshot (rule_only)
+                <label className="filter-field">공식 스냅샷 (rule_only)
                   <select value={form.officialGatingRuleOnlyBatchId} onChange={(event) => setForm((prev) => ({ ...prev, officialGatingRuleOnlyBatchId: event.target.value }))}>
-                    <option value="">Select rule_only snapshot</option>
+                    <option value="">rule_only 스냅샷 선택</option>
                     {snapshotBatches
                       .filter((batch) => batch.gatingPreset === 'rule_only')
                       .map((batch) => (
@@ -2097,11 +2096,11 @@ export function RagPage({ notify }) {
                         </option>
                       ))}
                   </select>
-                  <span className="field-hint">공식 gating-effect 비교용 rule_only snapshot입니다.</span>
+                  <span className="field-hint">gating-effect 비교용 rule_only 스냅샷</span>
                 </label>
-                <label className="filter-field">Official Snapshot (full_gating)
+                <label className="filter-field">공식 스냅샷 (full_gating)
                   <select value={form.officialGatingFullGatingBatchId} onChange={(event) => setForm((prev) => ({ ...prev, officialGatingFullGatingBatchId: event.target.value }))}>
-                    <option value="">Select full_gating snapshot</option>
+                    <option value="">full_gating 스냅샷 선택</option>
                     {snapshotBatches
                       .filter((batch) => batch.gatingPreset === 'full_gating')
                       .map((batch) => (
@@ -2110,11 +2109,11 @@ export function RagPage({ notify }) {
                         </option>
                       ))}
                   </select>
-                  <span className="field-hint">공식 gating-effect 비교용 full_gating snapshot입니다.</span>
+                  <span className="field-hint">gating-effect 비교용 full_gating 스냅샷</span>
                 </label>
               </>
             )}
-            <label className="filter-field">Gating Snapshot
+            <label className="filter-field">게이팅 스냅샷
               <select
                 value={form.sourceGatingBatchId}
                 disabled={form.syntheticFreeBaseline || (form.runDiscipline === 'official' && form.officialComparisonType === 'gating_effect')}
@@ -2122,10 +2121,10 @@ export function RagPage({ notify }) {
               >
                 <option value="">
                   {form.syntheticFreeBaseline
-                    ? 'Not used for synthetic-free baseline'
+                    ? '합성 질의 제외 baseline에서는 미사용'
                     : form.runDiscipline === 'official'
-                    ? (form.officialComparisonType === 'gating_effect' ? 'Not used for official gating-effect' : 'Select snapshot (required)')
-                    : 'Select snapshot (required)'}
+                    ? (form.officialComparisonType === 'gating_effect' ? 'official gating-effect에서는 미사용' : '스냅샷 선택 필수')
+                    : '스냅샷 선택 필수'}
                 </option>
                 {sourceSnapshotOptions.map((batch) => {
                   return (
@@ -2137,8 +2136,8 @@ export function RagPage({ notify }) {
               </select>
               <span className="field-hint">
                 {form.runDiscipline === 'official' && form.officialComparisonType === 'gating_effect'
-                  ? 'official gating-effect에서는 위 3개 전용 snapshot을 사용합니다.'
-                  : '완료된 게이팅 배치 전체를 표시합니다. 실행 시 호환성 검증을 수행합니다.'}
+                  ? 'official gating-effect는 위 3개 스냅샷을 사용합니다.'
+                  : '완료된 게이팅 배치만 표시합니다.'}
               </span>
             </label>
             <label className="filter-field">게이팅 프리셋
@@ -2153,10 +2152,10 @@ export function RagPage({ notify }) {
                 <option value="full_gating">full_gating</option>
               </select>
               <span className="field-hint">
-                {form.gatingApplied ? '메모리 조회 대상 게이팅 단계를 선택합니다.' : '게이팅 미반영 상태이므로 ungated로 고정됩니다.'}
+                {form.gatingApplied ? '검색 후보 게이팅 단계를 선택합니다.' : '게이팅 미반영 시 ungated로 고정됩니다.'}
               </span>
             </label>
-            <label className="filter-field">생성 방식
+            <label className="filter-field">생성 전략
               <div className="method-row">
                 {methods.map((method) => (
                   <label
@@ -2176,9 +2175,9 @@ export function RagPage({ notify }) {
               </div>
               <span className="field-hint">
                 {form.syntheticFreeBaseline
-                  ? 'Synthetic-free baseline에서는 생성 방식 선택이 비활성화됩니다.'
+                  ? '합성 질의 제외 baseline에서는 비활성화됩니다.'
                   : methodSelectionLocked
-                  ? `스냅샷 method(${snapshotMethodCode}) 기준으로 자동 고정되어 중복 선택을 제거했습니다.`
+                  ? `스냅샷 전략(${snapshotMethodCode}) 기준으로 고정됩니다.`
                   : '스냅샷 미선택 또는 legacy 스냅샷에서는 수동 선택이 필요합니다.'}
               </span>
             </label>
@@ -2186,12 +2185,12 @@ export function RagPage({ notify }) {
               </ExperimentSection>
 
               <ExperimentSection
-                title="Rewrite Strategy"
-                description="Rewrite enablement, selective threshold, stage cutoff, and RAG candidate sizing."
-                badge={form.rewriteEnabled ? 'rewrite on' : 'rewrite off'}
+                title="재작성 전략"
+                description="재작성, 선택 적용, 컷오프, 후보 수를 설정합니다."
+                badge={form.rewriteEnabled ? '재작성 켬' : '재작성 끔'}
               >
                 <div className="form-grid form-grid--3">
-            <label className="filter-field filter-field--small">Stage Cutoff Level
+            <label className="filter-field filter-field--small">컷오프 단계
               <select
                 value={form.stageCutoffLevel}
                 disabled={form.syntheticFreeBaseline || !form.gatingApplied || !form.stageCutoffEnabled || form.runDiscipline === 'official'}
@@ -2203,16 +2202,16 @@ export function RagPage({ notify }) {
                 <option value="diversity">diversity</option>
                 <option value="full_gating">full_gating</option>
               </select>
-              <span className="field-hint">full_gating 배치 기준 stage cutoff 레벨입니다.</span>
+              <span className="field-hint">full_gating 배치 기준 컷오프 단계</span>
             </label>
-            <label className="filter-field">LLM Model
+            <label className="filter-field">LLM 모델
               <select value={form.llmModel} onChange={(event) => setForm((prev) => ({ ...prev, llmModel: event.target.value }))}>
                 <option value="" disabled>LLM 모델 선택</option>
                 {runtimeOptions.llmModels.map((model) => <option key={model} value={model}>{model}</option>)}
               </select>
-              <span className="field-hint">generation/self-eval/rewrite 단계 공통 모델</span>
+              <span className="field-hint">생성/평가/재작성 공통 모델</span>
             </label>
-            <label className="filter-field filter-field--small">Rewrite Threshold
+            <label className="filter-field filter-field--small">재작성 임계값
               <div className="slider-field">
                 <input
                   type="range"
@@ -2222,7 +2221,7 @@ export function RagPage({ notify }) {
                   value={form.threshold}
                   disabled={!form.rewriteEnabled || !form.selectiveRewrite}
                   onChange={(event) => setForm((prev) => ({ ...prev, threshold: event.target.value }))}
-                  aria-label="Rewrite threshold slider"
+                  aria-label="재작성 임계값 슬라이더"
                 />
                 <input
                   type="number"
@@ -2234,26 +2233,26 @@ export function RagPage({ notify }) {
                   onChange={(event) => setForm((prev) => ({ ...prev, threshold: event.target.value }))}
                 />
               </div>
-              <span className="field-hint">`rewrite_threshold`: selective 모드에서 후보 쿼리 채택 임계값</span>
+              <span className="field-hint">selective 모드의 후보 질의 채택 기준</span>
             </label>
-            <label className="filter-field filter-field--small">Retrieval Top-K
+            <label className="filter-field filter-field--small">검색 Top-K
               <input type="number" min="1" value={form.retrievalTopK} onChange={(event) => setForm((prev) => ({ ...prev, retrievalTopK: event.target.value }))} />
-              <span className="field-hint">`retrieval_top_k`: 검색 단계에서 가져오는 후보 청크 수</span>
+              <span className="field-hint">검색 단계 후보 청크 수</span>
             </label>
-            <label className="filter-field filter-field--small">Rerank Top-N
+            <label className="filter-field filter-field--small">재정렬 Top-N
               <input type="number" min="1" value={form.rerankTopN} onChange={(event) => setForm((prev) => ({ ...prev, rerankTopN: event.target.value }))} />
-              <span className="field-hint">`rerank_top_n`: answer eval에서 최종 재정렬에 쓰는 개수</span>
+              <span className="field-hint">답변 평가 전 최종 재정렬 개수</span>
             </label>
                 </div>
               </ExperimentSection>
 
               <ExperimentSection
-                title="Retrieval Config"
-                description="Backend, retriever mode, candidate pool, rerank size, and dense/BM25/technical fusion balance."
+                title="검색 설정"
+                description="검색 엔진, 모드, 후보 수, 가중치를 설정합니다."
                 badge={retrieverModeLabel(form.retrieverMode)}
               >
                 <div className="form-grid form-grid--3">
-            <label className="filter-field filter-field--small">Retrieval Backend
+            <label className="filter-field filter-field--small">검색 엔진
               <select
                 value={form.retrievalBackend}
                 onChange={(event) => setForm((prev) => ({ ...prev, retrievalBackend: event.target.value }))}
@@ -2264,9 +2263,9 @@ export function RagPage({ notify }) {
                     <option key={backend} value={backend}>{backend}</option>
                   ))}
               </select>
-              <span className="field-hint">local / db-ann backend 선택</span>
+              <span className="field-hint">local / db-ann 선택</span>
             </label>
-            <label className="filter-field filter-field--small">Retriever Mode
+            <label className="filter-field filter-field--small">검색 모드
               <select value={form.retrieverMode} onChange={(event) => setForm((prev) => ({
                 ...prev,
                 ...retrieverPresetForMode(
@@ -2278,9 +2277,9 @@ export function RagPage({ notify }) {
                   <option key={mode} value={mode}>{retrieverModeLabel(mode)}</option>
                 ))}
               </select>
-              <span className="field-hint">BM25/Dense/Hybrid ranking mode</span>
+              <span className="field-hint">BM25/Dense/Hybrid 랭킹</span>
             </label>
-            <label className="filter-field">Dense Model
+            <label className="filter-field">Dense 모델
               <select
                 value={form.denseEmbeddingModel}
                 disabled={form.retrieverMode === 'bm25_only'}
@@ -2288,19 +2287,19 @@ export function RagPage({ notify }) {
               >
                 {runtimeOptions.denseEmbeddingModels.map((model) => <option key={model} value={model}>{model}</option>)}
               </select>
-              <span className="field-hint">retriever가 dense를 쓸 때 사용할 임베딩 모델</span>
+              <span className="field-hint">Dense 검색용 임베딩 모델</span>
             </label>
-            <label className="filter-field filter-field--small">Candidate Pool
+            <label className="filter-field filter-field--small">검색 후보 수
               <input type="number" min="1" value={form.retrieverCandidatePoolK} disabled readOnly />
-              <span className="field-hint">local rank 후보 풀 크기</span>
+              <span className="field-hint">로컬 랭킹 후보 풀</span>
             </label>
-            <label className="filter-field filter-field--small">Dense Weight
+            <label className="filter-field filter-field--small">Dense 가중치
               <input type="number" min="0" max="1" step="0.01" value={form.retrieverDenseWeight} disabled readOnly />
             </label>
-            <label className="filter-field filter-field--small">BM25 Weight
+            <label className="filter-field filter-field--small">BM25 가중치
               <input type="number" min="0" max="1" step="0.01" value={form.retrieverBm25Weight} disabled readOnly />
             </label>
-            <label className="filter-field filter-field--small">Technical Weight
+            <label className="filter-field filter-field--small">기술어 가중치
               <input type="number" min="0" max="1" step="0.01" value={form.retrieverTechnicalWeight} disabled readOnly />
             </label>
                 </div>
@@ -2312,8 +2311,8 @@ export function RagPage({ notify }) {
               {chunkEmbeddingStatusLoading
                 ? '확인 중'
                 : chunkEmbeddingStatus
-                  ? `${chunkEmbeddingStatus.embeddingModel} / ${chunkEmbeddingStatus.materializedChunkCount} of ${chunkEmbeddingStatus.totalChunkCount} chunks / ${chunkEmbeddingStatus.ready ? 'ready' : 'materialization required'}`
-                  : 'unknown'}
+                  ? `${chunkEmbeddingStatus.embeddingModel} / ${chunkEmbeddingStatus.materializedChunkCount} of ${chunkEmbeddingStatus.totalChunkCount} chunks / ${chunkEmbeddingStatus.ready ? '준비됨' : '생성 필요'}`
+                  : '알 수 없음'}
               <div className="form-actions" style={{ marginTop: 8 }}>
                 <button
                   type="button"
@@ -2321,7 +2320,7 @@ export function RagPage({ notify }) {
                   onClick={materializeChunkEmbeddings}
                   disabled={chunkEmbeddingMaterializing || chunkEmbeddingStatusLoading || (chunkEmbeddingStatus && chunkEmbeddingStatus.ready)}
                 >
-                  {chunkEmbeddingMaterializing ? 'Materializing...' : 'Chunk Embedding Materialize'}
+                  {chunkEmbeddingMaterializing ? '생성 중...' : '청크 임베딩 생성'}
                 </button>
                 <button
                   type="button"
@@ -2337,9 +2336,9 @@ export function RagPage({ notify }) {
               </ExperimentSection>
 
               <ExperimentSection
-                title="Advanced Options"
-                description="Baseline, gating reflection, stage cutoff, rewrite retrieval mode, session context, and failure policy."
-                badge="collapsed by default"
+                title="고급 옵션"
+                description="Baseline, 게이팅 반영, 재작성 검색, 실패 정책"
+                badge="기본 접힘"
                 collapsible
                 defaultOpen={false}
               >
@@ -2347,20 +2346,20 @@ export function RagPage({ notify }) {
             <label className={`check-pill ${form.syntheticFreeBaseline ? 'is-active' : ''}`}>
               <input type="checkbox" checked={form.syntheticFreeBaseline} onChange={(event) => setForm((prev) => ({ ...prev, syntheticFreeBaseline: event.target.checked }))} />
               <span className="check-pill__box" aria-hidden="true">{form.syntheticFreeBaseline ? '✓' : ''}</span>
-              <span className="check-pill__text">Synthetic-free baseline</span>
+              <span className="check-pill__text">합성 질의 제외</span>
             </label>
             <label className={`check-pill ${form.stageCutoffEnabled ? 'is-active' : ''} ${(form.syntheticFreeBaseline || !form.gatingApplied || form.runDiscipline === 'official') ? 'is-disabled' : ''}`}>
               <input type="checkbox" checked={form.stageCutoffEnabled} disabled={form.syntheticFreeBaseline || !form.gatingApplied || form.runDiscipline === 'official'} onChange={(event) => setForm((prev) => ({ ...prev, stageCutoffEnabled: event.target.checked }))} />
               <span className="check-pill__box" aria-hidden="true">{form.stageCutoffEnabled ? '✓' : ''}</span>
-              <span className="check-pill__text">Stage Cutoff</span>
+              <span className="check-pill__text">스테이지 컷오프</span>
             </label>
             <label><input type="checkbox" checked={form.gatingApplied} disabled={form.syntheticFreeBaseline} onChange={(event) => setForm((prev) => ({ ...prev, gatingApplied: event.target.checked }))} />게이팅 반영</label>
-            <label><input type="checkbox" checked={form.rewriteEnabled} disabled={form.syntheticFreeBaseline} onChange={(event) => setForm((prev) => ({ ...prev, rewriteEnabled: event.target.checked }))} />Rewrite 사용</label>
-            <label><input type="checkbox" checked={form.selectiveRewrite} disabled={form.syntheticFreeBaseline || !form.rewriteEnabled} onChange={(event) => setForm((prev) => ({ ...prev, selectiveRewrite: event.target.checked, useSessionContext: event.target.checked ? prev.useSessionContext : false }))} />Selective</label>
-            <label><input type="checkbox" checked={form.useSessionContext} disabled={form.syntheticFreeBaseline || !form.rewriteEnabled || !form.selectiveRewrite} onChange={(event) => setForm((prev) => ({ ...prev, useSessionContext: event.target.checked }))} />Session Context</label>
-            <label><input type="checkbox" checked={form.rewriteAnchorInjectionEnabled} disabled={form.syntheticFreeBaseline || !form.rewriteEnabled} onChange={(event) => setForm((prev) => ({ ...prev, rewriteAnchorInjectionEnabled: event.target.checked }))} />Anchor Injection</label>
+            <label><input type="checkbox" checked={form.rewriteEnabled} disabled={form.syntheticFreeBaseline} onChange={(event) => setForm((prev) => ({ ...prev, rewriteEnabled: event.target.checked }))} />재작성 사용</label>
+            <label><input type="checkbox" checked={form.selectiveRewrite} disabled={form.syntheticFreeBaseline || !form.rewriteEnabled} onChange={(event) => setForm((prev) => ({ ...prev, selectiveRewrite: event.target.checked, useSessionContext: event.target.checked ? prev.useSessionContext : false }))} />선택 적용</label>
+            <label><input type="checkbox" checked={form.useSessionContext} disabled={form.syntheticFreeBaseline || !form.rewriteEnabled || !form.selectiveRewrite} onChange={(event) => setForm((prev) => ({ ...prev, useSessionContext: event.target.checked }))} />세션 문맥</label>
+            <label><input type="checkbox" checked={form.rewriteAnchorInjectionEnabled} disabled={form.syntheticFreeBaseline || !form.rewriteEnabled} onChange={(event) => setForm((prev) => ({ ...prev, rewriteAnchorInjectionEnabled: event.target.checked }))} />앵커 주입</label>
             <label className="rewrite-strategy-field">
-              <span className="rewrite-strategy-field__label">Rewrite Retrieval</span>
+              <span className="rewrite-strategy-field__label">재작성 검색</span>
               <div className="rewrite-strategy-field__control">
                 <select
                   value={form.rewriteRetrievalStrategy}
@@ -2377,7 +2376,7 @@ export function RagPage({ notify }) {
               </div>
             </label>
             <label className="rewrite-strategy-field">
-              <span className="rewrite-strategy-field__label">Rewrite Failure Policy</span>
+              <span className="rewrite-strategy-field__label">재작성 실패 정책</span>
               <div className="rewrite-strategy-field__control">
                 <select
                   value={form.rewriteFailurePolicy}
@@ -2393,24 +2392,24 @@ export function RagPage({ notify }) {
           </div>
 
           <div className="state-note">
-            <strong>옵션 의미:</strong> 게이팅 반영=메모리 후보를 게이팅 결과로 제한, Rewrite 사용=질의 재작성 활성화,
-            Selective=매번 Rewrite하지 않고 품질 개선 가능성 있을 때만 적용, Session Context=대화 문맥을 Rewrite 후보 생성에 투입.
+            <strong>옵션 의미:</strong> 게이팅 반영=검색 후보 제한, 재작성 사용=질의 재작성 활성화,
+            선택 적용=개선 가능성이 있을 때만 적용, 세션 문맥=대화 문맥을 재작성 후보에 투입.
           </div>
 
           {selectedSnapshot && !form.syntheticFreeBaseline && (
             <div className="state-note">
-              <strong>선택 스냅샷:</strong> {shortId(selectedSnapshot.gatingBatchId)} / preset {selectedSnapshot.gatingPreset} / method {selectedSnapshot.methodCode || '-'} / source run {selectedSnapshot.sourceGatingRunId ? 'available' : 'missing'}
+              <strong>선택 스냅샷:</strong> {shortId(selectedSnapshot.gatingBatchId)} / preset {selectedSnapshot.gatingPreset} / 전략 {selectedSnapshot.methodCode || '-'} / source run {selectedSnapshot.sourceGatingRunId ? '사용 가능' : '없음'}
             </div>
           )}
 
               </ExperimentSection>
 
               <div className="form-actions form-actions--end">
-                <button type="submit" className="button button--primary">Run Test</button>
-                <button type="button" className="button" onClick={() => Promise.all([loadTests(), loadGatingBatches()]).catch((error) => notify(error.message, 'error'))}>Refresh Lists</button>
+                <button type="submit" className="button button--success">테스트 실행</button>
+                <button type="button" className="button" onClick={() => Promise.all([loadTests(), loadGatingBatches()]).catch((error) => notify(error.message, 'error'))}>목록 새로고침</button>
               </div>
             </div>
-            <ConfigSummaryCard title="Experiment Summary" items={runPreviewItems} />
+            <ConfigSummaryCard title="실험 요약" items={runPreviewItems} />
           </div>
         </form>
       </section>
@@ -2502,7 +2501,7 @@ export function RagPage({ notify }) {
                           <div className="compare-metric-card__title-row">
                             <div className="compare-metric-card__title">{row.label}</div>
                             <div className="compare-metric-card__badges">
-                              {row.priority === 'core' && <span className="metric-chip metric-chip--core">Core KPI</span>}
+                              {row.priority === 'core' && <span className="metric-chip metric-chip--core">핵심 KPI</span>}
                               <span className={`metric-chip metric-chip--${row.outcome}`}>{compareOutcomeLabel(row.outcome, leftRunLabel, rightRunLabel)}</span>
                             </div>
                           </div>
@@ -2534,7 +2533,7 @@ export function RagPage({ notify }) {
                             </div>
                           </div>
                           <div className="compare-metric-card__delta-line">
-                            <span>Delta (B-A)</span>
+                            <span>차이 (B-A)</span>
                             <strong>{deltaValue.primary}</strong>
                             <span className="compare-metric-card__delta-rate">{deltaRateText}</span>
                           </div>
@@ -2564,7 +2563,7 @@ export function RagPage({ notify }) {
             <table className="data-table compare-data-table">
               <thead>
                 <tr>
-                  <th className="compare-data-table__metric-col">Metric</th>
+                  <th className="compare-data-table__metric-col">지표</th>
                   <th className="compare-data-table__run-col">
                     <span>{compareRunMeta[0].slot}</span>
                     <strong title={compareRunMeta[0].tableLabel}>{compareRunMeta[0].tableLabel}</strong>
@@ -2577,8 +2576,8 @@ export function RagPage({ notify }) {
                     <small className="compare-data-table__run-sub" title={compareRunMeta[1].tableSubLabel}>{compareRunMeta[1].tableSubLabel}</small>
                     <small className="compare-data-table__run-id" title={compareRunMeta[1].fullId}>{compareRunMeta[1].tableId}</small>
                   </th>
-                  <th className="compare-data-table__delta-col">Delta / Change</th>
-                  <th className="compare-data-table__result-col">Result</th>
+                  <th className="compare-data-table__delta-col">차이 / 변화</th>
+                  <th className="compare-data-table__result-col">결과</th>
                 </tr>
               </thead>
               {compareTableGroups.map((group) => (
@@ -2676,7 +2675,7 @@ export function RagPage({ notify }) {
                 <th>생성 방식</th>
                 <th>게이팅</th>
                 <th>스테이지 컷오프</th>
-                <th>Rewrite 모드</th>
+                <th>재작성 모드</th>
                 <th>핵심 지표</th>
                 <th>상세</th>
                 <th>삭제</th>
@@ -2708,8 +2707,8 @@ export function RagPage({ notify }) {
                       </label>
                     </td>
                     <td className="run-history-exec">
-                      <div className="run-history-exec__title" title={resolveCompareRunPrimaryLabel(run, 'RAG Test')}>
-                        {resolveCompareRunPrimaryLabel(run, 'RAG Test')}
+                      <div className="run-history-exec__title" title={resolveCompareRunPrimaryLabel(run, 'RAG 테스트')}>
+                        {resolveCompareRunPrimaryLabel(run, 'RAG 테스트')}
                       </div>
                       <div className="run-history-exec__meta">{resolveCompareRunSecondaryLabel(run)}</div>
                       <div className="run-history-exec__badges">
@@ -2721,7 +2720,7 @@ export function RagPage({ notify }) {
                         secondsPerUnit={run.estimatedSecondsPerStage}
                         completedCount={run.completedStageCount}
                         totalCount={run.totalStageCount}
-                        unitLabel="stage"
+                        unitLabel="단계"
                         status={run.status}
                         compact
                       />
@@ -2780,7 +2779,7 @@ export function RagPage({ notify }) {
                     <td>
                       <button
                         type="button"
-                        className="button button--ghost"
+                        className="button button--danger-ghost"
                         disabled={deletingRunId === run.ragTestRunId}
                         onClick={() => deleteRun(run.ragTestRunId)}
                       >
@@ -2821,22 +2820,22 @@ export function RagPage({ notify }) {
 
       <section className="table-shell">
         <div className="table-header">
-          <div className="table-title">Rewrite 디버그 로그</div>
+          <div className="table-title">재작성 디버그 로그</div>
           <button
             type="button"
             className="button"
             disabled={rewriteLogsLoading}
             onClick={() => loadRewriteLogs().catch((error) => notify(error.message, 'error'))}
           >
-            {rewriteLogsLoading ? 'Loading...' : (rewriteLogsLoaded ? '새로고침' : '불러오기')}
+            {rewriteLogsLoading ? '불러오는 중...' : (rewriteLogsLoaded ? '새로고침' : '불러오기')}
           </button>
         </div>
         {!rewriteLogsLoaded && !rewriteLogsLoading ? (
-          <div className="empty-state">Rewrite logs are lazy-loaded. Click &quot;불러오기&quot; when needed.</div>
+          <div className="empty-state">재작성 로그는 필요할 때 불러옵니다.</div>
         ) : (
           <div className="table-wrap">
             <table className="data-table">
-              <thead><tr><th>rewrite_log_id</th><th>raw_query</th><th>final_query</th><th>전략</th><th>적용</th><th>delta</th><th>결정 사유</th><th>상세</th></tr></thead>
+              <thead><tr><th>재작성 로그 ID</th><th>원본 질의</th><th>최종 질의</th><th>전략</th><th>적용</th><th>차이</th><th>결정 사유</th><th>상세</th></tr></thead>
               <tbody>
                 {rewriteLogs.map((row) => (
                   <tr key={row.rewriteLogId}>
@@ -2852,7 +2851,7 @@ export function RagPage({ notify }) {
                 ))}
                 {rewriteLogsLoaded && rewriteLogs.length === 0 && (
                   <tr>
-                    <td colSpan={8}>No rewrite logs found.</td>
+                    <td colSpan={8}>재작성 로그가 없습니다.</td>
                   </tr>
                 )}
               </tbody>
