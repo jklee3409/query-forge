@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-05-15] Session Summary (Strategy B Runtime Path)
+- What was done: Implemented the Strategy B generation path so B skips mandatory EN extractive summary creation, caches Korean translation from the original English chunk, builds deterministic Korean extractive summary from that translation, and sends only the intended upstream inputs into query generation.
+- Key decisions: Preserved fixed pipeline order and split raw-table storage; B now stays in `synthetic_queries_raw_b` for `code_mixed` query type while A/C code-mixed rerouting to D and D/E/F/G behavior remain unchanged.
+- Issues encountered: Targeted Python validation passed (`py_compile` for generator and `pipeline.tests.test_synthetic_query_generator`).
+- Next steps: Run a tiny controlled B generation smoke to verify asset lineage and trace fields before long-chunk/all-source hardening.
+
 ## [2026-05-15] Session Summary (Strategy B Query-Only Contract)
 - What was done: Redefined Strategy B query-generation contract to output only `query_ko`, `query_type`, and `answerability_type`, updated `gen_b_v1` to version `v5`, and aligned the pipeline B schema/stability spec with that contract.
 - Key decisions: Treated `translated_chunk_ko` and `extractive_summary_ko` as upstream artifacts for Phase 2 while preserving the existing generation loop, fixed pipeline order, and strategy-split raw storage.

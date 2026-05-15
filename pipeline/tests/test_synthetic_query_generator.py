@@ -3,12 +3,16 @@ from __future__ import annotations
 import unittest
 
 from pipeline.common.llm_client import _validate_json_schema
+from pipeline.generation.synthetic_query_generator import ChunkRow
+from pipeline.generation.synthetic_query_generator import _b_summary_max_chars
+from pipeline.generation.synthetic_query_generator import _build_query_payload
 from pipeline.generation.synthetic_query_generator import _extract_query_text
 from pipeline.generation.synthetic_query_generator import _generation_strategy_for_query_type
 from pipeline.generation.synthetic_query_generator import _is_max_tokens_truncation_error
 from pipeline.generation.synthetic_query_generator import _compact_ko_evidence_summary
 from pipeline.generation.synthetic_query_generator import _primary_chunk_text
 from pipeline.generation.synthetic_query_generator import _query_response_schema_for_strategy
+from pipeline.generation.synthetic_query_generator import _requires_en_summary_asset
 from pipeline.generation.synthetic_query_generator import _summary_source_text_candidates
 from pipeline.generation.synthetic_query_generator import _summary_max_tokens_for_strategy
 
@@ -102,9 +106,58 @@ class SyntheticQueryGeneratorSchemaTests(unittest.TestCase):
         c_candidates = _summary_source_text_candidates(generation_strategy="C", source_text_ko=long_text)
         self.assertEqual([len(value) for value in c_candidates], [5000])
 
-    def test_code_mixed_routing_preserves_native_e_f_g_strategies(self) -> None:
+    def test_b_path_does_not_require_en_summary_asset(self) -> None:
+        expected = {
+            "A": True,
+            "B": False,
+            "C": True,
+            "D": True,
+            "E": True,
+            "F": False,
+            "G": False,
+        }
+        for strategy, requires_summary in expected.items():
+            self.assertEqual(_requires_en_summary_asset(strategy), requires_summary)
+
+    def test_b_query_payload_uses_ko_inputs_without_en_summary(self) -> None:
+        chunk = ChunkRow(
+            chunk_id="chunk-b-1",
+            document_id="doc-b-1",
+            chunk_text="English source chunk about configuration binding.",
+            title="Configuration Binding",
+            product_name="Spring Boot",
+            version_label="3.x",
+            content_checksum="content-checksum",
+            cleaned_checksum="cleaned-checksum",
+        )
+        payload = _build_query_payload(
+            chunk=chunk,
+            generation_strategy="B",
+            original_chunk_ko=chunk.chunk_text,
+            related_chunks_ko=[],
+            extractive_summary_en="",
+            translated_chunk_ko="Korean translated chunk with @ConfigurationProperties.",
+            extractive_summary_ko="Korean extractive summary with @ConfigurationProperties.",
+            glossary_terms_keep_english=["@ConfigurationProperties"],
+            query_type="procedure",
+            answerability_type="single",
+            target_chunk_ids=[chunk.chunk_id],
+        )
+        self.assertEqual(payload["original_chunk_en"], chunk.chunk_text)
+        self.assertEqual(payload["original_chunk_ko"], "")
+        self.assertEqual(payload["extractive_summary_en"], "")
+        self.assertEqual(payload["translated_chunk_ko"], "Korean translated chunk with @ConfigurationProperties.")
+        self.assertEqual(payload["extractive_summary_ko"], "Korean extractive summary with @ConfigurationProperties.")
+        self.assertEqual(payload["glossary_terms_keep_english"], ["@ConfigurationProperties"])
+
+    def test_b_summary_max_chars_default_and_bounds(self) -> None:
+        self.assertEqual(_b_summary_max_chars({}), 900)
+        self.assertEqual(_b_summary_max_chars({"b_summary_max_chars": 100}), 300)
+        self.assertEqual(_b_summary_max_chars({"b_summary_max_chars": 5000}), 1600)
+
+    def test_code_mixed_routing_preserves_b_and_native_e_f_g_strategies(self) -> None:
         self.assertEqual(_generation_strategy_for_query_type("A", "code_mixed", True), "D")
-        self.assertEqual(_generation_strategy_for_query_type("B", "code_mixed", True), "D")
+        self.assertEqual(_generation_strategy_for_query_type("B", "code_mixed", True), "B")
         self.assertEqual(_generation_strategy_for_query_type("C", "code_mixed", True), "D")
         self.assertEqual(_generation_strategy_for_query_type("D", "code_mixed", True), "D")
         self.assertEqual(_generation_strategy_for_query_type("E", "code_mixed", True), "E")

@@ -102,8 +102,11 @@ QUERY_REQUIRED_FIELDS_BY_STRATEGY: dict[str, tuple[str, ...]] = {
 
 FG_SUMMARY_KO_MIN_MAX_TOKENS = 2048
 FG_SUMMARY_KO_SOURCE_CHAR_LIMITS_ON_TRUNCATION: tuple[int, ...] = (3200, 2200, 1400)
-FG_DETERMINISTIC_SUMMARY_PROVIDER = "deterministic"
-FG_DETERMINISTIC_SUMMARY_MODEL = "extractive-ko-v1"
+B_DEFAULT_SUMMARY_MAX_CHARS = 900
+DETERMINISTIC_KO_SUMMARY_PROVIDER = "deterministic"
+DETERMINISTIC_KO_SUMMARY_MODEL = "extractive-ko-v1"
+FG_DETERMINISTIC_SUMMARY_PROVIDER = DETERMINISTIC_KO_SUMMARY_PROVIDER
+FG_DETERMINISTIC_SUMMARY_MODEL = DETERMINISTIC_KO_SUMMARY_MODEL
 FG_DEFAULT_SUMMARY_MAX_CHARS = 1800
 FG_RELATED_CHUNK_MAX_CHARS = 900
 OVERLAP_CONTEXT_LABEL = "Overlap context from previous chunk:"
@@ -472,6 +475,11 @@ def _summary_source_text_candidates(*, generation_strategy: str, source_text_ko:
     return deduped
 
 
+def _requires_en_summary_asset(generation_strategy: str) -> bool:
+    strategy = generation_strategy.strip().upper()
+    return strategy in {"A", "C", "D", "E"}
+
+
 def _primary_chunk_text(source_text: str) -> str:
     text = str(source_text or "").replace("\r\n", "\n").strip()
     if not text.startswith(OVERLAP_CONTEXT_LABEL):
@@ -540,6 +548,15 @@ def _fg_summary_mode(raw_config: dict[str, Any]) -> str:
     return mode
 
 
+def _b_summary_max_chars(raw_config: dict[str, Any]) -> int:
+    raw_value = raw_config.get("b_summary_max_chars", B_DEFAULT_SUMMARY_MAX_CHARS)
+    try:
+        value = int(raw_value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("b_summary_max_chars must be an integer") from exc
+    return max(300, min(value, 1600))
+
+
 def _fg_summary_max_chars(raw_config: dict[str, Any]) -> int:
     raw_value = raw_config.get("fg_summary_max_chars", FG_DEFAULT_SUMMARY_MAX_CHARS)
     try:
@@ -555,7 +572,7 @@ def _generation_strategy_for_query_type(
     enable_code_mixed: bool,
 ) -> str:
     strategy = base_strategy.strip().upper()
-    if enable_code_mixed and query_type == "code_mixed" and strategy in {"A", "B", "C"}:
+    if enable_code_mixed and query_type == "code_mixed" and strategy in {"A", "C"}:
         return "D"
     return strategy
 
@@ -859,14 +876,15 @@ def _resolve_or_create_extractive_summary_ko(
     prompt_version_suffix: str,
     source_text_ko: str,
     max_chars: int,
+    metadata: dict[str, Any] | None = None,
 ) -> tuple[str, str, bool]:
     template_version = f"{prompt_asset.version}:{prompt_version_suffix}:extractive"
     cached = _find_existing_asset(
         connection,
         chunk_id=chunk.chunk_id,
         asset_type="KO_SUMMARY",
-        llm_provider=FG_DETERMINISTIC_SUMMARY_PROVIDER,
-        llm_model=FG_DETERMINISTIC_SUMMARY_MODEL,
+        llm_provider=DETERMINISTIC_KO_SUMMARY_PROVIDER,
+        llm_model=DETERMINISTIC_KO_SUMMARY_MODEL,
         prompt_template_version=template_version,
         source_fingerprint=source_fingerprint,
     )
@@ -876,20 +894,23 @@ def _resolve_or_create_extractive_summary_ko(
     summary_ko = _compact_ko_evidence_summary(source_text_ko, max_chars=max_chars)
     if not summary_ko:
         raise RuntimeError(f"empty extractive summary_ko for chunk={chunk.chunk_id}")
+    asset_metadata = {
+        "source": prompt_version_suffix,
+        "summary_mode": "extractive",
+        "max_chars": max_chars,
+    }
+    if metadata:
+        asset_metadata.update(metadata)
     asset_id = _create_asset(
         connection,
         chunk=chunk,
         asset_type="KO_SUMMARY",
         text_content=summary_ko,
-        llm_provider=FG_DETERMINISTIC_SUMMARY_PROVIDER,
-        llm_model=FG_DETERMINISTIC_SUMMARY_MODEL,
+        llm_provider=DETERMINISTIC_KO_SUMMARY_PROVIDER,
+        llm_model=DETERMINISTIC_KO_SUMMARY_MODEL,
         prompt_template_version=template_version,
         source_fingerprint=source_fingerprint,
-        metadata={
-            "source": prompt_version_suffix,
-            "summary_mode": "extractive",
-            "max_chars": max_chars,
-        },
+        metadata=asset_metadata,
     )
     return asset_id, summary_ko, False
 
@@ -956,6 +977,40 @@ def _raw_table_for_strategy(generation_strategy: str) -> str:
     if table_name is None:
         raise ValueError(f"unsupported generation strategy: {generation_strategy}")
     return table_name
+
+
+def _build_query_payload(
+    *,
+    chunk: ChunkRow,
+    generation_strategy: str,
+    original_chunk_ko: str,
+    related_chunks_ko: list[dict[str, Any]],
+    extractive_summary_en: str,
+    translated_chunk_ko: str,
+    extractive_summary_ko: str,
+    glossary_terms_keep_english: list[str],
+    query_type: str,
+    answerability_type: str,
+    target_chunk_ids: list[str],
+) -> dict[str, Any]:
+    strategy = generation_strategy.strip().upper()
+    return {
+        "chunk_id": chunk.chunk_id,
+        "document_id": chunk.document_id,
+        "title": chunk.title,
+        "product": chunk.product_name,
+        "version": chunk.version_label,
+        "original_chunk_en": "" if strategy in {"F", "G"} else chunk.chunk_text,
+        "original_chunk_ko": "" if strategy == "B" else original_chunk_ko,
+        "related_chunks_ko": related_chunks_ko,
+        "extractive_summary_en": extractive_summary_en,
+        "translated_chunk_ko": translated_chunk_ko,
+        "extractive_summary_ko": extractive_summary_ko,
+        "glossary_terms_keep_english": glossary_terms_keep_english,
+        "query_type": query_type,
+        "answerability_type": answerability_type,
+        "target_chunk_ids": target_chunk_ids,
+    }
 
 
 def _find_cached_query(
@@ -1256,6 +1311,7 @@ def run_generation(
                 "source_ids": config.raw.get("source_ids"),
                 "source_document_id": config.raw.get("source_document_id"),
                 "random_chunk_sampling": bool(config.raw.get("random_chunk_sampling", False)),
+                "b_summary_mode": "extractive" if config.generation_strategy.strip().upper() == "B" else None,
                 "fg_summary_mode": (
                     config.raw.get("fg_summary_mode", "extractive")
                     if config.generation_strategy in {"F", "G"}
@@ -1309,6 +1365,7 @@ def run_generation(
         rng = random.Random(config.random_seed)
 
         strategy = config.generation_strategy.strip().upper()
+        b_summary_max_chars = _b_summary_max_chars(config.raw) if strategy == "B" else B_DEFAULT_SUMMARY_MAX_CHARS
         fg_summary_mode = _fg_summary_mode(config.raw) if strategy in {"F", "G"} else "llm"
         fg_summary_max_chars = (
             _fg_summary_max_chars(config.raw)
@@ -1387,7 +1444,7 @@ def run_generation(
                     if generation_strategy in {"F", "G"}
                     else chunk.chunk_text
                 )
-                if generation_strategy in {"A", "B", "C", "D", "E"}:
+                if _requires_en_summary_asset(generation_strategy):
                     en_summary_asset_id, en_summary, en_summary_cached = _resolve_or_create_summary_en(
                         connection,
                         chunk=chunk,
@@ -1420,15 +1477,19 @@ def run_generation(
                         asset_created["KO_TRANSLATED_CHUNK"] += 1
                     generation_asset_ids.append(translate_asset_id)
 
-                    summary_ko_asset_id, summary_ko, summary_ko_cached = _resolve_or_create_summary_ko(
+                    b_summary_source_fingerprint = _stable_id([source_fingerprint, translate_asset_id])
+                    summary_ko_asset_id, summary_ko, summary_ko_cached = _resolve_or_create_extractive_summary_ko(
                         connection,
                         chunk=chunk,
-                        source_fingerprint=source_fingerprint,
+                        source_fingerprint=b_summary_source_fingerprint,
                         prompt_asset=prompts.summary_ko_asset,
-                        prompt_text=prompts.summary_ko_text,
                         prompt_version_suffix="B",
                         source_text_ko=translated_chunk_ko,
-                        client=summary_client,
+                        max_chars=b_summary_max_chars,
+                        metadata={
+                            "source_translation_asset_id": translate_asset_id,
+                            "source_translation_prompt_version": prompts.translate_asset.version,
+                        },
                     )
                     if summary_ko_cached:
                         asset_cache_hits["KO_SUMMARY"] += 1
@@ -1519,23 +1580,19 @@ def run_generation(
                     if generation_strategy in {"F", "G"}
                     else []
                 )
-                query_payload = {
-                    "chunk_id": chunk.chunk_id,
-                    "document_id": chunk.document_id,
-                    "title": chunk.title,
-                    "product": chunk.product_name,
-                    "version": chunk.version_label,
-                    "original_chunk_en": "" if generation_strategy in {"F", "G"} else chunk.chunk_text,
-                    "original_chunk_ko": original_chunk_ko,
-                    "related_chunks_ko": related_chunks_ko,
-                    "extractive_summary_en": en_summary,
-                    "translated_chunk_ko": translated_chunk_ko,
-                    "extractive_summary_ko": summary_ko,
-                    "glossary_terms_keep_english": chunk_glossary_terms,
-                    "query_type": query_type,
-                    "answerability_type": answerability_type,
-                    "target_chunk_ids": target_chunk_ids,
-                }
+                query_payload = _build_query_payload(
+                    chunk=chunk,
+                    generation_strategy=generation_strategy,
+                    original_chunk_ko=original_chunk_ko,
+                    related_chunks_ko=related_chunks_ko,
+                    extractive_summary_en=en_summary,
+                    translated_chunk_ko=translated_chunk_ko,
+                    extractive_summary_ko=summary_ko,
+                    glossary_terms_keep_english=chunk_glossary_terms,
+                    query_type=query_type,
+                    answerability_type=answerability_type,
+                    target_chunk_ids=target_chunk_ids,
+                )
                 query_response_schema = _query_response_schema_for_strategy(generation_strategy)
                 query_response = _llm_json(
                     query_client,
@@ -1613,6 +1670,7 @@ def run_generation(
                             "trace": {
                                 "en_summary": en_summary,
                                 "ko_summary": summary_ko,
+                                "b_summary_mode": "extractive" if generation_strategy == "B" else None,
                                 "fg_summary_mode": fg_summary_mode if generation_strategy in {"F", "G"} else None,
                                 "related_chunks_ko_count": len(related_chunks_ko),
                                 "translated_chunk_excerpt": translated_chunk_ko[:320],
@@ -1659,6 +1717,8 @@ def run_generation(
             "random_chunk_sampling": random_chunk_sampling,
             "relation_source_chunks_loaded": len(relations),
             "glossary_documents_loaded": len(glossary_by_doc),
+            "b_summary_mode": "extractive" if strategy == "B" else None,
+            "b_summary_max_chars": b_summary_max_chars if strategy == "B" else None,
             "fg_summary_mode": fg_summary_mode,
             "fg_summary_max_chars": fg_summary_max_chars,
             "llm": {

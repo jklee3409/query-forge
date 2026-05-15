@@ -28,7 +28,7 @@ Python pipeline for data processing, synthetic query generation, quality gating,
 - Synthetic generation now writes to `synthetic_queries_raw_a/b/c/d/e/f/g` by strategy.
 - Synthetic generation accepts an optional `source_ids` list in experiment config and filters chunk loading with `d.source_id = ANY(...)`, allowing Admin all-allowed-sources to run as one batch while staying source-scoped.
 - Synthetic query structured-output validation is strategy-aware (`A/B/C/D/E/F/G` required query fields differ), and final `query_text` fallback extraction is restricted to query-only fields (`query`, `query_en`, `query_ko`, `query_code_mixed`) to avoid metadata leakage.
-- Strategy B query-generation schema is query-only (`query_ko`, `query_type`, `answerability_type`); `translated_chunk_ko` and `extractive_summary_ko` remain upstream prompt inputs and are not final query-generation outputs.
+- Strategy B runtime follows the intended research path: original English chunk -> cached `KO_TRANSLATED_CHUNK` -> deterministic extractive `KO_SUMMARY` -> query-only Korean output (`query_ko`, `query_type`, `answerability_type`). B no longer requires an EN extractive summary asset, and B rows remain in `synthetic_queries_raw_b` even for `code_mixed` query type.
 - Gating/memory/eval reads use `synthetic_queries_raw_all` (union view over split tables).
 - KR-source strategy variants `F/G` are physical-split strategies and do not reuse `C/E` raw tables.
 - `F/G` Korean summary generation path applies a higher summary output-token floor (min `2048`) and truncation-only source-length fallback retries (`3200/2200/1400 chars`) to reduce `MAX_TOKENS` failures on long KR source chunks, without affecting other strategy/stage token budgets.

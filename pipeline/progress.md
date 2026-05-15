@@ -3,6 +3,12 @@
 ## Overview
 High-level pipeline progress tracking.
 
+## [2026-05-15] Session Summary (Strategy B Runtime Path)
+- What was done: Updated `generation/synthetic_query_generator.py` so Strategy B skips mandatory EN extractive summary generation, caches `KO_TRANSLATED_CHUNK` from the original English chunk, builds deterministic extractive `KO_SUMMARY` from that translation, and feeds B query generation with original EN chunk + KO translation + KO summary + glossary/query controls.
+- Key decisions: B now stays in `synthetic_queries_raw_b` even for `code_mixed` query type; A/C code-mixed rerouting to D and D/E/F/G behavior remain unchanged. Synthetic raw table structure and fixed pipeline order were not changed.
+- Issues encountered: Targeted validation passed: `python -m py_compile ..\pipeline\generation\synthetic_query_generator.py` and `python -m unittest pipeline.tests.test_synthetic_query_generator -q`.
+- Next steps: Run a tiny controlled B generation against one source/chunk to inspect `generation_asset_ids`, `source_summary`, and `llm_output.trace.ko_summary` before all-source hardening.
+
 ## [2026-05-15] Session Summary (Strategy B Query Schema Alignment)
 - What was done: Aligned Strategy B runtime/stability schema with the new query-only prompt contract by requiring `query_ko`, `query_type`, and `answerability_type` only, removing translated/summary output requirements from the LLM stability spec.
 - Key decisions: Kept the current generation loop and raw-table writes unchanged; this is a minimal schema-contract alignment, not the full Phase 3 B pipeline rewrite.
