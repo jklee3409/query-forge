@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-05-15] Session Summary (Strategy B Long-Chunk Hardening)
+- What was done: Hardened Strategy B generation for long chunks/all-source runs by bounding B query-generation evidence payloads (`original_chunk_en`, `translated_chunk_ko`, `extractive_summary_ko`) while preserving the English chunk -> Korean translation -> Korean extractive summary -> Korean query method.
+- Key decisions: Preserved fixed pipeline order, split raw-table storage, prompt asset lineage, and query-only B response schema. Deterministic KO summary cache versions now include `max_chars` to prevent cache collisions across different summary bounds.
+- Issues encountered: Targeted Python compile and synthetic generator unit tests passed.
+- Next steps: Run a tiny controlled B generation and inspect payload limit traces, asset lineage, and raw B table writes before Admin default wiring.
+
 ## [2026-05-15] Session Summary (Strategy B Runtime Path)
 - What was done: Implemented the Strategy B generation path so B skips mandatory EN extractive summary creation, caches Korean translation from the original English chunk, builds deterministic Korean extractive summary from that translation, and sends only the intended upstream inputs into query generation.
 - Key decisions: Preserved fixed pipeline order and split raw-table storage; B now stays in `synthetic_queries_raw_b` for `code_mixed` query type while A/C code-mixed rerouting to D and D/E/F/G behavior remain unchanged.

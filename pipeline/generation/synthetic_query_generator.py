@@ -103,6 +103,9 @@ QUERY_REQUIRED_FIELDS_BY_STRATEGY: dict[str, tuple[str, ...]] = {
 FG_SUMMARY_KO_MIN_MAX_TOKENS = 2048
 FG_SUMMARY_KO_SOURCE_CHAR_LIMITS_ON_TRUNCATION: tuple[int, ...] = (3200, 2200, 1400)
 B_DEFAULT_SUMMARY_MAX_CHARS = 900
+B_DEFAULT_QUERY_ORIGINAL_CHUNK_MAX_CHARS = 1800
+B_DEFAULT_QUERY_TRANSLATED_CHUNK_MAX_CHARS = 1200
+B_DEFAULT_QUERY_SUMMARY_MAX_CHARS = 900
 DETERMINISTIC_KO_SUMMARY_PROVIDER = "deterministic"
 DETERMINISTIC_KO_SUMMARY_MODEL = "extractive-ko-v1"
 FG_DETERMINISTIC_SUMMARY_PROVIDER = DETERMINISTIC_KO_SUMMARY_PROVIDER
@@ -144,6 +147,13 @@ class PromptBundle:
     translate_text: str
     query_assets: dict[str, PromptAsset]
     query_texts: dict[str, str]
+
+
+@dataclass(frozen=True, slots=True)
+class BQueryPayloadLimits:
+    original_chunk_en_max_chars: int
+    translated_chunk_ko_max_chars: int
+    extractive_summary_ko_max_chars: int
 
 
 def _stable_id(parts: list[str]) -> str:
@@ -475,6 +485,15 @@ def _summary_source_text_candidates(*, generation_strategy: str, source_text_ko:
     return deduped
 
 
+def _deterministic_summary_template_version(
+    *,
+    prompt_version: str,
+    prompt_version_suffix: str,
+    max_chars: int,
+) -> str:
+    return f"{prompt_version}:{prompt_version_suffix}:extractive:max{max_chars}"
+
+
 def _requires_en_summary_asset(generation_strategy: str) -> bool:
     strategy = generation_strategy.strip().upper()
     return strategy in {"A", "C", "D", "E"}
@@ -541,6 +560,27 @@ def _compact_ko_evidence_summary(source_text_ko: str, *, max_chars: int = FG_DEF
     return summary[:max_chars].rstrip()
 
 
+def _bounded_query_evidence_text(source_text: str, *, max_chars: int) -> str:
+    max_chars = max(1, int(max_chars))
+    text = str(source_text or "").replace("\r\n", "\n").strip()
+    if len(text) <= max_chars:
+        return text
+
+    paragraphs = [paragraph.strip() for paragraph in text.split("\n\n") if paragraph.strip()]
+    if not paragraphs:
+        return text[:max_chars].rstrip()
+
+    selected: list[str] = []
+    for paragraph in paragraphs:
+        next_text = "\n\n".join([*selected, paragraph])
+        if len(next_text) > max_chars:
+            if not selected:
+                return paragraph[:max_chars].rstrip()
+            break
+        selected.append(paragraph)
+    return "\n\n".join(selected or [paragraphs[0]])[:max_chars].rstrip()
+
+
 def _fg_summary_mode(raw_config: dict[str, Any]) -> str:
     mode = str(raw_config.get("fg_summary_mode") or "extractive").strip().lower()
     if mode not in {"extractive", "llm"}:
@@ -548,22 +588,76 @@ def _fg_summary_mode(raw_config: dict[str, Any]) -> str:
     return mode
 
 
-def _b_summary_max_chars(raw_config: dict[str, Any]) -> int:
-    raw_value = raw_config.get("b_summary_max_chars", B_DEFAULT_SUMMARY_MAX_CHARS)
+def _bounded_int_config(
+    raw_config: dict[str, Any],
+    *,
+    key: str,
+    default: int,
+    min_value: int,
+    max_value: int,
+) -> int:
+    raw_value = raw_config.get(key, default)
     try:
         value = int(raw_value)
     except (TypeError, ValueError) as exc:
-        raise ValueError("b_summary_max_chars must be an integer") from exc
-    return max(300, min(value, 1600))
+        raise ValueError(f"{key} must be an integer") from exc
+    return max(min_value, min(value, max_value))
+
+
+def _b_summary_max_chars(raw_config: dict[str, Any]) -> int:
+    return _bounded_int_config(
+        raw_config,
+        key="b_summary_max_chars",
+        default=B_DEFAULT_SUMMARY_MAX_CHARS,
+        min_value=300,
+        max_value=1600,
+    )
+
+
+def _b_query_payload_limits(raw_config: dict[str, Any]) -> BQueryPayloadLimits:
+    return BQueryPayloadLimits(
+        original_chunk_en_max_chars=_bounded_int_config(
+            raw_config,
+            key="b_query_original_chunk_max_chars",
+            default=B_DEFAULT_QUERY_ORIGINAL_CHUNK_MAX_CHARS,
+            min_value=600,
+            max_value=4000,
+        ),
+        translated_chunk_ko_max_chars=_bounded_int_config(
+            raw_config,
+            key="b_query_translated_chunk_max_chars",
+            default=B_DEFAULT_QUERY_TRANSLATED_CHUNK_MAX_CHARS,
+            min_value=300,
+            max_value=2400,
+        ),
+        extractive_summary_ko_max_chars=_bounded_int_config(
+            raw_config,
+            key="b_query_summary_max_chars",
+            default=B_DEFAULT_QUERY_SUMMARY_MAX_CHARS,
+            min_value=300,
+            max_value=1600,
+        ),
+    )
+
+
+def _b_query_payload_limits_dict(limits: BQueryPayloadLimits | None) -> dict[str, int] | None:
+    if limits is None:
+        return None
+    return {
+        "original_chunk_en_max_chars": limits.original_chunk_en_max_chars,
+        "translated_chunk_ko_max_chars": limits.translated_chunk_ko_max_chars,
+        "extractive_summary_ko_max_chars": limits.extractive_summary_ko_max_chars,
+    }
 
 
 def _fg_summary_max_chars(raw_config: dict[str, Any]) -> int:
-    raw_value = raw_config.get("fg_summary_max_chars", FG_DEFAULT_SUMMARY_MAX_CHARS)
-    try:
-        value = int(raw_value)
-    except (TypeError, ValueError) as exc:
-        raise ValueError("fg_summary_max_chars must be an integer") from exc
-    return max(600, min(value, 4000))
+    return _bounded_int_config(
+        raw_config,
+        key="fg_summary_max_chars",
+        default=FG_DEFAULT_SUMMARY_MAX_CHARS,
+        min_value=600,
+        max_value=4000,
+    )
 
 
 def _generation_strategy_for_query_type(
@@ -878,7 +972,11 @@ def _resolve_or_create_extractive_summary_ko(
     max_chars: int,
     metadata: dict[str, Any] | None = None,
 ) -> tuple[str, str, bool]:
-    template_version = f"{prompt_asset.version}:{prompt_version_suffix}:extractive"
+    template_version = _deterministic_summary_template_version(
+        prompt_version=prompt_asset.version,
+        prompt_version_suffix=prompt_version_suffix,
+        max_chars=max_chars,
+    )
     cached = _find_existing_asset(
         connection,
         chunk_id=chunk.chunk_id,
@@ -992,20 +1090,38 @@ def _build_query_payload(
     query_type: str,
     answerability_type: str,
     target_chunk_ids: list[str],
+    b_payload_limits: BQueryPayloadLimits | None = None,
 ) -> dict[str, Any]:
     strategy = generation_strategy.strip().upper()
+    original_chunk_en = "" if strategy in {"F", "G"} else chunk.chunk_text
+    payload_original_chunk_ko = "" if strategy == "B" else original_chunk_ko
+    payload_translated_chunk_ko = translated_chunk_ko
+    payload_summary_ko = extractive_summary_ko
+    if strategy == "B" and b_payload_limits is not None:
+        original_chunk_en = _bounded_query_evidence_text(
+            original_chunk_en,
+            max_chars=b_payload_limits.original_chunk_en_max_chars,
+        )
+        payload_translated_chunk_ko = _compact_ko_evidence_summary(
+            translated_chunk_ko,
+            max_chars=b_payload_limits.translated_chunk_ko_max_chars,
+        )
+        payload_summary_ko = _compact_ko_evidence_summary(
+            extractive_summary_ko,
+            max_chars=b_payload_limits.extractive_summary_ko_max_chars,
+        )
     return {
         "chunk_id": chunk.chunk_id,
         "document_id": chunk.document_id,
         "title": chunk.title,
         "product": chunk.product_name,
         "version": chunk.version_label,
-        "original_chunk_en": "" if strategy in {"F", "G"} else chunk.chunk_text,
-        "original_chunk_ko": "" if strategy == "B" else original_chunk_ko,
+        "original_chunk_en": original_chunk_en,
+        "original_chunk_ko": payload_original_chunk_ko,
         "related_chunks_ko": related_chunks_ko,
         "extractive_summary_en": extractive_summary_en,
-        "translated_chunk_ko": translated_chunk_ko,
-        "extractive_summary_ko": extractive_summary_ko,
+        "translated_chunk_ko": payload_translated_chunk_ko,
+        "extractive_summary_ko": payload_summary_ko,
         "glossary_terms_keep_english": glossary_terms_keep_english,
         "query_type": query_type,
         "answerability_type": answerability_type,
@@ -1278,6 +1394,15 @@ def run_generation(
     db_password: str = "query_forge",
 ) -> dict[str, Any]:
     config = load_experiment_config(experiment, experiment_root=experiment_root)
+    strategy = config.generation_strategy.strip().upper()
+    b_summary_max_chars = _b_summary_max_chars(config.raw) if strategy == "B" else B_DEFAULT_SUMMARY_MAX_CHARS
+    b_payload_limits = _b_query_payload_limits(config.raw) if strategy == "B" else None
+    fg_summary_mode = _fg_summary_mode(config.raw) if strategy in {"F", "G"} else "llm"
+    fg_summary_max_chars = (
+        _fg_summary_max_chars(config.raw)
+        if strategy in {"F", "G"}
+        else FG_DEFAULT_SUMMARY_MAX_CHARS
+    )
     options = type(
         "DbOptions",
         (),
@@ -1311,12 +1436,15 @@ def run_generation(
                 "source_ids": config.raw.get("source_ids"),
                 "source_document_id": config.raw.get("source_document_id"),
                 "random_chunk_sampling": bool(config.raw.get("random_chunk_sampling", False)),
-                "b_summary_mode": "extractive" if config.generation_strategy.strip().upper() == "B" else None,
-                "fg_summary_mode": (
-                    config.raw.get("fg_summary_mode", "extractive")
-                    if config.generation_strategy in {"F", "G"}
+                "b_summary_mode": "extractive" if strategy == "B" else None,
+                "b_summary_max_chars": b_summary_max_chars if strategy == "B" else None,
+                "b_query_payload_limits": (
+                    _b_query_payload_limits_dict(b_payload_limits)
+                    if strategy == "B"
                     else None
                 ),
+                "fg_summary_mode": fg_summary_mode if strategy in {"F", "G"} else None,
+                "fg_summary_max_chars": fg_summary_max_chars if strategy in {"F", "G"} else None,
             },
             run_label="generate-queries",
         )
@@ -1364,14 +1492,6 @@ def run_generation(
         glossary_by_doc = _load_glossary(connection, document_ids=selected_document_ids)
         rng = random.Random(config.random_seed)
 
-        strategy = config.generation_strategy.strip().upper()
-        b_summary_max_chars = _b_summary_max_chars(config.raw) if strategy == "B" else B_DEFAULT_SUMMARY_MAX_CHARS
-        fg_summary_mode = _fg_summary_mode(config.raw) if strategy in {"F", "G"} else "llm"
-        fg_summary_max_chars = (
-            _fg_summary_max_chars(config.raw)
-            if strategy in {"F", "G"}
-            else FG_DEFAULT_SUMMARY_MAX_CHARS
-        )
         generation_batch_id = str(config.raw.get("generation_batch_id") or "").strip() or None
         if generation_batch_id and not _batch_exists(connection, generation_batch_id):
             LOGGER.warning(
@@ -1592,6 +1712,7 @@ def run_generation(
                     query_type=query_type,
                     answerability_type=answerability_type,
                     target_chunk_ids=target_chunk_ids,
+                    b_payload_limits=b_payload_limits if generation_strategy == "B" else None,
                 )
                 query_response_schema = _query_response_schema_for_strategy(generation_strategy)
                 query_response = _llm_json(
@@ -1671,6 +1792,22 @@ def run_generation(
                                 "en_summary": en_summary,
                                 "ko_summary": summary_ko,
                                 "b_summary_mode": "extractive" if generation_strategy == "B" else None,
+                                "b_query_payload_limits": (
+                                    _b_query_payload_limits_dict(b_payload_limits)
+                                    if generation_strategy == "B"
+                                    else None
+                                ),
+                                "b_query_payload_chars": (
+                                    {
+                                        "original_chunk_en": len(query_payload.get("original_chunk_en") or ""),
+                                        "translated_chunk_ko": len(query_payload.get("translated_chunk_ko") or ""),
+                                        "extractive_summary_ko": len(query_payload.get("extractive_summary_ko") or ""),
+                                        "translated_chunk_ko_asset": len(translated_chunk_ko),
+                                        "extractive_summary_ko_asset": len(summary_ko),
+                                    }
+                                    if generation_strategy == "B"
+                                    else None
+                                ),
                                 "fg_summary_mode": fg_summary_mode if generation_strategy in {"F", "G"} else None,
                                 "related_chunks_ko_count": len(related_chunks_ko),
                                 "translated_chunk_excerpt": translated_chunk_ko[:320],
@@ -1719,6 +1856,7 @@ def run_generation(
             "glossary_documents_loaded": len(glossary_by_doc),
             "b_summary_mode": "extractive" if strategy == "B" else None,
             "b_summary_max_chars": b_summary_max_chars if strategy == "B" else None,
+            "b_query_payload_limits": _b_query_payload_limits_dict(b_payload_limits) if strategy == "B" else None,
             "fg_summary_mode": fg_summary_mode,
             "fg_summary_max_chars": fg_summary_max_chars,
             "llm": {

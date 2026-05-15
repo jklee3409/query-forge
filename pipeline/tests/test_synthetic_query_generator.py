@@ -5,10 +5,13 @@ import unittest
 from pipeline.common.llm_client import _validate_json_schema
 from pipeline.generation.synthetic_query_generator import ChunkRow
 from pipeline.generation.synthetic_query_generator import _b_summary_max_chars
+from pipeline.generation.synthetic_query_generator import _b_query_payload_limits
 from pipeline.generation.synthetic_query_generator import _build_query_payload
 from pipeline.generation.synthetic_query_generator import _extract_query_text
 from pipeline.generation.synthetic_query_generator import _generation_strategy_for_query_type
 from pipeline.generation.synthetic_query_generator import _is_max_tokens_truncation_error
+from pipeline.generation.synthetic_query_generator import _deterministic_summary_template_version
+from pipeline.generation.synthetic_query_generator import _bounded_query_evidence_text
 from pipeline.generation.synthetic_query_generator import _compact_ko_evidence_summary
 from pipeline.generation.synthetic_query_generator import _primary_chunk_text
 from pipeline.generation.synthetic_query_generator import _query_response_schema_for_strategy
@@ -154,6 +157,82 @@ class SyntheticQueryGeneratorSchemaTests(unittest.TestCase):
         self.assertEqual(_b_summary_max_chars({}), 900)
         self.assertEqual(_b_summary_max_chars({"b_summary_max_chars": 100}), 300)
         self.assertEqual(_b_summary_max_chars({"b_summary_max_chars": 5000}), 1600)
+
+    def test_b_query_payload_limits_default_and_bounds(self) -> None:
+        defaults = _b_query_payload_limits({})
+        self.assertEqual(defaults.original_chunk_en_max_chars, 1800)
+        self.assertEqual(defaults.translated_chunk_ko_max_chars, 1200)
+        self.assertEqual(defaults.extractive_summary_ko_max_chars, 900)
+
+        clamped = _b_query_payload_limits(
+            {
+                "b_query_original_chunk_max_chars": 100,
+                "b_query_translated_chunk_max_chars": 5000,
+                "b_query_summary_max_chars": 100,
+            }
+        )
+        self.assertEqual(clamped.original_chunk_en_max_chars, 600)
+        self.assertEqual(clamped.translated_chunk_ko_max_chars, 2400)
+        self.assertEqual(clamped.extractive_summary_ko_max_chars, 300)
+
+    def test_b_query_payload_bounds_long_evidence(self) -> None:
+        chunk = ChunkRow(
+            chunk_id="chunk-b-long",
+            document_id="doc-b-long",
+            chunk_text=("English configuration binding paragraph. " * 80)
+            + "\n\n"
+            + ("Another English paragraph about nested properties. " * 80),
+            title="Long Configuration Binding",
+            product_name="Spring Boot",
+            version_label="3.x",
+            content_checksum="content-checksum",
+            cleaned_checksum="cleaned-checksum",
+        )
+        limits = _b_query_payload_limits(
+            {
+                "b_query_original_chunk_max_chars": 700,
+                "b_query_translated_chunk_max_chars": 360,
+                "b_query_summary_max_chars": 320,
+            }
+        )
+        payload = _build_query_payload(
+            chunk=chunk,
+            generation_strategy="B",
+            original_chunk_ko=chunk.chunk_text,
+            related_chunks_ko=[],
+            extractive_summary_en="",
+            translated_chunk_ko=("Korean translated configuration paragraph. " * 80),
+            extractive_summary_ko=("Korean extractive summary about binding. " * 40),
+            glossary_terms_keep_english=["@ConfigurationProperties"],
+            query_type="procedure",
+            answerability_type="single",
+            target_chunk_ids=[chunk.chunk_id],
+            b_payload_limits=limits,
+        )
+        self.assertEqual(payload["original_chunk_ko"], "")
+        self.assertEqual(payload["extractive_summary_en"], "")
+        self.assertLessEqual(len(payload["original_chunk_en"]), 700)
+        self.assertLessEqual(len(payload["translated_chunk_ko"]), 360)
+        self.assertLessEqual(len(payload["extractive_summary_ko"]), 320)
+
+    def test_bounded_query_evidence_text_prefers_paragraph_boundary(self) -> None:
+        source = "first paragraph stays intact\n\nsecond paragraph should be omitted"
+        bounded = _bounded_query_evidence_text(source, max_chars=40)
+        self.assertEqual(bounded, "first paragraph stays intact")
+
+    def test_deterministic_summary_cache_version_includes_max_chars(self) -> None:
+        version_900 = _deterministic_summary_template_version(
+            prompt_version="v2",
+            prompt_version_suffix="B",
+            max_chars=900,
+        )
+        version_1600 = _deterministic_summary_template_version(
+            prompt_version="v2",
+            prompt_version_suffix="B",
+            max_chars=1600,
+        )
+        self.assertEqual(version_900, "v2:B:extractive:max900")
+        self.assertNotEqual(version_900, version_1600)
 
     def test_code_mixed_routing_preserves_b_and_native_e_f_g_strategies(self) -> None:
         self.assertEqual(_generation_strategy_for_query_type("A", "code_mixed", True), "D")

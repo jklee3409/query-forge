@@ -3,6 +3,12 @@
 ## Overview
 High-level pipeline progress tracking.
 
+## [2026-05-15] Session Summary (Strategy B Long-Chunk Hardening)
+- What was done: Hardened `generation/synthetic_query_generator.py` so Strategy B query-generation payloads use bounded evidence windows for `original_chunk_en`, `translated_chunk_ko`, and `extractive_summary_ko` while preserving the cached translation -> deterministic KO summary -> query-only KO method.
+- Key decisions: Preserved split raw-table storage, prompt asset lineage, and B query-only schema. Deterministic KO summary cache template versions now include `max_chars`, preventing reused summary assets when B/F/G summary length bounds differ.
+- Issues encountered: Targeted validation passed: `python -m py_compile ..\pipeline\generation\synthetic_query_generator.py` and `python -m unittest pipeline.tests.test_synthetic_query_generator -q`.
+- Next steps: Run a tiny controlled B generation to inspect `b_query_payload_limits`, `b_query_payload_chars`, `generation_asset_ids`, and raw `synthetic_queries_raw_b` storage before wiring Admin defaults.
+
 ## [2026-05-15] Session Summary (Strategy B Runtime Path)
 - What was done: Updated `generation/synthetic_query_generator.py` so Strategy B skips mandatory EN extractive summary generation, caches `KO_TRANSLATED_CHUNK` from the original English chunk, builds deterministic extractive `KO_SUMMARY` from that translation, and feeds B query generation with original EN chunk + KO translation + KO summary + glossary/query controls.
 - Key decisions: B now stays in `synthetic_queries_raw_b` even for `code_mixed` query type; A/C code-mixed rerouting to D and D/E/F/G behavior remain unchanged. Synthetic raw table structure and fixed pipeline order were not changed.
