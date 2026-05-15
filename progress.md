@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-05-15] Session Summary (Synthetic Generation Failure Observability)
+- What was done: Improved backend LLM job observability for synthetic generation so retried or cancelled `GENERATE_SYNTHETIC_QUERY` jobs retain prior failure snapshots in `llm_job.result_json`/`last_checkpoint` and `llm_job_item.checkpoint_json`.
+- Key decisions: Preserved pipeline semantics and strategy-split raw storage; stored additive JSON fields (`last_failure`, `previous_failures`) without schema migrations.
+- Issues encountered: Targeted backend integration test `AdminConsoleGatingIntegrationTest` passed with new retry/cancel observability coverage.
+- Next steps: Use a small controlled B generation failure/cancel to verify the Admin job detail now retains stderr/stdout and failure category after retry or cancellation.
+
 ## [2026-05-15] Session Summary (Synthetic All-Allowed Sources Single Batch Restore)
 - What was done: Restored Admin Synthetic "all allowed sources" generation to create one generation batch/job instead of source-by-source fan-out. The frontend now submits a single run request, the backend writes method-scoped `source_ids` into the generated experiment config, and the Python generator filters chunks with that list.
 - Key decisions: Preserved strategy/source allowlists and split raw-table storage. "All allowed sources" remains constrained to Spring references for `A~E` and Python KR source for `F/G`, but the constraint is represented as one batch-scoped `source_ids` filter.

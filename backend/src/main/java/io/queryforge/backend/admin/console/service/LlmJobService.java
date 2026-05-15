@@ -2,6 +2,7 @@ package io.queryforge.backend.admin.console.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import io.queryforge.backend.admin.console.model.AdminConsoleDtos;
 import io.queryforge.backend.admin.console.model.LlmJobType;
 import io.queryforge.backend.admin.console.repository.AdminConsoleRepository;
@@ -38,6 +39,8 @@ import java.util.concurrent.ConcurrentLinkedDeque;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 @Service
 @RequiredArgsConstructor
@@ -45,6 +48,10 @@ import java.util.concurrent.atomic.AtomicInteger;
 public class LlmJobService {
 
     private static final int MAX_CONCURRENT_WORKERS = 3;
+    private static final Pattern FAILURE_CATEGORY_PATTERN = Pattern.compile(
+            "(?:category|failure_category)\"?\\s*[:=]\\s*\"?([A-Za-z0-9_-]+)\"?",
+            Pattern.CASE_INSENSITIVE
+    );
 
     private final LlmJobRepository llmJobRepository;
     private final AdminConsoleRepository adminConsoleRepository;
@@ -380,6 +387,18 @@ public class LlmJobService {
                 AdminConsoleDtos.LlmJobRow afterRun = llmJobRepository.findJob(job.jobId())
                         .orElseThrow(() -> new IllegalStateException("llm job missing after command run: " + job.jobId()));
                 if ("cancel_requested".equalsIgnoreCase(afterRun.jobStatus())) {
+                    JsonNode cancellationSnapshot = buildCommandObservation(
+                            job,
+                            item,
+                            command,
+                            experiment,
+                            response,
+                            "cancel_requested_during_command",
+                            trimError(response.stderr(), response.stdout())
+                    );
+                    if (isSyntheticGenerationJob(job)) {
+                        llmJobRepository.preserveFailureSnapshot(job.jobId(), item.jobItemId(), cancellationSnapshot);
+                    }
                     llmJobRepository.markRemainingItemsCancelled(job.jobId());
                     llmJobRepository.markCancelled(
                             job.jobId(),
@@ -389,12 +408,23 @@ public class LlmJobService {
                     return;
                 }
                 if (response.exitCode() != 0) {
+                    String errorMessage = trimError(response.stderr(), response.stdout());
+                    JsonNode failureSnapshot = buildCommandObservation(
+                            job,
+                            item,
+                            command,
+                            experiment,
+                            response,
+                            "command_failed",
+                            errorMessage
+                    );
+                    resultByCommand.put(command, failureSnapshot);
                     llmJobRepository.markItemFailed(
                             item.jobItemId(),
-                            trimError(response.stderr(), response.stdout()),
-                            response.summary()
+                            errorMessage,
+                            failureSnapshot
                     );
-                    throw new IllegalStateException(command + " failed: " + trimError(response.stderr(), response.stdout()));
+                    throw new IllegalStateException(command + " failed: " + errorMessage);
                 }
                 llmJobRepository.markItemCompleted(item.jobItemId(), response.summary());
                 processed += 1;
@@ -551,6 +581,13 @@ public class LlmJobService {
         int maxRetries = job.maxRetries() == null ? 0 : job.maxRetries();
         String errorMessage = exception.getMessage() == null ? "job_failed" : exception.getMessage();
         boolean unlimitedRetry = LlmJobType.GENERATE_SYNTHETIC_QUERY.name().equals(job.jobType()) && maxRetries < 0;
+        if (isSyntheticGenerationJob(job)) {
+            llmJobRepository.preserveFailureSnapshot(
+                    job.jobId(),
+                    null,
+                    buildJobFailureAttempt(job, resultByCommand, errorMessage, nextRetry)
+            );
+        }
         if (unlimitedRetry || nextRetry <= maxRetries) {
             long backoffSeconds = (long) Math.min(60, Math.pow(2, nextRetry) * 2);
             Instant nextRunAt = Instant.now().plusSeconds(backoffSeconds);
@@ -774,6 +811,99 @@ public class LlmJobService {
             return 0L;
         }
         return TimeUnit.NANOSECONDS.toMillis(elapsedNs);
+    }
+
+    private boolean isSyntheticGenerationJob(AdminConsoleDtos.LlmJobRow job) {
+        return job != null && LlmJobType.GENERATE_SYNTHETIC_QUERY.name().equals(job.jobType());
+    }
+
+    private JsonNode buildCommandObservation(
+            AdminConsoleDtos.LlmJobRow job,
+            AdminConsoleDtos.LlmJobItemRow item,
+            String command,
+            String experiment,
+            RagDtos.ExperimentCommandResponse response,
+            String reason,
+            String errorMessage
+    ) {
+        ObjectNode payload = objectMapper.createObjectNode();
+        payload.put("reason", reason);
+        payload.put("job_type", job.jobType());
+        payload.put("job_id", job.jobId().toString());
+        if (job.generationBatchId() != null) {
+            payload.put("generation_batch_id", job.generationBatchId().toString());
+        }
+        payload.put("command", command);
+        payload.put("experiment", experiment);
+        payload.put("job_retry_count", job.retryCount() == null ? 0 : job.retryCount());
+        payload.put("item_order", item.itemOrder() == null ? 0 : item.itemOrder());
+        payload.put("item_retry_count", item.retryCount() == null ? 0 : item.retryCount());
+        payload.put("exit_code", response.exitCode());
+        payload.put("error", firstNonBlank(errorMessage, response.stderr(), response.stdout()));
+        payload.put("failure_category", firstNonBlank(
+                extractFailureCategory(errorMessage),
+                extractFailureCategory(response.stderr()),
+                extractFailureCategory(response.stdout()),
+                extractFailureCategory(response.summary())
+        ));
+        payload.set("summary", nullableJson(response.summary()));
+        payload.put("stderr", response.stderr() == null ? "" : response.stderr());
+        payload.put("stdout", response.stdout() == null ? "" : response.stdout());
+        payload.put("observed_at", Instant.now().toString());
+        return payload;
+    }
+
+    private JsonNode buildJobFailureAttempt(
+            AdminConsoleDtos.LlmJobRow job,
+            Map<String, JsonNode> resultByCommand,
+            String errorMessage,
+            int nextRetry
+    ) {
+        ObjectNode payload = objectMapper.createObjectNode();
+        payload.put("reason", "job_retry_or_failure");
+        payload.put("job_type", job.jobType());
+        payload.put("job_id", job.jobId().toString());
+        if (job.generationBatchId() != null) {
+            payload.put("generation_batch_id", job.generationBatchId().toString());
+        }
+        payload.put("experiment", job.experimentName());
+        payload.put("command", job.commandName());
+        payload.put("retry_count_before_failure", job.retryCount() == null ? 0 : job.retryCount());
+        payload.put("next_retry_count", nextRetry);
+        payload.put("error", errorMessage);
+        payload.put("failure_category", firstNonBlank(
+                extractFailureCategory(errorMessage),
+                extractFailureCategory(objectMapper.valueToTree(resultByCommand))
+        ));
+        payload.set("steps", objectMapper.valueToTree(resultByCommand));
+        payload.put("observed_at", Instant.now().toString());
+        return payload;
+    }
+
+    private String extractFailureCategory(String value) {
+        if (value == null || value.isBlank()) {
+            return "";
+        }
+        Matcher matcher = FAILURE_CATEGORY_PATTERN.matcher(value);
+        if (matcher.find()) {
+            return matcher.group(1);
+        }
+        return "";
+    }
+
+    private String extractFailureCategory(JsonNode node) {
+        if (node == null || node.isMissingNode() || node.isNull()) {
+            return "";
+        }
+        String direct = firstNonBlank(
+                node.path("failure_category").asText(""),
+                node.path("category").asText(""),
+                node.path("error_category").asText("")
+        );
+        if (!direct.isBlank()) {
+            return direct;
+        }
+        return extractFailureCategory(node.toString());
     }
 
     private JsonNode nullableJson(JsonNode node) {

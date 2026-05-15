@@ -3,6 +3,12 @@
 ## Overview
 High-level backend progress tracking.
 
+## [2026-05-15] Session Summary (Synthetic Generation Failure Observability)
+- What was done: Preserved `GENERATE_SYNTHETIC_QUERY` failure observations across retry/cancel transitions by appending snapshots with stderr/stdout, summary, exit code, retry counts, and parsed failure category into `llm_job.result_json`/`last_checkpoint`, and by moving failed item payloads into `llm_job_item.checkpoint_json` before retry reset.
+- Key decisions: Kept DB schema, pipeline command semantics, synthetic raw table structure, and retry/cancel state transitions unchanged; used additive JSON payloads (`last_failure`, `previous_failures`) instead of migrations.
+- Issues encountered: Targeted `AdminConsoleGatingIntegrationTest` passed, including new retry/cancel observability cases.
+- Next steps: Reproduce a small failing/cancelled B generation and confirm Admin job detail exposes `previous_failures` with the surfaced LLM failure category.
+
 ## [2026-05-15] Session Summary (Synthetic All-Allowed Source IDs Config)
 - What was done: Updated `AdminConsoleService.runSyntheticGeneration` so a source-unselected synthetic run is valid again and writes the method allowlist as `source_ids` into the experiment YAML. Added an integration test that verifies B/all-sources creates exactly one generation batch and one LLM job with the five Spring source IDs.
 - Key decisions: Kept explicit source/document validation for narrowed runs and retained disallowed-source enforcement. Source allowlists were converted to ordered lists so generated configs are deterministic.

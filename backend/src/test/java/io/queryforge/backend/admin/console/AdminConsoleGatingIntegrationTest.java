@@ -1,6 +1,9 @@
 package io.queryforge.backend.admin.console;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import io.queryforge.backend.admin.console.model.AdminConsoleDtos;
 import io.queryforge.backend.admin.console.repository.AdminConsoleRepository;
+import io.queryforge.backend.admin.console.repository.LlmJobRepository;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.autoconfigure.web.servlet.AutoConfigureMockMvc;
@@ -19,6 +22,8 @@ import org.testcontainers.utility.DockerImageName;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Instant;
+import java.util.Map;
 import java.util.UUID;
 
 import static org.hamcrest.Matchers.greaterThanOrEqualTo;
@@ -81,6 +86,9 @@ class AdminConsoleGatingIntegrationTest {
 
     @Autowired
     private AdminConsoleRepository adminConsoleRepository;
+
+    @Autowired
+    private LlmJobRepository llmJobRepository;
 
     @Test
     void runtimeOptionsExposesModelAndPolicyChoices() throws Exception {
@@ -664,6 +672,110 @@ class AdminConsoleGatingIntegrationTest {
         assertThat(runningBatchA1Ref).isEqualTo(runningBatchA1);
         assertThat(completedBatchA2Ref).isEqualTo(completedBatchA2);
         assertThat(methodBBatchRef).isEqualTo(completedBatchB1);
+    }
+
+    @Test
+    void retryPreparationPreservesSyntheticGenerationFailureSnapshot() throws Exception {
+        UUID methodB = jdbcTemplate.getJdbcTemplate().queryForObject(
+                "SELECT generation_method_id FROM synthetic_query_generation_method WHERE method_code = 'B'",
+                UUID.class
+        );
+        assertThat(methodB).isNotNull();
+        UUID generationBatchId = insertGenerationBatch(methodB, "b-retry-observability");
+        JsonNode commandArgs = objectMapper().valueToTree(Map.of("experiment", "admin_gen_retry", "command", "generate-queries"));
+        UUID jobId = llmJobRepository.createJob(
+                "GENERATE_SYNTHETIC_QUERY",
+                "generate-queries",
+                "admin_gen_retry",
+                commandArgs,
+                generationBatchId,
+                null,
+                null,
+                1,
+                -1,
+                "test-admin"
+        );
+        UUID itemId = llmJobRepository.createJobItem(jobId, 1, "generate-queries", commandArgs, -1);
+        JsonNode failure = objectMapper().readTree("""
+                {
+                  "reason": "command_failed",
+                  "failure_category": "max_tokens_truncated",
+                  "stderr": "generation failed category=max_tokens_truncated",
+                  "stdout": "{\\"raw_stdout\\":\\"partial\\"}"
+                }
+                """);
+
+        llmJobRepository.markItemFailed(itemId, "generation failed category=max_tokens_truncated", failure);
+        llmJobRepository.preserveFailureSnapshot(jobId, null, failure);
+        llmJobRepository.prepareItemsForRetry(jobId);
+        llmJobRepository.queueJobWithBackoff(
+                jobId,
+                1,
+                Instant.now(),
+                "generation failed category=max_tokens_truncated"
+        );
+
+        AdminConsoleDtos.LlmJobRow job = llmJobRepository.findJob(jobId).orElseThrow();
+        AdminConsoleDtos.LlmJobItemRow item = llmJobRepository.findJobItems(jobId).getFirst();
+        assertThat(job.jobStatus()).isEqualTo("queued");
+        assertThat(job.resultJson().path("last_failure").path("failure_category").asText())
+                .isEqualTo("max_tokens_truncated");
+        assertThat(job.resultJson().path("previous_failures").size()).isEqualTo(1);
+        assertThat(item.itemStatus()).isEqualTo("queued");
+        assertThat(item.errorMessage()).isNull();
+        assertThat(item.resultJson().isEmpty()).isTrue();
+        assertThat(item.checkpointJson().path("last_failure").path("result").path("failure_category").asText())
+                .isEqualTo("max_tokens_truncated");
+    }
+
+    @Test
+    void cancellingSyntheticGenerationMergesExistingFailureHistory() throws Exception {
+        UUID methodB = jdbcTemplate.getJdbcTemplate().queryForObject(
+                "SELECT generation_method_id FROM synthetic_query_generation_method WHERE method_code = 'B'",
+                UUID.class
+        );
+        assertThat(methodB).isNotNull();
+        UUID generationBatchId = insertGenerationBatch(methodB, "b-cancel-observability");
+        JsonNode commandArgs = objectMapper().valueToTree(Map.of("experiment", "admin_gen_cancel", "command", "generate-queries"));
+        UUID jobId = llmJobRepository.createJob(
+                "GENERATE_SYNTHETIC_QUERY",
+                "generate-queries",
+                "admin_gen_cancel",
+                commandArgs,
+                generationBatchId,
+                null,
+                null,
+                1,
+                -1,
+                "test-admin"
+        );
+        UUID itemId = llmJobRepository.createJobItem(jobId, 1, "generate-queries", commandArgs, -1);
+        JsonNode failure = objectMapper().readTree("""
+                {
+                  "reason": "command_failed",
+                  "failure_category": "missing_required_key",
+                  "stderr": "generation failed category=missing_required_key"
+                }
+                """);
+
+        llmJobRepository.preserveFailureSnapshot(jobId, itemId, failure);
+        llmJobRepository.markCancelled(
+                jobId,
+                objectMapper().valueToTree(Map.of(
+                        "reason", "cancel_requested_during_command",
+                        "last_command", "generate-queries"
+                ))
+        );
+
+        AdminConsoleDtos.LlmJobRow job = llmJobRepository.findJob(jobId).orElseThrow();
+        AdminConsoleDtos.LlmJobItemRow item = llmJobRepository.findJobItems(jobId).getFirst();
+        assertThat(job.jobStatus()).isEqualTo("cancelled");
+        assertThat(job.resultJson().path("reason").asText()).isEqualTo("cancel_requested_during_command");
+        assertThat(job.resultJson().path("previous_failures").size()).isEqualTo(1);
+        assertThat(job.resultJson().path("previous_failures").get(0).path("failure_category").asText())
+                .isEqualTo("missing_required_key");
+        assertThat(item.checkpointJson().path("last_failure").path("stderr").asText())
+                .contains("missing_required_key");
     }
 
     private UUID insertGenerationBatch(UUID methodId, String versionName) {

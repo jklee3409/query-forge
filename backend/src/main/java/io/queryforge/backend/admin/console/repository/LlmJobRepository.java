@@ -612,7 +612,7 @@ public class LlmJobRepository {
                 UPDATE llm_job
                 SET job_status = 'failed',
                     error_message = :errorMessage,
-                    result_json = CAST(:resultJson AS jsonb),
+                    result_json = jsonb_strip_nulls(COALESCE(result_json, '{}'::jsonb) || CAST(:resultJson AS jsonb)),
                     finished_at = NOW(),
                     updated_at = NOW()
                 WHERE job_id = :jobId
@@ -623,6 +623,78 @@ public class LlmJobRepository {
                         .addValue("jobId", jobId)
                         .addValue("errorMessage", errorMessage)
                         .addValue("resultJson", resultJson.toString())
+        );
+    }
+
+    @Transactional
+    public void preserveFailureSnapshot(UUID jobId, UUID jobItemId, JsonNode failureJson) {
+        String jobSql = """
+                WITH failure AS (
+                    SELECT CAST(:failureJson AS jsonb) AS payload
+                )
+                UPDATE llm_job job
+                SET last_checkpoint = jsonb_set(
+                        jsonb_set(
+                            COALESCE(job.last_checkpoint, '{}'::jsonb),
+                            '{last_failure}',
+                            failure.payload,
+                            true
+                        ),
+                        '{previous_failures}',
+                        COALESCE(job.last_checkpoint -> 'previous_failures', '[]'::jsonb)
+                            || jsonb_build_array(failure.payload),
+                        true
+                    ),
+                    result_json = jsonb_set(
+                        jsonb_set(
+                            COALESCE(job.result_json, '{}'::jsonb),
+                            '{last_failure}',
+                            failure.payload,
+                            true
+                        ),
+                        '{previous_failures}',
+                        COALESCE(job.result_json -> 'previous_failures', '[]'::jsonb)
+                            || jsonb_build_array(failure.payload),
+                        true
+                    ),
+                    updated_at = NOW()
+                FROM failure
+                WHERE job.job_id = :jobId
+                """;
+        jdbcTemplate.update(
+                jobSql,
+                new MapSqlParameterSource()
+                        .addValue("jobId", jobId)
+                        .addValue("failureJson", failureJson.toString())
+        );
+        if (jobItemId == null) {
+            return;
+        }
+        String itemSql = """
+                WITH failure AS (
+                    SELECT CAST(:failureJson AS jsonb) AS payload
+                )
+                UPDATE llm_job_item item
+                SET checkpoint_json = jsonb_set(
+                        jsonb_set(
+                            COALESCE(item.checkpoint_json, '{}'::jsonb),
+                            '{last_failure}',
+                            failure.payload,
+                            true
+                        ),
+                        '{previous_failures}',
+                        COALESCE(item.checkpoint_json -> 'previous_failures', '[]'::jsonb)
+                            || jsonb_build_array(failure.payload),
+                        true
+                    )
+                FROM failure
+                WHERE item.job_item_id = :jobItemId
+                """;
+        jdbcTemplate.update(
+                itemSql,
+                new MapSqlParameterSource()
+                        .addValue("jobItemId", jobItemId)
+                        .addValue("failureJson", failureJson.toString())
         );
     }
 
@@ -744,7 +816,7 @@ public class LlmJobRepository {
         String sql = """
                 UPDATE llm_job
                 SET job_status = 'cancelled',
-                    result_json = CAST(:resultJson AS jsonb),
+                    result_json = jsonb_strip_nulls(COALESCE(result_json, '{}'::jsonb) || CAST(:resultJson AS jsonb)),
                     finished_at = NOW(),
                     updated_at = NOW()
                 WHERE job_id = :jobId
@@ -788,13 +860,50 @@ public class LlmJobRepository {
     @Transactional
     public void prepareItemsForRetry(UUID jobId) {
         String sql = """
+                WITH target AS (
+                    SELECT job_item_id,
+                           CASE
+                               WHEN item_status <> 'completed'
+                                    AND (error_message IS NOT NULL OR result_json <> '{}'::jsonb)
+                                   THEN jsonb_strip_nulls(
+                                           jsonb_build_object(
+                                               'item_status', item_status,
+                                               'error', error_message,
+                                               'result', result_json,
+                                               'started_at', started_at,
+                                               'finished_at', finished_at,
+                                               'retry_count', retry_count
+                                           )
+                                   )
+                               ELSE NULL
+                           END AS failure_payload
+                    FROM llm_job_item
+                    WHERE job_id = :jobId
+                )
                 UPDATE llm_job_item
                 SET item_status = CASE WHEN item_status = 'completed' THEN 'completed' ELSE 'queued' END,
                     started_at = CASE WHEN item_status = 'completed' THEN started_at ELSE NULL END,
                     finished_at = CASE WHEN item_status = 'completed' THEN finished_at ELSE NULL END,
                     error_message = CASE WHEN item_status = 'completed' THEN error_message ELSE NULL END,
-                    result_json = CASE WHEN item_status = 'completed' THEN result_json ELSE '{}'::jsonb END
-                WHERE job_id = :jobId
+                    result_json = CASE WHEN item_status = 'completed' THEN result_json ELSE '{}'::jsonb END,
+                    checkpoint_json = CASE
+                        WHEN item_status = 'completed' THEN checkpoint_json
+                        WHEN target.failure_payload IS NULL THEN checkpoint_json
+                        ELSE jsonb_set(
+                            jsonb_set(
+                                COALESCE(checkpoint_json, '{}'::jsonb),
+                                '{last_failure}',
+                                target.failure_payload,
+                                true
+                            ),
+                            '{previous_failures}',
+                            COALESCE(checkpoint_json -> 'previous_failures', '[]'::jsonb)
+                                || jsonb_build_array(target.failure_payload),
+                            true
+                        )
+                    END
+                FROM target
+                WHERE llm_job_item.job_item_id = target.job_item_id
                 """;
         jdbcTemplate.update(sql, new MapSqlParameterSource("jobId", jobId));
     }
