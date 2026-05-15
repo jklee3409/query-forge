@@ -338,7 +338,7 @@ export function SyntheticPage({ notify }) {
     })
   }, [runForm.methodCode, sources])
 
-  const buildRunRequestBodies = () => {
+  const buildRunRequestBody = () => {
     const baseBody = {
       methodCode: runForm.methodCode || null,
       versionName: runForm.versionName || null,
@@ -351,22 +351,18 @@ export function SyntheticPage({ notify }) {
     }
     if (runForm.sourceDocumentId) {
       const sourceId = normalizeSourceId(runForm.sourceId)
-      return [{
+      return {
         ...baseBody,
         sourceId: sourceId && isSourceAllowedForMethod(sourceId, runForm.methodCode) ? sourceId : null,
         sourceDocumentId: runForm.sourceDocumentId,
-      }]
+      }
     }
     if (runForm.sourceId) {
       const sourceId = normalizeSourceId(runForm.sourceId)
-      if (!isSourceAllowedForMethod(sourceId, runForm.methodCode)) return []
-      return [{ ...baseBody, sourceId, sourceDocumentId: null }]
+      if (!isSourceAllowedForMethod(sourceId, runForm.methodCode)) return null
+      return { ...baseBody, sourceId, sourceDocumentId: null }
     }
-    return sourcesForMethod(sources, runForm.methodCode).map((source) => ({
-      ...baseBody,
-      sourceId: source.sourceId,
-      sourceDocumentId: null,
-    }))
+    return { ...baseBody, sourceId: null, sourceDocumentId: null }
   }
 
   const executeRun = async (event) => {
@@ -379,23 +375,21 @@ export function SyntheticPage({ notify }) {
       notify('Select an LLM model.', 'error')
       return
     }
-    const runRequestBodies = buildRunRequestBodies()
-    if (runRequestBodies.length === 0 || runRequestBodies.some((body) => isHiddenSyntheticSource(body.sourceId))) {
+    const runRequestBody = buildRunRequestBody()
+    if (!runRequestBody || isHiddenSyntheticSource(runRequestBody.sourceId)) {
       notify('선택한 전략에 사용할 수 있는 허용 소스가 없습니다.', 'error')
       return
     }
     try {
-      await Promise.all(runRequestBodies.map((body) => requestJson('/api/admin/console/synthetic/batches/run', {
+      await requestJson('/api/admin/console/synthetic/batches/run', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      })))
+        body: JSON.stringify(runRequestBody),
+      })
       const refreshTasks = [loadBatches(), loadStats(), loadQueries(queryPage)]
       if (llmJobsLoaded) refreshTasks.push(loadLlmJobs())
       await Promise.all(refreshTasks)
-      notify(runRequestBodies.length > 1
-        ? `${runRequestBodies.length}개 허용 소스의 합성 질의 생성 배치를 등록했습니다.`
-        : '합성 질의 생성 배치를 등록했습니다.')
+      notify('합성 질의 생성 배치를 등록했습니다.')
     } catch (error) {
       notify(error.message, 'error')
     }

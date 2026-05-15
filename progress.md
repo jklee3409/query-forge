@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-05-15] Session Summary (Synthetic All-Allowed Sources Single Batch Restore)
+- What was done: Restored Admin Synthetic "all allowed sources" generation to create one generation batch/job instead of source-by-source fan-out. The frontend now submits a single run request, the backend writes method-scoped `source_ids` into the generated experiment config, and the Python generator filters chunks with that list.
+- Key decisions: Preserved strategy/source allowlists and split raw-table storage. "All allowed sources" remains constrained to Spring references for `A~E` and Python KR source for `F/G`, but the constraint is represented as one batch-scoped `source_ids` filter.
+- Issues encountered: `npm run build`, targeted backend integration tests, `py_compile`, and `npx eslint src/pages/SyntheticPage.jsx` passed. Full `npm run lint` is still blocked by the existing `vite.config.js` `process` no-undef plus pre-existing hook warnings.
+- Next steps: Browser-smoke `/admin/synthetic-queries` with B + "all allowed sources" and confirm only one batch/job appears while generated chunks are limited to the Spring allowlist.
+
 ## [2026-05-13] Session Summary (RAG Compare Dark-Mode Readability Polish)
 - What was done: Simplified `/admin/rag-tests` two-run comparison summary cards to show only headline values, added tone coloring for fast/slow latency outcomes, separated detailed compare table groups with spacer rows and tinted borders, and increased dark-mode secondary text contrast.
 - Key decisions: Frontend-only presentation change. RAG metrics, delta calculations, backend result APIs, snapshot rules, and evaluation semantics were unchanged.

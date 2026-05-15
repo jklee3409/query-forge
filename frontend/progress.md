@@ -3,6 +3,12 @@
 ## Overview
 High-level progress tracking for the project.
 
+## [2026-05-15] Session Summary (Synthetic All-Allowed Single Submit)
+- What was done: Changed `/admin/synthetic-queries` generation submit logic so the "all allowed sources" option builds one request body instead of mapping allowed sources into multiple parallel POSTs. Selected source/document runs still submit a single scoped request.
+- Key decisions: Kept the existing source allowlist UI and hints, but moved all-sources scoping responsibility to the backend `source_ids` config instead of frontend fan-out.
+- Issues encountered: `npm run build` passed and regenerated backend static assets. `npx eslint src/pages/SyntheticPage.jsx` passed; full `npm run lint` remains blocked by the existing `vite.config.js` `process` no-undef and unrelated hook warnings.
+- Next steps: Browser-smoke B strategy with "all allowed sources" and confirm one toast/batch/job is created.
+
 ## [2026-05-13] Session Summary (RAG Compare Readability Polish)
 - What was done: Updated `/admin/rag-tests` comparison UI so top summary cards omit verbose meta text, latency fast/slow results get direct tone coloring, detailed comparison table sections are separated by spacer rows and group-tinted borders, and dark-mode secondary text tokens are brighter.
 - Key decisions: UI/CSS-only refinement plus small JSX rendering changes. Existing metric extraction, delta math, run selection, API calls, and backend contracts were preserved.

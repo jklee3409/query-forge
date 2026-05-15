@@ -26,6 +26,7 @@ Python pipeline for data processing, synthetic query generation, quality gating,
 
 ## Key Notes
 - Synthetic generation now writes to `synthetic_queries_raw_a/b/c/d/e/f/g` by strategy.
+- Synthetic generation accepts an optional `source_ids` list in experiment config and filters chunk loading with `d.source_id = ANY(...)`, allowing Admin all-allowed-sources to run as one batch while staying source-scoped.
 - Synthetic query structured-output validation is strategy-aware (`A/B/C/D/E/F/G` required query fields differ), and final `query_text` fallback extraction is restricted to query-only fields (`query`, `query_en`, `query_ko`, `query_code_mixed`) to avoid metadata leakage.
 - Gating/memory/eval reads use `synthetic_queries_raw_all` (union view over split tables).
 - KR-source strategy variants `F/G` are physical-split strategies and do not reuse `C/E` raw tables.

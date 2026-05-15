@@ -3,6 +3,12 @@
 ## Overview
 High-level backend progress tracking.
 
+## [2026-05-15] Session Summary (Synthetic All-Allowed Source IDs Config)
+- What was done: Updated `AdminConsoleService.runSyntheticGeneration` so a source-unselected synthetic run is valid again and writes the method allowlist as `source_ids` into the experiment YAML. Added an integration test that verifies B/all-sources creates exactly one generation batch and one LLM job with the five Spring source IDs.
+- Key decisions: Kept explicit source/document validation for narrowed runs and retained disallowed-source enforcement. Source allowlists were converted to ordered lists so generated configs are deterministic.
+- Issues encountered: `./gradlew test --tests io.queryforge.backend.admin.console.AdminConsoleGatingIntegrationTest` and the targeted new test passed. Frontend build refreshed backend-served React static assets.
+- Next steps: Smoke the active backend UI after deploy and verify batch history no longer shows one row per Spring source for a single all-sources request.
+
 ## [2026-05-13] Session Summary (RAG Compare Static UI Bundle Refresh)
 - What was done: Refreshed the backend-served React static bundle after the frontend `/admin/rag-tests` comparison summary/table readability changes.
 - Key decisions: No backend Java API, DTO, service, repository, migration, or RAG evaluation behavior changed.

@@ -202,6 +202,7 @@ def _load_chunks(
     limit: int | None,
     source_document_id: str | None = None,
     source_id: str | None = None,
+    source_ids: list[str] | None = None,
     random_chunk_sampling: bool = False,
     random_seed: int | None = None,
 ) -> list[ChunkRow]:
@@ -225,6 +226,9 @@ def _load_chunks(
     if source_id:
         where_clauses.append("d.source_id = %s")
         parameters.append(source_id)
+    if source_ids:
+        where_clauses.append("d.source_id = ANY(%s)")
+        parameters.append(source_ids)
     where_clause = ""
     if where_clauses:
         where_clause = " WHERE " + " AND ".join(where_clauses) + " "
@@ -257,6 +261,26 @@ def _load_chunks(
         )
         for row in rows
     ]
+
+
+def _normalize_source_ids(raw_value: Any) -> list[str]:
+    if raw_value is None:
+        return []
+    raw_items = raw_value
+    if isinstance(raw_value, str):
+        raw_items = raw_value.split(",")
+    if not isinstance(raw_items, (list, tuple, set)):
+        raw_items = [raw_items]
+
+    source_ids: list[str] = []
+    seen: set[str] = set()
+    for item in raw_items:
+        source_id = str(item or "").strip()
+        if not source_id or source_id in seen:
+            continue
+        source_ids.append(source_id)
+        seen.add(source_id)
+    return source_ids
 
 
 def _load_relations(
@@ -1229,6 +1253,7 @@ def run_generation(
                 "avg_queries_per_chunk": config.avg_queries_per_chunk,
                 "max_total_queries": config.raw.get("max_total_queries"),
                 "source_id": config.raw.get("source_id"),
+                "source_ids": config.raw.get("source_ids"),
                 "source_document_id": config.raw.get("source_document_id"),
                 "random_chunk_sampling": bool(config.raw.get("random_chunk_sampling", False)),
                 "fg_summary_mode": (
@@ -1257,20 +1282,23 @@ def run_generation(
 
         source_document_id = str(config.raw.get("source_document_id") or "").strip() or None
         source_id = str(config.raw.get("source_id") or "").strip() or None
+        source_ids = _normalize_source_ids(config.raw.get("source_ids"))
         random_chunk_sampling = bool(config.raw.get("random_chunk_sampling", False))
         chunks = _load_chunks(
             connection,
             limit=config.limit_chunks,
             source_document_id=source_document_id,
             source_id=source_id,
+            source_ids=source_ids,
             random_chunk_sampling=random_chunk_sampling,
             random_seed=config.random_seed if random_chunk_sampling else None,
         )
         if not chunks:
             LOGGER.warning(
-                "No chunks found for source_document_id=%s source_id=%s limit_chunks=%s",
+                "No chunks found for source_document_id=%s source_id=%s source_ids=%s limit_chunks=%s",
                 source_document_id,
                 source_id,
+                source_ids,
                 config.limit_chunks,
             )
         chunks_by_id = {chunk.chunk_id: chunk for chunk in chunks}
@@ -1625,6 +1653,7 @@ def run_generation(
             "experiment_run_id": run_context.experiment_run_id,
             "generation_strategy": strategy,
             "source_id": source_id,
+            "source_ids": source_ids,
             "source_document_id": source_document_id,
             "max_total_queries": max_total_queries,
             "random_chunk_sampling": random_chunk_sampling,

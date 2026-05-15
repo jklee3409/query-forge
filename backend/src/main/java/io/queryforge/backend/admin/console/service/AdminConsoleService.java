@@ -20,6 +20,7 @@ import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -84,14 +85,14 @@ public class AdminConsoleService {
     private static final Set<String> SPRING_TECHDOC_METHOD_CODES = Set.of("A", "B", "C", "D", "E");
     private static final Set<String> PYTHON_KR_METHOD_CODES = Set.of("F", "G");
     private static final Set<String> DISALLOWED_SYNTHETIC_SOURCE_IDS = Set.of("arahansa-github-io-docs-spring");
-    private static final Set<String> SPRING_TECHDOC_SOURCE_IDS = Set.of(
+    private static final List<String> SPRING_TECHDOC_SOURCE_IDS = List.of(
             "spring-boot-reference",
             "spring-data-commons-reference",
             "spring-data-jpa-reference",
             "spring-framework-reference",
             "spring-security-reference"
     );
-    private static final Set<String> PYTHON_KR_SOURCE_IDS = Set.of("docs-python-org-ko-3-14");
+    private static final List<String> PYTHON_KR_SOURCE_IDS = List.of("docs-python-org-ko-3-14");
     private static final String SCOPE_LABEL_SPRING_TECHDOC = "spring_techdoc";
     private static final String SCOPE_LABEL_PYTHON_KR = "python_kr";
     private static final Pattern NON_ALNUM_PATTERN = Pattern.compile("[^A-Z0-9]");
@@ -319,6 +320,12 @@ public class AdminConsoleService {
         }
         if (request.sourceDocumentId() != null && !request.sourceDocumentId().isBlank()) {
             config.put("source_document_id", request.sourceDocumentId().trim());
+        }
+        if (blankToNull(request.sourceId()) == null && blankToNull(request.sourceDocumentId()) == null) {
+            List<String> sourceIds = allowedSourceIdsForMethod(methodCode);
+            if (!sourceIds.isEmpty()) {
+                config.put("source_ids", sourceIds);
+            }
         }
         if (request.avgQueriesPerChunk() != null) {
             config.put("avg_queries_per_chunk", clampRange(request.avgQueriesPerChunk(), 0.2d, 20.0d, "avg_queries_per_chunk"));
@@ -2110,7 +2117,13 @@ public class AdminConsoleService {
     }
 
     private void validateSyntheticSourceMethodRestriction(String methodCode, String sourceId, String sourceDocumentId) {
-        SourceResolution sourceResolution = resolveSourceScope(sourceId, sourceDocumentId, true);
+        SourceResolution sourceResolution = resolveSourceScope(sourceId, sourceDocumentId, false);
+        if (sourceResolution == null) {
+            if (allowedSourceIdsForMethod(methodCode).isEmpty()) {
+                throw new IllegalArgumentException("source_id or source_document_id is required for method_code " + methodCode);
+            }
+            return;
+        }
         validateSyntheticSourceAllowlist(methodCode, sourceResolution);
         Set<String> allowedMethods = allowedMethodCodesForScope(sourceResolution.scope());
         if (!allowedMethods.contains(methodCode)) {
@@ -2267,7 +2280,7 @@ public class AdminConsoleService {
         if (isDisallowedSyntheticSource(sourceResolution.sourceId())) {
             throw new IllegalArgumentException("source_id is not allowed for synthetic generation: " + sourceResolution.sourceId());
         }
-        Set<String> allowedSourceIds = allowedSourceIdsForMethod(methodCode);
+        List<String> allowedSourceIds = allowedSourceIdsForMethod(methodCode);
         if (!allowedSourceIds.isEmpty() && !containsSourceId(allowedSourceIds, sourceResolution.sourceId())) {
             throw new IllegalArgumentException(
                     "source_id " + sourceResolution.sourceId()
@@ -2277,24 +2290,24 @@ public class AdminConsoleService {
         }
     }
 
-    private Set<String> allowedSourceIdsForMethod(String methodCode) {
+    private List<String> allowedSourceIdsForMethod(String methodCode) {
         if (SPRING_TECHDOC_METHOD_CODES.contains(methodCode)) {
             return SPRING_TECHDOC_SOURCE_IDS;
         }
         if (PYTHON_KR_METHOD_CODES.contains(methodCode)) {
             return PYTHON_KR_SOURCE_IDS;
         }
-        return Set.of();
+        return List.of();
     }
 
     private boolean isAllowedSyntheticSourceForScope(String sourceId, StrategyScope scope) {
         if (isDisallowedSyntheticSource(sourceId)) {
             return false;
         }
-        Set<String> allowedSourceIds = switch (scope) {
+        List<String> allowedSourceIds = switch (scope) {
             case SPRING_TECHDOC -> SPRING_TECHDOC_SOURCE_IDS;
             case PYTHON_KR -> PYTHON_KR_SOURCE_IDS;
-            case UNKNOWN -> Set.of();
+            case UNKNOWN -> List.of();
         };
         return allowedSourceIds.isEmpty() || containsSourceId(allowedSourceIds, sourceId);
     }
@@ -2303,7 +2316,7 @@ public class AdminConsoleService {
         return containsSourceId(DISALLOWED_SYNTHETIC_SOURCE_IDS, sourceId);
     }
 
-    private boolean containsSourceId(Set<String> sourceIds, String sourceId) {
+    private boolean containsSourceId(Collection<String> sourceIds, String sourceId) {
         if (sourceId == null || sourceId.isBlank()) {
             return false;
         }

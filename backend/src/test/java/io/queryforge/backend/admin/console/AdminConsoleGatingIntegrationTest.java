@@ -353,6 +353,64 @@ class AdminConsoleGatingIntegrationTest {
     }
 
     @Test
+    void runSyntheticAllAllowedSourcesCreatesSingleBatchWithSourceIdsFilter() throws Exception {
+        String response = mockMvc.perform(post("/api/admin/console/synthetic/batches/run")
+                        .contentType(APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "methodCode": "B",
+                                  "versionName": "b-all-sources",
+                                  "limitChunks": 1,
+                                  "avgQueriesPerChunk": 1.0,
+                                  "maxTotalQueries": 5,
+                                  "randomChunkSampling": true,
+                                  "llmModel": "gemini-2.5-flash-lite"
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.methodCode").value("B"))
+                .andReturn()
+                .getResponse()
+                .getContentAsString();
+
+        UUID generationBatchId = UUID.fromString(objectMapper().readTree(response).path("batchId").asText());
+        assertThat(countRows(
+                "SELECT COUNT(*) FROM synthetic_query_generation_batch WHERE batch_id = :id",
+                generationBatchId
+        )).isEqualTo(1L);
+        assertThat(countRows(
+                "SELECT COUNT(*) FROM llm_job WHERE generation_batch_id = :id",
+                generationBatchId
+        )).isEqualTo(1L);
+
+        String experimentName = jdbcTemplate.queryForObject(
+                """
+                SELECT experiment_name
+                FROM llm_job
+                WHERE generation_batch_id = :generationBatchId
+                ORDER BY created_at DESC
+                LIMIT 1
+                """,
+                new MapSqlParameterSource("generationBatchId", generationBatchId),
+                String.class
+        );
+        assertThat(experimentName).isNotBlank();
+
+        Path configPath = resolveExperimentConfigPath(experimentName);
+        assertThat(Files.exists(configPath)).isTrue();
+        String yaml = Files.readString(configPath, StandardCharsets.UTF_8);
+        assertThat(yaml).contains("source_ids:");
+        assertThat(yaml).contains("- spring-boot-reference");
+        assertThat(yaml).contains("- spring-data-commons-reference");
+        assertThat(yaml).contains("- spring-data-jpa-reference");
+        assertThat(yaml).contains("- spring-framework-reference");
+        assertThat(yaml).contains("- spring-security-reference");
+        assertThat(yaml).doesNotContain("source_id:");
+
+        Files.deleteIfExists(configPath);
+    }
+
+    @Test
     void runGatingRejectsCatalogOutOfAllowlistDenseModel() throws Exception {
         UUID methodA = jdbcTemplate.getJdbcTemplate().queryForObject(
                 "SELECT generation_method_id FROM synthetic_query_generation_method WHERE method_code = 'A'",

@@ -3,6 +3,12 @@
 ## Overview
 High-level pipeline progress tracking.
 
+## [2026-05-15] Session Summary (Synthetic Generator Multi-Source Filter)
+- What was done: Added `source_ids` support to `generation/synthetic_query_generator.py` so one generation run can filter chunks by multiple allowed source IDs via `d.source_id = ANY(...)`. The run parameters and summary now record the active `source_ids` list.
+- Key decisions: Kept existing `source_id` and `source_document_id` behavior unchanged for narrowed runs. `source_ids` is additive and normalized from YAML lists or comma-separated strings.
+- Issues encountered: `python -m py_compile pipeline/generation/synthetic_query_generator.py` passed.
+- Next steps: Run a small live B generation with all Spring sources and confirm chunk selection spans only the configured `source_ids`.
+
 ## [2026-05-13] Session Summary (Admin RAG DB-ANN Eval Path + Chunk Embedding Materialization)
 - What was done: Added `memory/materialize_chunk_embeddings.py` and CLI command `materialize-chunk-embeddings` to precompute per-model chunk vectors into `chunk_embeddings` without recollecting documents. Refactored retrieval/answer eval runtime to support `retrieval_backend=db_ann`, reusing one pgvector ANN adapter for raw retrieval, memory lookup, rewrite candidate retrieval, and rewrite candidate memory lookup.
 - Key decisions: Preserved A/B/C/D/E/F/G split storage and snapshot/source identity filters while keeping online hash embedding behavior separate from admin dense eval. `db-ann` rejects dense fallback and enforces query/chunk embedding model equality.
