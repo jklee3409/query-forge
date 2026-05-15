@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-05-15] Session Summary (Strategy B Admin Smoke Verification)
+- What was done: Ran Strategy B generation through the Admin job path after confirming the pre-existing 8080 backend was stale. A stale 8080 smoke reproduced the missing translation-cap failure (`max_tokens_truncated`) and was cancelled; a fresh current-code backend on 8081 completed both a one-source/one-query B smoke and a two-query all-allowed-sources B smoke.
+- Key decisions: Verified current Admin-generated B configs persist `llm_translation_max_output_tokens=2048` and B payload/summary bounds, and verified all-allowed-sources uses one batch with the five Spring `source_ids`.
+- Issues encountered: The live 8080 process was not running the latest backend classes, so its generated config lacked the B-only defaults. Current-code runs completed with `retry_count=0` and no truncation errors.
+- Next steps: Use the completed all-allowed-sources B smoke as the scaling baseline; increase `max_total_queries` gradually while monitoring translation-stage failures and B trace payload sizes.
+
 ## [2026-05-15] Session Summary (Strategy B Smoke + Admin Safe Defaults)
 - What was done: Ran a one-row controlled Strategy B smoke using `strategy_b_smoke`, verified the generated `code_mixed` query writes only to `synthetic_queries_raw_b`, and inspected `KO_TRANSLATED_CHUNK` + deterministic `KO_SUMMARY` asset lineage and B payload traces.
 - Key decisions: Added B-only Admin generation defaults for `llm_translation_max_output_tokens` and explicit B payload/summary bounds, avoiding broad default changes for other strategies.

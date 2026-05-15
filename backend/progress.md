@@ -3,6 +3,12 @@
 ## Overview
 High-level backend progress tracking.
 
+## [2026-05-15] Session Summary (Strategy B Admin Runtime Smoke)
+- What was done: Verified Strategy B Admin generation from the live API. A stale 8080 backend produced an Admin config without the B-only defaults and hit translation `max_tokens_truncated`; after starting a current-code backend on 8081, a one-source smoke completed with one B row and an all-allowed-sources smoke completed with two B rows.
+- Key decisions: Confirmed current Admin configs include `llm_translation_max_output_tokens=2048`, `b_summary_max_chars=900`, and B query payload bounds; all-allowed-sources creates one batch/job with `source_ids` for the five Spring reference sources.
+- Issues encountered: The existing 8080 process should be restarted before relying on Admin UI results, because it is stale relative to the checked-out code.
+- Next steps: Scale B from the completed two-query all-source baseline with low increments and monitor job retry/failure categories.
+
 ## [2026-05-15] Session Summary (Strategy B Admin Safe Defaults)
 - What was done: Updated Admin synthetic generation config writing so Strategy B batches explicitly persist `llm_translation_max_output_tokens=2048` plus B query/summary bounds, and extended the B all-allowed-sources integration test to assert those keys.
 - Key decisions: Scoped defaults to Strategy B generation only; no Admin defaults for A/C/D/E/F/G, raw-table structure, or pipeline stage order were changed.

@@ -3,6 +3,12 @@
 ## Overview
 High-level pipeline progress tracking.
 
+## [2026-05-15] Session Summary (Strategy B Admin Path Validation)
+- What was done: Validated the Strategy B generator through Admin-created experiment configs. Current-code one-source and all-allowed-sources runs completed with B rows only in `synthetic_queries_raw_b`, query-only LLM responses, KO translation assets, deterministic KO summary assets, and populated B payload-limit/char traces.
+- Key decisions: Treated `original_chunk_ko` and `extractive_summary_en` trace values of `0` as the expected B payload semantics; source summaries remained bounded deterministic KO summaries (`v2:B:extractive:max900` in Admin runs).
+- Issues encountered: The stale 8080 Admin run lacked the translation cap and reproduced `max_tokens_truncated`, confirming the value of the B-only Admin default.
+- Next steps: Increase B all-source generation size gradually while tracking translation retries/truncation and payload char distributions.
+
 ## [2026-05-15] Session Summary (Strategy B Smoke Trace Verification)
 - What was done: Extended B query trace payload char metrics to include `original_chunk_ko` and `extractive_summary_en`, then ran `strategy_b_smoke` for one `code_mixed` B query and verified both fields remain `0` while B uses KO translation + deterministic KO summary.
 - Key decisions: Kept B query output query-only and raw writes in `synthetic_queries_raw_b`; trace changes are additive observability only.

@@ -3,6 +3,12 @@
 ## Overview
 High-level progress tracking for the project.
 
+## [2026-05-15] Session Summary (Strategy B Admin Config Smoke)
+- What was done: Inspected Admin-generated Strategy B configs from live smoke runs. The current-code one-source config persisted B-only safe defaults, and the all-allowed-sources config additionally wrote the five Spring reference `source_ids` in a single batch config.
+- Key decisions: Kept generated `admin_gen_*.yaml` files as ignored runtime artifacts; no tracked experiment preset changes were needed after validation.
+- Issues encountered: A stale 8080-generated Admin config lacked the B defaults, so runtime process freshness must be checked before interpreting Admin smoke failures.
+- Next steps: Keep `strategy_b_smoke.yaml` for controlled one-row checks and use Admin-generated configs for incremental all-source scaling.
+
 ## [2026-05-15] Session Summary (Strategy B Smoke Preset)
 - What was done: Added `experiments/strategy_b_smoke.yaml`, a one-source/one-chunk/one-query Strategy B smoke preset with forced `code_mixed` query type, bounded B payload settings, and a B-specific translation output-token budget.
 - Key decisions: Kept the preset narrow and explicit so B smoke runs are reproducible without changing broader `gen_b` or Admin defaults for other strategies.
