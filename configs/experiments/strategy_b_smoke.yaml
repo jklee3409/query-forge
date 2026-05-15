@@ -1,0 +1,41 @@
+experiment_key: strategy_b_smoke
+category: smoke
+description: Tiny Strategy B smoke run for query-only B pipeline validation.
+generation_strategy: B
+enable_code_mixed: true
+query_language: ko
+query_language_profile: ko
+enable_rule_filter: false
+enable_llm_self_eval: false
+enable_retrieval_utility: false
+enable_diversity: false
+enable_anti_copy: false
+gating_preset: ungated
+llm_provider: gemini-native
+llm_model: gemini-2.5-flash-lite
+llm_query_model: gemini-2.5-flash-lite
+llm_translation_model: gemini-2.5-flash-lite
+llm_fallback_models: gemini-2.5-flash
+llm_batch_size: 1
+llm_translation_max_output_tokens: 2048
+memory_top_n: 5
+rewrite_candidate_count: 3
+rewrite_threshold: 0.1
+retrieval_top_k: 10
+rerank_top_n: 5
+use_session_context: false
+avg_queries_per_chunk: 1.0
+max_total_queries: 1
+limit_chunks: 1
+query_type_distribution:
+  code_mixed: 1.0
+answerability_distribution:
+  single: 1.0
+final_score_threshold: 0.75
+utility_threshold: 0.70
+random_seed: 1515
+source_id: spring-data-commons-reference
+b_summary_max_chars: 300
+b_query_original_chunk_max_chars: 600
+b_query_translated_chunk_max_chars: 300
+b_query_summary_max_chars: 300

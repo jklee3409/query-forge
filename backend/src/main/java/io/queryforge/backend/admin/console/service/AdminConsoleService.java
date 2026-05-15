@@ -69,6 +69,11 @@ public class AdminConsoleService {
     private static final String RETRIEVER_MODE_HYBRID = "hybrid";
     private static final String DEFAULT_LLM_MODEL = "gemini-2.5-flash-lite";
     private static final String DEFAULT_LLM_FALLBACK_MODEL = "gemini-2.5-flash";
+    private static final int STRATEGY_B_TRANSLATION_MAX_OUTPUT_TOKENS = 2048;
+    private static final int STRATEGY_B_SUMMARY_MAX_CHARS = 900;
+    private static final int STRATEGY_B_QUERY_ORIGINAL_CHUNK_MAX_CHARS = 1800;
+    private static final int STRATEGY_B_QUERY_TRANSLATED_CHUNK_MAX_CHARS = 1200;
+    private static final int STRATEGY_B_QUERY_SUMMARY_MAX_CHARS = 900;
     private static final String DEFAULT_DENSE_EMBEDDING_MODEL = "intfloat/multilingual-e5-small";
     private static final String MODEL_CATALOG_RELATIVE_PATH = "configs/app/model_catalog.yml";
     private static final double DEFAULT_HYBRID_DENSE_WEIGHT = 0.58d;
@@ -340,6 +345,7 @@ public class AdminConsoleService {
         if (request.llmRpm() != null) {
             config.put("llm_rpm", clampRange(request.llmRpm(), 1, 1000, "llm_rpm"));
         }
+        applySyntheticGenerationStrategyDefaults(config, methodCode);
 
         UUID batchId = repository.createGenerationBatch(
                 method.generationMethodId(),
@@ -2480,6 +2486,17 @@ public class AdminConsoleService {
         config.put("llm_query_model", llmModel);
         config.put("llm_self_eval_model", llmModel);
         config.put("llm_rewrite_model", llmModel);
+    }
+
+    private void applySyntheticGenerationStrategyDefaults(Map<String, Object> config, String methodCode) {
+        if (!"B".equalsIgnoreCase(methodCode)) {
+            return;
+        }
+        config.putIfAbsent("llm_translation_max_output_tokens", STRATEGY_B_TRANSLATION_MAX_OUTPUT_TOKENS);
+        config.putIfAbsent("b_summary_max_chars", STRATEGY_B_SUMMARY_MAX_CHARS);
+        config.putIfAbsent("b_query_original_chunk_max_chars", STRATEGY_B_QUERY_ORIGINAL_CHUNK_MAX_CHARS);
+        config.putIfAbsent("b_query_translated_chunk_max_chars", STRATEGY_B_QUERY_TRANSLATED_CHUNK_MAX_CHARS);
+        config.putIfAbsent("b_query_summary_max_chars", STRATEGY_B_QUERY_SUMMARY_MAX_CHARS);
     }
 
     private String defaultCreatedBy(String value) {

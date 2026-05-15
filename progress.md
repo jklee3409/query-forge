@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-05-15] Session Summary (Strategy B Smoke + Admin Safe Defaults)
+- What was done: Ran a one-row controlled Strategy B smoke using `strategy_b_smoke`, verified the generated `code_mixed` query writes only to `synthetic_queries_raw_b`, and inspected `KO_TRANSLATED_CHUNK` + deterministic `KO_SUMMARY` asset lineage and B payload traces.
+- Key decisions: Added B-only Admin generation defaults for `llm_translation_max_output_tokens` and explicit B payload/summary bounds, avoiding broad default changes for other strategies.
+- Issues encountered: Initial smoke exposed translation-stage `MAX_TOKENS` truncation under the global 384-token cap; raising only B translation output budget to 2048 resolved the smoke.
+- Next steps: Use the Admin-generated B config path for the next small all-allowed-sources run and monitor translation truncation rate before scaling.
+
 ## [2026-05-15] Session Summary (Strategy B Long-Chunk Hardening)
 - What was done: Hardened Strategy B generation for long chunks/all-source runs by bounding B query-generation evidence payloads (`original_chunk_en`, `translated_chunk_ko`, `extractive_summary_ko`) while preserving the English chunk -> Korean translation -> Korean extractive summary -> Korean query method.
 - Key decisions: Preserved fixed pipeline order, split raw-table storage, prompt asset lineage, and query-only B response schema. Deterministic KO summary cache versions now include `max_chars` to prevent cache collisions across different summary bounds.

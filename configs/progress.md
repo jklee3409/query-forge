@@ -3,6 +3,12 @@
 ## Overview
 High-level progress tracking for the project.
 
+## [2026-05-15] Session Summary (Strategy B Smoke Preset)
+- What was done: Added `experiments/strategy_b_smoke.yaml`, a one-source/one-chunk/one-query Strategy B smoke preset with forced `code_mixed` query type, bounded B payload settings, and a B-specific translation output-token budget.
+- Key decisions: Kept the preset narrow and explicit so B smoke runs are reproducible without changing broader `gen_b` or Admin defaults for other strategies.
+- Issues encountered: Initial B smoke showed translation truncation under the global output-token cap; the preset now mirrors the B-only Admin safety value.
+- Next steps: Use this preset for quick B row/trace/asset validation before larger all-source Strategy B runs.
+
 ## [2026-05-15] Session Summary (Strategy B Query-Only Prompt Contract)
 - What was done: Updated `prompts/query_generation/gen_b_v1.md` to version `v5` with a query-only output contract (`query_ko`, `query_type`, `answerability_type`) and clarified that `translated_chunk_ko` and `extractive_summary_ko` are upstream inputs, not query-generation outputs.
 - Key decisions: Kept Strategy B as Korean-native (`EN chunk -> KO translation -> KO extractive summary -> KO synthetic query`) while reducing final generation output size for LLM stability.

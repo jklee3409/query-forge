@@ -414,6 +414,11 @@ class AdminConsoleGatingIntegrationTest {
         assertThat(yaml).contains("- spring-framework-reference");
         assertThat(yaml).contains("- spring-security-reference");
         assertThat(yaml).doesNotContain("source_id:");
+        assertThat(yaml).contains("llm_translation_max_output_tokens: 2048");
+        assertThat(yaml).contains("b_summary_max_chars: 900");
+        assertThat(yaml).contains("b_query_original_chunk_max_chars: 1800");
+        assertThat(yaml).contains("b_query_translated_chunk_max_chars: 1200");
+        assertThat(yaml).contains("b_query_summary_max_chars: 900");
 
         Files.deleteIfExists(configPath);
     }

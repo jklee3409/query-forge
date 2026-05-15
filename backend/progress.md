@@ -3,6 +3,12 @@
 ## Overview
 High-level backend progress tracking.
 
+## [2026-05-15] Session Summary (Strategy B Admin Safe Defaults)
+- What was done: Updated Admin synthetic generation config writing so Strategy B batches explicitly persist `llm_translation_max_output_tokens=2048` plus B query/summary bounds, and extended the B all-allowed-sources integration test to assert those keys.
+- Key decisions: Scoped defaults to Strategy B generation only; no Admin defaults for A/C/D/E/F/G, raw-table structure, or pipeline stage order were changed.
+- Issues encountered: Controlled B smoke showed the previous inherited 384-token translation cap could fail before query generation with `category=max_tokens_truncated`.
+- Next steps: Run an Admin-triggered B smoke and confirm the generated config uses these B-only defaults with one batch/job.
+
 ## [2026-05-15] Session Summary (Synthetic Generation Failure Observability)
 - What was done: Preserved `GENERATE_SYNTHETIC_QUERY` failure observations across retry/cancel transitions by appending snapshots with stderr/stdout, summary, exit code, retry counts, and parsed failure category into `llm_job.result_json`/`last_checkpoint`, and by moving failed item payloads into `llm_job_item.checkpoint_json` before retry reset.
 - Key decisions: Kept DB schema, pipeline command semantics, synthetic raw table structure, and retry/cancel state transitions unchanged; used additive JSON payloads (`last_failure`, `previous_failures`) instead of migrations.

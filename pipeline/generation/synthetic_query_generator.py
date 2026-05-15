@@ -1800,6 +1800,8 @@ def run_generation(
                                 "b_query_payload_chars": (
                                     {
                                         "original_chunk_en": len(query_payload.get("original_chunk_en") or ""),
+                                        "original_chunk_ko": len(query_payload.get("original_chunk_ko") or ""),
+                                        "extractive_summary_en": len(query_payload.get("extractive_summary_en") or ""),
                                         "translated_chunk_ko": len(query_payload.get("translated_chunk_ko") or ""),
                                         "extractive_summary_ko": len(query_payload.get("extractive_summary_ko") or ""),
                                         "translated_chunk_ko_asset": len(translated_chunk_ko),

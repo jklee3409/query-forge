@@ -3,6 +3,12 @@
 ## Overview
 High-level pipeline progress tracking.
 
+## [2026-05-15] Session Summary (Strategy B Smoke Trace Verification)
+- What was done: Extended B query trace payload char metrics to include `original_chunk_ko` and `extractive_summary_en`, then ran `strategy_b_smoke` for one `code_mixed` B query and verified both fields remain `0` while B uses KO translation + deterministic KO summary.
+- Key decisions: Kept B query output query-only and raw writes in `synthetic_queries_raw_b`; trace changes are additive observability only.
+- Issues encountered: The first smoke failed in translation with `category=max_tokens_truncated` until the smoke/Admin config used a B-specific translation output-token budget.
+- Next steps: Re-run through Admin job orchestration and inspect LLM job result payloads against the same row/asset expectations.
+
 ## [2026-05-15] Session Summary (Strategy B Long-Chunk Hardening)
 - What was done: Hardened `generation/synthetic_query_generator.py` so Strategy B query-generation payloads use bounded evidence windows for `original_chunk_en`, `translated_chunk_ko`, and `extractive_summary_ko` while preserving the cached translation -> deterministic KO summary -> query-only KO method.
 - Key decisions: Preserved split raw-table storage, prompt asset lineage, and B query-only schema. Deterministic KO summary cache template versions now include `max_chars`, preventing reused summary assets when B/F/G summary length bounds differ.
