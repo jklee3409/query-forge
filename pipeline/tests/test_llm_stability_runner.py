@@ -12,6 +12,10 @@ class LlmStabilityRunnerStrategyTests(unittest.TestCase):
         specs = _strategy_specs(Path("configs/prompts"))
         self.assertTrue(all(strategy in specs for strategy in ("A", "B", "C", "D", "E", "F", "G")))
         self.assertEqual(
+            specs["B"].required_keys,
+            ("query_ko", "query_type", "answerability_type"),
+        )
+        self.assertEqual(
             specs["E"].required_keys,
             ("query_en", "query_type", "answerability_type", "style_note"),
         )

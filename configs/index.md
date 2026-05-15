@@ -35,6 +35,7 @@
 ---
 
 ## Recent Notes
+- Strategy B query generation prompt `gen_b_v1` is now version `v5` and emits query-only JSON (`query_ko`, `query_type`, `answerability_type`); `translated_chunk_ko` and `extractive_summary_ko` are fixed upstream inputs.
 - selective rewrite v2 prompt now consumes `terminology_hints` and enforces verbatim preservation for intent-compatible technical tokens.
 - selective rewrite v2 keeps intent preservation, but the extra intent-locked query-expansion/topic-substitution guard was rolled back so synthetic memory anchors can contribute more strongly in short-query retrieval experiments.
 

@@ -92,7 +92,7 @@ QUERY_TEXT_FIELDS: tuple[str, ...] = ("query", "query_en", "query_ko", "query_co
 
 QUERY_REQUIRED_FIELDS_BY_STRATEGY: dict[str, tuple[str, ...]] = {
     "A": ("query_en", "query_ko"),
-    "B": ("query_ko",),
+    "B": ("query_ko", "query_type", "answerability_type"),
     "C": ("query_ko",),
     "D": ("query_ko", "query_code_mixed"),
     "E": ("query_en",),

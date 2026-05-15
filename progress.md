@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-05-15] Session Summary (Strategy B Query-Only Contract)
+- What was done: Redefined Strategy B query-generation contract to output only `query_ko`, `query_type`, and `answerability_type`, updated `gen_b_v1` to version `v5`, and aligned the pipeline B schema/stability spec with that contract.
+- Key decisions: Treated `translated_chunk_ko` and `extractive_summary_ko` as upstream artifacts for Phase 2 while preserving the existing generation loop, fixed pipeline order, and strategy-split raw storage.
+- Issues encountered: Targeted Python compile and schema/stability unit tests passed.
+- Next steps: Phase 3 should implement the B runtime path so KO translation and KO extractive summary are generated/cached from `original_chunk_en` without mandatory EN extractive summary input.
+
 ## [2026-05-15] Session Summary (Synthetic Generation Failure Observability)
 - What was done: Improved backend LLM job observability for synthetic generation so retried or cancelled `GENERATE_SYNTHETIC_QUERY` jobs retain prior failure snapshots in `llm_job.result_json`/`last_checkpoint` and `llm_job_item.checkpoint_json`.
 - Key decisions: Preserved pipeline semantics and strategy-split raw storage; stored additive JSON fields (`last_failure`, `previous_failures`) without schema migrations.

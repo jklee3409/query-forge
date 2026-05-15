@@ -3,6 +3,12 @@
 ## Overview
 High-level pipeline progress tracking.
 
+## [2026-05-15] Session Summary (Strategy B Query Schema Alignment)
+- What was done: Aligned Strategy B runtime/stability schema with the new query-only prompt contract by requiring `query_ko`, `query_type`, and `answerability_type` only, removing translated/summary output requirements from the LLM stability spec.
+- Key decisions: Kept the current generation loop and raw-table writes unchanged; this is a minimal schema-contract alignment, not the full Phase 3 B pipeline rewrite.
+- Issues encountered: `python -m py_compile pipeline\generation\synthetic_query_generator.py pipeline\eval\llm_stability_runner.py` and `python -m unittest pipeline.tests.test_synthetic_query_generator pipeline.tests.test_llm_stability_runner -q` passed.
+- Next steps: Change the B generation path so it does not depend on mandatory EN extractive summary and instead derives KO translation/summary artifacts from the original chunk.
+
 ## [2026-05-15] Session Summary (Synthetic Generator Multi-Source Filter)
 - What was done: Added `source_ids` support to `generation/synthetic_query_generator.py` so one generation run can filter chunks by multiple allowed source IDs via `d.source_id = ANY(...)`. The run parameters and summary now record the active `source_ids` list.
 - Key decisions: Kept existing `source_id` and `source_document_id` behavior unchanged for narrowed runs. `source_ids` is additive and normalized from YAML lists or comma-separated strings.

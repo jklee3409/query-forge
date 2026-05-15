@@ -166,16 +166,14 @@ def _strategy_specs(prompt_root: Path) -> dict[str, StrategySpec]:
             prompt_path=prompt_root / "query_generation" / "gen_b_v1.md",
             response_schema={
                 "type": "object",
-                "required": ["translated_chunk_ko", "summary_ko", "query_ko", "query_type", "answerability_type"],
+                "required": ["query_ko", "query_type", "answerability_type"],
                 "properties": {
-                    "translated_chunk_ko": {"type": "string"},
-                    "summary_ko": {"type": "string"},
                     "query_ko": {"type": "string"},
                     "query_type": {"type": "string"},
                     "answerability_type": {"type": "string"},
                 },
             },
-            required_keys=("translated_chunk_ko", "summary_ko", "query_ko", "query_type", "answerability_type"),
+            required_keys=("query_ko", "query_type", "answerability_type"),
             eval_keys=("query_ko",),
         ),
         "C": StrategySpec(
@@ -291,7 +289,6 @@ def _sample_payload(strategy: str, query_type: str, answerability_type: str) -> 
         "extractive_summary_en": summary_en,
         "extractive_summary_ko": summary_ko,
         "translated_chunk_ko": translated_ko,
-        "summary_ko": summary_ko,
         "glossary_terms_keep_english": [
             "@ConfigurationProperties",
             "actuator",

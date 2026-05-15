@@ -17,7 +17,7 @@ class SyntheticQueryGeneratorSchemaTests(unittest.TestCase):
     def test_strategy_required_fields(self) -> None:
         expected_required = {
             "A": ("query_en", "query_ko"),
-            "B": ("query_ko",),
+            "B": ("query_ko", "query_type", "answerability_type"),
             "C": ("query_ko",),
             "D": ("query_ko", "query_code_mixed"),
             "E": ("query_en",),
@@ -33,6 +33,18 @@ class SyntheticQueryGeneratorSchemaTests(unittest.TestCase):
         schema = _query_response_schema_for_strategy("E")
         errors = _validate_json_schema({"query_en": "How to configure Spring Security filter chain?"}, schema, path="$")
         self.assertEqual(errors, [])
+
+    def test_b_schema_requires_query_only_contract_fields(self) -> None:
+        schema = _query_response_schema_for_strategy("B")
+        valid_payload = {
+            "query_ko": "Spring Boot configuration binding failure reason?",
+            "query_type": "reason",
+            "answerability_type": "single",
+        }
+        self.assertEqual(_validate_json_schema(valid_payload, schema, path="$"), [])
+        errors = _validate_json_schema({"query_ko": valid_payload["query_ko"]}, schema, path="$")
+        self.assertIn("$.query_type: required field missing", errors)
+        self.assertIn("$.answerability_type: required field missing", errors)
 
     def test_f_schema_and_extraction_prefers_query_en(self) -> None:
         payload = {

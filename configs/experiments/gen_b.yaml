@@ -1,6 +1,6 @@
 experiment_key: gen_b
 category: generation
-description: Generation strategy B baseline (KO translation -> KO summary -> KO query).
+description: Generation strategy B baseline (EN chunk -> KO translation -> KO extractive summary -> query-only KO output).
 generation_strategy: B
 enable_code_mixed: false
 enable_rule_filter: false
