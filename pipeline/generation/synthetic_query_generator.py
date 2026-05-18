@@ -17,6 +17,13 @@ try:
     from common.corpus_shadow_sync import sync_shadow_tables
     from common.experiment_config import ExperimentConfig, load_experiment_config
     from common.experiment_run import ExperimentRunRecorder
+    from common.gemini_batch import (
+        GeminiBatchAdapter,
+        GeminiBatchExecutionError,
+        GeminiBatchRequestItem,
+        build_gemini_generate_content_request,
+        parse_gemini_json_response,
+    )
     from common.llm_client import LlmClient, load_stage_config
     from common.prompt_assets import PromptAsset, load_and_register_prompt
     from loaders.common import connect, default_database_args
@@ -24,6 +31,13 @@ except ModuleNotFoundError:  # pragma: no cover - direct module execution fallba
     from pipeline.common.corpus_shadow_sync import sync_shadow_tables
     from pipeline.common.experiment_config import ExperimentConfig, load_experiment_config
     from pipeline.common.experiment_run import ExperimentRunRecorder
+    from pipeline.common.gemini_batch import (
+        GeminiBatchAdapter,
+        GeminiBatchExecutionError,
+        GeminiBatchRequestItem,
+        build_gemini_generate_content_request,
+        parse_gemini_json_response,
+    )
     from pipeline.common.llm_client import LlmClient, load_stage_config
     from pipeline.common.prompt_assets import PromptAsset, load_and_register_prompt
     from pipeline.loaders.common import connect, default_database_args
@@ -154,6 +168,62 @@ class BQueryPayloadLimits:
     original_chunk_en_max_chars: int
     translated_chunk_ko_max_chars: int
     extractive_summary_ko_max_chars: int
+
+
+@dataclass(slots=True)
+class PlannedQueryItem:
+    chunk: ChunkRow
+    query_index: int
+    query_type: str
+    answerability_type: str
+    target_chunk_ids: list[str]
+    generation_strategy: str
+    raw_table_name: str
+    generation_method_id: str | None
+    query_prompt_asset: PromptAsset
+    query_prompt_text: str
+    stable_query_id: str
+    source_fingerprint: str
+    glossary_terms_keep_english: list[str]
+
+
+@dataclass(slots=True)
+class BTranslationAssetState:
+    asset_id: str
+    translated_chunk_ko: str
+    cached: bool
+
+
+@dataclass(slots=True)
+class BSummaryAssetState:
+    asset_id: str
+    summary_ko: str
+    cached: bool
+
+
+@dataclass(slots=True)
+class PendingBatchQueryRow:
+    plan: PlannedQueryItem
+    query_payload: dict[str, Any]
+    generation_asset_ids: list[str]
+    translated_chunk_ko: str
+    summary_ko: str
+    related_chunks_ko: list[dict[str, Any]]
+
+
+@dataclass(slots=True)
+class BatchJsonExecution:
+    job_name: str | None
+    display_name: str
+    input_mode: str
+    submitted_item_count: int
+    completed_item_count: int
+    failed_item_count: int
+    batch_stats: dict[str, int]
+    item_mapping: list[dict[str, Any]]
+    failures: list[dict[str, Any]]
+    responses_by_key: dict[str, dict[str, Any]]
+    jsonl_path: str | None = None
 
 
 def _stable_id(parts: list[str]) -> str:
@@ -648,6 +718,75 @@ def _b_query_payload_limits_dict(limits: BQueryPayloadLimits | None) -> dict[str
         "translated_chunk_ko_max_chars": limits.translated_chunk_ko_max_chars,
         "extractive_summary_ko_max_chars": limits.extractive_summary_ko_max_chars,
     }
+
+
+def _truthy_config(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, (int, float)) and not isinstance(value, bool):
+        return value != 0
+    return str(value or "").strip().lower() in {"1", "true", "yes", "y", "on"}
+
+
+def _llm_execution_mode(raw_config: dict[str, Any]) -> str:
+    raw_mode = str(raw_config.get("llm_execution_mode") or "").strip().lower()
+    if not raw_mode and _truthy_config(raw_config.get("gemini_batch_enabled")):
+        raw_mode = "gemini_batch"
+    if not raw_mode:
+        return "online"
+    normalized = raw_mode.replace("-", "_")
+    if normalized not in {"online", "gemini_batch"}:
+        raise ValueError("llm_execution_mode must be one of: online, gemini_batch")
+    return normalized
+
+
+def _gemini_batch_input_mode(raw_config: dict[str, Any]) -> str:
+    raw_mode = str(raw_config.get("gemini_batch_input_mode") or "inline").strip().lower()
+    normalized = raw_mode.replace("-", "_")
+    if normalized not in {"inline", "jsonl"}:
+        raise ValueError("gemini_batch_input_mode must be one of: inline, jsonl")
+    return normalized
+
+
+def _float_config(
+    raw_config: dict[str, Any],
+    *,
+    key: str,
+    default: float,
+    min_value: float,
+    max_value: float,
+) -> float:
+    raw_value = raw_config.get(key, default)
+    try:
+        value = float(raw_value)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"{key} must be a number") from exc
+    return max(min_value, min(value, max_value))
+
+
+def _gemini_batch_poll_interval_seconds(raw_config: dict[str, Any]) -> float:
+    return _float_config(
+        raw_config,
+        key="gemini_batch_poll_interval_seconds",
+        default=30.0,
+        min_value=1.0,
+        max_value=600.0,
+    )
+
+
+def _gemini_batch_timeout_seconds(raw_config: dict[str, Any]) -> float:
+    return _float_config(
+        raw_config,
+        key="gemini_batch_timeout_seconds",
+        default=24.0 * 60.0 * 60.0,
+        min_value=60.0,
+        max_value=48.0 * 60.0 * 60.0,
+    )
+
+
+def _gemini_batch_work_dir(raw_config: dict[str, Any]) -> Path:
+    raw_value = str(raw_config.get("gemini_batch_work_dir") or "data/reports/gemini_batch").strip()
+    return Path(raw_value)
 
 
 def _fg_summary_max_chars(raw_config: dict[str, Any]) -> int:
@@ -1354,6 +1493,119 @@ def _insert_source_links_for_targets(
         )
 
 
+def _build_query_row_payload(
+    *,
+    synthetic_query_id: str,
+    run_context_id: str,
+    generation_method_id: str | None,
+    generation_batch_id: str | None,
+    chunk: ChunkRow,
+    generation_strategy: str,
+    query_prompt_asset: PromptAsset,
+    source_fingerprint: str,
+    target_chunk_ids: list[str],
+    answerability_type: str,
+    query_text: str,
+    query_type: str,
+    generation_asset_ids: list[str],
+    query_response: dict[str, Any],
+    extra_trace: dict[str, Any],
+    chunk_glossary_terms: list[str],
+    en_summary: str,
+    summary_ko: str,
+    translated_chunk_ko: str,
+    query_payload: dict[str, Any],
+    b_payload_limits: BQueryPayloadLimits | None,
+    fg_summary_mode: str,
+    related_chunks_ko: list[dict[str, Any]],
+    llm_provider: str,
+    llm_model: str,
+    execution_mode: str,
+) -> dict[str, Any]:
+    normalized_query_text = _normalize_query_text(query_text)
+    language_profile = _language_profile(generation_strategy, query_type)
+    query_language = "en" if generation_strategy in {"E", "F"} else "ko"
+    trace = {
+        "en_summary": en_summary,
+        "ko_summary": summary_ko,
+        "llm_execution_mode": execution_mode,
+        "b_summary_mode": "extractive" if generation_strategy == "B" else None,
+        "b_query_payload_limits": (
+            _b_query_payload_limits_dict(b_payload_limits)
+            if generation_strategy == "B"
+            else None
+        ),
+        "b_query_payload_chars": (
+            {
+                "original_chunk_en": len(query_payload.get("original_chunk_en") or ""),
+                "original_chunk_ko": len(query_payload.get("original_chunk_ko") or ""),
+                "extractive_summary_en": len(query_payload.get("extractive_summary_en") or ""),
+                "translated_chunk_ko": len(query_payload.get("translated_chunk_ko") or ""),
+                "extractive_summary_ko": len(query_payload.get("extractive_summary_ko") or ""),
+                "translated_chunk_ko_asset": len(translated_chunk_ko),
+                "extractive_summary_ko_asset": len(summary_ko),
+            }
+            if generation_strategy == "B"
+            else None
+        ),
+        "fg_summary_mode": fg_summary_mode if generation_strategy in {"F", "G"} else None,
+        "related_chunks_ko_count": len(related_chunks_ko),
+        "translated_chunk_excerpt": translated_chunk_ko[:320],
+        **extra_trace,
+    }
+    llm_meta = query_response.get("_llm_meta") if isinstance(query_response.get("_llm_meta"), dict) else {}
+    if isinstance(llm_meta.get("gemini_batch"), dict):
+        trace["gemini_batch"] = llm_meta.get("gemini_batch")
+    return {
+        "synthetic_query_id": synthetic_query_id,
+        "experiment_run_id": run_context_id,
+        "generation_method_id": generation_method_id,
+        "generation_batch_id": generation_batch_id,
+        "chunk_id_source": chunk.chunk_id,
+        "source_chunk_group_id": None,
+        "target_doc_id": chunk.document_id,
+        "target_chunk_ids": Jsonb(target_chunk_ids),
+        "answerability_type": answerability_type,
+        "query_text": query_text,
+        "normalized_query_text": normalized_query_text,
+        "query_language": query_language,
+        "language_profile": language_profile,
+        "query_type": query_type,
+        "generation_strategy": generation_strategy,
+        "prompt_asset_id": query_prompt_asset.prompt_asset_id,
+        "prompt_template_version": query_prompt_asset.version,
+        "prompt_version": query_prompt_asset.version,
+        "prompt_hash": query_prompt_asset.content_hash,
+        "source_summary": summary_ko if summary_ko else en_summary,
+        "source_fingerprint": source_fingerprint,
+        "source_chunk_ids": Jsonb(target_chunk_ids),
+        "glossary_terms": Jsonb(chunk_glossary_terms),
+        "llm_provider": llm_provider,
+        "llm_model": llm_model,
+        "generation_asset_ids": Jsonb(generation_asset_ids),
+        "llm_output": Jsonb(
+            {
+                "schema_version": "v1",
+                "response": query_response,
+                "query_type": query_type,
+                "answerability_type": answerability_type,
+                "trace": trace,
+            }
+        ),
+        "metadata": Jsonb(
+            {
+                "query_type_label": QUERY_TYPE_LABELS_KO.get(query_type, query_type),
+                "title": chunk.title,
+                "product_name": chunk.product_name,
+                "version_label": chunk.version_label,
+                "generation_batch_id": generation_batch_id,
+                "source_fingerprint": source_fingerprint,
+                "llm_execution_mode": execution_mode,
+            }
+        ),
+    }
+
+
 def _related_chunks_ko_payload(
     *,
     primary_chunk_id: str,
@@ -1381,6 +1633,706 @@ def _related_chunks_ko_payload(
     return related_chunks
 
 
+def _plan_query_items(
+    *,
+    chunks: list[ChunkRow],
+    config: ExperimentConfig,
+    strategy: str,
+    prompts: PromptBundle,
+    relations: dict[str, dict[str, list[str]]],
+    glossary_by_doc: dict[str, list[str]],
+    method_id_cache: dict[str, str | None],
+    max_total_queries: int | None,
+) -> list[PlannedQueryItem]:
+    rng = random.Random(config.random_seed)
+    planned: list[PlannedQueryItem] = []
+    for chunk in chunks:
+        if max_total_queries is not None and len(planned) >= max_total_queries:
+            break
+        chunk_glossary_terms = glossary_by_doc.get(chunk.document_id, [])[:12]
+        base_count = max(1, int(round(config.avg_queries_per_chunk + rng.uniform(-0.9, 0.9))))
+        source_fingerprint = _source_fingerprint(chunk)
+        for query_index in range(base_count):
+            if max_total_queries is not None and len(planned) >= max_total_queries:
+                break
+            query_type = _weighted_choice(rng, config.query_type_distribution)
+            answerability_type = _weighted_choice(rng, config.answerability_distribution)
+            answerability_type, target_chunk_ids = _select_answerability_target(
+                chunk,
+                answerability_type,
+                relations,
+                rng,
+            )
+            generation_strategy = _generation_strategy_for_query_type(
+                strategy,
+                query_type,
+                config.enable_code_mixed,
+            )
+            raw_table_name = _raw_table_for_strategy(generation_strategy)
+            query_prompt_asset = prompts.query_assets[generation_strategy]
+            stable_query_id = _stable_id(
+                [
+                    generation_strategy,
+                    chunk.chunk_id,
+                    source_fingerprint,
+                    query_prompt_asset.version,
+                    query_type,
+                    answerability_type,
+                    str(query_index),
+                ]
+            )
+            planned.append(
+                PlannedQueryItem(
+                    chunk=chunk,
+                    query_index=query_index,
+                    query_type=query_type,
+                    answerability_type=answerability_type,
+                    target_chunk_ids=target_chunk_ids,
+                    generation_strategy=generation_strategy,
+                    raw_table_name=raw_table_name,
+                    generation_method_id=method_id_cache.get(generation_strategy),
+                    query_prompt_asset=query_prompt_asset,
+                    query_prompt_text=prompts.query_texts[generation_strategy],
+                    stable_query_id=stable_query_id,
+                    source_fingerprint=source_fingerprint,
+                    glossary_terms_keep_english=chunk_glossary_terms,
+                )
+            )
+    return planned
+
+
+def _batch_item_mapping(items: list[GeminiBatchRequestItem]) -> list[dict[str, Any]]:
+    return [
+        {
+            "item_key": item.key,
+            **{
+                key: value
+                for key, value in item.metadata.items()
+                if key in {"chunk_id", "query_id", "purpose", "query_type", "answerability_type"}
+            },
+        }
+        for item in items
+    ]
+
+
+def _usage_details_from_gemini_usage(usage_metadata: dict[str, Any]) -> dict[str, int]:
+    mapping = {
+        "prompt_tokens": usage_metadata.get("promptTokenCount"),
+        "completion_tokens": usage_metadata.get("candidatesTokenCount"),
+        "total_tokens": usage_metadata.get("totalTokenCount"),
+    }
+    usage: dict[str, int] = {}
+    for key, value in mapping.items():
+        if isinstance(value, (int, float)) and not isinstance(value, bool):
+            usage[key] = int(value)
+    return usage
+
+
+def _batch_failure(
+    *,
+    item_key: str,
+    metadata: dict[str, Any] | None,
+    category: str,
+    message: str,
+    raw: Any | None = None,
+) -> dict[str, Any]:
+    safe_metadata = metadata or {}
+    failure = {
+        "item_key": item_key,
+        "category": category,
+        "message": message,
+    }
+    for key in ("chunk_id", "query_id", "purpose", "query_type", "answerability_type"):
+        if safe_metadata.get(key) is not None:
+            failure[key] = safe_metadata.get(key)
+    if raw is not None:
+        failure["raw"] = raw
+    return failure
+
+
+def _sanitize_batch_display_name(value: str) -> str:
+    allowed = []
+    for char in value:
+        if char.isalnum() or char in {"-", "_"}:
+            allowed.append(char)
+        else:
+            allowed.append("_")
+    return "".join(allowed).strip("_")[:96] or "query_forge_batch"
+
+
+def _create_gemini_batch_adapter(stage_config: Any) -> GeminiBatchAdapter:
+    provider = str(stage_config.provider or "").strip().lower()
+    if provider not in {"gemini", "gemini-native"}:
+        raise ValueError("gemini_batch execution requires llm provider gemini or gemini-native")
+    if "/openai" in str(stage_config.base_url or "").rstrip("/"):
+        raise ValueError("gemini_batch execution requires native Gemini API base_url, not OpenAI compatibility")
+    return GeminiBatchAdapter(
+        base_url=stage_config.base_url,
+        api_key=stage_config.api_key,
+        timeout_seconds=max(60.0, float(stage_config.timeout_seconds)),
+    )
+
+
+def _execute_gemini_batch_json_requests(
+    *,
+    adapter: GeminiBatchAdapter,
+    stage_config: Any,
+    items: list[GeminiBatchRequestItem],
+    response_schema: dict[str, Any],
+    display_name: str,
+    input_mode: str,
+    work_dir: Path,
+    poll_interval_seconds: float,
+    timeout_seconds: float,
+    request_purpose: str,
+) -> BatchJsonExecution:
+    display_name = _sanitize_batch_display_name(display_name)
+    item_mapping = _batch_item_mapping(items)
+    if not items:
+        return BatchJsonExecution(
+            job_name=None,
+            display_name=display_name,
+            input_mode=input_mode,
+            submitted_item_count=0,
+            completed_item_count=0,
+            failed_item_count=0,
+            batch_stats={},
+            item_mapping=item_mapping,
+            failures=[],
+            responses_by_key={},
+        )
+
+    jsonl_path: Path | None = None
+    if input_mode == "jsonl":
+        jsonl_path = work_dir / f"{display_name}.jsonl"
+        submitted_job = adapter.submit_jsonl(
+            model=stage_config.model,
+            items=items,
+            display_name=display_name,
+            jsonl_path=jsonl_path,
+        )
+    else:
+        submitted_job = adapter.submit_inline(
+            model=stage_config.model,
+            items=items,
+            display_name=display_name,
+        )
+    if not submitted_job.name:
+        raise GeminiBatchExecutionError("Gemini batch submission did not return a job name.")
+
+    LOGGER.info(
+        "gemini_batch_submitted purpose=%s job=%s display_name=%s input_mode=%s items=%s",
+        request_purpose,
+        submitted_job.name,
+        display_name,
+        input_mode,
+        len(items),
+    )
+    final_job = adapter.poll_job(
+        name=submitted_job.name,
+        poll_interval_seconds=poll_interval_seconds,
+        timeout_seconds=timeout_seconds,
+    )
+    if not final_job.succeeded:
+        raise GeminiBatchExecutionError(
+            f"Gemini batch job did not succeed. job={final_job.name} state={final_job.state}",
+            job=final_job,
+            failures=[
+                {
+                    "category": "batch_job_failed",
+                    "state": final_job.state,
+                    "job_name": final_job.name,
+                    "raw": final_job.raw,
+                }
+            ],
+        )
+
+    raw_results = adapter.fetch_results(job=final_job, expected_items=items)
+    item_metadata_by_key = {item.key: item.metadata for item in items}
+    expected_keys = [item.key for item in items]
+    responses_by_key: dict[str, dict[str, Any]] = {}
+    failures: list[dict[str, Any]] = []
+    seen_keys: set[str] = set()
+
+    for result in raw_results:
+        item_key = result.key
+        metadata = result.metadata or item_metadata_by_key.get(item_key, {})
+        if not item_key:
+            failures.append(
+                _batch_failure(
+                    item_key="",
+                    metadata=metadata,
+                    category="missing_item_key",
+                    message="Gemini batch result did not include an item key.",
+                    raw=result.raw,
+                )
+            )
+            continue
+        if item_key in seen_keys:
+            failures.append(
+                _batch_failure(
+                    item_key=item_key,
+                    metadata=metadata,
+                    category="duplicate_item_key",
+                    message="Gemini batch returned duplicate item key.",
+                    raw=result.raw,
+                )
+            )
+            continue
+        seen_keys.add(item_key)
+        if result.error is not None:
+            failures.append(
+                _batch_failure(
+                    item_key=item_key,
+                    metadata=metadata,
+                    category="batch_item_error",
+                    message=str(result.error.get("message") or result.error.get("status") or result.error.get("code") or "batch item failed"),
+                    raw=result.error,
+                )
+            )
+            continue
+        if result.response is None:
+            failures.append(
+                _batch_failure(
+                    item_key=item_key,
+                    metadata=metadata,
+                    category="response_missing",
+                    message="Gemini batch item had no response or error.",
+                    raw=result.raw,
+                )
+            )
+            continue
+        try:
+            parsed = parse_gemini_json_response(result.response, response_schema=response_schema)
+        except Exception as exc:  # noqa: BLE001
+            failures.append(
+                _batch_failure(
+                    item_key=item_key,
+                    metadata=metadata,
+                    category="invalid_json",
+                    message=str(exc),
+                    raw=result.response,
+                )
+            )
+            continue
+        usage_details = _usage_details_from_gemini_usage(result.usage_metadata)
+        parsed["_llm_meta"] = {
+            "provider": stage_config.provider,
+            "provider_type": "gemini-native",
+            "model": stage_config.model,
+            "fallback_used": False,
+            "structured_output_used": True,
+            "thinking_budget": stage_config.thinking_budget,
+            "retry_count": 0,
+            "request_purpose": request_purpose,
+            "trace_id": metadata.get("trace_id") or item_key,
+            "usage": usage_details,
+            "usage_metadata": result.usage_metadata,
+            "gemini_batch": {
+                "job_name": final_job.name,
+                "item_key": item_key,
+                "display_name": display_name,
+                "input_mode": input_mode,
+                "batch_stats": final_job.batch_stats,
+            },
+        }
+        responses_by_key[item_key] = parsed
+
+    for expected_key in expected_keys:
+        if expected_key not in seen_keys:
+            failures.append(
+                _batch_failure(
+                    item_key=expected_key,
+                    metadata=item_metadata_by_key.get(expected_key, {}),
+                    category="missing_batch_result",
+                    message="Gemini batch did not return a result for this item.",
+                )
+            )
+
+    execution = BatchJsonExecution(
+        job_name=final_job.name,
+        display_name=display_name,
+        input_mode=input_mode,
+        submitted_item_count=len(items),
+        completed_item_count=len(responses_by_key),
+        failed_item_count=len(failures),
+        batch_stats=final_job.batch_stats,
+        item_mapping=item_mapping,
+        failures=failures,
+        responses_by_key=responses_by_key,
+        jsonl_path=str(jsonl_path) if jsonl_path is not None else None,
+    )
+    if failures:
+        raise GeminiBatchExecutionError(
+            f"Gemini batch item failures. job={final_job.name} failures={len(failures)}/{len(items)}",
+            job=final_job,
+            failures=failures,
+        )
+    return execution
+
+
+def _batch_observability(stage: str, execution: BatchJsonExecution) -> dict[str, Any]:
+    return {
+        "stage": stage,
+        "job_name": execution.job_name,
+        "display_name": execution.display_name,
+        "input_mode": execution.input_mode,
+        "submitted_item_count": execution.submitted_item_count,
+        "completed_item_count": execution.completed_item_count,
+        "failed_item_count": execution.failed_item_count,
+        "batch_stats": execution.batch_stats,
+        "item_mapping": execution.item_mapping,
+        "failures": execution.failures,
+        "jsonl_path": execution.jsonl_path,
+    }
+
+
+def _run_strategy_b_gemini_batch(
+    *,
+    connection: psycopg.Connection[Any],
+    config: ExperimentConfig,
+    run_context_id: str,
+    prompts: PromptBundle,
+    chunks: list[ChunkRow],
+    chunks_by_id: dict[str, ChunkRow],
+    relations: dict[str, dict[str, list[str]]],
+    glossary_by_doc: dict[str, list[str]],
+    generation_batch_id: str | None,
+    method_id_cache: dict[str, str | None],
+    max_total_queries: int | None,
+    b_summary_max_chars: int,
+    b_payload_limits: BQueryPayloadLimits,
+    query_client: LlmClient,
+    translate_client: LlmClient,
+    input_mode: str,
+    poll_interval_seconds: float,
+    timeout_seconds: float,
+    work_dir: Path,
+) -> dict[str, Any]:
+    planned_items = _plan_query_items(
+        chunks=chunks,
+        config=config,
+        strategy="B",
+        prompts=prompts,
+        relations=relations,
+        glossary_by_doc=glossary_by_doc,
+        method_id_cache=method_id_cache,
+        max_total_queries=max_total_queries,
+    )
+    if any(item.generation_strategy != "B" for item in planned_items):
+        raise RuntimeError("Strategy B Gemini Batch path only supports B query items.")
+
+    asset_cache_hits: Counter[str] = Counter()
+    asset_created: Counter[str] = Counter()
+    query_type_counter: Counter[str] = Counter()
+    answerability_counter: Counter[str] = Counter()
+    generated_ids: list[str] = []
+    batch_observability: list[dict[str, Any]] = []
+
+    unique_plans_by_chunk: dict[str, PlannedQueryItem] = {}
+    for item in planned_items:
+        unique_plans_by_chunk.setdefault(item.chunk.chunk_id, item)
+
+    translation_by_chunk: dict[str, BTranslationAssetState] = {}
+    translation_batch_items: list[GeminiBatchRequestItem] = []
+    translation_item_plan: dict[str, PlannedQueryItem] = {}
+    for plan in unique_plans_by_chunk.values():
+        cached = _find_existing_asset(
+            connection,
+            chunk_id=plan.chunk.chunk_id,
+            asset_type="KO_TRANSLATED_CHUNK",
+            llm_provider=translate_client.config.provider,
+            llm_model=translate_client.config.model,
+            prompt_template_version=prompts.translate_asset.version,
+            source_fingerprint=plan.source_fingerprint,
+        )
+        if cached:
+            translation_by_chunk[plan.chunk.chunk_id] = BTranslationAssetState(
+                asset_id=cached[0],
+                translated_chunk_ko=cached[1],
+                cached=True,
+            )
+            asset_cache_hits["KO_TRANSLATED_CHUNK"] += 1
+            continue
+        item_key = f"translate:{plan.chunk.chunk_id}"
+        translation_payload = {
+            "chunk_id": plan.chunk.chunk_id,
+            "title": plan.chunk.title,
+            "chunk_text_en": plan.chunk.chunk_text,
+        }
+        translation_batch_items.append(
+            GeminiBatchRequestItem(
+                key=item_key,
+                request=build_gemini_generate_content_request(
+                    translate_client.config,
+                    system_prompt=prompts.translate_text,
+                    user_prompt=json.dumps(translation_payload, ensure_ascii=False, indent=2),
+                    response_schema=TRANSLATION_RESPONSE_SCHEMA,
+                ),
+                metadata={
+                    "purpose": "translate_chunk_en_to_ko",
+                    "chunk_id": plan.chunk.chunk_id,
+                    "trace_id": f"chunk:{plan.chunk.chunk_id}",
+                },
+            )
+        )
+        translation_item_plan[item_key] = plan
+
+    translation_execution = _execute_gemini_batch_json_requests(
+        adapter=_create_gemini_batch_adapter(translate_client.config),
+        stage_config=translate_client.config,
+        items=translation_batch_items,
+        response_schema=TRANSLATION_RESPONSE_SCHEMA,
+        display_name=f"{config.experiment_key}_b_translation",
+        input_mode=input_mode,
+        work_dir=work_dir,
+        poll_interval_seconds=poll_interval_seconds,
+        timeout_seconds=timeout_seconds,
+        request_purpose="translate_chunk_en_to_ko",
+    )
+    batch_observability.append(_batch_observability("b_translation", translation_execution))
+    for item_key, response in translation_execution.responses_by_key.items():
+        plan = translation_item_plan[item_key]
+        translated = str(response.get("translated_chunk_ko") or "").strip()
+        if not translated:
+            raise RuntimeError(f"empty translated_chunk_ko for chunk={plan.chunk.chunk_id} from Gemini batch")
+        llm_meta = response.get("_llm_meta") if isinstance(response.get("_llm_meta"), dict) else {}
+        asset_id = _create_asset(
+            connection,
+            chunk=plan.chunk,
+            asset_type="KO_TRANSLATED_CHUNK",
+            text_content=translated,
+            llm_provider=translate_client.config.provider,
+            llm_model=translate_client.config.model,
+            prompt_template_version=prompts.translate_asset.version,
+            source_fingerprint=plan.source_fingerprint,
+            metadata={
+                "source": "en_chunk",
+                "llm_execution_mode": "gemini_batch",
+                "gemini_batch": llm_meta.get("gemini_batch"),
+                "usage": llm_meta.get("usage"),
+                "usage_metadata": llm_meta.get("usage_metadata"),
+            },
+        )
+        translation_by_chunk[plan.chunk.chunk_id] = BTranslationAssetState(
+            asset_id=asset_id,
+            translated_chunk_ko=translated,
+            cached=False,
+        )
+        asset_created["KO_TRANSLATED_CHUNK"] += 1
+
+    summary_by_chunk: dict[str, BSummaryAssetState] = {}
+    for plan in unique_plans_by_chunk.values():
+        translation = translation_by_chunk.get(plan.chunk.chunk_id)
+        if translation is None:
+            raise RuntimeError(f"missing translation asset for chunk={plan.chunk.chunk_id}")
+        b_summary_source_fingerprint = _stable_id([plan.source_fingerprint, translation.asset_id])
+        summary_ko_asset_id, summary_ko, summary_ko_cached = _resolve_or_create_extractive_summary_ko(
+            connection,
+            chunk=plan.chunk,
+            source_fingerprint=b_summary_source_fingerprint,
+            prompt_asset=prompts.summary_ko_asset,
+            prompt_version_suffix="B",
+            source_text_ko=translation.translated_chunk_ko,
+            max_chars=b_summary_max_chars,
+            metadata={
+                "source_translation_asset_id": translation.asset_id,
+                "source_translation_prompt_version": prompts.translate_asset.version,
+            },
+        )
+        if summary_ko_cached:
+            asset_cache_hits["KO_SUMMARY"] += 1
+        else:
+            asset_created["KO_SUMMARY"] += 1
+        summary_by_chunk[plan.chunk.chunk_id] = BSummaryAssetState(
+            asset_id=summary_ko_asset_id,
+            summary_ko=summary_ko,
+            cached=summary_ko_cached,
+        )
+
+    reused_count = 0
+    query_batch_items: list[GeminiBatchRequestItem] = []
+    pending_by_key: dict[str, PendingBatchQueryRow] = {}
+    for plan in planned_items:
+        translation = translation_by_chunk[plan.chunk.chunk_id]
+        summary = summary_by_chunk[plan.chunk.chunk_id]
+        generation_asset_ids = [translation.asset_id, summary.asset_id]
+        if _find_cached_query(
+            connection,
+            table_name=plan.raw_table_name,
+            synthetic_query_id=plan.stable_query_id,
+            source_fingerprint=plan.source_fingerprint,
+            prompt_template_version=plan.query_prompt_asset.version,
+        ):
+            _attach_cached_query(
+                connection,
+                table_name=plan.raw_table_name,
+                synthetic_query_id=plan.stable_query_id,
+                generation_method_id=plan.generation_method_id,
+                generation_batch_id=generation_batch_id,
+                llm_provider=query_client.config.provider,
+                llm_model=query_client.config.model,
+                generation_asset_ids=generation_asset_ids,
+            )
+            _insert_source_links_for_targets(
+                connection,
+                synthetic_query_id=plan.stable_query_id,
+                primary_chunk=plan.chunk,
+                target_chunk_ids=plan.target_chunk_ids,
+                chunks_by_id=chunks_by_id,
+            )
+            reused_count += 1
+            continue
+
+        query_payload = _build_query_payload(
+            chunk=plan.chunk,
+            generation_strategy=plan.generation_strategy,
+            original_chunk_ko=plan.chunk.chunk_text,
+            related_chunks_ko=[],
+            extractive_summary_en="",
+            translated_chunk_ko=translation.translated_chunk_ko,
+            extractive_summary_ko=summary.summary_ko,
+            glossary_terms_keep_english=plan.glossary_terms_keep_english,
+            query_type=plan.query_type,
+            answerability_type=plan.answerability_type,
+            target_chunk_ids=plan.target_chunk_ids,
+            b_payload_limits=b_payload_limits,
+        )
+        item_key = f"query:{plan.stable_query_id}"
+        query_batch_items.append(
+            GeminiBatchRequestItem(
+                key=item_key,
+                request=build_gemini_generate_content_request(
+                    query_client.config,
+                    system_prompt=plan.query_prompt_text,
+                    user_prompt=json.dumps(query_payload, ensure_ascii=False, indent=2),
+                    response_schema=_query_response_schema_for_strategy("B"),
+                ),
+                metadata={
+                    "purpose": "generate_query",
+                    "chunk_id": plan.chunk.chunk_id,
+                    "query_id": plan.stable_query_id,
+                    "query_type": plan.query_type,
+                    "answerability_type": plan.answerability_type,
+                    "trace_id": f"query:{plan.stable_query_id}",
+                },
+            )
+        )
+        pending_by_key[item_key] = PendingBatchQueryRow(
+            plan=plan,
+            query_payload=query_payload,
+            generation_asset_ids=generation_asset_ids,
+            translated_chunk_ko=translation.translated_chunk_ko,
+            summary_ko=summary.summary_ko,
+            related_chunks_ko=[],
+        )
+
+    query_execution = _execute_gemini_batch_json_requests(
+        adapter=_create_gemini_batch_adapter(query_client.config),
+        stage_config=query_client.config,
+        items=query_batch_items,
+        response_schema=_query_response_schema_for_strategy("B"),
+        display_name=f"{config.experiment_key}_b_query",
+        input_mode=input_mode,
+        work_dir=work_dir,
+        poll_interval_seconds=poll_interval_seconds,
+        timeout_seconds=timeout_seconds,
+        request_purpose="generate_query",
+    )
+    batch_observability.append(_batch_observability("b_query", query_execution))
+
+    row_payloads: list[tuple[str, PlannedQueryItem, dict[str, Any]]] = []
+    empty_failures: list[dict[str, Any]] = []
+    for item_key, pending in pending_by_key.items():
+        query_response = query_execution.responses_by_key[item_key]
+        query_text, extra_trace = _extract_query_text(
+            generation_strategy=pending.plan.generation_strategy,
+            query_type=pending.plan.query_type,
+            response=query_response,
+        )
+        if not query_text:
+            empty_failures.append(
+                _batch_failure(
+                    item_key=item_key,
+                    metadata={
+                        "purpose": "generate_query",
+                        "chunk_id": pending.plan.chunk.chunk_id,
+                        "query_id": pending.plan.stable_query_id,
+                        "query_type": pending.plan.query_type,
+                        "answerability_type": pending.plan.answerability_type,
+                    },
+                    category="empty_query_text",
+                    message="Gemini batch query response did not contain query text.",
+                    raw=query_response,
+                )
+            )
+            continue
+        payload = _build_query_row_payload(
+            synthetic_query_id=pending.plan.stable_query_id,
+            run_context_id=run_context_id,
+            generation_method_id=pending.plan.generation_method_id,
+            generation_batch_id=generation_batch_id,
+            chunk=pending.plan.chunk,
+            generation_strategy=pending.plan.generation_strategy,
+            query_prompt_asset=pending.plan.query_prompt_asset,
+            source_fingerprint=pending.plan.source_fingerprint,
+            target_chunk_ids=pending.plan.target_chunk_ids,
+            answerability_type=pending.plan.answerability_type,
+            query_text=query_text,
+            query_type=pending.plan.query_type,
+            generation_asset_ids=pending.generation_asset_ids,
+            query_response=query_response,
+            extra_trace=extra_trace,
+            chunk_glossary_terms=pending.plan.glossary_terms_keep_english,
+            en_summary="",
+            summary_ko=pending.summary_ko,
+            translated_chunk_ko=pending.translated_chunk_ko,
+            query_payload=pending.query_payload,
+            b_payload_limits=b_payload_limits,
+            fg_summary_mode="llm",
+            related_chunks_ko=pending.related_chunks_ko,
+            llm_provider=query_client.config.provider,
+            llm_model=query_client.config.model,
+            execution_mode="gemini_batch",
+        )
+        row_payloads.append((pending.plan.raw_table_name, pending.plan, payload))
+    if empty_failures:
+        raise GeminiBatchExecutionError(
+            f"Gemini batch query outputs were empty. failures={len(empty_failures)}",
+            failures=empty_failures,
+        )
+
+    generated_count = 0
+    skipped_empty_count = 0
+    for raw_table_name, plan, payload in row_payloads:
+        _insert_query_row(connection, table_name=raw_table_name, payload=payload)
+        _insert_source_links_for_targets(
+            connection,
+            synthetic_query_id=plan.stable_query_id,
+            primary_chunk=plan.chunk,
+            target_chunk_ids=plan.target_chunk_ids,
+            chunks_by_id=chunks_by_id,
+        )
+        generated_count += 1
+        query_type_counter[plan.query_type] += 1
+        answerability_counter[plan.answerability_type] += 1
+        if len(generated_ids) < 20:
+            generated_ids.append(plan.stable_query_id)
+
+    return {
+        "planned_queries": len(planned_items),
+        "generated_queries": generated_count,
+        "reused_queries": reused_count,
+        "skipped_empty_queries": skipped_empty_count,
+        "query_type_distribution": dict(query_type_counter),
+        "answerability_distribution": dict(answerability_counter),
+        "asset_created": dict(asset_created),
+        "asset_cache_hits": dict(asset_cache_hits),
+        "preview_query_ids": generated_ids,
+        "gemini_batch": batch_observability,
+    }
+
+
 def run_generation(
     *,
     experiment: str,
@@ -1397,6 +2349,9 @@ def run_generation(
     strategy = config.generation_strategy.strip().upper()
     b_summary_max_chars = _b_summary_max_chars(config.raw) if strategy == "B" else B_DEFAULT_SUMMARY_MAX_CHARS
     b_payload_limits = _b_query_payload_limits(config.raw) if strategy == "B" else None
+    llm_execution_mode = _llm_execution_mode(config.raw)
+    if llm_execution_mode == "gemini_batch" and strategy != "B":
+        raise ValueError("llm_execution_mode=gemini_batch is currently supported only for Strategy B")
     fg_summary_mode = _fg_summary_mode(config.raw) if strategy in {"F", "G"} else "llm"
     fg_summary_max_chars = (
         _fg_summary_max_chars(config.raw)
@@ -1436,6 +2391,12 @@ def run_generation(
                 "source_ids": config.raw.get("source_ids"),
                 "source_document_id": config.raw.get("source_document_id"),
                 "random_chunk_sampling": bool(config.raw.get("random_chunk_sampling", False)),
+                "llm_execution_mode": llm_execution_mode,
+                "gemini_batch_input_mode": (
+                    _gemini_batch_input_mode(config.raw)
+                    if llm_execution_mode == "gemini_batch"
+                    else None
+                ),
                 "b_summary_mode": "extractive" if strategy == "B" else None,
                 "b_summary_max_chars": b_summary_max_chars if strategy == "B" else None,
                 "b_query_payload_limits": (
@@ -1518,6 +2479,89 @@ def run_generation(
         max_total_queries = int(max_total_queries) if max_total_queries is not None else None
         if max_total_queries is not None and max_total_queries <= 0:
             max_total_queries = None
+
+        if llm_execution_mode == "gemini_batch":
+            if b_payload_limits is None:
+                raise RuntimeError("Strategy B batch execution requires B payload limits.")
+            batch_result = _run_strategy_b_gemini_batch(
+                connection=connection,
+                config=config,
+                run_context_id=run_context.experiment_run_id,
+                prompts=prompts,
+                chunks=chunks,
+                chunks_by_id=chunks_by_id,
+                relations=relations,
+                glossary_by_doc=glossary_by_doc,
+                generation_batch_id=generation_batch_id,
+                method_id_cache=method_id_cache,
+                max_total_queries=max_total_queries,
+                b_summary_max_chars=b_summary_max_chars,
+                b_payload_limits=b_payload_limits,
+                query_client=query_client,
+                translate_client=translate_client,
+                input_mode=_gemini_batch_input_mode(config.raw),
+                poll_interval_seconds=_gemini_batch_poll_interval_seconds(config.raw),
+                timeout_seconds=_gemini_batch_timeout_seconds(config.raw),
+                work_dir=_gemini_batch_work_dir(config.raw),
+            )
+            summary = {
+                "experiment_key": config.experiment_key,
+                "experiment_run_id": run_context.experiment_run_id,
+                "generation_strategy": strategy,
+                "source_id": source_id,
+                "source_ids": source_ids,
+                "source_document_id": source_document_id,
+                "max_total_queries": max_total_queries,
+                "random_chunk_sampling": random_chunk_sampling,
+                "relation_source_chunks_loaded": len(relations),
+                "glossary_documents_loaded": len(glossary_by_doc),
+                "llm_execution_mode": llm_execution_mode,
+                "gemini_batch_input_mode": _gemini_batch_input_mode(config.raw),
+                "b_summary_mode": "extractive",
+                "b_summary_max_chars": b_summary_max_chars,
+                "b_query_payload_limits": _b_query_payload_limits_dict(b_payload_limits),
+                "fg_summary_mode": fg_summary_mode,
+                "fg_summary_max_chars": fg_summary_max_chars,
+                "llm": {
+                    "summary": {
+                        "provider": summary_client.config.provider,
+                        "model": summary_client.config.model,
+                    },
+                    "query": {
+                        "provider": query_client.config.provider,
+                        "model": query_client.config.model,
+                    },
+                    "translation": {
+                        "provider": translate_client.config.provider,
+                        "model": translate_client.config.model,
+                    },
+                },
+                "prompt_assets": {
+                    "summary_en": {
+                        "id": prompts.summary_en_asset.prompt_name,
+                        "version": prompts.summary_en_asset.version,
+                        "hash": prompts.summary_en_asset.content_hash,
+                        "asset_id": prompts.summary_en_asset.prompt_asset_id,
+                    },
+                    "summary_ko": {
+                        "id": prompts.summary_ko_asset.prompt_name,
+                        "version": prompts.summary_ko_asset.version,
+                        "hash": prompts.summary_ko_asset.content_hash,
+                        "asset_id": prompts.summary_ko_asset.prompt_asset_id,
+                    },
+                    "translate": {
+                        "id": prompts.translate_asset.prompt_name,
+                        "version": prompts.translate_asset.version,
+                        "hash": prompts.translate_asset.content_hash,
+                        "asset_id": prompts.translate_asset.prompt_asset_id,
+                    },
+                },
+                "chunks_processed": len(chunks),
+                **batch_result,
+            }
+            recorder.finish_run(run_context, status="completed", metrics=summary)
+            connection.commit()
+            return summary
 
         for chunk_index, chunk in enumerate(chunks):
             if max_total_queries is not None and generated_count >= max_total_queries:
@@ -1856,6 +2900,7 @@ def run_generation(
             "random_chunk_sampling": random_chunk_sampling,
             "relation_source_chunks_loaded": len(relations),
             "glossary_documents_loaded": len(glossary_by_doc),
+            "llm_execution_mode": llm_execution_mode,
             "b_summary_mode": "extractive" if strategy == "B" else None,
             "b_summary_max_chars": b_summary_max_chars if strategy == "B" else None,
             "b_query_payload_limits": _b_query_payload_limits_dict(b_payload_limits) if strategy == "B" else None,

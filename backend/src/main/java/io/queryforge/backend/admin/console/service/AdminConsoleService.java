@@ -68,7 +68,7 @@ public class AdminConsoleService {
     private static final String RETRIEVER_MODE_DENSE_ONLY = "dense_only";
     private static final String RETRIEVER_MODE_HYBRID = "hybrid";
     private static final String DEFAULT_LLM_MODEL = "gemini-2.5-flash-lite";
-    private static final String DEFAULT_LLM_FALLBACK_MODEL = "gemini-2.5-flash";
+    private static final String DEFAULT_LLM_FALLBACK_MODEL = "gemini-2.5-flash-lite";
     private static final int STRATEGY_B_TRANSLATION_MAX_OUTPUT_TOKENS = 2048;
     private static final int STRATEGY_B_SUMMARY_MAX_CHARS = 900;
     private static final int STRATEGY_B_QUERY_ORIGINAL_CHUNK_MAX_CHARS = 1800;
@@ -86,6 +86,10 @@ public class AdminConsoleService {
     private static final double DEFAULT_RAG_HYBRID_TECHNICAL_WEIGHT = 0.08d;
     private static final String VECTOR_STORE_POSTGRESQL_PGVECTOR = "postgresql-pgvector";
     private static final int MAX_RAG_RUN_LABEL_LENGTH = 120;
+    private static final String LLM_EXECUTION_MODE_ONLINE = "online";
+    private static final String LLM_EXECUTION_MODE_GEMINI_BATCH = "gemini_batch";
+    private static final String GEMINI_BATCH_INPUT_MODE_INLINE = "inline";
+    private static final String GEMINI_BATCH_INPUT_MODE_JSONL = "jsonl";
     private static final Set<String> ALL_METHOD_CODES = Set.of("A", "B", "C", "D", "E", "F", "G");
     private static final Set<String> SPRING_TECHDOC_METHOD_CODES = Set.of("A", "B", "C", "D", "E");
     private static final Set<String> PYTHON_KR_METHOD_CODES = Set.of("F", "G");
@@ -345,6 +349,7 @@ public class AdminConsoleService {
         if (request.llmRpm() != null) {
             config.put("llm_rpm", clampRange(request.llmRpm(), 1, 1000, "llm_rpm"));
         }
+        applySyntheticExecutionMode(config, methodCode, request.llmExecutionMode(), request.geminiBatchInputMode());
         applySyntheticGenerationStrategyDefaults(config, methodCode);
 
         UUID batchId = repository.createGenerationBatch(
@@ -2486,6 +2491,58 @@ public class AdminConsoleService {
         config.put("llm_query_model", llmModel);
         config.put("llm_self_eval_model", llmModel);
         config.put("llm_rewrite_model", llmModel);
+    }
+
+    private void applySyntheticExecutionMode(
+            Map<String, Object> config,
+            String methodCode,
+            String requestedExecutionMode,
+            String requestedGeminiBatchInputMode
+    ) {
+        String executionMode = normalizeExecutionMode(requestedExecutionMode);
+        String batchInputMode = normalizeGeminiBatchInputMode(requestedGeminiBatchInputMode);
+        if (executionMode == null) {
+            if (batchInputMode != null) {
+                throw new IllegalArgumentException("gemini_batch_input_mode requires llm_execution_mode=gemini_batch");
+            }
+            return;
+        }
+        if (LLM_EXECUTION_MODE_ONLINE.equals(executionMode)) {
+            if (batchInputMode != null) {
+                throw new IllegalArgumentException("gemini_batch_input_mode is only valid with llm_execution_mode=gemini_batch");
+            }
+            config.put("llm_execution_mode", LLM_EXECUTION_MODE_ONLINE);
+            return;
+        }
+        if (!"B".equalsIgnoreCase(methodCode)) {
+            throw new IllegalArgumentException("llm_execution_mode=gemini_batch is currently supported only for Strategy B");
+        }
+        config.put("llm_execution_mode", LLM_EXECUTION_MODE_GEMINI_BATCH);
+        config.put("gemini_batch_input_mode", batchInputMode == null ? GEMINI_BATCH_INPUT_MODE_INLINE : batchInputMode);
+    }
+
+    private String normalizeExecutionMode(String value) {
+        String normalized = blankToNull(value);
+        if (normalized == null) {
+            return null;
+        }
+        normalized = normalized.toLowerCase(Locale.ROOT).replace("-", "_");
+        if (!List.of(LLM_EXECUTION_MODE_ONLINE, LLM_EXECUTION_MODE_GEMINI_BATCH).contains(normalized)) {
+            throw new IllegalArgumentException("llm_execution_mode must be one of: online, gemini_batch");
+        }
+        return normalized;
+    }
+
+    private String normalizeGeminiBatchInputMode(String value) {
+        String normalized = blankToNull(value);
+        if (normalized == null) {
+            return null;
+        }
+        normalized = normalized.toLowerCase(Locale.ROOT).replace("-", "_");
+        if (!List.of(GEMINI_BATCH_INPUT_MODE_INLINE, GEMINI_BATCH_INPUT_MODE_JSONL).contains(normalized)) {
+            throw new IllegalArgumentException("gemini_batch_input_mode must be one of: inline, jsonl");
+        }
+        return normalized;
     }
 
     private void applySyntheticGenerationStrategyDefaults(Map<String, Object> config, String methodCode) {

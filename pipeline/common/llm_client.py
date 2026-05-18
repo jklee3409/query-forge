@@ -436,6 +436,7 @@ class LlmClient:
                     "fallback_used": False,
                     "request_purpose": request_purpose,
                     "trace_id": trace_id,
+                    "usage": {},
                 },
             }
 
@@ -473,6 +474,7 @@ class LlmClient:
                     "capability": asdict(capability),
                     "request_purpose": request_purpose,
                     "trace_id": trace_id,
+                    "usage": usage_details,
                 }
                 self._langfuse_observer.log_success(
                     record=LlmTraceRecord(
@@ -1421,9 +1423,8 @@ def _default_model(provider: str) -> str:
 
 def _default_fallback_models(provider: str, model: str) -> tuple[str, ...]:
     normalized = _normalize_provider_name(provider)
-    normalized_model = (model or "").strip().lower()
-    if normalized in {"gemini", "gemini-native"} and normalized_model == "gemini-2.5-flash-lite":
-        return ("gemini-2.5-flash",)
+    if normalized in {"gemini", "gemini-native"}:
+        return ("gemini-2.5-flash-lite",)
     return ()
 
 

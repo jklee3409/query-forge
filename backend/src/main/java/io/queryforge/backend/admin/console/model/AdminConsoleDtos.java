@@ -104,6 +104,8 @@ public final class AdminConsoleDtos {
             Boolean randomChunkSampling,
             String llmModel,
             Integer llmRpm,
+            String llmExecutionMode,
+            String geminiBatchInputMode,
             String createdBy
     ) {
     }

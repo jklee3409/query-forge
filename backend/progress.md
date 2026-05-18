@@ -3,6 +3,18 @@
 ## Overview
 High-level backend progress tracking.
 
+## [2026-05-18] Session Summary (Strategy B Gemini Batch Opt-In)
+- What was done: Added optional Admin synthetic request fields `llmExecutionMode` and `geminiBatchInputMode`, writing `llm_execution_mode=gemini_batch` and `gemini_batch_input_mode` only when explicitly requested.
+- Key decisions: Restricted Gemini Batch mode to Strategy B and left Admin-generated configs online by default; B safe defaults and split raw tables were unchanged.
+- Issues encountered: None in backend validation.
+- Next steps: Use the opt-in fields only for a tiny live B batch smoke after fake/unit coverage.
+
+## [2026-05-18] Session Summary (Gemini Flash-Lite Fallback Pin)
+- What was done: Pinned Admin-generated LLM fallback configs to `gemini-2.5-flash-lite` so Strategy B scale-up batches do not silently use the higher-cost `gemini-2.5-flash` fallback path.
+- Key decisions: Kept the primary default model unchanged and scoped the change to fallback model selection; Strategy B safe defaults, split raw tables, and fixed pipeline order were unchanged.
+- Issues encountered: None during implementation.
+- Next steps: Verify the generated Admin experiment YAML contains `llm_fallback_models: gemini-2.5-flash-lite` before larger B runs.
+
 ## [2026-05-15] Session Summary (Strategy B Admin Runtime Smoke)
 - What was done: Verified Strategy B Admin generation from the live API. A stale 8080 backend produced an Admin config without the B-only defaults and hit translation `max_tokens_truncated`; after starting a current-code backend on 8081, a one-source smoke completed with one B row and an all-allowed-sources smoke completed with two B rows.
 - Key decisions: Confirmed current Admin configs include `llm_translation_max_output_tokens=2048`, `b_summary_max_chars=900`, and B query payload bounds; all-allowed-sources creates one batch/job with `source_ids` for the five Spring reference sources.

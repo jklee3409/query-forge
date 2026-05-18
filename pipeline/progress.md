@@ -3,6 +3,18 @@
 ## Overview
 High-level pipeline progress tracking.
 
+## [2026-05-18] Session Summary (Strategy B Gemini Batch API Support)
+- What was done: Added `common/gemini_batch.py`, persisted online `_llm_meta.usage`, and implemented Strategy B `llm_execution_mode=gemini_batch` as `translation batch -> deterministic KO summary -> query batch`.
+- Key decisions: Kept online mode as the default, kept `llm_batch_size` as DB commit cadence only, submitted only cache misses, and failed observably on partial batch item errors instead of inserting incomplete lineage.
+- Issues encountered: Live Gemini Batch was not exercised; adapter and generator paths were validated with fake/unit tests.
+- Next steps: Run a tiny live Strategy B batch smoke and inspect batch job metadata, per-item usage, asset lineage, and `synthetic_queries_raw_b` rows before larger runs.
+
+## [2026-05-18] Session Summary (Gemini Flash-Lite Fallback Pin)
+- What was done: Updated `common/llm_client.py` so Gemini default fallback models resolve to `gemini-2.5-flash-lite` instead of escalating Flash-Lite primary calls to `gemini-2.5-flash`.
+- Key decisions: Preserved retry/fallback mechanics and provider routing; same-model fallback targets are still skipped by the existing resolver, so Flash-Lite primary calls do not perform duplicate fallback calls.
+- Issues encountered: None during implementation.
+- Next steps: Use this cost guard together with gradual Strategy B batch scale-up and token-usage inspection before any 1000-query run.
+
 ## [2026-05-15] Session Summary (Strategy B Admin Path Validation)
 - What was done: Validated the Strategy B generator through Admin-created experiment configs. Current-code one-source and all-allowed-sources runs completed with B rows only in `synthetic_queries_raw_b`, query-only LLM responses, KO translation assets, deterministic KO summary assets, and populated B payload-limit/char traces.
 - Key decisions: Treated `original_chunk_ko` and `extractive_summary_en` trace values of `0` as the expected B payload semantics; source summaries remained bounded deterministic KO summaries (`v2:B:extractive:max900` in Admin runs).

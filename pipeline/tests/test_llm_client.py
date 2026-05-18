@@ -110,6 +110,24 @@ class LlmClientTest(unittest.TestCase):
         self.assertEqual(call_json.get("response_format", {}).get("type"), "json_object")
 
     @patch("pipeline.common.llm_client.requests.post")
+    def test_usage_metadata_is_persisted_in_llm_meta(self, mock_post) -> None:
+        mock_post.return_value = _FakeResponse(
+            status_code=200,
+            body={
+                "choices": [{"message": {"content": json.dumps({"query_ko": "usage"}, ensure_ascii=False)}}],
+                "usage": {"prompt_tokens": 7, "completion_tokens": 5, "total_tokens": 12},
+            },
+        )
+        client = llm_client.LlmClient(_config())
+
+        response = client.chat_json(system_prompt="system", user_prompt="{}", response_schema=None)
+
+        self.assertEqual(
+            response["_llm_meta"]["usage"],
+            {"prompt_tokens": 7, "completion_tokens": 5, "total_tokens": 12},
+        )
+
+    @patch("pipeline.common.llm_client.requests.post")
     def test_json_field_missing(self, mock_post) -> None:
         mock_post.return_value = _openai_success({"wrong_field": "value"})
         client = llm_client.LlmClient(_config(max_retries=0))
@@ -185,6 +203,29 @@ class LlmClientTest(unittest.TestCase):
         self.assertEqual(response["query_ko"], "fallback 성공")
         self.assertTrue(response["_llm_meta"]["fallback_used"])
         self.assertEqual(response["_llm_meta"]["provider"], "openai")
+
+    def test_gemini_default_fallback_is_fixed_to_flash_lite(self) -> None:
+        self.assertEqual(
+            llm_client._default_fallback_models("gemini", "gemini-2.5-flash-lite"),
+            ("gemini-2.5-flash-lite",),
+        )
+        self.assertEqual(
+            llm_client._default_fallback_models("gemini-native", "gemini-2.5-flash"),
+            ("gemini-2.5-flash-lite",),
+        )
+
+    def test_same_gemini_fallback_model_is_not_called_as_fallback(self) -> None:
+        client = llm_client.LlmClient(
+            _config(
+                provider="gemini",
+                model="gemini-2.5-flash-lite",
+                base_url="https://generativelanguage.googleapis.com/v1beta",
+                api_key="gemini-key",
+                fallback_models=("gemini-2.5-flash-lite",),
+            )
+        )
+
+        self.assertEqual(client._resolve_fallback_targets(), [])
 
     @patch("pipeline.common.llm_client.requests.post")
     def test_http_400_fail_fast(self, mock_post) -> None:

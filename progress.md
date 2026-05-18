@@ -1,5 +1,17 @@
 # progress.md
 
+## [2026-05-18] Session Summary (Strategy B Gemini Batch API Path)
+- What was done: Added a disabled-by-default Gemini Batch API execution path for Strategy B synthetic generation with two stages: translation cache misses via batch, then query cache misses via batch after deterministic KO summaries are materialized.
+- Key decisions: Preserved fixed pipeline order, Strategy B query-only output, split raw-table writes to `synthetic_queries_raw_b`, prompt asset cache keys, and generation asset lineage. Batch mode is opt-in through `llm_execution_mode=gemini_batch` and records job/item usage metadata when available.
+- Issues encountered: No live Gemini batch smoke was run in this session; validation used fake/unit tests plus targeted backend integration tests.
+- Next steps: Run a tiny live B batch smoke before scaling toward any 1000-query batch.
+
+## [2026-05-18] Session Summary (Strategy B Cost Guard)
+- What was done: Pinned Gemini fallback selection to `gemini-2.5-flash-lite` in both Admin-generated configs and the Python LLM client default fallback path.
+- Key decisions: Preserved the Strategy B research contract, split raw-table storage, prompt asset caching, generation asset lineage, and fixed pipeline order. The change only prevents silent fallback from Flash-Lite to higher-cost Flash during large synthetic-generation batches.
+- Issues encountered: None during implementation.
+- Next steps: Design the Gemini Batch API integration as a separate 2-stage path (`translation batch -> query batch`) so lineage and B query-only output semantics remain intact while targeting lower token cost.
+
 ## [2026-05-15] Session Summary (Strategy B Admin Smoke Verification)
 - What was done: Ran Strategy B generation through the Admin job path after confirming the pre-existing 8080 backend was stale. A stale 8080 smoke reproduced the missing translation-cap failure (`max_tokens_truncated`) and was cancelled; a fresh current-code backend on 8081 completed both a one-source/one-query B smoke and a two-query all-allowed-sources B smoke.
 - Key decisions: Verified current Admin-generated B configs persist `llm_translation_max_output_tokens=2048` and B payload/summary bounds, and verified all-allowed-sources uses one batch with the five Spring `source_ids`.

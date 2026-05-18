@@ -1,23 +1,144 @@
 from __future__ import annotations
 
 import unittest
+from pathlib import Path
+from unittest.mock import patch
 
+from pipeline.common.experiment_config import ExperimentConfig
+from pipeline.common.gemini_batch import GeminiBatchExecutionError
+from pipeline.common.gemini_batch import GeminiBatchJob
+from pipeline.common.gemini_batch import GeminiBatchRequestItem
+from pipeline.common.gemini_batch import GeminiBatchResult
+from pipeline.common.llm_client import LlmStageConfig
+from pipeline.common.local_retriever import RetrieverConfig
+from pipeline.common.prompt_assets import PromptAsset
 from pipeline.common.llm_client import _validate_json_schema
+from pipeline.generation.synthetic_query_generator import BatchJsonExecution
 from pipeline.generation.synthetic_query_generator import ChunkRow
+from pipeline.generation.synthetic_query_generator import PromptBundle
 from pipeline.generation.synthetic_query_generator import _b_summary_max_chars
 from pipeline.generation.synthetic_query_generator import _b_query_payload_limits
 from pipeline.generation.synthetic_query_generator import _build_query_payload
 from pipeline.generation.synthetic_query_generator import _extract_query_text
+from pipeline.generation.synthetic_query_generator import _gemini_batch_input_mode
 from pipeline.generation.synthetic_query_generator import _generation_strategy_for_query_type
 from pipeline.generation.synthetic_query_generator import _is_max_tokens_truncation_error
 from pipeline.generation.synthetic_query_generator import _deterministic_summary_template_version
 from pipeline.generation.synthetic_query_generator import _bounded_query_evidence_text
 from pipeline.generation.synthetic_query_generator import _compact_ko_evidence_summary
+from pipeline.generation.synthetic_query_generator import _execute_gemini_batch_json_requests
+from pipeline.generation.synthetic_query_generator import _llm_execution_mode
 from pipeline.generation.synthetic_query_generator import _primary_chunk_text
 from pipeline.generation.synthetic_query_generator import _query_response_schema_for_strategy
 from pipeline.generation.synthetic_query_generator import _requires_en_summary_asset
+from pipeline.generation.synthetic_query_generator import _run_strategy_b_gemini_batch
 from pipeline.generation.synthetic_query_generator import _summary_source_text_candidates
 from pipeline.generation.synthetic_query_generator import _summary_max_tokens_for_strategy
+
+
+def _prompt_asset(name: str, *, version: str = "v1") -> PromptAsset:
+    return PromptAsset(
+        prompt_family="test",
+        prompt_name=name,
+        version=version,
+        content_path=f"{name}.md",
+        content_hash=f"hash-{name}",
+        metadata={},
+        prompt_asset_id=f"asset-{name}",
+    )
+
+
+def _prompt_bundle() -> PromptBundle:
+    query_assets = {strategy: _prompt_asset(f"gen_{strategy.lower()}") for strategy in ("A", "B", "C", "D", "E", "F", "G")}
+    return PromptBundle(
+        summary_en_asset=_prompt_asset("summary_en"),
+        summary_en_text="summary en prompt",
+        summary_ko_asset=_prompt_asset("summary_ko", version="v2"),
+        summary_ko_text="summary ko prompt",
+        translate_asset=_prompt_asset("translate", version="v3"),
+        translate_text="translate prompt",
+        query_assets=query_assets,
+        query_texts={strategy: f"query prompt {strategy}" for strategy in query_assets},
+    )
+
+
+def _experiment_config_for_b(*, query_type: str = "procedure", enable_code_mixed: bool = False) -> ExperimentConfig:
+    return ExperimentConfig(
+        experiment_key="test_b_batch",
+        category="test",
+        description="test",
+        generation_strategy="B",
+        enable_code_mixed=enable_code_mixed,
+        enable_rule_filter=True,
+        enable_llm_self_eval=True,
+        enable_retrieval_utility=True,
+        enable_diversity=True,
+        enable_anti_copy=True,
+        memory_top_n=5,
+        rewrite_candidate_count=3,
+        rewrite_threshold=0.1,
+        retrieval_top_k=10,
+        rerank_top_n=5,
+        use_session_context=False,
+        avg_queries_per_chunk=1.0,
+        query_type_distribution={query_type: 1.0},
+        answerability_distribution={"single": 1.0},
+        gating_preset="full_gating",
+        retrieval_utility_weights={},
+        gating_weights={},
+        final_score_threshold=0.75,
+        utility_threshold=0.7,
+        random_seed=31,
+        diversity_threshold_same_chunk=0.93,
+        diversity_threshold_same_doc=0.96,
+        limit_chunks=None,
+        retriever_config=RetrieverConfig(dense_embedding_required=False),
+        rewrite_adoption_policy={},
+        config_path=Path("test.yaml"),
+        raw={},
+    )
+
+
+def _chunk() -> ChunkRow:
+    return ChunkRow(
+        chunk_id="chunk-1",
+        document_id="doc-1",
+        chunk_text="English source chunk about Spring configuration.",
+        title="Config",
+        product_name="Spring Boot",
+        version_label="3.x",
+        content_checksum="content",
+        cleaned_checksum="cleaned",
+    )
+
+
+def _stage_config() -> LlmStageConfig:
+    return LlmStageConfig(
+        provider="gemini-native",
+        base_url="https://generativelanguage.googleapis.com/v1beta",
+        api_key="test-key",
+        model="gemini-2.5-flash-lite",
+        temperature=0.2,
+        max_tokens=128,
+        timeout_seconds=5.0,
+        min_interval_seconds=0.0,
+        tokens_per_minute=0,
+        requests_per_day=0,
+        chars_per_token=2.2,
+        max_retries=0,
+        backoff_initial_seconds=0.1,
+        backoff_max_seconds=0.2,
+        backoff_multiplier=2.0,
+        backoff_jitter_ratio=0.0,
+        fallback_models=(),
+        thinking_budget=0,
+        concurrency_limit=1,
+    )
+
+
+class _FakeClient:
+    def __init__(self) -> None:
+        self.config = _stage_config()
 
 
 class SyntheticQueryGeneratorSchemaTests(unittest.TestCase):
@@ -328,6 +449,206 @@ class SyntheticQueryGeneratorSchemaTests(unittest.TestCase):
         self.assertEqual(ko_query, "D ko query")
         self.assertEqual(ko_trace.get("query_ko"), "D ko query")
         self.assertEqual(ko_trace.get("query_code_mixed"), "D code mixed query")
+
+    def test_batch_mode_config_is_explicit_opt_in(self) -> None:
+        self.assertEqual(_llm_execution_mode({}), "online")
+        self.assertEqual(_llm_execution_mode({"gemini_batch_enabled": True}), "gemini_batch")
+        self.assertEqual(_llm_execution_mode({"llm_execution_mode": "gemini_batch"}), "gemini_batch")
+        self.assertEqual(_gemini_batch_input_mode({}), "inline")
+        self.assertEqual(_gemini_batch_input_mode({"gemini_batch_input_mode": "jsonl"}), "jsonl")
+
+    def test_partial_batch_failure_is_observable_and_raises(self) -> None:
+        class _Adapter:
+            def submit_inline(self, **_kwargs):
+                return GeminiBatchJob(name="batches/failed", state="BATCH_STATE_PENDING", raw={})
+
+            def poll_job(self, **_kwargs):
+                return GeminiBatchJob(name="batches/failed", state="BATCH_STATE_SUCCEEDED", raw={})
+
+            def fetch_results(self, **_kwargs):
+                return [
+                    GeminiBatchResult(
+                        key="query:1",
+                        metadata={"key": "query:1", "query_id": "q1", "purpose": "generate_query"},
+                        response=None,
+                        error={"code": 13, "message": "internal"},
+                        raw={"error": {"code": 13, "message": "internal"}},
+                    )
+                ]
+
+        with self.assertRaises(GeminiBatchExecutionError) as raised:
+            _execute_gemini_batch_json_requests(
+                adapter=_Adapter(),
+                stage_config=_stage_config(),
+                items=[
+                    GeminiBatchRequestItem(
+                        key="query:1",
+                        request={"contents": []},
+                        metadata={"query_id": "q1", "purpose": "generate_query"},
+                    )
+                ],
+                response_schema=_query_response_schema_for_strategy("B"),
+                display_name="partial_failure",
+                input_mode="inline",
+                work_dir=Path("tmp"),
+                poll_interval_seconds=1,
+                timeout_seconds=60,
+                request_purpose="generate_query",
+            )
+
+        self.assertEqual(raised.exception.failures[0]["category"], "batch_item_error")
+        self.assertEqual(raised.exception.failures[0]["query_id"], "q1")
+
+    def test_b_batch_translation_cache_hit_skips_translation_submission_and_preserves_query_lineage(self) -> None:
+        chunk = _chunk()
+
+        def fake_execute(**kwargs):
+            self.assertEqual(kwargs["items"], [])
+            return BatchJsonExecution(
+                job_name=None,
+                display_name=kwargs["display_name"],
+                input_mode=kwargs["input_mode"],
+                submitted_item_count=0,
+                completed_item_count=0,
+                failed_item_count=0,
+                batch_stats={},
+                item_mapping=[],
+                failures=[],
+                responses_by_key={},
+            )
+
+        with patch(
+            "pipeline.generation.synthetic_query_generator._find_existing_asset",
+            return_value=("translation-asset", "translated chunk"),
+        ), patch(
+            "pipeline.generation.synthetic_query_generator._resolve_or_create_extractive_summary_ko",
+            return_value=("summary-asset", "summary", False),
+        ), patch(
+            "pipeline.generation.synthetic_query_generator._find_cached_query",
+            return_value=True,
+        ), patch(
+            "pipeline.generation.synthetic_query_generator._execute_gemini_batch_json_requests",
+            side_effect=fake_execute,
+        ), patch(
+            "pipeline.generation.synthetic_query_generator._create_gemini_batch_adapter",
+            return_value=object(),
+        ), patch(
+            "pipeline.generation.synthetic_query_generator._attach_cached_query"
+        ) as attach_cached, patch(
+            "pipeline.generation.synthetic_query_generator._insert_source_links_for_targets"
+        ):
+            result = _run_strategy_b_gemini_batch(
+                connection=object(),
+                config=_experiment_config_for_b(),
+                run_context_id="run-1",
+                prompts=_prompt_bundle(),
+                chunks=[chunk],
+                chunks_by_id={chunk.chunk_id: chunk},
+                relations={},
+                glossary_by_doc={},
+                generation_batch_id="batch-1",
+                method_id_cache={"B": "method-b"},
+                max_total_queries=1,
+                b_summary_max_chars=900,
+                b_payload_limits=_b_query_payload_limits({}),
+                query_client=_FakeClient(),
+                translate_client=_FakeClient(),
+                input_mode="inline",
+                poll_interval_seconds=1,
+                timeout_seconds=60,
+                work_dir=Path("tmp"),
+            )
+
+        self.assertEqual(result["generated_queries"], 0)
+        self.assertEqual(result["reused_queries"], 1)
+        self.assertEqual(result["asset_cache_hits"]["KO_TRANSLATED_CHUNK"], 1)
+        attach_cached.assert_called_once()
+        self.assertEqual(
+            attach_cached.call_args.kwargs["generation_asset_ids"],
+            ["translation-asset", "summary-asset"],
+        )
+
+    def test_b_batch_code_mixed_query_still_inserts_into_raw_b(self) -> None:
+        chunk = _chunk()
+
+        def fake_execute(**kwargs):
+            responses_by_key = {}
+            for item in kwargs["items"]:
+                if item.key.startswith("query:"):
+                    responses_by_key[item.key] = {
+                        "query_ko": "code mixed query",
+                        "query_type": "code_mixed",
+                        "answerability_type": "single",
+                        "_llm_meta": {
+                            "gemini_batch": {"job_name": "batches/query", "item_key": item.key},
+                            "usage": {"total_tokens": 11},
+                        },
+                    }
+            return BatchJsonExecution(
+                job_name="batches/query" if responses_by_key else None,
+                display_name=kwargs["display_name"],
+                input_mode=kwargs["input_mode"],
+                submitted_item_count=len(kwargs["items"]),
+                completed_item_count=len(responses_by_key),
+                failed_item_count=0,
+                batch_stats={},
+                item_mapping=[],
+                failures=[],
+                responses_by_key=responses_by_key,
+            )
+
+        inserted_tables: list[str] = []
+
+        def fake_insert_query_row(_connection, *, table_name, payload):
+            inserted_tables.append(table_name)
+            response = payload["llm_output"].obj["response"]
+            self.assertEqual(set(response.keys()), {"query_ko", "query_type", "answerability_type", "_llm_meta"})
+
+        with patch(
+            "pipeline.generation.synthetic_query_generator._find_existing_asset",
+            return_value=("translation-asset", "translated chunk"),
+        ), patch(
+            "pipeline.generation.synthetic_query_generator._resolve_or_create_extractive_summary_ko",
+            return_value=("summary-asset", "summary", False),
+        ), patch(
+            "pipeline.generation.synthetic_query_generator._find_cached_query",
+            return_value=False,
+        ), patch(
+            "pipeline.generation.synthetic_query_generator._execute_gemini_batch_json_requests",
+            side_effect=fake_execute,
+        ), patch(
+            "pipeline.generation.synthetic_query_generator._create_gemini_batch_adapter",
+            return_value=object(),
+        ), patch(
+            "pipeline.generation.synthetic_query_generator._insert_query_row",
+            side_effect=fake_insert_query_row,
+        ), patch(
+            "pipeline.generation.synthetic_query_generator._insert_source_links_for_targets"
+        ):
+            result = _run_strategy_b_gemini_batch(
+                connection=object(),
+                config=_experiment_config_for_b(query_type="code_mixed", enable_code_mixed=True),
+                run_context_id="run-1",
+                prompts=_prompt_bundle(),
+                chunks=[chunk],
+                chunks_by_id={chunk.chunk_id: chunk},
+                relations={},
+                glossary_by_doc={},
+                generation_batch_id="batch-1",
+                method_id_cache={"B": "method-b", "D": "method-d"},
+                max_total_queries=1,
+                b_summary_max_chars=900,
+                b_payload_limits=_b_query_payload_limits({}),
+                query_client=_FakeClient(),
+                translate_client=_FakeClient(),
+                input_mode="inline",
+                poll_interval_seconds=1,
+                timeout_seconds=60,
+                work_dir=Path("tmp"),
+            )
+
+        self.assertEqual(result["generated_queries"], 1)
+        self.assertEqual(inserted_tables, ["synthetic_queries_raw_b"])
 
 
 if __name__ == "__main__":
