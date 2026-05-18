@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-05-18] Session Summary (Canonical Anchor Mapping Storage Design)
+- What was done: Reviewed the existing glossary, alias, synthetic anchor link, memory metadata, and RAG experiment record schema for Session 2 canonical anchor mapping design without applying migrations or running tests.
+- Key decisions: Recommended a separate additive `canonical_anchor_mapping` table that references `corpus_glossary_terms.term_id`, stores alias text plus application-computed normalized alias, pins `mapping_version=anchor-map-v1` and `normalization_version=anchor-normalize-v1`, omits canonical self rows, enforces one approved active mapping per version/language/normalized alias, and leaves existing `query_text`, `glossary_terms`, synthetic raw rows, and memory query text untouched.
+- Issues encountered: `rag_eval_experiment_record` is initially populated with richer retrieval/rewrite config but the RAG job completion path overwrites it with a smaller payload, so future mapping-version persistence must update both paths.
+- Next steps: Session 3 should define deterministic alias normalization rules using the fixed fixture set (`@Transactional`, transaction readonly variants, and Korean read-only transaction aliases) before any mapping backfill or runtime lookup work.
+
 ## [2026-05-18] Session Summary (Strategy B Gemini Batch API Path)
 - What was done: Added a disabled-by-default Gemini Batch API execution path for Strategy B synthetic generation with two stages: translation cache misses via batch, then query cache misses via batch after deterministic KO summaries are materialized.
 - Key decisions: Preserved fixed pipeline order, Strategy B query-only output, split raw-table writes to `synthetic_queries_raw_b`, prompt asset cache keys, and generation asset lineage. Batch mode is opt-in through `llm_execution_mode=gemini_batch` and records job/item usage metadata when available.
