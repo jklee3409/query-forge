@@ -16,8 +16,10 @@ from pipeline.common.llm_client import _validate_json_schema
 from pipeline.generation.synthetic_query_generator import BatchJsonExecution
 from pipeline.generation.synthetic_query_generator import ChunkRow
 from pipeline.generation.synthetic_query_generator import PromptBundle
+from pipeline.generation.synthetic_query_generator import TRANSLATION_SEGMENTATION_VERSION
 from pipeline.generation.synthetic_query_generator import _b_summary_max_chars
 from pipeline.generation.synthetic_query_generator import _b_query_payload_limits
+from pipeline.generation.synthetic_query_generator import _build_translation_segments
 from pipeline.generation.synthetic_query_generator import _build_query_payload
 from pipeline.generation.synthetic_query_generator import _extract_query_text
 from pipeline.generation.synthetic_query_generator import _gemini_batch_input_mode
@@ -31,6 +33,7 @@ from pipeline.generation.synthetic_query_generator import _llm_execution_mode
 from pipeline.generation.synthetic_query_generator import _primary_chunk_text
 from pipeline.generation.synthetic_query_generator import _query_response_schema_for_strategy
 from pipeline.generation.synthetic_query_generator import _requires_en_summary_asset
+from pipeline.generation.synthetic_query_generator import _resolve_or_create_translated_chunk
 from pipeline.generation.synthetic_query_generator import _run_strategy_b_gemini_batch
 from pipeline.generation.synthetic_query_generator import _summary_source_text_candidates
 from pipeline.generation.synthetic_query_generator import _summary_max_tokens_for_strategy
@@ -139,6 +142,14 @@ def _stage_config() -> LlmStageConfig:
 class _FakeClient:
     def __init__(self) -> None:
         self.config = _stage_config()
+
+
+class _FakeConnection:
+    def __init__(self) -> None:
+        self.commit_count = 0
+
+    def commit(self) -> None:
+        self.commit_count += 1
 
 
 class SyntheticQueryGeneratorSchemaTests(unittest.TestCase):
@@ -456,6 +467,90 @@ class SyntheticQueryGeneratorSchemaTests(unittest.TestCase):
         self.assertEqual(_llm_execution_mode({"llm_execution_mode": "gemini_batch"}), "gemini_batch")
         self.assertEqual(_gemini_batch_input_mode({}), "inline")
         self.assertEqual(_gemini_batch_input_mode({"gemini_batch_input_mode": "jsonl"}), "jsonl")
+
+    def test_translation_segments_preserve_code_fence_and_source_order(self) -> None:
+        source = (
+            "# Password Storage\n\n"
+            "Use @Transactional with Spring configuration. Keep method names intact.\n\n"
+            "```java\n"
+            "Pbkdf2PasswordEncoder encoder = Pbkdf2PasswordEncoder.defaultsForSpringSecurity_v5_8();\n"
+            "```\n\n"
+            "- Configure spring.security.user.name.\n"
+            "- Verify PasswordEncoder matches.\n"
+        )
+
+        segments = _build_translation_segments(source, max_chars=80)
+
+        self.assertEqual("".join(segment.text for segment in segments), source)
+        code_segments = [segment for segment in segments if segment.kind == "code"]
+        self.assertEqual(len(code_segments), 1)
+        self.assertIn("Pbkdf2PasswordEncoder.defaultsForSpringSecurity_v5_8()", code_segments[0].text)
+        self.assertEqual([segment.index for segment in segments], list(range(len(segments))))
+
+    def test_segmented_translation_reuses_cached_segments_and_reconstructs_full_asset(self) -> None:
+        source = (
+            "First paragraph about @Transactional.\n\n"
+            "```java\n"
+            "class Demo {}\n"
+            "```\n\n"
+            "Second paragraph about spring.jpa.show-sql.\n"
+        )
+        chunk = ChunkRow(
+            chunk_id="chunk-segmented",
+            document_id="doc-1",
+            chunk_text=source,
+            title="Segmented",
+            product_name="Spring",
+            version_label="3.x",
+            content_checksum="content",
+            cleaned_checksum="cleaned",
+        )
+        connection = _FakeConnection()
+        created_assets: list[dict[str, object]] = []
+        segment_cache_used = {"value": False}
+
+        def fake_find_existing_asset(_connection, **kwargs):
+            if str(kwargs["prompt_template_version"]).endswith(":full"):
+                return None
+            if not segment_cache_used["value"]:
+                segment_cache_used["value"] = True
+                return ("segment-cached", "첫 문단 번역.\n")
+            return None
+
+        def fake_create_asset(_connection, **kwargs):
+            created_assets.append(kwargs)
+            return f"asset-{len(created_assets)}"
+
+        with patch(
+            "pipeline.generation.synthetic_query_generator._find_existing_asset",
+            side_effect=fake_find_existing_asset,
+        ), patch(
+            "pipeline.generation.synthetic_query_generator._llm_json",
+            return_value={"translated_chunk_ko": "둘째 문단 번역."},
+        ) as llm_json, patch(
+            "pipeline.generation.synthetic_query_generator._create_asset",
+            side_effect=fake_create_asset,
+        ):
+            asset_id, translated, cached = _resolve_or_create_translated_chunk(
+                connection,
+                chunk=chunk,
+                source_fingerprint="source-fingerprint",
+                prompt_asset=_prompt_asset("translate", version="v3"),
+                prompt_text="translate prompt",
+                client=_FakeClient(),
+            )
+
+        self.assertFalse(cached)
+        self.assertEqual(asset_id, "asset-2")
+        self.assertEqual(llm_json.call_count, 1)
+        self.assertGreaterEqual(connection.commit_count, 1)
+        self.assertIn("```java\nclass Demo {}\n```", translated)
+        final_asset = created_assets[-1]
+        self.assertEqual(final_asset["asset_type"], "KO_TRANSLATED_CHUNK")
+        self.assertEqual(final_asset["metadata"]["translation_mode"], "segmented_full")
+        self.assertEqual(final_asset["metadata"]["segmentation_version"], TRANSLATION_SEGMENTATION_VERSION)
+        self.assertEqual(final_asset["metadata"]["segment_count"], 5)
+        self.assertTrue(final_asset["prompt_template_version"].endswith(":full"))
 
     def test_partial_batch_failure_is_observable_and_raises(self) -> None:
         class _Adapter:

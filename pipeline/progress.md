@@ -3,6 +3,12 @@
 ## Overview
 High-level pipeline progress tracking.
 
+## [2026-05-18] Session Summary (Strategy B Segmented Full Translation)
+- What was done: Added deterministic segmented full translation for Strategy B in `generation/synthetic_query_generator.py`, splitting source chunks on structural boundaries, preserving fenced code verbatim, translating only text segments, caching segment assets, and reconstructing final `KO_TRANSLATED_CHUNK` assets with segmentation metadata.
+- Key decisions: Kept original corpus chunks, retrieval/eval inputs, synthetic raw split tables, and B `EN chunk -> KO translation -> KO summary/query` semantics unchanged. Segment and final translation assets use distinct prompt-template version suffixes under the existing `chunk_generation_asset` schema, so no migration was required.
+- Issues encountered: Full Gemini Batch translation was also updated to submit segment requests instead of whole chunks, preserving batch query flow while avoiding long single-output translation responses.
+- Next steps: Smoke-test one long Spring Security chunk and confirm metadata (`translation_mode=segmented_full`, segment offsets/checksums, reconstruction checksum) before larger B runs.
+
 ## [2026-05-18] Session Summary (Strategy B Gemini Batch API Support)
 - What was done: Added `common/gemini_batch.py`, persisted online `_llm_meta.usage`, and implemented Strategy B `llm_execution_mode=gemini_batch` as `translation batch -> deterministic KO summary -> query batch`.
 - Key decisions: Kept online mode as the default, kept `llm_batch_size` as DB commit cadence only, submitted only cache misses, and failed observably on partial batch item errors instead of inserting incomplete lineage.

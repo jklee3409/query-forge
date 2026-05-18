@@ -1,5 +1,17 @@
 # progress.md
 
+## [2026-05-18] Session Summary (Strategy B Segmented Full Translation)
+- What was done: Implemented deterministic segmented full translation for Strategy B so `KO_TRANSLATED_CHUNK` is reconstructed from token-safe source-preserving segments while keeping `corpus_chunks.chunk_text`, retrieval/eval grounding, and raw B storage unchanged.
+- Key decisions: Used existing `chunk_generation_asset` for both segment cache and final reconstructed translation by versioning prompt template keys (`segment` vs `full`), avoiding a DB migration while preserving deterministic resume for successfully cached segments.
+- Issues encountered: Segmenting solves provider output truncation without summary-first translation or semantic compression; true chunk-level partial failure continuation remains a follow-up policy decision.
+- Next steps: Run a tiny live B smoke on a known long Spring Security chunk and inspect segment metadata, code-fence preservation, and `finish_reason=MAX_TOKENS` absence before scaling.
+
+## [2026-05-18] Session Summary (Synthetic MAX_TOKENS Retry Guard)
+- What was done: Updated backend LLM job retry handling so `max_tokens_truncated` failures are no longer covered by unlimited synthetic-generation retry; the category now retries at most once and then fails terminally with `failure_policy=failed_needs_config` in result payloads.
+- Key decisions: Preserved existing DB terminal statuses (`failed` for job/batch) instead of adding a new enum value, because current check constraints and admin status filters do not yet support a separate `failed_needs_config` status.
+- Issues encountered: Strategy B large all-source generation can repeatedly hit Gemini `finish_reason=MAX_TOKENS` during full chunk translation before query generation.
+- Next steps: Design a full-document translation path for Strategy B using chunk/segment translation assets without source summarization or semantic compression.
+
 ## [2026-05-18] Session Summary (Canonical Anchor Normalization Rule Design)
 - What was done: Reviewed project constraints and the limited anchor/glossary normalization paths for Session 3 without applying migrations, running full tests/builds/evaluations, or modifying query/memory/synthetic data.
 - Key decisions: Proposed `anchor-normalize-v1` as an application-computed, metadata-only alias normalization contract that lowercases with locale-independent rules, collapses whitespace, preserves code/config punctuation, folds hyphen/underscore only for phrase-like aliases, preserves annotation prefixes, and removes Korean intra-phrase spacing without semantic reordering or synonym merging.

@@ -48,6 +48,9 @@ import java.util.regex.Pattern;
 public class LlmJobService {
 
     private static final int MAX_CONCURRENT_WORKERS = 3;
+    private static final int MAX_TOKENS_TRUNCATED_RETRY_LIMIT = 1;
+    private static final String FAILURE_CATEGORY_MAX_TOKENS_TRUNCATED = "max_tokens_truncated";
+    private static final String FAILURE_POLICY_FAILED_NEEDS_CONFIG = "failed_needs_config";
     private static final Pattern FAILURE_CATEGORY_PATTERN = Pattern.compile(
             "(?:category|failure_category)\"?\\s*[:=]\\s*\"?([A-Za-z0-9_-]+)\"?",
             Pattern.CASE_INSENSITIVE
@@ -580,15 +583,16 @@ public class LlmJobService {
         int nextRetry = (job.retryCount() == null ? 0 : job.retryCount()) + 1;
         int maxRetries = job.maxRetries() == null ? 0 : job.maxRetries();
         String errorMessage = exception.getMessage() == null ? "job_failed" : exception.getMessage();
-        boolean unlimitedRetry = LlmJobType.GENERATE_SYNTHETIC_QUERY.name().equals(job.jobType()) && maxRetries < 0;
+        String failureCategory = resolveFailureCategory(errorMessage, resultByCommand);
+        String failurePolicy = failurePolicyForCategory(failureCategory);
         if (isSyntheticGenerationJob(job)) {
             llmJobRepository.preserveFailureSnapshot(
                     job.jobId(),
                     null,
-                    buildJobFailureAttempt(job, resultByCommand, errorMessage, nextRetry)
+                    buildJobFailureAttempt(job, resultByCommand, errorMessage, nextRetry, failureCategory, failurePolicy)
             );
         }
-        if (unlimitedRetry || nextRetry <= maxRetries) {
+        if (shouldRetryFailure(job, nextRetry, maxRetries, failureCategory)) {
             long backoffSeconds = (long) Math.min(60, Math.pow(2, nextRetry) * 2);
             Instant nextRunAt = Instant.now().plusSeconds(backoffSeconds);
             llmJobRepository.prepareItemsForRetry(job.jobId());
@@ -616,6 +620,20 @@ public class LlmJobService {
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("error", errorMessage);
         payload.put("steps", resultByCommand);
+        if (!failureCategory.isBlank()) {
+            payload.put("failure_category", failureCategory);
+        }
+        if (!failurePolicy.isBlank()) {
+            payload.put("failure_policy", failurePolicy);
+            payload.put(
+                    "retry_policy",
+                    Map.of(
+                            "category", failureCategory,
+                            "max_retries_for_category", MAX_TOKENS_TRUNCATED_RETRY_LIMIT,
+                            "retry_exhausted", true
+                    )
+            );
+        }
         if (purgedSyntheticQueries != null || cleanupError != null) {
             Map<String, Object> cleanupPayload = new LinkedHashMap<>();
             if (purgedSyntheticQueries != null) {
@@ -840,12 +858,17 @@ public class LlmJobService {
         payload.put("item_retry_count", item.retryCount() == null ? 0 : item.retryCount());
         payload.put("exit_code", response.exitCode());
         payload.put("error", firstNonBlank(errorMessage, response.stderr(), response.stdout()));
-        payload.put("failure_category", firstNonBlank(
+        String failureCategory = firstNonBlank(
                 extractFailureCategory(errorMessage),
                 extractFailureCategory(response.stderr()),
                 extractFailureCategory(response.stdout()),
                 extractFailureCategory(response.summary())
-        ));
+        );
+        payload.put("failure_category", failureCategory);
+        String failurePolicy = failurePolicyForCategory(failureCategory);
+        if (!failurePolicy.isBlank()) {
+            payload.put("failure_policy", failurePolicy);
+        }
         payload.set("summary", nullableJson(response.summary()));
         payload.put("stderr", response.stderr() == null ? "" : response.stderr());
         payload.put("stdout", response.stdout() == null ? "" : response.stdout());
@@ -857,7 +880,9 @@ public class LlmJobService {
             AdminConsoleDtos.LlmJobRow job,
             Map<String, JsonNode> resultByCommand,
             String errorMessage,
-            int nextRetry
+            int nextRetry,
+            String failureCategory,
+            String failurePolicy
     ) {
         ObjectNode payload = objectMapper.createObjectNode();
         payload.put("reason", "job_retry_or_failure");
@@ -871,13 +896,41 @@ public class LlmJobService {
         payload.put("retry_count_before_failure", job.retryCount() == null ? 0 : job.retryCount());
         payload.put("next_retry_count", nextRetry);
         payload.put("error", errorMessage);
-        payload.put("failure_category", firstNonBlank(
-                extractFailureCategory(errorMessage),
-                extractFailureCategory(objectMapper.valueToTree(resultByCommand))
-        ));
+        payload.put("failure_category", failureCategory == null ? "" : failureCategory);
+        if (failurePolicy != null && !failurePolicy.isBlank()) {
+            payload.put("failure_policy", failurePolicy);
+        }
         payload.set("steps", objectMapper.valueToTree(resultByCommand));
         payload.put("observed_at", Instant.now().toString());
         return payload;
+    }
+
+    private boolean shouldRetryFailure(
+            AdminConsoleDtos.LlmJobRow job,
+            int nextRetry,
+            int maxRetries,
+            String failureCategory
+    ) {
+        if (isMaxTokensTruncated(failureCategory)) {
+            return nextRetry <= MAX_TOKENS_TRUNCATED_RETRY_LIMIT;
+        }
+        boolean unlimitedRetry = LlmJobType.GENERATE_SYNTHETIC_QUERY.name().equals(job.jobType()) && maxRetries < 0;
+        return unlimitedRetry || nextRetry <= maxRetries;
+    }
+
+    private String resolveFailureCategory(String errorMessage, Map<String, JsonNode> resultByCommand) {
+        return firstNonBlank(
+                extractFailureCategory(errorMessage),
+                extractFailureCategory(objectMapper.valueToTree(resultByCommand))
+        );
+    }
+
+    private String failurePolicyForCategory(String failureCategory) {
+        return isMaxTokensTruncated(failureCategory) ? FAILURE_POLICY_FAILED_NEEDS_CONFIG : "";
+    }
+
+    private boolean isMaxTokensTruncated(String failureCategory) {
+        return FAILURE_CATEGORY_MAX_TOKENS_TRUNCATED.equalsIgnoreCase(failureCategory == null ? "" : failureCategory);
     }
 
     private String extractFailureCategory(String value) {

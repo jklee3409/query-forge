@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import logging
 import random
+import re
 import uuid
 from collections import Counter, defaultdict
 from dataclasses import dataclass, replace
@@ -44,6 +46,9 @@ except ModuleNotFoundError:  # pragma: no cover - direct module execution fallba
 
 
 LOGGER = logging.getLogger(__name__)
+
+TRANSLATION_SEGMENTATION_VERSION = "segmented-full-v1"
+TRANSLATION_SEGMENT_TARGET_MAX_CHARS = 900
 
 
 QUERY_TYPE_LABELS_KO: dict[str, str] = {
@@ -192,6 +197,16 @@ class BTranslationAssetState:
     asset_id: str
     translated_chunk_ko: str
     cached: bool
+
+
+@dataclass(frozen=True, slots=True)
+class TranslationSegment:
+    index: int
+    kind: str
+    text: str
+    start_offset: int
+    end_offset: int
+    source_hash: str
 
 
 @dataclass(slots=True)
@@ -826,6 +841,176 @@ def _source_fingerprint(chunk: ChunkRow) -> str:
     return _stable_id([chunk.chunk_id, chunk.chunk_text[:256]])
 
 
+def _sha256_text(text: str) -> str:
+    return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+
+def _translation_full_prompt_version(prompt_version: str) -> str:
+    return f"{prompt_version}:translation:{TRANSLATION_SEGMENTATION_VERSION}:full"
+
+
+def _translation_segment_prompt_version(prompt_version: str) -> str:
+    return f"{prompt_version}:translation:{TRANSLATION_SEGMENTATION_VERSION}:segment"
+
+
+def _translation_segment_source_fingerprint(
+    *,
+    source_fingerprint: str,
+    segment: TranslationSegment,
+) -> str:
+    return _stable_id(
+        [
+            source_fingerprint,
+            TRANSLATION_SEGMENTATION_VERSION,
+            str(segment.index),
+            segment.source_hash,
+        ]
+    )
+
+
+def _is_code_fence_line(line: str) -> bool:
+    stripped = line.lstrip()
+    return stripped.startswith("```") or stripped.startswith("~~~")
+
+
+def _translation_block_kind(line: str) -> str:
+    stripped = line.strip()
+    if not stripped:
+        return "blank"
+    if re.match(r"^\s{0,3}#{1,6}\s+", line):
+        return "heading"
+    if stripped.startswith("|"):
+        return "table"
+    if re.match(r"^\s*(?:[-*+]\s+|\d+[.)]\s+)", line):
+        return "list"
+    return "paragraph"
+
+
+def _split_long_text_on_sentence_boundaries(text: str, max_chars: int) -> list[str]:
+    if len(text) <= max_chars:
+        return [text]
+    parts = re.split(r"(?<=[.!?。！？])(\s+)", text)
+    candidates: list[str] = []
+    if len(parts) > 1:
+        for index in range(0, len(parts), 2):
+            sentence = parts[index]
+            if index + 1 < len(parts):
+                sentence += parts[index + 1]
+            if sentence:
+                candidates.append(sentence)
+    if not candidates:
+        return [text]
+    chunks: list[str] = []
+    current = ""
+    for sentence in candidates:
+        if current and len(current) + len(sentence) > max_chars:
+            chunks.append(current)
+            current = sentence
+        else:
+            current += sentence
+    if current:
+        chunks.append(current)
+    return chunks or [text]
+
+
+def _split_long_block(block_text: str, kind: str, max_chars: int) -> list[str]:
+    if len(block_text) <= max_chars or kind in {"code", "blank"}:
+        return [block_text]
+    if kind in {"list", "table"}:
+        chunks: list[str] = []
+        current = ""
+        for line in block_text.splitlines(keepends=True):
+            if current and len(current) + len(line) > max_chars:
+                chunks.append(current)
+                current = line
+            else:
+                current += line
+        if current:
+            chunks.append(current)
+        return chunks or [block_text]
+    return _split_long_text_on_sentence_boundaries(block_text, max_chars)
+
+
+def _translation_blocks(text: str) -> list[tuple[str, str]]:
+    blocks: list[tuple[str, str]] = []
+    current_lines: list[str] = []
+    current_kind: str | None = None
+    in_code = False
+
+    def flush() -> None:
+        nonlocal current_lines, current_kind
+        if current_lines:
+            blocks.append((current_kind or "paragraph", "".join(current_lines)))
+            current_lines = []
+            current_kind = None
+
+    for line in text.splitlines(keepends=True):
+        if in_code:
+            current_lines.append(line)
+            if _is_code_fence_line(line):
+                flush()
+                in_code = False
+            continue
+
+        if _is_code_fence_line(line):
+            flush()
+            current_kind = "code"
+            current_lines = [line]
+            in_code = True
+            continue
+
+        kind = _translation_block_kind(line)
+        if kind == "blank":
+            flush()
+            blocks.append(("blank", line))
+            continue
+
+        should_start_new = (
+            current_kind is None
+            or kind in {"heading", "table", "list"}
+            or current_kind in {"heading", "table", "list"}
+            or kind != current_kind
+        )
+        if should_start_new:
+            flush()
+            current_kind = kind
+        current_lines.append(line)
+
+    flush()
+    return blocks
+
+
+def _build_translation_segments(text: str, *, max_chars: int = TRANSLATION_SEGMENT_TARGET_MAX_CHARS) -> list[TranslationSegment]:
+    raw_segments: list[tuple[str, str]] = []
+
+    for kind, block_text in _translation_blocks(text):
+        for part in _split_long_block(block_text, kind, max_chars):
+            if kind in {"code", "blank"}:
+                raw_segments.append((kind, part))
+                continue
+            raw_segments.append(("text", part))
+
+    segments: list[TranslationSegment] = []
+    cursor = 0
+    for index, (kind, segment_text) in enumerate(raw_segments):
+        start_offset = text.find(segment_text, cursor)
+        if start_offset < 0:
+            start_offset = cursor
+        end_offset = start_offset + len(segment_text)
+        cursor = end_offset
+        segments.append(
+            TranslationSegment(
+                index=index,
+                kind=kind,
+                text=segment_text,
+                start_offset=start_offset,
+                end_offset=end_offset,
+                source_hash=_sha256_text(segment_text),
+            )
+        )
+    return segments
+
+
 def _find_existing_asset(
     connection: psycopg.Connection[Any],
     *,
@@ -909,6 +1094,12 @@ def _create_asset(
     return str(row["asset_id"])
 
 
+def _commit_if_supported(connection: psycopg.Connection[Any]) -> None:
+    commit = getattr(connection, "commit", None)
+    if callable(commit):
+        commit()
+
+
 def _llm_json(
     client: LlmClient,
     *,
@@ -986,32 +1177,124 @@ def _resolve_or_create_translated_chunk(
     prompt_text: str,
     client: LlmClient,
 ) -> tuple[str, str, bool]:
+    full_prompt_version = _translation_full_prompt_version(prompt_asset.version)
     cached = _find_existing_asset(
         connection,
         chunk_id=chunk.chunk_id,
         asset_type="KO_TRANSLATED_CHUNK",
         llm_provider=client.config.provider,
         llm_model=client.config.model,
-        prompt_template_version=prompt_asset.version,
+        prompt_template_version=full_prompt_version,
         source_fingerprint=source_fingerprint,
     )
     if cached:
         return cached[0], cached[1], True
-    response = _llm_json(
-        client,
-        prompt_text=prompt_text,
-        payload={
-            "chunk_id": chunk.chunk_id,
-            "title": chunk.title,
-            "chunk_text_en": chunk.chunk_text,
-        },
-        response_schema=TRANSLATION_RESPONSE_SCHEMA,
-        request_purpose="translate_chunk_en_to_ko",
-        trace_id=f"chunk:{chunk.chunk_id}",
-    )
-    translated = str(response.get("translated_chunk_ko") or "").strip()
+
+    segment_prompt_version = _translation_segment_prompt_version(prompt_asset.version)
+    segments = _build_translation_segments(chunk.chunk_text)
+    translated_segments: list[str] = []
+    segment_metadata: list[dict[str, Any]] = []
+    segment_cache_hits = 0
+    segment_created = 0
+    for segment in segments:
+        if segment.kind in {"code", "blank"}:
+            translated_segments.append(segment.text)
+            segment_metadata.append(
+                {
+                    "index": segment.index,
+                    "kind": segment.kind,
+                    "start_offset": segment.start_offset,
+                    "end_offset": segment.end_offset,
+                    "source_hash": segment.source_hash,
+                    "translation_source": "verbatim",
+                }
+            )
+            continue
+
+        segment_source_fingerprint = _translation_segment_source_fingerprint(
+            source_fingerprint=source_fingerprint,
+            segment=segment,
+        )
+        cached_segment = _find_existing_asset(
+            connection,
+            chunk_id=chunk.chunk_id,
+            asset_type="KO_TRANSLATED_CHUNK",
+            llm_provider=client.config.provider,
+            llm_model=client.config.model,
+            prompt_template_version=segment_prompt_version,
+            source_fingerprint=segment_source_fingerprint,
+        )
+        if cached_segment:
+            translated = cached_segment[1]
+            segment_asset_id = cached_segment[0]
+            segment_cache_hits += 1
+            cached_flag = True
+        else:
+            response = _llm_json(
+                client,
+                prompt_text=prompt_text,
+                payload={
+                    "chunk_id": chunk.chunk_id,
+                    "title": chunk.title,
+                    "translation_mode": "segmented_full",
+                    "segmentation_version": TRANSLATION_SEGMENTATION_VERSION,
+                    "segment_index": segment.index,
+                    "segment_count": len(segments),
+                    "segment_kind": segment.kind,
+                    "chunk_text_en": segment.text,
+                },
+                response_schema=TRANSLATION_RESPONSE_SCHEMA,
+                request_purpose="translate_chunk_en_to_ko_segment",
+                trace_id=f"chunk:{chunk.chunk_id}:segment:{segment.index}",
+            )
+            translated = str(response.get("translated_chunk_ko") or "").strip()
+            if not translated:
+                raise RuntimeError(f"empty translated_chunk_ko for chunk={chunk.chunk_id} segment={segment.index}")
+            llm_meta = response.get("_llm_meta") if isinstance(response.get("_llm_meta"), dict) else {}
+            segment_asset_id = _create_asset(
+                connection,
+                chunk=chunk,
+                asset_type="KO_TRANSLATED_CHUNK",
+                text_content=translated,
+                llm_provider=client.config.provider,
+                llm_model=client.config.model,
+                prompt_template_version=segment_prompt_version,
+                source_fingerprint=segment_source_fingerprint,
+                metadata={
+                    "translation_mode": "segmented_full",
+                    "segment_role": "segment",
+                    "segmentation_version": TRANSLATION_SEGMENTATION_VERSION,
+                    "segment_index": segment.index,
+                    "segment_count": len(segments),
+                    "segment_kind": segment.kind,
+                    "source_hash": segment.source_hash,
+                    "start_offset": segment.start_offset,
+                    "end_offset": segment.end_offset,
+                    "source_chunk_fingerprint": source_fingerprint,
+                    "usage": llm_meta.get("usage"),
+                    "usage_metadata": llm_meta.get("usage_metadata"),
+                },
+            )
+            _commit_if_supported(connection)
+            segment_created += 1
+            cached_flag = False
+
+        translated_segments.append(translated)
+        segment_metadata.append(
+            {
+                "index": segment.index,
+                "kind": segment.kind,
+                "start_offset": segment.start_offset,
+                "end_offset": segment.end_offset,
+                "source_hash": segment.source_hash,
+                "segment_asset_id": segment_asset_id,
+                "cached": cached_flag,
+            }
+        )
+
+    translated = "".join(translated_segments).strip()
     if not translated:
-        raise RuntimeError(f"empty translated_chunk_ko for chunk={chunk.chunk_id}")
+        raise RuntimeError(f"empty segmented translated_chunk_ko for chunk={chunk.chunk_id}")
     asset_id = _create_asset(
         connection,
         chunk=chunk,
@@ -1019,9 +1302,20 @@ def _resolve_or_create_translated_chunk(
         text_content=translated,
         llm_provider=client.config.provider,
         llm_model=client.config.model,
-        prompt_template_version=prompt_asset.version,
+        prompt_template_version=full_prompt_version,
         source_fingerprint=source_fingerprint,
-        metadata={"source": "en_chunk"},
+        metadata={
+            "source": "en_chunk",
+            "translation_mode": "segmented_full",
+            "segmentation_version": TRANSLATION_SEGMENTATION_VERSION,
+            "segment_count": len(segments),
+            "segment_cache_hits": segment_cache_hits,
+            "segment_created": segment_created,
+            "source_checksum": _sha256_text(chunk.chunk_text),
+            "source_fingerprint": source_fingerprint,
+            "segments": segment_metadata,
+            "reconstruction_checksum": _sha256_text(translated),
+        },
     )
     return asset_id, translated, False
 
@@ -2033,9 +2327,15 @@ def _run_strategy_b_gemini_batch(
     for item in planned_items:
         unique_plans_by_chunk.setdefault(item.chunk.chunk_id, item)
 
+    full_translation_prompt_version = _translation_full_prompt_version(prompts.translate_asset.version)
+    segment_translation_prompt_version = _translation_segment_prompt_version(prompts.translate_asset.version)
     translation_by_chunk: dict[str, BTranslationAssetState] = {}
     translation_batch_items: list[GeminiBatchRequestItem] = []
-    translation_item_plan: dict[str, PlannedQueryItem] = {}
+    translation_item_plan: dict[str, tuple[PlannedQueryItem, TranslationSegment]] = {}
+    translation_segments_by_chunk: dict[str, list[TranslationSegment]] = {}
+    translated_segment_text_by_chunk: dict[str, dict[int, str]] = defaultdict(dict)
+    translated_segment_meta_by_chunk: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    translated_segment_asset_by_item: dict[str, str] = {}
     for plan in unique_plans_by_chunk.values():
         cached = _find_existing_asset(
             connection,
@@ -2043,7 +2343,7 @@ def _run_strategy_b_gemini_batch(
             asset_type="KO_TRANSLATED_CHUNK",
             llm_provider=translate_client.config.provider,
             llm_model=translate_client.config.model,
-            prompt_template_version=prompts.translate_asset.version,
+            prompt_template_version=full_translation_prompt_version,
             source_fingerprint=plan.source_fingerprint,
         )
         if cached:
@@ -2054,29 +2354,81 @@ def _run_strategy_b_gemini_batch(
             )
             asset_cache_hits["KO_TRANSLATED_CHUNK"] += 1
             continue
-        item_key = f"translate:{plan.chunk.chunk_id}"
-        translation_payload = {
-            "chunk_id": plan.chunk.chunk_id,
-            "title": plan.chunk.title,
-            "chunk_text_en": plan.chunk.chunk_text,
-        }
-        translation_batch_items.append(
-            GeminiBatchRequestItem(
-                key=item_key,
-                request=build_gemini_generate_content_request(
-                    translate_client.config,
-                    system_prompt=prompts.translate_text,
-                    user_prompt=json.dumps(translation_payload, ensure_ascii=False, indent=2),
-                    response_schema=TRANSLATION_RESPONSE_SCHEMA,
-                ),
-                metadata={
-                    "purpose": "translate_chunk_en_to_ko",
-                    "chunk_id": plan.chunk.chunk_id,
-                    "trace_id": f"chunk:{plan.chunk.chunk_id}",
-                },
+        segments = _build_translation_segments(plan.chunk.chunk_text)
+        translation_segments_by_chunk[plan.chunk.chunk_id] = segments
+        for segment in segments:
+            if segment.kind in {"code", "blank"}:
+                translated_segment_text_by_chunk[plan.chunk.chunk_id][segment.index] = segment.text
+                translated_segment_meta_by_chunk[plan.chunk.chunk_id].append(
+                    {
+                        "index": segment.index,
+                        "kind": segment.kind,
+                        "start_offset": segment.start_offset,
+                        "end_offset": segment.end_offset,
+                        "source_hash": segment.source_hash,
+                        "translation_source": "verbatim",
+                    }
+                )
+                continue
+            segment_source_fingerprint = _translation_segment_source_fingerprint(
+                source_fingerprint=plan.source_fingerprint,
+                segment=segment,
             )
-        )
-        translation_item_plan[item_key] = plan
+            cached_segment = _find_existing_asset(
+                connection,
+                chunk_id=plan.chunk.chunk_id,
+                asset_type="KO_TRANSLATED_CHUNK",
+                llm_provider=translate_client.config.provider,
+                llm_model=translate_client.config.model,
+                prompt_template_version=segment_translation_prompt_version,
+                source_fingerprint=segment_source_fingerprint,
+            )
+            if cached_segment:
+                translated_segment_text_by_chunk[plan.chunk.chunk_id][segment.index] = cached_segment[1]
+                translated_segment_meta_by_chunk[plan.chunk.chunk_id].append(
+                    {
+                        "index": segment.index,
+                        "kind": segment.kind,
+                        "start_offset": segment.start_offset,
+                        "end_offset": segment.end_offset,
+                        "source_hash": segment.source_hash,
+                        "segment_asset_id": cached_segment[0],
+                        "cached": True,
+                    }
+                )
+                asset_cache_hits["KO_TRANSLATED_CHUNK_SEGMENT"] += 1
+                continue
+
+            item_key = f"translate:{plan.chunk.chunk_id}:{segment.index}"
+            translation_payload = {
+                "chunk_id": plan.chunk.chunk_id,
+                "title": plan.chunk.title,
+                "translation_mode": "segmented_full",
+                "segmentation_version": TRANSLATION_SEGMENTATION_VERSION,
+                "segment_index": segment.index,
+                "segment_count": len(segments),
+                "segment_kind": segment.kind,
+                "chunk_text_en": segment.text,
+            }
+            translation_batch_items.append(
+                GeminiBatchRequestItem(
+                    key=item_key,
+                    request=build_gemini_generate_content_request(
+                        translate_client.config,
+                        system_prompt=prompts.translate_text,
+                        user_prompt=json.dumps(translation_payload, ensure_ascii=False, indent=2),
+                        response_schema=TRANSLATION_RESPONSE_SCHEMA,
+                    ),
+                    metadata={
+                        "purpose": "translate_chunk_en_to_ko_segment",
+                        "chunk_id": plan.chunk.chunk_id,
+                        "segment_index": segment.index,
+                        "segment_count": len(segments),
+                        "trace_id": f"chunk:{plan.chunk.chunk_id}:segment:{segment.index}",
+                    },
+                )
+            )
+            translation_item_plan[item_key] = (plan, segment)
 
     translation_execution = _execute_gemini_batch_json_requests(
         adapter=_create_gemini_batch_adapter(translate_client.config),
@@ -2092,11 +2444,15 @@ def _run_strategy_b_gemini_batch(
     )
     batch_observability.append(_batch_observability("b_translation", translation_execution))
     for item_key, response in translation_execution.responses_by_key.items():
-        plan = translation_item_plan[item_key]
+        plan, segment = translation_item_plan[item_key]
         translated = str(response.get("translated_chunk_ko") or "").strip()
         if not translated:
-            raise RuntimeError(f"empty translated_chunk_ko for chunk={plan.chunk.chunk_id} from Gemini batch")
+            raise RuntimeError(f"empty translated_chunk_ko for chunk={plan.chunk.chunk_id} segment={segment.index} from Gemini batch")
         llm_meta = response.get("_llm_meta") if isinstance(response.get("_llm_meta"), dict) else {}
+        segment_source_fingerprint = _translation_segment_source_fingerprint(
+            source_fingerprint=plan.source_fingerprint,
+            segment=segment,
+        )
         asset_id = _create_asset(
             connection,
             chunk=plan.chunk,
@@ -2104,14 +2460,80 @@ def _run_strategy_b_gemini_batch(
             text_content=translated,
             llm_provider=translate_client.config.provider,
             llm_model=translate_client.config.model,
-            prompt_template_version=prompts.translate_asset.version,
-            source_fingerprint=plan.source_fingerprint,
+            prompt_template_version=segment_translation_prompt_version,
+            source_fingerprint=segment_source_fingerprint,
             metadata={
-                "source": "en_chunk",
+                "translation_mode": "segmented_full",
+                "segment_role": "segment",
+                "segmentation_version": TRANSLATION_SEGMENTATION_VERSION,
+                "segment_index": segment.index,
+                "segment_count": len(translation_segments_by_chunk[plan.chunk.chunk_id]),
+                "segment_kind": segment.kind,
+                "source_hash": segment.source_hash,
+                "start_offset": segment.start_offset,
+                "end_offset": segment.end_offset,
+                "source_chunk_fingerprint": plan.source_fingerprint,
                 "llm_execution_mode": "gemini_batch",
                 "gemini_batch": llm_meta.get("gemini_batch"),
                 "usage": llm_meta.get("usage"),
                 "usage_metadata": llm_meta.get("usage_metadata"),
+            },
+        )
+        translated_segment_asset_by_item[item_key] = asset_id
+        translated_segment_text_by_chunk[plan.chunk.chunk_id][segment.index] = translated
+        translated_segment_meta_by_chunk[plan.chunk.chunk_id].append(
+            {
+                "index": segment.index,
+                "kind": segment.kind,
+                "start_offset": segment.start_offset,
+                "end_offset": segment.end_offset,
+                "source_hash": segment.source_hash,
+                "segment_asset_id": asset_id,
+                "cached": False,
+            }
+        )
+        asset_created["KO_TRANSLATED_CHUNK_SEGMENT"] += 1
+    if translated_segment_asset_by_item:
+        _commit_if_supported(connection)
+
+    for plan in unique_plans_by_chunk.values():
+        if plan.chunk.chunk_id in translation_by_chunk:
+            continue
+        segments = translation_segments_by_chunk.get(plan.chunk.chunk_id)
+        if not segments:
+            raise RuntimeError(f"missing translation segments for chunk={plan.chunk.chunk_id}")
+        segment_text_by_index = translated_segment_text_by_chunk.get(plan.chunk.chunk_id, {})
+        missing_segments = [segment.index for segment in segments if segment.index not in segment_text_by_index]
+        if missing_segments:
+            raise RuntimeError(f"missing translated segments for chunk={plan.chunk.chunk_id}: {missing_segments}")
+        translated = "".join(segment_text_by_index[segment.index] for segment in segments).strip()
+        if not translated:
+            raise RuntimeError(f"empty segmented translated_chunk_ko for chunk={plan.chunk.chunk_id} from Gemini batch")
+        segment_meta = sorted(
+            translated_segment_meta_by_chunk.get(plan.chunk.chunk_id, []),
+            key=lambda item: int(item.get("index", 0)),
+        )
+        asset_id = _create_asset(
+            connection,
+            chunk=plan.chunk,
+            asset_type="KO_TRANSLATED_CHUNK",
+            text_content=translated,
+            llm_provider=translate_client.config.provider,
+            llm_model=translate_client.config.model,
+            prompt_template_version=full_translation_prompt_version,
+            source_fingerprint=plan.source_fingerprint,
+            metadata={
+                "source": "en_chunk",
+                "translation_mode": "segmented_full",
+                "segmentation_version": TRANSLATION_SEGMENTATION_VERSION,
+                "segment_count": len(segments),
+                "segment_cache_hits": sum(1 for item in segment_meta if item.get("cached") is True),
+                "segment_created": sum(1 for item in segment_meta if item.get("cached") is False),
+                "source_checksum": _sha256_text(plan.chunk.chunk_text),
+                "source_fingerprint": plan.source_fingerprint,
+                "segments": segment_meta,
+                "reconstruction_checksum": _sha256_text(translated),
+                "llm_execution_mode": "gemini_batch",
             },
         )
         translation_by_chunk[plan.chunk.chunk_id] = BTranslationAssetState(

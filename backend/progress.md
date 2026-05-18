@@ -3,6 +3,12 @@
 ## Overview
 High-level backend progress tracking.
 
+## [2026-05-18] Session Summary (MAX_TOKENS Retry Guard)
+- What was done: Changed `LlmJobService` retry policy so `failure_category=max_tokens_truncated` retries only once, even when synthetic generation jobs use `max_retries=-1`, and terminal failures include `failure_policy=failed_needs_config` plus category-specific retry metadata.
+- Key decisions: Kept `llm_job.job_status` and generation batch status as `failed` for DB compatibility while recording the new policy in JSON observability payloads.
+- Issues encountered: The active Strategy B batch was failing in the translation stage with Gemini `finish_reason=MAX_TOKENS`, not in query generation.
+- Next steps: Implement a non-compressive full translation design for Strategy B if large all-source batches must be robust under provider token limits.
+
 ## [2026-05-18] Session Summary (Strategy B Gemini Batch Opt-In)
 - What was done: Added optional Admin synthetic request fields `llmExecutionMode` and `geminiBatchInputMode`, writing `llm_execution_mode=gemini_batch` and `gemini_batch_input_mode` only when explicitly requested.
 - Key decisions: Restricted Gemini Batch mode to Strategy B and left Admin-generated configs online by default; B safe defaults and split raw tables were unchanged.
