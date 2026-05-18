@@ -1,5 +1,12 @@
 # progress.md
 
+## [2026-05-18] Session Summary (Canonical Anchor Normalization Rule Design)
+- What was done: Reviewed project constraints and the limited anchor/glossary normalization paths for Session 3 without applying migrations, running full tests/builds/evaluations, or modifying query/memory/synthetic data.
+- Key decisions: Proposed `anchor-normalize-v1` as an application-computed, metadata-only alias normalization contract that lowercases with locale-independent rules, collapses whitespace, preserves code/config punctuation, folds hyphen/underscore only for phrase-like aliases, preserves annotation prefixes, and removes Korean intra-phrase spacing without semantic reordering or synonym merging.
+- Confirmed policies: `alias_language` is mandatory at storage/runtime contract boundaries and is never inferred during runtime lookup; mapping rows do not duplicate `term_type` and must read it through `canonical_term_id -> corpus_glossary_terms`; deterministic `normalized_alias` lookup keys are separate from human-readable `display_alias`; backend normalization helper belongs in shared utility scope, not Admin corpus-only code.
+- Issues encountered: Existing Python/runtime/backend normalization paths differ (`anchor_quality.normalize_anchor_text`, loader `normalize_term_text`, backend anchor re-extraction lower/trim), so future implementation should add a dedicated helper and fixture contract instead of changing current helpers in place.
+- Next steps: Session 4 should use the rule only for runtime canonical metadata lookup, keep original query/memory/glossary strings untouched, and return canonical anchor payloads with `mapping_version=anchor-map-v1` and `normalization_version=anchor-normalize-v1`.
+
 ## [2026-05-18] Session Summary (Canonical Anchor Mapping Storage Design)
 - What was done: Reviewed the existing glossary, alias, synthetic anchor link, memory metadata, and RAG experiment record schema for Session 2 canonical anchor mapping design without applying migrations or running tests.
 - Key decisions: Recommended a separate additive `canonical_anchor_mapping` table that references `corpus_glossary_terms.term_id`, stores alias text plus application-computed normalized alias, pins `mapping_version=anchor-map-v1` and `normalization_version=anchor-normalize-v1`, omits canonical self rows, enforces one approved active mapping per version/language/normalized alias, and leaves existing `query_text`, `glossary_terms`, synthetic raw rows, and memory query text untouched.
