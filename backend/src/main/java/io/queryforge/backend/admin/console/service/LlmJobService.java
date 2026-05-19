@@ -502,8 +502,13 @@ public class LlmJobService {
             Double rejectionRate = null;
             Double avgConfidenceDelta = null;
             Map<String, Object> performance = buildRagPerformanceMetrics(answerSummary);
+            JsonNode runConfig = adminConsoleRepository.findRagTestRunConfig(job.ragTestRunId())
+                    .orElseGet(objectMapper::createObjectNode);
+            Map<String, Object> canonicalAnchorVersions = CanonicalAnchorVersionMetadata.fromConfig(runConfig);
 
             Map<String, Object> metrics = new LinkedHashMap<>();
+            metrics.putAll(canonicalAnchorVersions);
+            metrics.put("canonical_anchor_versions", canonicalAnchorVersions);
             metrics.put("retrieval", sanitizedRetrievalSummary);
             metrics.put("answer", answerSummary);
             metrics.put("memory", memorySummary);
@@ -523,8 +528,6 @@ public class LlmJobService {
                     answerMetrics.isMissingNode() ? objectMapper.createObjectNode() : answerMetrics,
                     metricsJson
             );
-            JsonNode runConfig = adminConsoleRepository.findRagTestRunConfig(job.ragTestRunId())
-                    .orElseGet(objectMapper::createObjectNode);
             String snapshotId = firstNonBlank(
                     runConfig.path("snapshot_id").asText(""),
                     runConfig.path("source_gating_batch_id").asText(""),
@@ -537,21 +540,49 @@ public class LlmJobService {
                 generationStrategies = objectMapper.createArrayNode();
             }
             Map<String, Object> gatingConfig = new LinkedHashMap<>();
+            gatingConfig.putAll(canonicalAnchorVersions);
             gatingConfig.put("gating_preset", runConfig.path("gating_preset").asText(""));
             gatingConfig.put("gating_applied", runConfig.path("gating_applied").asBoolean(true));
             gatingConfig.put("comparison_snapshots", nullableJson(runConfig.get("comparison_snapshots")));
+            gatingConfig.put("stage_cutoff_enabled", runConfig.path("stage_cutoff_enabled").asBoolean(false));
+            gatingConfig.put("stage_cutoff_level", nullableText(runConfig.path("stage_cutoff_level")));
+            gatingConfig.put(
+                    "stage_cutoff_source_gating_batch_id",
+                    nullableText(runConfig.path("stage_cutoff_source_gating_batch_id"))
+            );
 
             Map<String, Object> retrievalConfig = new LinkedHashMap<>();
+            retrievalConfig.putAll(canonicalAnchorVersions);
+            retrievalConfig.put("retrieval_backend", runConfig.path("retrieval_backend").asText("local"));
+            retrievalConfig.put(
+                    "embedding_model",
+                    firstNonBlank(
+                            runConfig.path("chunk_embedding_model").asText(""),
+                            runConfig.path("dense_embedding_model").asText(""),
+                            runConfig.path("retriever_config").path("dense_embedding_model").asText("")
+                    )
+            );
+            retrievalConfig.put("vector_store", nullableText(runConfig.path("vector_store")));
+            retrievalConfig.put("fallback_used", runConfig.path("fallback_used").asBoolean(false));
             retrievalConfig.put("retrieval_top_k", runConfig.path("retrieval_top_k").asInt(20));
             retrievalConfig.put("rerank_top_n", runConfig.path("rerank_top_n").asInt(5));
             retrievalConfig.put("retrieval_modes", nullableJson(runConfig.get("retrieval_modes")));
             retrievalConfig.put("active_modes", nullableJson(retrievalSummary.get("active_modes")));
+            retrievalConfig.put("synthetic_free_baseline", runConfig.path("synthetic_free_baseline").asBoolean(false));
+            retrievalConfig.put("retriever_config", nullableJson(runConfig.get("retriever_config")));
 
             Map<String, Object> rewriteConfig = new LinkedHashMap<>();
+            rewriteConfig.putAll(canonicalAnchorVersions);
             rewriteConfig.put("rewrite_enabled", runConfig.path("rewrite_enabled").asBoolean(true));
             rewriteConfig.put("selective_rewrite", runConfig.path("selective_rewrite").asBoolean(true));
             rewriteConfig.put("use_session_context", runConfig.path("use_session_context").asBoolean(false));
-            rewriteConfig.put("rewrite_threshold", runConfig.path("rewrite_threshold").asDouble(0.05));
+            rewriteConfig.put("rewrite_threshold", runConfig.path("rewrite_threshold").asDouble(0.10));
+            rewriteConfig.put("rewrite_retrieval_strategy", runConfig.path("rewrite_retrieval_strategy").asText("replace"));
+            rewriteConfig.put(
+                    "rewrite_anchor_injection_enabled",
+                    runConfig.path("rewrite_anchor_injection_enabled").asBoolean(false)
+            );
+            rewriteConfig.put("rewrite_failure_policy", runConfig.path("rewrite_failure_policy").asText("fail_run"));
 
             Integer memorySize = memorySummary.path("memory_entries_built").isNumber()
                     ? memorySummary.path("memory_entries_built").asInt()
@@ -964,6 +995,14 @@ public class LlmJobService {
             return objectMapper.createArrayNode();
         }
         return node;
+    }
+
+    private String nullableText(JsonNode node) {
+        if (node == null || node.isMissingNode() || node.isNull()) {
+            return null;
+        }
+        String value = node.asText("").trim();
+        return value.isEmpty() ? null : value;
     }
 
     private Map<String, JsonNode> rowsByMode(JsonNode node) {

@@ -867,6 +867,7 @@ public class AdminConsoleService {
                 experimentName,
                 syntheticFreeBaseline ? SYNTHETIC_FREE_BASELINE_METHOD : methodCodes.getFirst()
         );
+        CanonicalAnchorVersionMetadata.putDefaults(config);
         applyLlmModelOverrides(config, request.llmModel());
         config.put("run_name", runLabel);
         config.put("dataset_id", request.datasetId().toString());
@@ -999,6 +1000,7 @@ public class AdminConsoleService {
                 "UNSPECIFIED"
         );
         Map<String, Object> initialGatingConfig = new LinkedHashMap<>();
+        CanonicalAnchorVersionMetadata.putDefaults(initialGatingConfig);
         initialGatingConfig.put("gating_preset", gatingPreset);
         initialGatingConfig.put("gating_applied", gatingApplied);
         initialGatingConfig.put("comparison_snapshots", config.get("comparison_snapshots"));
@@ -1018,6 +1020,7 @@ public class AdminConsoleService {
         initialRetrievalConfig.put("retrieval_modes", config.get("retrieval_modes"));
         initialRetrievalConfig.put("synthetic_free_baseline", syntheticFreeBaseline);
         initialRetrievalConfig.put("retriever_config", retrieverConfig);
+        CanonicalAnchorVersionMetadata.putDefaults(initialRetrievalConfig);
         Map<String, Object> initialRewriteConfig = new LinkedHashMap<>();
         initialRewriteConfig.put("rewrite_enabled", rewriteEnabled);
         initialRewriteConfig.put("selective_rewrite", selectiveRewrite);
@@ -1026,6 +1029,7 @@ public class AdminConsoleService {
         initialRewriteConfig.put("rewrite_retrieval_strategy", rewriteRetrievalStrategy);
         initialRewriteConfig.put("rewrite_anchor_injection_enabled", rewriteAnchorInjectionEnabled);
         initialRewriteConfig.put("rewrite_failure_policy", rewriteFailurePolicy);
+        CanonicalAnchorVersionMetadata.putDefaults(initialRewriteConfig);
         repository.upsertRagExperimentRecord(
                 runId,
                 initialSnapshotId,

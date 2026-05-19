@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-05-19] Session Summary (Canonical Anchor Version Pins + Admin Display)
+- What was done: Added canonical anchor version pins (`anchor-map-v1`, `anchor-normalize-v1`, `canonical-anchor-runtime-v1`) to Admin RAG configs, RAG experiment records, RAG metrics payloads, and retrieval/answer report summaries. Admin RAG detail now renders memory candidate canonical anchor metadata with canonical form, alias, confidence, status, language, type, and scoring/review distinction.
+- Key decisions: Kept changes additive in JSON/config/report/UI payloads only. `query_text`, dense query text, memory query text, raw synthetic payload semantics, pipeline order, V31 migration state, mapping rows, and LLM rewrite prompt exposure were not changed.
+- Issues encountered: Targeted validation passed with `backend .\gradlew.bat compileJava`, `pipeline python -m py_compile common\anchor_normalization.py eval\retrieval_eval.py eval\answer_eval.py`, and `frontend npx eslint src/pages/RagPage.jsx` (2 pre-existing hook dependency warnings, 0 errors).
+- Next steps: Session 12 should add backfill dry-run/manual review/version-pinning documentation without applying migrations, inserting mapping rows, running full evaluation, or doing LLM-based alias merge.
+
 ## [2026-05-19] Session Summary (Hybrid Retrieval Canonical Expansion)
 - What was done: Added canonical-anchor lexical expansion for hybrid retrieval BM25/technical-overlap scoring, using only `used_for_scoring=true` anchors grouped by `canonical_term_id` from existing canonical metadata.
 - Key decisions: Kept raw `query_text`, memory query text, dense query embeddings, dense passage embeddings, raw synthetic payloads, pipeline order, V31 migration state, and mapping rows unchanged. Canonical terms are appended only to BM25/technical lexical fields and fall back to previous behavior when metadata is absent.

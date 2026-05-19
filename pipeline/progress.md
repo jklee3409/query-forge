@@ -3,6 +3,12 @@
 ## Overview
 High-level pipeline progress tracking.
 
+## [2026-05-19] Session Summary (Canonical Anchor Version Pins in Eval Reports)
+- What was done: Added a shared canonical anchor version payload helper and included `anchor_mapping_version`, `anchor_normalization_version`, `canonical_anchor_runtime_schema_version`, and grouped `canonical_anchor_versions` in retrieval/answer summary JSON payloads.
+- Key decisions: Kept existing anchor normalization semantics unchanged and did not alter query text, dense inputs, memory query text, raw synthetic payload semantics, or report metric calculations.
+- Issues encountered: Targeted `python -m py_compile common\anchor_normalization.py eval\retrieval_eval.py eval\answer_eval.py` passed.
+- Next steps: Session 12 should document dry-run/backfill review policy around these version pins without executing evaluation or data updates.
+
 ## [2026-05-19] Session Summary (Hybrid Retrieval Canonical Expansion)
 - What was done: Extended `common/local_retriever.py` with optional BM25/technical-only lexical query/document fields and canonical-anchor expansion helpers; wired memory retrieval, DB-ANN local reranking, selective-rewrite chunk retrieval, and gating utility chunk ranking to use existing canonical metadata additively.
 - Key decisions: Dense query text and dense passage text remain original; expansion uses only active scoring anchors with a non-empty `canonical_term_id`, skips miss/ambiguous/unresolved anchors, and does not infer language/type or perform DB lookups/backfills.

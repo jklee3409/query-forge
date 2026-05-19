@@ -3,6 +3,12 @@
 ## Overview
 High-level backend progress tracking.
 
+## [2026-05-19] Session Summary (Canonical Anchor Version Pins for RAG Records)
+- What was done: Added canonical anchor version metadata to Admin RAG generated config, initial/final `rag_eval_experiment_record` configs, and completed RAG `metrics_json`. RAG experiment-record upsert now merges final config JSON with existing config JSON so completion does not drop richer server-created fields.
+- Key decisions: Used additive JSON/config metadata only; no migration was added or applied, and RAG runtime options remain server-driven through the existing catalog path.
+- Issues encountered: Targeted `.\gradlew.bat compileJava` passed.
+- Next steps: Keep future RAG finalization changes merge/additive so reproducibility metadata is not overwritten by smaller completion payloads.
+
 ## [2026-05-19] Session Summary (Canonical Anchor Mapping Migration Review)
 - What was done: Reviewed Flyway `V31__create_canonical_anchor_mapping.sql` for FK compatibility with `corpus_glossary_terms(term_id)`, approved-active unique indexing, pending candidate allowance, alias-language checks, and canonical self-row rejection.
 - Key decisions: Left V31 unchanged and did not apply it. Read-only inspection of the local development DB showed Flyway latest `V30`, no `V31` history row, and no `canonical_anchor_mapping` table.

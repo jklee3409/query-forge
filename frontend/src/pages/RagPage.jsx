@@ -562,6 +562,66 @@ function renderDetailTokenList(values) {
   )
 }
 
+function isTruthyDetailValue(value) {
+  if (value === true || value === 1) return true
+  if (typeof value !== 'string') return false
+  return ['true', '1', 'yes', 'on'].includes(value.trim().toLowerCase())
+}
+
+function canonicalAnchorItems(value) {
+  const payload = parseDetailPayload(value)
+  if (Array.isArray(payload)) return payload.filter(isPlainDetailObject)
+  if (isPlainDetailObject(payload) && Array.isArray(payload.anchors)) {
+    return payload.anchors.filter(isPlainDetailObject)
+  }
+  return []
+}
+
+function renderCanonicalAnchorDetail(candidate) {
+  const anchors = canonicalAnchorItems(candidate?.canonical_anchors || candidate?.canonicalAnchors)
+  if (!anchors.length) return null
+  const scoringAnchors = anchors.filter((anchor) => isTruthyDetailValue(anchor.used_for_scoring ?? anchor.usedForScoring))
+  const reviewAnchors = anchors.filter((anchor) => !isTruthyDetailValue(anchor.used_for_scoring ?? anchor.usedForScoring))
+  const displayAnchors = [...scoringAnchors, ...reviewAnchors].slice(0, 8)
+  return (
+    <div className="rag-canonical-anchor-block">
+      <div className="rag-canonical-anchor-block__header">
+        <span>Canonical anchors</span>
+        <strong>{scoringAnchors.length} scoring / {reviewAnchors.length} review</strong>
+      </div>
+      <div className="rag-canonical-anchor-list">
+        {displayAnchors.map((anchor, index) => {
+          const scoring = isTruthyDetailValue(anchor.used_for_scoring ?? anchor.usedForScoring)
+          const canonical = firstDetailValue(anchor, ['canonical_form', 'canonicalForm']) || 'unresolved'
+          const alias = firstDetailValue(anchor, ['display_alias', 'displayAlias', 'input_alias', 'inputAlias']) || '-'
+          const normalizedAlias = firstDetailValue(anchor, ['normalized_alias', 'normalizedAlias'])
+          const status = firstDetailValue(anchor, ['resolution_status', 'resolutionStatus']) || '-'
+          const termType = firstDetailValue(anchor, ['term_type', 'termType'])
+          const language = firstDetailValue(anchor, ['alias_language', 'aliasLanguage'])
+          const termId = firstDetailValue(anchor, ['canonical_term_id', 'canonicalTermId'])
+          const confidence = firstDetailValue(anchor, ['confidence'])
+          return (
+            <div key={`${alias}-${canonical}-${index}`} className="rag-canonical-anchor" data-scoring={scoring ? 'true' : 'false'}>
+              <div className="rag-canonical-anchor__main">
+                <strong>{canonical}</strong>
+                <span>{status}</span>
+              </div>
+              <div className="rag-canonical-anchor__meta">
+                <span>alias {alias}</span>
+                {normalizedAlias && <span>norm {normalizedAlias}</span>}
+                <span>conf {formatDetailNumber(confidence, 2)}</span>
+                {language && <span>{language}</span>}
+                {termType && <span>{termType}</span>}
+                {termId && <span>term {shortId(termId)}</span>}
+              </div>
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
 function renderGenericDetailValue(value) {
   const payload = parseDetailPayload(value)
   if (!hasDetailPayload(payload)) return renderDetailEmpty()
@@ -665,6 +725,7 @@ function renderMemoryCandidateDetail(value) {
               {memoryId && <span>memory {shortId(memoryId)}</span>}
             </div>
             {renderDetailTokenList(terms)}
+            {renderCanonicalAnchorDetail(candidate)}
           </article>
         )
       })}

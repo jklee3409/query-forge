@@ -2686,6 +2686,79 @@ table.data-table {
   font-weight: 700;
 }
 
+.rag-canonical-anchor-block {
+  display: grid;
+  gap: 7px;
+  padding: 8px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  background: var(--surface-muted);
+}
+
+.rag-canonical-anchor-block__header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.rag-canonical-anchor-block__header strong {
+  color: var(--text-primary);
+  font-size: 11px;
+}
+
+.rag-canonical-anchor-list {
+  display: grid;
+  gap: 6px;
+}
+
+.rag-canonical-anchor {
+  min-width: 0;
+  display: grid;
+  gap: 5px;
+  padding: 8px;
+  border: 1px solid var(--border-subtle);
+  border-left: 3px solid var(--warning);
+  border-radius: 8px;
+  background: var(--surface-elevated);
+}
+
+.rag-canonical-anchor[data-scoring="true"] {
+  border-left-color: var(--success);
+}
+
+.rag-canonical-anchor__main,
+.rag-canonical-anchor__meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 5px;
+}
+
+.rag-canonical-anchor__main strong {
+  min-width: 0;
+  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 800;
+  overflow-wrap: anywhere;
+}
+
+.rag-canonical-anchor__main span,
+.rag-canonical-anchor__meta span {
+  min-width: 0;
+  padding: 2px 6px;
+  border-radius: 999px;
+  background: var(--surface-muted);
+  color: var(--text-secondary);
+  font-size: 10px;
+  font-weight: 750;
+  overflow-wrap: anywhere;
+}
+
 .rag-query-detail-empty {
   padding: 14px;
   border: 1px dashed #bccbe2;

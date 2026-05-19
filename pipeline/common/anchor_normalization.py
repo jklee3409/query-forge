@@ -30,6 +30,21 @@ _WHITESPACE_RE = re.compile(r"\s+", re.UNICODE)
 _HANGUL_BETWEEN_SPACE_RE = re.compile(r"(?<=[\uac00-\ud7a3])\s+(?=[\uac00-\ud7a3])")
 _WRAPPER_PUNCTUATION = " \t\r\n.,;:!?()[]{}<>\"'`"
 
+
+def canonical_anchor_version_payload(config: Mapping[str, Any] | None = None) -> dict[str, str]:
+    """Return canonical anchor version pins for additive report/config metadata."""
+    raw = config or {}
+    mapping_version = str(raw.get("anchor_mapping_version") or DEFAULT_MAPPING_VERSION).strip()
+    normalization_version = str(raw.get("anchor_normalization_version") or DEFAULT_NORMALIZATION_VERSION).strip()
+    schema_version = str(
+        raw.get("canonical_anchor_runtime_schema_version") or CANONICAL_ANCHOR_RUNTIME_SCHEMA_VERSION
+    ).strip()
+    return {
+        "anchor_mapping_version": mapping_version or DEFAULT_MAPPING_VERSION,
+        "anchor_normalization_version": normalization_version or DEFAULT_NORMALIZATION_VERSION,
+        "canonical_anchor_runtime_schema_version": schema_version or CANONICAL_ANCHOR_RUNTIME_SCHEMA_VERSION,
+    }
+
 APPROVED_ACTIVE_MAPPING_SQL = """
 SELECT m.mapping_id,
        m.alias_text,

@@ -15,6 +15,7 @@ import psycopg
 from psycopg.types.json import Jsonb
 
 try:
+    from common.anchor_normalization import canonical_anchor_version_payload
     from common.experiment_config import load_experiment_config
     from common.experiment_run import ExperimentRunRecorder
     from loaders.common import connect, default_database_args
@@ -36,6 +37,7 @@ try:
         runtime_retriever_metadata,
     )
 except ModuleNotFoundError:  # pragma: no cover
+    from pipeline.common.anchor_normalization import canonical_anchor_version_payload
     from pipeline.common.experiment_config import load_experiment_config
     from pipeline.common.experiment_run import ExperimentRunRecorder
     from pipeline.loaders.common import connect, default_database_args
@@ -850,10 +852,13 @@ def run_retrieval_eval(
             int(stats.get("rewrite_heuristic_fallback_count", 0)) for stats in rewrite_generation_stats_by_mode.values()
         )
 
+        canonical_version_payload = canonical_anchor_version_payload(config.raw)
         summary_payload = {
             "experiment_key": config.experiment_key,
             "experiment_run_id": run_context.experiment_run_id,
             "dataset_id": dataset_id,
+            **canonical_version_payload,
+            "canonical_anchor_versions": canonical_version_payload,
             "source_gating_run_id": source_gating_run_id,
             "comparison_source_runs": comparison_source_runs,
             "memory_generation_strategies": memory_strategy_filters,

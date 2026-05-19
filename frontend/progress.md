@@ -3,6 +3,12 @@
 ## Overview
 High-level progress tracking for the project.
 
+## [2026-05-19] Session Summary (Admin RAG Canonical Anchor Detail)
+- What was done: Updated `/admin/rag-tests` detail rendering so memory candidate cards display canonical anchor metadata when present: canonical form, alias/normalized alias, confidence, resolution status, language, term type, canonical term ID, and scoring-vs-review counts.
+- Key decisions: UI consumes existing backend detail payloads only; no new runtime option lists, merge/review actions, or client-side canonical mapping rules were added.
+- Issues encountered: Targeted `npx eslint src/pages/RagPage.jsx` completed with 0 errors and the existing 2 hook dependency warnings.
+- Next steps: Browser-smoke a completed RAG run containing `canonical_anchors` metadata to tune density if needed.
+
 ## [2026-05-15] Session Summary (Synthetic All-Allowed Single Submit)
 - What was done: Changed `/admin/synthetic-queries` generation submit logic so the "all allowed sources" option builds one request body instead of mapping allowed sources into multiple parallel POSTs. Selected source/document runs still submit a single scoped request.
 - Key decisions: Kept the existing source allowlist UI and hints, but moved all-sources scoping responsibility to the backend `source_ids` config instead of frontend fan-out.

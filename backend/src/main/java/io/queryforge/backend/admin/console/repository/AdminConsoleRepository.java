@@ -2253,10 +2253,13 @@ public class AdminConsoleRepository {
                 ON CONFLICT (rag_test_run_id) DO UPDATE
                 SET snapshot_id = EXCLUDED.snapshot_id,
                     generation_strategy = EXCLUDED.generation_strategy,
-                    gating_config = EXCLUDED.gating_config,
+                    gating_config = COALESCE(rag_eval_experiment_record.gating_config, '{}'::jsonb)
+                        || EXCLUDED.gating_config,
                     memory_size = EXCLUDED.memory_size,
-                    retrieval_config = EXCLUDED.retrieval_config,
-                    rewrite_config = EXCLUDED.rewrite_config,
+                    retrieval_config = COALESCE(rag_eval_experiment_record.retrieval_config, '{}'::jsonb)
+                        || EXCLUDED.retrieval_config,
+                    rewrite_config = COALESCE(rag_eval_experiment_record.rewrite_config, '{}'::jsonb)
+                        || EXCLUDED.rewrite_config,
                     dataset_version = EXCLUDED.dataset_version,
                     run_timestamp = EXCLUDED.run_timestamp,
                     metrics = EXCLUDED.metrics,
