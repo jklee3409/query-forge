@@ -10,6 +10,16 @@ const STATUS_CLASS = {
   paused: 'cancelled',
   pause_requested: 'queued',
   cancel_requested: 'queued',
+  pending_review: 'warning',
+  approved: 'success',
+  rejected: 'failed',
+  would_update: 'running',
+  conflict: 'warning',
+  invalid: 'failed',
+  unchanged: 'success',
+  pending: 'warning',
+  approve: 'success',
+  skip: 'cancelled',
 }
 
 const KST_TIME_FORMATTER = new Intl.DateTimeFormat('ko-KR', {

@@ -3,6 +3,12 @@
 ## Overview
 High-level progress tracking for the project.
 
+## [2026-05-19] Session Summary (Anchor Normalization Review Modal UX)
+- What was done: Reworked the Anchor normalization detail/review modal in `PipelinePage.jsx` with Korean-first copy, fixed the corrupted title literal, added operator guidance, status/decision label mapping, workflow sections, approval-disabled reason text, summary badges, safer reject/reset handling, corrected the `변경 없음 표시` check-pill layout, and compact code-style current/proposed values with conflict explanations.
+- Key decisions: Kept the existing review/approve/reject API contract unchanged and handled readability in the React layer. Long anchor values now use ellipsis with full values in `title`, preserving the actual API data instead of hiding broken text.
+- Issues encountered: Local backend API was unavailable on 8080/8081, so live response encoding could not be sampled. `npx eslint src/pages/PipelinePage.jsx src/lib/format.js` passed with the pre-existing hook dependency warning in `PipelinePage.jsx`.
+- Next steps: Smoke-test the modal with a real pending normalization run in dark mode and rebuild the backend-served static bundle only when a frontend build is permitted.
+
 ## [2026-05-19] Session Summary (Multi-source Anchor Admin Controls)
 - What was done: Added a `Multi-source Build` action and build-history table to `/admin/pipeline` Anchors, plus a `multi-source hints` toggle in `/admin/rag-tests`. Rebuilt the production React bundle served by the backend.
 - Key decisions: UI calls backend relation-build APIs only and does not edit anchors or synthetic queries client-side. RAG submission enables multi-source hints only when rewrite and anchor injection are both enabled.

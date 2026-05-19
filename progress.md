@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-05-19] Session Summary (Anchor Normalization Review Modal UX)
+- What was done: Improved the `/admin/pipeline` anchor normalization review modal with Korean labels, fixed the corrupted modal title literal, added review guidance, workflow-grouped actions, approval-blocking reasons, decision summary badges, destructive reject styling, unsaved-close warning, corrected the `변경 없음 표시` check-pill layout, and readable current/proposed/conflict table presentation.
+- Key decisions: Kept Anchor normalization backend APIs and approval/reject behavior unchanged. The Korean display issue was scoped to frontend-rendered literals; code inspection found no charset conversion in the API/helper path.
+- Issues encountered: Local backend API was not running on 8080/8081, so live payload verification was not available. Targeted frontend lint passed with the existing `PipelinePage.jsx` hook dependency warning.
+- Next steps: Browser-smoke the pending run detail modal against a running backend and refresh the served static React bundle only when a frontend build is allowed.
+
 ## [2026-05-19] Session Summary (DB-ANN Hybrid Candidate Union)
 - What was done: Changed Admin RAG `db_ann` hybrid retrieval so PostgreSQL ANN candidates are unioned with lexical and technical-token candidates before the existing hybrid rerank for both chunk retrieval and memory lookup.
 - Key decisions: Kept Admin GUI flow, chunk embedding materialization button, experiment config shape, pipeline stages, dense-only DB-ANN behavior, and final hybrid scoring function unchanged. The change is scoped to the runtime DB-ANN adapter candidate pool construction.

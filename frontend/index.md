@@ -34,6 +34,7 @@
 ---
 
 ## Recent Update
+- `/admin/pipeline` Anchor normalization detail modal now uses Korean-first review copy, fixes the previously corrupted title literal, shows workflow guidance and disabled approval reasons, renders decision summary badges, guards unsaved close, keeps the `변경 없음 표시` toggle aligned as a horizontal check-pill, and improves current/proposed/conflict table readability in dark mode.
 - `/admin/pipeline` Anchors now includes a `Multi-source Build` action and relation build-history table for precomputing current active-anchor relationships without editing synthetic query data.
 - `/admin/rag-tests` now includes a `multi-source hints` rewrite toggle that submits `multiSourceAnchorExpansionEnabled` only when rewrite anchor injection is active.
 - `/admin/rag-tests` now filters generation strategy chips and completed snapshot options by both dataset scope and eval query language: English eval queries show E/F, while Korean eval queries show A/B/C/D/G where the dataset scope allows them.

@@ -4,7 +4,110 @@ import { SelectDropdown } from '../components/SelectDropdown.jsx'
 import { fmtTime, shortId } from '../lib/format.js'
 import { queryString, requestJson } from '../lib/api.js'
 
-function AnchorNormalizationReviewBody({ detail, onSaveReviews, onSaveAndApprove, onRejectRun }) {
+const ANCHOR_REVIEW_DECISION_LABELS = {
+  pending: '검토 대기',
+  approve: '승인',
+  skip: '건너뛰기',
+}
+
+const ANCHOR_REVIEW_STATUS_META = {
+  would_update: {
+    label: '변경 후보',
+    helper: '현재 값과 제안 값이 다른 항목',
+    tone: 'changed',
+  },
+  conflict: {
+    label: '충돌',
+    helper: '같은 정규화 값이 있어 수동 검토 필요',
+    tone: 'conflict',
+  },
+  invalid: {
+    label: '무효',
+    helper: '정규화 결과가 비어 있거나 사용할 수 없음',
+    tone: 'invalid',
+  },
+  unchanged: {
+    label: '변경 없음',
+    helper: '현재 값과 제안 값이 동일',
+    tone: 'unchanged',
+  },
+}
+
+const ANCHOR_RUN_STATUS_LABELS = {
+  pending_review: '검토 대기',
+  approved: '승인됨',
+  rejected: '반려',
+  failed: '실패',
+}
+
+function reviewDecisionLabel(value) {
+  return ANCHOR_REVIEW_DECISION_LABELS[value] || value || '-'
+}
+
+function anchorStatusMeta(value) {
+  return ANCHOR_REVIEW_STATUS_META[value] || {
+    label: value || '-',
+    helper: '상태 확인 필요',
+    tone: 'unknown',
+  }
+}
+
+function anchorRunStatusLabel(value) {
+  return ANCHOR_RUN_STATUS_LABELS[value] || value || '-'
+}
+
+function AnchorReviewStat({ label, value, helper, tone = 'neutral' }) {
+  return (
+    <article className="anchor-review-stat" data-tone={tone}>
+      <div className="anchor-review-stat__label">{label}</div>
+      <strong>{value}</strong>
+      <p>{helper}</p>
+    </article>
+  )
+}
+
+function AnchorCandidateStatusBadge({ status }) {
+  const meta = anchorStatusMeta(status)
+  return (
+    <span className="anchor-review-status-badge" data-status={meta.tone} title={meta.helper}>
+      <strong>{meta.label}</strong>
+      {meta.tone === 'conflict' && <small>수동 검토 필요</small>}
+    </span>
+  )
+}
+
+function ReviewDecisionBadge({ decision }) {
+  return (
+    <span className="anchor-review-decision-badge" data-decision={decision || 'pending'}>
+      {reviewDecisionLabel(decision)}
+    </span>
+  )
+}
+
+function AnchorValueCell({ value, normalizedValue, tone }) {
+  const primaryValue = value || '-'
+  const secondaryValue = normalizedValue || '-'
+  return (
+    <div className="anchor-review-value-stack" data-tone={tone}>
+      <code className="anchor-review-code" title={primaryValue}>{primaryValue}</code>
+      <code className="anchor-review-code anchor-review-code--sub" title={secondaryValue}>{secondaryValue}</code>
+    </div>
+  )
+}
+
+function ConflictCell({ conflictTermId }) {
+  if (!conflictTermId) {
+    return <span className="anchor-review-muted">없음</span>
+  }
+  return (
+    <span className="anchor-review-conflict" title={`같은 정규화 값과 충돌하는 기존 용어 ID: ${conflictTermId}`}>
+      <span>같은 정규화 값의 기존 용어</span>
+      <span className="mono-text">{shortId(conflictTermId)}</span>
+    </span>
+  )
+}
+
+function AnchorNormalizationReviewBody({ detail, onSaveReviews, onSaveAndApprove, onRejectRun, onDirtyChange }) {
   const run = detail?.run || {}
   const candidates = useMemo(
     () => (Array.isArray(detail?.candidates) ? detail.candidates : []),
@@ -42,6 +145,10 @@ function AnchorNormalizationReviewBody({ detail, onSaveReviews, onSaveAndApprove
     ).length
     return { pendingCount, invalidApprovalCount, approvedCount, skippedCount, dirtyCount }
   }, [actionableCandidates, decisions])
+
+  useEffect(() => {
+    onDirtyChange?.(reviewStats.dirtyCount > 0)
+  }, [onDirtyChange, reviewStats.dirtyCount])
 
   const updateDecision = (candidateId, decision) => {
     setDecisions((prev) => ({ ...prev, [candidateId]: decision }))
@@ -119,55 +226,131 @@ function AnchorNormalizationReviewBody({ detail, onSaveReviews, onSaveAndApprove
     && reviewStats.pendingCount === 0
     && reviewStats.invalidApprovalCount === 0
 
+  const approveBlockReason = useMemo(() => {
+    if (saving) return '저장 처리가 진행 중입니다.'
+    if (run.status !== 'pending_review') return '검토 대기 상태의 작업만 승인할 수 있습니다.'
+    if (reviewStats.pendingCount > 0) return `검토 대기 항목이 ${reviewStats.pendingCount}개 남아 있어 승인할 수 없습니다.`
+    if (reviewStats.invalidApprovalCount > 0) return '충돌/무효 항목은 승인할 수 없습니다. 건너뛰기로 바꿔 주세요.'
+    return ''
+  }, [reviewStats.invalidApprovalCount, reviewStats.pendingCount, run.status, saving])
+
+  const saveBlockReason = reviewStats.invalidApprovalCount > 0
+    ? '충돌/무효 항목은 승인으로 저장할 수 없습니다. 건너뛰기로 바꿔 주세요.'
+    : ''
+
   return (
-    <div className="detail-grid detail-grid--single">
-      <div className="summary-grid">
-        <DetailCard label="Candidates" value={`${run.candidateCount ?? 0}`} mono={false} />
-        <DetailCard label="Changed" value={`${run.changedCount ?? 0}`} mono={false} />
-        <DetailCard label="Conflict / Invalid" value={`${run.conflictCount ?? 0} / ${run.invalidCount ?? 0}`} mono={false} />
-        <DetailCard label="Review pending" value={`${reviewStats.pendingCount}`} mono={false} />
+    <div className="anchor-review-modal">
+      <p className="anchor-review-intro">
+        Anchor 정규화 후보를 검토한 뒤 승인 또는 건너뛰기 결정을 저장하세요. 충돌/무효 항목은 자동 승인되지 않으며 수동 검토가 필요합니다.
+      </p>
+
+      <div className="anchor-review-stats-grid">
+        <AnchorReviewStat label="전체 후보" value={`${run.candidateCount ?? 0}개`} helper="정규화 대상 후보 수" />
+        <AnchorReviewStat label="변경 후보" value={`${run.changedCount ?? 0}개`} helper="현재 값과 제안 값이 다른 항목" tone="changed" />
+        <AnchorReviewStat
+          label="충돌 / 무효"
+          value={`${run.conflictCount ?? 0}개 / ${run.invalidCount ?? 0}개`}
+          helper="수동 확인이 필요한 항목"
+          tone="warning"
+        />
+        <AnchorReviewStat label="검토 대기" value={`${reviewStats.pendingCount}개`} helper="저장 후 승인 전 결정이 필요한 항목" tone="pending" />
       </div>
-      <div className="filter-bar filter-bar--stack">
-        <div className="form-actions">
-          <button type="button" className="button button--ghost" onClick={markWouldUpdateApproved} disabled={saving || actionableCandidates.length === 0}>
-            Mark safe changes approve
-          </button>
-          <button type="button" className="button button--ghost" onClick={markUnsafeSkipped} disabled={saving || actionableCandidates.length === 0}>
-            Skip conflicts/invalid
-          </button>
-          <button type="button" className="button button--ghost" onClick={resetActionable} disabled={saving || reviewStats.dirtyCount === 0}>
-            Reset decisions
-          </button>
-          <label className="check-pill">
-            <input type="checkbox" checked={showUnchanged} onChange={(event) => setShowUnchanged(event.target.checked)} />
-            Show unchanged
-          </label>
-        </div>
-        <label className="filter-field filter-field--grow">
-          Review note
-          <input value={reviewNote} onChange={(event) => setReviewNote(event.target.value)} placeholder="optional note for saved decisions" />
-        </label>
-        <div className="form-actions">
-          <button type="button" className="button" onClick={saveReviews} disabled={saving || run.status !== 'pending_review' || actionableCandidates.length === 0 || reviewStats.invalidApprovalCount > 0}>
-            Save review decisions
-          </button>
-          <button type="button" className="button button--primary" onClick={saveAndApprove} disabled={saving || !canApprove}>
-            Save and approve run
-          </button>
-          {run.status === 'pending_review' && (
-            <button type="button" className="button button--ghost" onClick={rejectRun} disabled={saving}>
-              Reject run
+
+      <div className="anchor-review-workflow">
+        <section className="anchor-review-step">
+          <div className="anchor-review-step__head">
+            <span>1</span>
+            <div>
+              <h3>일괄 처리</h3>
+              <p>안전한 변경은 승인으로 표시하고, 충돌/무효 항목은 건너뛰기로 분리합니다.</p>
+            </div>
+          </div>
+          <div className="form-actions">
+            <button type="button" className="button button--ghost" onClick={markWouldUpdateApproved} disabled={saving || actionableCandidates.length === 0}>
+              안전한 변경 승인
             </button>
-          )}
-        </div>
-        <div className="mono-text">
-          approve {reviewStats.approvedCount} · skip {reviewStats.skippedCount} · pending {reviewStats.pendingCount} · unsaved {reviewStats.dirtyCount}
+            <button type="button" className="button button--ghost" onClick={markUnsafeSkipped} disabled={saving || actionableCandidates.length === 0}>
+              충돌/무효 항목 건너뛰기
+            </button>
+            <button
+              type="button"
+              className="button button--ghost"
+              onClick={resetActionable}
+              disabled={saving || reviewStats.dirtyCount === 0}
+              title="현재 화면에서 바꾼 검토 결정을 마지막 저장 상태로 되돌립니다."
+            >
+              결정 초기화
+            </button>
+            <label className={`check-pill ${showUnchanged ? 'is-active' : ''}`}>
+              <input type="checkbox" checked={showUnchanged} onChange={(event) => setShowUnchanged(event.target.checked)} />
+              <span className="check-pill__box" aria-hidden="true">{showUnchanged ? '✓' : ''}</span>
+              <span className="check-pill__text">변경 없음 표시</span>
+            </label>
+          </div>
+          <p className="anchor-review-help">결정 초기화는 저장된 서버 값을 되돌리는 동작이 아니라, 아직 저장하지 않은 화면상의 변경만 되돌립니다.</p>
+        </section>
+
+        <section className="anchor-review-step">
+          <div className="anchor-review-step__head">
+            <span>2</span>
+            <div>
+              <h3>검토 메모</h3>
+              <p>이번 저장/승인에 남길 메모입니다. 각 후보 결정과 함께 저장됩니다.</p>
+            </div>
+          </div>
+          <label className="filter-field filter-field--grow">
+            검토 메모
+            <textarea
+              value={reviewNote}
+              onChange={(event) => setReviewNote(event.target.value)}
+              placeholder="예: 충돌 항목은 기존 용어와 의미가 달라 건너뜁니다."
+              rows={3}
+            />
+          </label>
+        </section>
+
+        <section className="anchor-review-step">
+          <div className="anchor-review-step__head">
+            <span>3</span>
+            <div>
+              <h3>저장 / 승인 / 반려</h3>
+              <p>검토 결정을 먼저 저장한 뒤, 검토 대기 항목이 없을 때 작업을 승인할 수 있습니다.</p>
+            </div>
+          </div>
+          <div className="form-actions">
+            <button
+              type="button"
+              className="button"
+              onClick={saveReviews}
+              disabled={saving || run.status !== 'pending_review' || actionableCandidates.length === 0 || reviewStats.invalidApprovalCount > 0}
+              title={saveBlockReason}
+            >
+              검토 결정 저장
+            </button>
+            <button type="button" className="button button--primary" onClick={saveAndApprove} disabled={saving || !canApprove} title={approveBlockReason}>
+              저장 후 작업 승인
+            </button>
+            {run.status === 'pending_review' && (
+              <button type="button" className="button button--danger" onClick={rejectRun} disabled={saving}>
+                작업 반려
+              </button>
+            )}
+          </div>
+          {approveBlockReason && <div className="anchor-review-block-reason">{approveBlockReason}</div>}
+        </section>
+
+        <div className="anchor-review-summary-badges" aria-label="검토 결정 요약">
+          <span data-kind="approved">승인 {reviewStats.approvedCount}개</span>
+          <span data-kind="skipped">건너뛰기 {reviewStats.skippedCount}개</span>
+          <span data-kind="pending">검토 대기 {reviewStats.pendingCount}개</span>
+          <span data-kind={reviewStats.dirtyCount > 0 ? 'dirty' : 'clean'}>미저장 변경 {reviewStats.dirtyCount}개</span>
         </div>
       </div>
-      <div className="table-wrap">
-        <table className="data-table">
+
+      <div className="table-wrap anchor-review-table-wrap">
+        <table className="data-table anchor-review-table">
           <thead>
-            <tr><th>status</th><th>decision</th><th>current</th><th>proposed</th><th>term</th><th>conflict</th></tr>
+            <tr><th>상태</th><th>검토 결정</th><th>현재 값</th><th>제안 값</th><th>용어</th><th>충돌 대상</th></tr>
           </thead>
           <tbody>
             {visibleCandidates.map((candidate) => {
@@ -175,33 +358,44 @@ function AnchorNormalizationReviewBody({ detail, onSaveReviews, onSaveAndApprove
               const disabled = candidate.resolutionStatus === 'unchanged' || run.status !== 'pending_review'
               return (
                 <tr key={candidate.candidateId}>
-                  <td><StatusBadge value={candidate.resolutionStatus} /></td>
+                  <td><AnchorCandidateStatusBadge status={candidate.resolutionStatus} /></td>
                   <td>
                     {disabled ? (
-                      <span className="plain-badge">{candidate.reviewDecision || '-'}</span>
+                      candidate.resolutionStatus === 'unchanged'
+                        ? <span className="anchor-review-decision-badge" data-decision="unchanged">검토 불필요</span>
+                        : <ReviewDecisionBadge decision={candidate.reviewDecision || 'pending'} />
                     ) : (
-                      <select value={decision} onChange={(event) => updateDecision(candidate.candidateId, event.target.value)}>
-                        <option value="pending">pending</option>
-                        {candidate.resolutionStatus === 'would_update' && <option value="approve">approve</option>}
-                        <option value="skip">skip</option>
+                      <select
+                        className="anchor-review-select"
+                        value={decision}
+                        onChange={(event) => updateDecision(candidate.candidateId, event.target.value)}
+                        aria-label={`${candidate.currentCanonicalForm || '후보'} 검토 결정`}
+                      >
+                        <option value="pending">검토 대기</option>
+                        {candidate.resolutionStatus === 'would_update' && <option value="approve">승인</option>}
+                        <option value="skip">건너뛰기</option>
                       </select>
                     )}
+                    {candidate.reviewNote && (
+                      <div className="anchor-review-note" title={candidate.reviewNote}>
+                        메모: {candidate.reviewNote}
+                      </div>
+                    )}
                   </td>
+                  <td><AnchorValueCell value={candidate.currentCanonicalForm} normalizedValue={candidate.currentNormalizedForm} tone="current" /></td>
+                  <td><AnchorValueCell value={candidate.proposedCanonicalForm} normalizedValue={candidate.proposedNormalizedForm} tone="proposed" /></td>
                   <td>
-                    <div>{candidate.currentCanonicalForm}</div>
-                    <div className="mono-text">{candidate.currentNormalizedForm}</div>
+                    <div className="anchor-review-term">
+                      <strong>{candidate.termType || '용어'}</strong>
+                      <span className="mono-text" title={candidate.termId}>{shortId(candidate.termId)}</span>
+                    </div>
                   </td>
-                  <td>
-                    <div>{candidate.proposedCanonicalForm}</div>
-                    <div className="mono-text">{candidate.proposedNormalizedForm}</div>
-                  </td>
-                  <td>{candidate.termType} / {shortId(candidate.termId)}</td>
-                  <td>{candidate.conflictTermId ? shortId(candidate.conflictTermId) : '-'}</td>
+                  <td><ConflictCell conflictTermId={candidate.conflictTermId} /></td>
                 </tr>
               )
             })}
             {visibleCandidates.length === 0 && (
-              <tr><td colSpan={6}>No candidates require review.</td></tr>
+              <tr><td colSpan={6}>검토가 필요한 후보가 없습니다.</td></tr>
             )}
           </tbody>
         </table>
@@ -246,6 +440,7 @@ export function PipelinePage({ notify }) {
   const [anchorNormalizationRunsLoading, setAnchorNormalizationRunsLoading] = useState(false)
   const [anchorNormalizationBusy, setAnchorNormalizationBusy] = useState(false)
   const [anchorNormalizationDetailBusy, setAnchorNormalizationDetailBusy] = useState(false)
+  const [anchorNormalizationDirty, setAnchorNormalizationDirty] = useState(false)
   const [multiSourceAnchorRuns, setMultiSourceAnchorRuns] = useState([])
   const [multiSourceAnchorRunsLoaded, setMultiSourceAnchorRunsLoaded] = useState(false)
   const [multiSourceAnchorRunsLoading, setMultiSourceAnchorRunsLoading] = useState(false)
@@ -806,8 +1001,12 @@ export function PipelinePage({ notify }) {
   }
 
   const reviewAnchorNormalizationRun = async (runId, action) => {
-    const confirmed = window.confirm(action === 'approve' ? '이 정규화 이력을 승인하고 canonical 컬럼만 업데이트할까요?' : '이 정규화 이력을 거절할까요?')
-    if (!confirmed) return
+    const confirmed = window.confirm(
+      action === 'approve'
+        ? '검토 결정을 기준으로 이 정규화 작업을 승인하고 canonical 컬럼만 업데이트할까요?'
+        : '이 정규화 작업을 반려할까요? 반려 후에는 이 run을 승인할 수 없습니다.'
+    )
+    if (!confirmed) return false
     setAnchorNormalizationBusy(true)
     try {
       await requestJson(`/api/admin/corpus/anchors/normalization-runs/${runId}/${action}`, {
@@ -815,16 +1014,18 @@ export function PipelinePage({ notify }) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           reviewedBy: 'admin-ui',
-          note: action === 'approve' ? 'approved from Anchors UI' : 'rejected from Anchors UI',
+          note: action === 'approve' ? 'Anchors UI에서 승인함' : 'Anchors UI에서 반려함',
         }),
       })
       await Promise.all([
         loadAnchorNormalizationRuns(),
         loadAnchors(anchorFilters, anchorPage),
       ])
-      notify(action === 'approve' ? 'Anchor 정규화 이력을 승인했습니다.' : 'Anchor 정규화 이력을 거절했습니다.')
+      notify(action === 'approve' ? 'Anchor 정규화 작업을 승인했습니다.' : 'Anchor 정규화 작업을 반려했습니다.')
+      return true
     } catch (error) {
       notify(error.message, 'error')
+      return false
     } finally {
       setAnchorNormalizationBusy(false)
     }
@@ -838,12 +1039,12 @@ export function PipelinePage({ notify }) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           reviewedBy: 'admin-ui',
-          note: note || 'reviewed from Anchors UI',
+          note: note || 'Anchors UI에서 후보 검토 결정을 저장함',
           decisions,
         }),
       })
       if (approveAfter) {
-        const confirmed = window.confirm('Saved candidate decisions will be applied now. Continue?')
+        const confirmed = window.confirm('저장한 검토 결정을 기준으로 정규화 작업을 승인하고 적용할까요?')
         if (!confirmed) {
           showAnchorNormalizationRunDetail(detail)
           return
@@ -853,15 +1054,16 @@ export function PipelinePage({ notify }) {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             reviewedBy: 'admin-ui',
-            note: note || 'approved after candidate review from Anchors UI',
+            note: note || '후보 검토 후 Anchors UI에서 승인함',
           }),
         })
+        setAnchorNormalizationDirty(false)
         setModal(null)
-        notify('Anchor normalization run approved.')
+        notify('Anchor 정규화 작업을 승인했습니다.')
       } else {
         detail = await requestJson(`/api/admin/corpus/anchors/normalization-runs/${runId}`)
         showAnchorNormalizationRunDetail(detail)
-        notify('Anchor normalization review decisions saved.')
+        notify('Anchor 정규화 검토 결정을 저장했습니다.')
       }
       await Promise.all([
         loadAnchorNormalizationRuns(),
@@ -875,15 +1077,18 @@ export function PipelinePage({ notify }) {
   }
 
   const rejectAnchorNormalizationRunFromDetail = async (runId) => {
-    const confirmed = window.confirm('Reject this anchor normalization run?')
-    if (!confirmed) return
-    await reviewAnchorNormalizationRun(runId, 'reject')
-    setModal(null)
+    const rejected = await reviewAnchorNormalizationRun(runId, 'reject')
+    if (rejected) {
+      setAnchorNormalizationDirty(false)
+      setModal(null)
+    }
   }
 
   const showAnchorNormalizationRunDetail = (detail) => {
+    setAnchorNormalizationDirty(false)
     setModal({
-      title: `Anchor ?뺢퇋??쨌 ${detail.run.runName}`,
+      kind: 'anchor-normalization-review',
+      title: `Anchor 정규화 검토 · ${detail.run.runName}`,
       body: (
         <AnchorNormalizationReviewBody
           key={`${detail.run.runId}-${detail.run.updatedAt}-${detail.run.reviewApprovedCount}-${detail.run.reviewSkippedCount}-${detail.run.reviewPendingCount}`}
@@ -891,9 +1096,19 @@ export function PipelinePage({ notify }) {
           onSaveReviews={(runId, decisions, note) => saveAnchorNormalizationCandidateReviews(runId, decisions, note, false)}
           onSaveAndApprove={(runId, decisions, note) => saveAnchorNormalizationCandidateReviews(runId, decisions, note, true)}
           onRejectRun={rejectAnchorNormalizationRunFromDetail}
+          onDirtyChange={setAnchorNormalizationDirty}
         />
       ),
     })
+  }
+
+  const closeModal = () => {
+    if (modal?.kind === 'anchor-normalization-review' && anchorNormalizationDirty) {
+      const confirmed = window.confirm('저장하지 않은 검토 결정이 있습니다. 저장하지 않고 닫을까요?')
+      if (!confirmed) return
+    }
+    setAnchorNormalizationDirty(false)
+    setModal(null)
   }
 
   const openAnchorNormalizationRunDetail = async (runId) => {
@@ -1378,7 +1593,7 @@ export function PipelinePage({ notify }) {
         <div className="table-wrap">
           <table className="data-table">
             <thead>
-              <tr><th>run</th><th>status</th><th>summary</th><th>applied</th><th>created</th><th>actions</th></tr>
+              <tr><th>작업</th><th>상태</th><th>요약</th><th>적용</th><th>생성 시각</th><th>작업</th></tr>
             </thead>
             <tbody>
               {!anchorNormalizationRunsLoaded && (
@@ -1392,13 +1607,13 @@ export function PipelinePage({ notify }) {
                     <div>{run.runName}</div>
                     <div className="mono-text">{shortId(run.runId)}</div>
                   </td>
-                  <td><StatusBadge status={run.status} /></td>
+                  <td><StatusBadge value={run.status} label={anchorRunStatusLabel(run.status)} /></td>
                   <td>
-                    changed {run.changedCount ?? 0} / unchanged {run.unchangedCount ?? 0}
-                    <div className="mono-text">review approve {run.reviewApprovedCount ?? 0} / skip {run.reviewSkippedCount ?? 0} / pending {run.reviewPendingCount ?? 0}</div>
-                    <div className="mono-text">conflict {run.conflictCount ?? 0} · invalid {run.invalidCount ?? 0}</div>
+                    변경 후보 {run.changedCount ?? 0}개 · 변경 없음 {run.unchangedCount ?? 0}개
+                    <div className="mono-text">승인 {run.reviewApprovedCount ?? 0}개 · 건너뛰기 {run.reviewSkippedCount ?? 0}개 · 검토 대기 {run.reviewPendingCount ?? 0}개</div>
+                    <div className="mono-text">충돌 {run.conflictCount ?? 0}개 · 무효 {run.invalidCount ?? 0}개</div>
                   </td>
-                  <td>{run.appliedUpdateCount ?? 0}</td>
+                  <td>{run.appliedUpdateCount ?? 0}개</td>
                   <td>{fmtTime(run.createdAt)}</td>
                   <td>
                     <div className="form-actions">
@@ -1410,16 +1625,17 @@ export function PipelinePage({ notify }) {
                             className="button button--primary"
                             disabled={anchorNormalizationBusy || (run.reviewPendingCount ?? 0) > 0}
                             onClick={() => reviewAnchorNormalizationRun(run.runId, 'approve')}
+                            title={(run.reviewPendingCount ?? 0) > 0 ? '검토 대기 항목이 남아 있어 승인할 수 없습니다.' : ''}
                           >
-                            승인
+                            작업 승인
                           </button>
                           <button
                             type="button"
-                            className="button button--ghost"
+                            className="button button--danger"
                             disabled={anchorNormalizationBusy}
                             onClick={() => reviewAnchorNormalizationRun(run.runId, 'reject')}
                           >
-                            거절
+                            작업 반려
                           </button>
                         </>
                       )}
@@ -1551,7 +1767,7 @@ export function PipelinePage({ notify }) {
           </table>
         </div>
       </section>
-      <Modal data={modal} onClose={() => setModal(null)} />
+      <Modal data={modal} onClose={closeModal} />
     </>
   )
 }

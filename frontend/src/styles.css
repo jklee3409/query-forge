@@ -2901,6 +2901,371 @@ table.data-table {
   gap: 12px;
 }
 
+.anchor-review-modal {
+  display: grid;
+  gap: 16px;
+}
+
+.anchor-review-intro {
+  margin: 0;
+  padding: 13px 15px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius);
+  background: var(--surface-muted);
+  color: var(--text-secondary);
+  line-height: 1.55;
+  font-size: 13px;
+}
+
+.anchor-review-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 12px;
+}
+
+.anchor-review-stat {
+  min-width: 0;
+  display: grid;
+  gap: 7px;
+  padding: 14px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius);
+  background: var(--surface-raised);
+}
+
+.anchor-review-stat[data-tone="changed"] {
+  border-color: color-mix(in srgb, var(--accent-primary) 34%, var(--border-subtle));
+}
+
+.anchor-review-stat[data-tone="warning"],
+.anchor-review-stat[data-tone="pending"] {
+  border-color: color-mix(in srgb, var(--warning) 34%, var(--border-subtle));
+}
+
+.anchor-review-stat__label {
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 760;
+}
+
+.anchor-review-stat strong {
+  color: var(--text-primary);
+  font-size: 28px;
+  line-height: 1;
+}
+
+.anchor-review-stat p {
+  margin: 0;
+  color: var(--text-tertiary);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.anchor-review-workflow {
+  display: grid;
+  gap: 12px;
+}
+
+.anchor-review-step {
+  display: grid;
+  gap: 12px;
+  padding: 14px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius);
+  background: var(--surface-raised);
+}
+
+.anchor-review-step__head {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+}
+
+.anchor-review-step__head > span {
+  width: 24px;
+  height: 24px;
+  flex: 0 0 24px;
+  display: grid;
+  place-items: center;
+  border-radius: 999px;
+  background: var(--surface-selected);
+  color: var(--selected-soft-text);
+  border: 1px solid var(--selected-soft-border);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.anchor-review-step h3 {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: 14px;
+}
+
+.anchor-review-step p,
+.anchor-review-help {
+  margin: 0;
+  color: var(--text-tertiary);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.anchor-review-block-reason {
+  padding: 10px 12px;
+  border: 1px solid color-mix(in srgb, var(--warning) 34%, var(--border-subtle));
+  border-radius: var(--radius-sm);
+  background: var(--warning-soft);
+  color: var(--warning);
+  font-size: 12px;
+  font-weight: 720;
+}
+
+.anchor-review-summary-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+
+.anchor-review-summary-badges span,
+.anchor-review-decision-badge,
+.anchor-review-status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 28px;
+  padding: 5px 10px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 999px;
+  background: var(--surface-muted);
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 740;
+  white-space: nowrap;
+}
+
+.anchor-review-summary-badges span[data-kind="approved"],
+.anchor-review-decision-badge[data-decision="approve"] {
+  background: var(--success-soft);
+  border-color: color-mix(in srgb, var(--success) 34%, var(--border-subtle));
+  color: var(--success);
+}
+
+.anchor-review-summary-badges span[data-kind="skipped"],
+.anchor-review-decision-badge[data-decision="skip"],
+.anchor-review-decision-badge[data-decision="unchanged"] {
+  background: var(--surface-muted);
+  color: var(--text-secondary);
+}
+
+.anchor-review-note {
+  max-width: 100%;
+  margin-top: 6px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-tertiary);
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.anchor-review-summary-badges span[data-kind="pending"],
+.anchor-review-decision-badge[data-decision="pending"] {
+  background: var(--warning-soft);
+  border-color: color-mix(in srgb, var(--warning) 34%, var(--border-subtle));
+  color: var(--warning);
+}
+
+.anchor-review-summary-badges span[data-kind="dirty"] {
+  background: var(--danger-soft);
+  border-color: color-mix(in srgb, var(--danger) 34%, var(--border-subtle));
+  color: var(--danger);
+}
+
+.anchor-review-table-wrap {
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius);
+  background: var(--surface-elevated);
+}
+
+table.anchor-review-table {
+  min-width: 1080px;
+  table-layout: fixed;
+}
+
+.anchor-review-table th,
+.anchor-review-table td {
+  padding: 12px 14px;
+  vertical-align: middle;
+}
+
+.anchor-review-table th:nth-child(1),
+.anchor-review-table td:nth-child(1) {
+  width: 150px;
+}
+
+.anchor-review-table th:nth-child(2),
+.anchor-review-table td:nth-child(2) {
+  width: 150px;
+}
+
+.anchor-review-table th:nth-child(5),
+.anchor-review-table td:nth-child(5) {
+  width: 150px;
+}
+
+.anchor-review-table th:nth-child(6),
+.anchor-review-table td:nth-child(6) {
+  width: 190px;
+}
+
+.anchor-review-status-badge {
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  min-height: 34px;
+  border-radius: var(--radius-sm);
+}
+
+.anchor-review-status-badge strong {
+  font-size: 12px;
+  line-height: 1.2;
+}
+
+.anchor-review-status-badge small {
+  color: inherit;
+  opacity: 0.86;
+  font-size: 11px;
+  line-height: 1.2;
+}
+
+.anchor-review-status-badge[data-status="changed"] {
+  background: var(--accent-soft);
+  border-color: color-mix(in srgb, var(--accent-primary) 34%, var(--border-subtle));
+  color: color-mix(in srgb, var(--accent-primary) 76%, var(--text-primary));
+}
+
+.anchor-review-status-badge[data-status="conflict"] {
+  background: var(--warning-soft);
+  border-color: color-mix(in srgb, var(--warning) 42%, var(--border-subtle));
+  color: var(--warning);
+}
+
+.anchor-review-status-badge[data-status="invalid"] {
+  background: var(--danger-soft);
+  border-color: color-mix(in srgb, var(--danger) 38%, var(--border-subtle));
+  color: var(--danger);
+}
+
+.anchor-review-status-badge[data-status="unchanged"] {
+  background: var(--success-soft);
+  border-color: color-mix(in srgb, var(--success) 30%, var(--border-subtle));
+  color: var(--success);
+}
+
+.anchor-review-select {
+  width: 100%;
+  min-width: 124px;
+  min-height: 36px;
+  padding: 7px 10px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--surface-control);
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 720;
+  line-height: 1.2;
+  cursor: pointer;
+}
+
+.anchor-review-select:hover {
+  border-color: var(--border-strong);
+  background: var(--surface-hover);
+}
+
+.anchor-review-select:focus {
+  border-color: var(--selected-border);
+}
+
+.anchor-review-select option {
+  background: var(--surface-control);
+  color: var(--text-primary);
+}
+
+.anchor-review-value-stack {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.anchor-review-code {
+  display: block;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 6px 8px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: var(--surface-control);
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.anchor-review-value-stack[data-tone="current"] .anchor-review-code {
+  border-left: 3px solid var(--text-tertiary);
+}
+
+.anchor-review-value-stack[data-tone="proposed"] .anchor-review-code {
+  border-left: 3px solid var(--accent-primary);
+  background: color-mix(in srgb, var(--accent-soft) 48%, var(--surface-control));
+}
+
+.anchor-review-code--sub {
+  color: var(--text-tertiary);
+  font-size: 11px;
+}
+
+.anchor-review-term,
+.anchor-review-conflict {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.anchor-review-term strong {
+  color: var(--text-primary);
+  font-size: 13px;
+}
+
+.anchor-review-term span,
+.anchor-review-conflict span {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-tertiary);
+  font-size: 12px;
+}
+
+.anchor-review-conflict {
+  padding: 8px 10px;
+  border: 1px solid color-mix(in srgb, var(--warning) 30%, var(--border-subtle));
+  border-radius: var(--radius-sm);
+  background: var(--warning-soft);
+}
+
+.anchor-review-conflict span:first-child {
+  color: var(--warning);
+  font-weight: 740;
+}
+
+.anchor-review-muted {
+  color: var(--text-tertiary);
+  font-size: 12px;
+}
+
 .toast-stack {
   position: fixed;
   right: 20px;
