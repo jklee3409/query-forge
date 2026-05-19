@@ -29,6 +29,7 @@ try:
         RETRIEVAL_MODE_DENSE_ONLY,
         RETRIEVAL_MODE_HYBRID,
         RetrieverConfig,
+        build_canonical_lexical_text,
         build_retriever_config,
         embed_query_with_retriever_config,
         get_local_text_retriever,
@@ -50,6 +51,7 @@ except ModuleNotFoundError:  # pragma: no cover
         RETRIEVAL_MODE_DENSE_ONLY,
         RETRIEVAL_MODE_HYBRID,
         RetrieverConfig,
+        build_canonical_lexical_text,
         build_retriever_config,
         embed_query_with_retriever_config,
         get_local_text_retriever,
@@ -196,7 +198,13 @@ class DbAnnRuntimeRetrievalAdapter:
             "retriever_config": self.config.to_metadata(),
         }
 
-    def retrieve_top_k(self, query_text: str, *, top_k: int) -> list[RetrievalCandidate]:
+    def retrieve_top_k(
+        self,
+        query_text: str,
+        *,
+        top_k: int,
+        query_canonical_anchors: Any | None = None,
+    ) -> list[RetrievalCandidate]:
         if top_k <= 0:
             return []
         query_embedding = self._query_embedding(query_text)
@@ -204,6 +212,7 @@ class DbAnnRuntimeRetrievalAdapter:
         rows = self._fetch_chunk_ann_pool(query_embedding, limit=candidate_pool_k)
         if not rows:
             return []
+        lexical_query_text = _canonical_lexical_query_text(query_text, query_canonical_anchors)
         ranked = rank_with_precomputed_embeddings(
             query_text,
             item_ids=[row["chunk_id"] for row in rows],
@@ -211,6 +220,7 @@ class DbAnnRuntimeRetrievalAdapter:
             passage_embeddings=[row["embedding"] for row in rows],
             query_embedding=query_embedding,
             retriever_config=self.config,
+            lexical_query_text=lexical_query_text,
             top_k=max(top_k, len(rows)),
         )
         reduced = [
@@ -254,6 +264,14 @@ class DbAnnRuntimeRetrievalAdapter:
         )
         if not rows:
             return []
+        lexical_query_text = _canonical_lexical_query_text(
+            query_text,
+            [row.get("canonical_anchors") for row in rows],
+        )
+        lexical_texts = [
+            build_canonical_lexical_text(row["query_text"], row.get("canonical_anchors"))
+            for row in rows
+        ]
         ranked = rank_with_precomputed_embeddings(
             query_text,
             item_ids=[row["memory_id"] for row in rows],
@@ -261,6 +279,8 @@ class DbAnnRuntimeRetrievalAdapter:
             passage_embeddings=[row["embedding"] for row in rows],
             query_embedding=query_embedding,
             retriever_config=self.config,
+            lexical_query_text=lexical_query_text,
+            lexical_texts=lexical_texts,
             top_k=max(top_n, len(rows)),
         )
         scored: list[dict[str, Any]] = []
@@ -1045,6 +1065,14 @@ def _memory_retriever_cache_key(
     )
 
 
+def _canonical_lexical_query_text(query_text: str, canonical_payloads: Any) -> str:
+    return build_canonical_lexical_text(
+        query_text,
+        canonical_payloads,
+        match_text=query_text,
+    )
+
+
 def _select_eligible_memories(
     *,
     memories: list[MemoryItem],
@@ -1104,6 +1132,10 @@ def _build_memory_retriever(
         namespace="eval-memory",
         item_ids=[memory.memory_id for memory in eligible],
         texts=[memory.query_text for memory in eligible],
+        lexical_texts=[
+            build_canonical_lexical_text(memory.query_text, memory.canonical_anchors)
+            for memory in eligible
+        ],
         fallback_embeddings=[memory.embedding for memory in eligible],
         retriever_config=config,
     )
@@ -1151,15 +1183,25 @@ def retrieve_top_k(
     top_k: int,
     retriever_config: RetrieverConfig | None = None,
     retrieval_adapter: DbAnnRuntimeRetrievalAdapter | None = None,
+    query_canonical_anchors: Any | None = None,
 ) -> list[RetrievalCandidate]:
     if retrieval_adapter is not None:
-        return retrieval_adapter.retrieve_top_k(query_text, top_k=top_k)
+        return retrieval_adapter.retrieve_top_k(
+            query_text,
+            top_k=top_k,
+            query_canonical_anchors=query_canonical_anchors,
+        )
     if not chunks:
         return []
     config = retriever_config or build_retriever_config({})
     candidate_pool_k = max(top_k, min(config.candidate_pool_k, max(top_k, len(chunks))))
     retriever = _get_chunk_retriever(chunks=chunks, config=config)
-    ranked_pool = retriever.rank(query_text, top_k=candidate_pool_k)
+    lexical_query_text = _canonical_lexical_query_text(query_text, query_canonical_anchors)
+    ranked_pool = retriever.rank(
+        query_text,
+        top_k=candidate_pool_k,
+        lexical_query_text=lexical_query_text,
+    )
     reduced = [
         RetrievalCandidate(
             chunk_id=chunks[ranked.index].chunk_id,
@@ -1311,7 +1353,15 @@ def memory_top_n(
     if not eligible or retriever is None:
         return []
     scored = []
-    for ranked in retriever.rank(query_text, top_k=top_n):
+    lexical_query_text = _canonical_lexical_query_text(
+        query_text,
+        [memory.canonical_anchors for memory in eligible],
+    )
+    for ranked in retriever.rank(
+        query_text,
+        top_k=top_n,
+        lexical_query_text=lexical_query_text,
+    ):
         memory = eligible[ranked.index]
         scored.append(
             {
@@ -2213,12 +2263,18 @@ def run_selective_rewrite(
         retriever_config=config,
         retrieval_adapter=retrieval_adapter,
     )
+    memory_canonical_anchor_payloads = [
+        item.get("canonical_anchors")
+        for item in memory_items
+        if item.get("canonical_anchors")
+    ]
     raw_retrieval = retrieve_top_k(
         raw_query,
         chunks,
         top_k=retrieval_top_k,
         retriever_config=config,
         retrieval_adapter=retrieval_adapter,
+        query_canonical_anchors=memory_canonical_anchor_payloads,
     )
     raw_memory_affinity = memory_items[0]["similarity"] if memory_items else 0.0
     raw_confidence_base = confidence_score(raw_retrieval, raw_memory_affinity)
@@ -2306,6 +2362,7 @@ def run_selective_rewrite(
             top_k=retrieval_top_k,
             retriever_config=config,
             retrieval_adapter=retrieval_adapter,
+            query_canonical_anchors=memory_canonical_anchor_payloads,
         )
         candidate_memory_items = memory_top_n(
             template["query"],

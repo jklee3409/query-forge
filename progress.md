@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-05-19] Session Summary (Hybrid Retrieval Canonical Expansion)
+- What was done: Added canonical-anchor lexical expansion for hybrid retrieval BM25/technical-overlap scoring, using only `used_for_scoring=true` anchors grouped by `canonical_term_id` from existing canonical metadata.
+- Key decisions: Kept raw `query_text`, memory query text, dense query embeddings, dense passage embeddings, raw synthetic payloads, pipeline order, V31 migration state, and mapping rows unchanged. Canonical terms are appended only to BM25/technical lexical fields and fall back to previous behavior when metadata is absent.
+- Issues encountered: Validation was limited to targeted checks: `python -m py_compile common\local_retriever.py eval\runtime.py gating\quality_gating.py tests\test_eval_runtime.py` and `python -m unittest pipeline.tests.test_eval_runtime -q` passed.
+- Next steps: Session 11 should record mapping/normalization versions in Admin/runtime config and expose canonical/alias/confidence metadata in Admin views without changing server-driven runtime options.
+
 ## [2026-05-19] Session Summary (Rewrite Scoring Canonical Metadata)
 - What was done: Extended rewrite scoring in `pipeline/eval/runtime.py` to consume existing `memory_entries.metadata.canonical_anchors` as scoring-only metadata for terminology preservation, anchor overlap, and memory-target token hints.
 - Key decisions: Kept raw query text, rewrite candidate text, dense retrieval query text, memory query text, rewrite prompt schema, V31 migration state, and mapping rows unchanged. Canonical scoring uses only anchors marked `used_for_scoring=true` and falls back to previous behavior when metadata is absent.

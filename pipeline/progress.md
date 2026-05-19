@@ -3,6 +3,12 @@
 ## Overview
 High-level pipeline progress tracking.
 
+## [2026-05-19] Session Summary (Hybrid Retrieval Canonical Expansion)
+- What was done: Extended `common/local_retriever.py` with optional BM25/technical-only lexical query/document fields and canonical-anchor expansion helpers; wired memory retrieval, DB-ANN local reranking, selective-rewrite chunk retrieval, and gating utility chunk ranking to use existing canonical metadata additively.
+- Key decisions: Dense query text and dense passage text remain original; expansion uses only active scoring anchors with a non-empty `canonical_term_id`, skips miss/ambiguous/unresolved anchors, and does not infer language/type or perform DB lookups/backfills.
+- Issues encountered: Targeted validation passed with `python -m py_compile common\local_retriever.py eval\runtime.py gating\quality_gating.py tests\test_eval_runtime.py` and `python -m unittest pipeline.tests.test_eval_runtime -q`.
+- Next steps: Session 11 should add mapping/normalization version recording to runtime/Admin payloads and surface canonical alias details in Admin UI.
+
 ## [2026-05-19] Session Summary (Rewrite Scoring Canonical Metadata)
 - What was done: Updated `eval/runtime.py` so memory top-N rows carry existing `canonical_anchors` metadata and selective rewrite scoring additively boosts terminology preservation, anchor overlap, and memory-target tokens when raw/candidate aliases share a `used_for_scoring=true` canonical anchor.
 - Key decisions: Filtered canonical metadata out of rewrite LLM prompt memory candidates, kept query/candidate/memory/dense text unchanged, and avoided DB lookup, mapping insert, migration apply, or alias-language/term-type inference.

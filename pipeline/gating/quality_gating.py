@@ -16,7 +16,7 @@ try:
     from common.embeddings import cosine_similarity, embed_text
     from common.experiment_config import ExperimentConfig, load_experiment_config
     from common.experiment_run import ExperimentRunRecorder
-    from common.local_retriever import RetrieverConfig, get_local_text_retriever
+    from common.local_retriever import RetrieverConfig, build_canonical_lexical_text, get_local_text_retriever
     from common.llm_client import LlmClient, load_stage_config
     from common.prompt_assets import load_and_register_prompt
     from common.text_utils import copy_ratio, korean_ratio, special_char_ratio, token_count
@@ -26,7 +26,7 @@ except ModuleNotFoundError:  # pragma: no cover - direct module execution fallba
     from pipeline.common.embeddings import cosine_similarity, embed_text
     from pipeline.common.experiment_config import ExperimentConfig, load_experiment_config
     from pipeline.common.experiment_run import ExperimentRunRecorder
-    from pipeline.common.local_retriever import RetrieverConfig, get_local_text_retriever
+    from pipeline.common.local_retriever import RetrieverConfig, build_canonical_lexical_text, get_local_text_retriever
     from pipeline.common.llm_client import LlmClient, load_stage_config
     from pipeline.common.prompt_assets import load_and_register_prompt
     from pipeline.common.text_utils import copy_ratio, korean_ratio, special_char_ratio, token_count
@@ -470,6 +470,7 @@ def _rank_chunks(
     chunks: list[ChunkItem],
     top_k: int = 5,
     retriever_config: RetrieverConfig | None = None,
+    query_canonical_anchors: Any | None = None,
 ) -> list[tuple[ChunkItem, float]]:
     retriever = get_local_text_retriever(
         namespace="gating-chunks",
@@ -478,9 +479,18 @@ def _rank_chunks(
         fallback_embeddings=[chunk.embedding for chunk in chunks],
         retriever_config=retriever_config,
     )
+    lexical_query_text = build_canonical_lexical_text(
+        query_text,
+        query_canonical_anchors,
+        match_text=query_text,
+    )
     return [
         (chunks[ranked.index], ranked.score)
-        for ranked in retriever.rank(query_text, top_k=top_k)
+        for ranked in retriever.rank(
+            query_text,
+            top_k=top_k,
+            lexical_query_text=lexical_query_text,
+        )
     ]
 
 
@@ -500,6 +510,7 @@ def _retrieval_utility_score(
         chunks,
         top_k=initial_top_k,
         retriever_config=retriever_config,
+        query_canonical_anchors=query.metadata.get("canonical_anchors"),
     )
     reranked: list[tuple[ChunkItem, float]] = []
     if pre_ranked and (retriever_config is None or retriever_config.rerank_enabled):

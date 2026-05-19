@@ -2,12 +2,15 @@ from __future__ import annotations
 
 import math
 import os
+import re
 import threading
 from collections import Counter, defaultdict
 from dataclasses import dataclass, replace
 import hashlib
 import json
-from typing import Iterable
+import unicodedata
+from collections.abc import Iterable, Mapping
+from typing import Any
 
 try:
     import numpy as np
@@ -28,6 +31,14 @@ DEFAULT_CANDIDATE_POOL_K = 50
 DEFAULT_DENSE_WEIGHT = 0.58
 DEFAULT_BM25_WEIGHT = 0.34
 DEFAULT_TECHNICAL_WEIGHT = 0.08
+CANONICAL_LEXICAL_VARIANT_FIELDS = (
+    "input_alias",
+    "display_alias",
+    "normalized_alias",
+    "canonical_form",
+    "canonical_normalized_form",
+)
+MAX_CANONICAL_LEXICAL_TERMS = 64
 VALID_RETRIEVAL_MODES = {
     RETRIEVAL_MODE_BM25_ONLY,
     RETRIEVAL_MODE_DENSE_ONLY,
@@ -97,13 +108,19 @@ class LocalTextRetriever:
         item_ids: list[str],
         texts: list[str],
         fallback_embeddings: list[list[float]] | None = None,
+        lexical_texts: list[str] | None = None,
         retriever_config: RetrieverConfig | None = None,
     ) -> None:
         self.config = retriever_config or build_retriever_config({})
         self.item_ids = item_ids
         self.texts = texts
+        self.lexical_texts = (
+            lexical_texts
+            if lexical_texts is not None and len(lexical_texts) == len(texts)
+            else texts
+        )
         self.fallback_embeddings = fallback_embeddings or []
-        self._tokens = [tokenize(text) for text in texts]
+        self._tokens = [tokenize(text) for text in self.lexical_texts]
         self._technical_sets = [_technical_tokens(tokens) for tokens in self._tokens]
         self._build_bm25_index()
         self._dense_backend = _dense_backend(self.config) if self.config.requires_dense else None
@@ -118,10 +135,17 @@ class LocalTextRetriever:
     def retriever_name(self) -> str:
         return local_retriever_name(self.config, dense_backend_name=self.dense_backend_name)
 
-    def rank(self, query_text: str, *, top_k: int) -> list[RankedText]:
+    def rank(
+        self,
+        query_text: str,
+        *,
+        top_k: int,
+        lexical_query_text: str | None = None,
+    ) -> list[RankedText]:
         if not self.texts or top_k <= 0:
             return []
-        query_tokens = tokenize(query_text)
+        lexical_query = str(lexical_query_text or query_text)
+        query_tokens = tokenize(lexical_query)
         bm25_scores = self._bm25_scores(query_tokens)
         dense_scores = (
             self._dense_backend.score_query(
@@ -351,11 +375,20 @@ def rank_with_precomputed_embeddings(
     passage_embeddings: Iterable[list[float]],
     query_embedding: list[float],
     retriever_config: RetrieverConfig | None = None,
+    lexical_query_text: str | None = None,
+    lexical_texts: Iterable[str] | None = None,
     top_k: int,
 ) -> list[RankedText]:
     config = retriever_config or build_retriever_config({})
     ids = [str(item_id) for item_id in item_ids]
     text_values = [str(text) for text in texts]
+    lexical_values = (
+        [str(text) for text in lexical_texts]
+        if lexical_texts is not None
+        else text_values
+    )
+    if len(lexical_values) != len(text_values):
+        lexical_values = text_values
     embedding_values = [[float(value) for value in row] for row in passage_embeddings]
     if len(text_values) != len(embedding_values) or len(ids) != len(text_values):
         raise ValueError("texts, item_ids, and passage_embeddings must have the same length")
@@ -372,10 +405,11 @@ def rank_with_precomputed_embeddings(
     helper = LocalTextRetriever(
         item_ids=ids,
         texts=text_values,
+        lexical_texts=lexical_values,
         fallback_embeddings=embedding_values,
         retriever_config=helper_config,
     )
-    query_tokens = tokenize(query_text)
+    query_tokens = tokenize(str(lexical_query_text or query_text))
     bm25_scores = helper._bm25_scores(query_tokens)  # noqa: SLF001 - shared scoring helper
     technical_scores = helper._technical_scores(query_tokens)  # noqa: SLF001 - shared scoring helper
     dense_scores = [cosine_similarity(query_embedding, embedding) for embedding in embedding_values]
@@ -406,7 +440,7 @@ def rank_with_precomputed_embeddings(
 _MODEL_LOCK = threading.Lock()
 _MODEL_BACKENDS: dict[str, _DenseBackend] = {}
 _RETRIEVER_LOCK = threading.Lock()
-_RETRIEVER_CACHE: dict[tuple[str, tuple[str, ...], str, str], LocalTextRetriever] = {}
+_RETRIEVER_CACHE: dict[tuple[str, tuple[str, ...], str, str, str], LocalTextRetriever] = {}
 _WARNED_BACKEND_FALLBACK = False
 
 
@@ -416,13 +450,27 @@ def get_local_text_retriever(
     item_ids: Iterable[str],
     texts: Iterable[str],
     fallback_embeddings: Iterable[list[float]] | None = None,
+    lexical_texts: Iterable[str] | None = None,
     retriever_config: RetrieverConfig | None = None,
 ) -> LocalTextRetriever:
     config = retriever_config or build_retriever_config({})
     ids = [str(item_id) for item_id in item_ids]
     text_values = [str(text) for text in texts]
+    lexical_values = (
+        [str(text) for text in lexical_texts]
+        if lexical_texts is not None
+        else text_values
+    )
+    if len(lexical_values) != len(text_values):
+        lexical_values = text_values
     embedding_values = list(fallback_embeddings or [])
-    cache_key = (namespace, tuple(ids), _texts_signature(text_values), config.cache_signature())
+    cache_key = (
+        namespace,
+        tuple(ids),
+        _texts_signature(text_values),
+        _texts_signature(lexical_values),
+        config.cache_signature(),
+    )
     with _RETRIEVER_LOCK:
         cached = _RETRIEVER_CACHE.get(cache_key)
         if cached is not None:
@@ -430,6 +478,7 @@ def get_local_text_retriever(
     retriever = LocalTextRetriever(
         item_ids=ids,
         texts=text_values,
+        lexical_texts=lexical_values,
         fallback_embeddings=embedding_values if len(embedding_values) == len(text_values) else None,
         retriever_config=config,
     )
@@ -619,6 +668,137 @@ def build_retriever_config(raw_config: dict[str, object] | None = None) -> Retri
             True,
         ),
     )
+
+
+def build_canonical_lexical_text(
+    text: str,
+    canonical_payloads: Any,
+    *,
+    match_text: str | None = None,
+    max_terms: int = MAX_CANONICAL_LEXICAL_TERMS,
+) -> str:
+    base_text = str(text or "")
+    terms = canonical_lexical_expansion_terms(
+        canonical_payloads,
+        match_text=match_text,
+        max_terms=max_terms,
+    )
+    if not terms:
+        return base_text
+    return f"{base_text}\n{' '.join(terms)}"
+
+
+def canonical_lexical_expansion_terms(
+    canonical_payloads: Any,
+    *,
+    match_text: str | None = None,
+    max_terms: int = MAX_CANONICAL_LEXICAL_TERMS,
+) -> list[str]:
+    bounded_max = max(0, int(max_terms))
+    if bounded_max <= 0:
+        return []
+    terms: list[str] = []
+    seen: set[str] = set()
+    for payload in _iter_canonical_payloads(canonical_payloads):
+        for variants in _canonical_variant_groups(payload).values():
+            if match_text is not None and not any(
+                _canonical_variant_in_text(match_text, variant)
+                for variant in variants
+            ):
+                continue
+            for variant in variants:
+                _append_canonical_lexical_term(terms, seen, variant)
+                if len(terms) >= bounded_max:
+                    return terms
+    return terms
+
+
+def _iter_canonical_payloads(canonical_payloads: Any) -> Iterable[Any]:
+    if canonical_payloads is None:
+        return
+    if isinstance(canonical_payloads, (str, Mapping)):
+        yield canonical_payloads
+        return
+    if isinstance(canonical_payloads, Iterable):
+        for payload in canonical_payloads:
+            yield payload
+
+
+def _json_mapping_or_none(value: Any) -> dict[str, Any] | None:
+    if isinstance(value, Mapping):
+        return dict(value)
+    if isinstance(value, str) and value.strip():
+        try:
+            parsed = json.loads(value)
+        except json.JSONDecodeError:
+            return None
+        if isinstance(parsed, Mapping):
+            return dict(parsed)
+    return None
+
+
+def _canonical_variant_groups(payload: Any) -> dict[str, list[str]]:
+    canonical_payload = _json_mapping_or_none(payload)
+    if not canonical_payload:
+        return {}
+    anchors = canonical_payload.get("anchors")
+    if not isinstance(anchors, list):
+        return {}
+    groups: dict[str, list[str]] = {}
+    for anchor in anchors:
+        if not isinstance(anchor, Mapping):
+            continue
+        if anchor.get("used_for_scoring") is not True:
+            continue
+        canonical_term_id = str(anchor.get("canonical_term_id") or "").strip()
+        if not canonical_term_id:
+            continue
+        variants = groups.setdefault(canonical_term_id, [])
+        seen = {value.casefold() for value in variants}
+        for field_name in CANONICAL_LEXICAL_VARIANT_FIELDS:
+            value = str(anchor.get(field_name) or "").strip()
+            if not value:
+                continue
+            dedup_key = value.casefold()
+            if dedup_key in seen:
+                continue
+            seen.add(dedup_key)
+            variants.append(value)
+    return {key: value for key, value in groups.items() if value}
+
+
+def _append_canonical_lexical_term(terms: list[str], seen: set[str], value: str) -> None:
+    term = str(value or "").strip()
+    if not term:
+        return
+    key = term.casefold()
+    if key in seen:
+        return
+    seen.add(key)
+    terms.append(term)
+
+
+def _canonical_match_indexes(text: str) -> tuple[str, str]:
+    normalized = unicodedata.normalize("NFKC", str(text or "")).casefold()
+    normalized = normalized.replace("_", " ").replace("-", " ")
+    spaced = re.sub(r"[^0-9a-z@\uac00-\ud7a3]+", " ", normalized)
+    spaced = re.sub(r"\s+", " ", spaced).strip()
+    compact = re.sub(r"[^0-9a-z@\uac00-\ud7a3]+", "", normalized)
+    return spaced, compact
+
+
+def _canonical_variant_in_text(text: str, variant: str) -> bool:
+    variant_spaced, variant_compact = _canonical_match_indexes(variant)
+    if not variant_compact:
+        return False
+    text_spaced, text_compact = _canonical_match_indexes(text)
+    if variant_spaced and f" {variant_spaced} " in f" {text_spaced} ":
+        return True
+    is_phrase = " " in variant_spaced
+    has_hangul = bool(re.search(r"[\uac00-\ud7a3]", variant_compact))
+    if (is_phrase or has_hangul or variant_compact.startswith("@")) and variant_compact in text_compact:
+        return True
+    return False
 
 
 def _technical_tokens(tokens: Iterable[str]) -> set[str]:

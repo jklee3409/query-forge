@@ -11,7 +11,7 @@ from pipeline.common.experiment_config import load_experiment_config
 from pipeline.common.cohere_reranker import CohereRerankConfig, CohereReranker
 from pipeline.common.embeddings import embed_text
 from pipeline.common import local_retriever
-from pipeline.common.local_retriever import build_retriever_config, get_local_text_retriever
+from pipeline.common.local_retriever import build_canonical_lexical_text, build_retriever_config, get_local_text_retriever
 from pipeline.eval import runtime
 from pipeline.eval.runtime import ChunkItem, MemoryItem
 
@@ -118,6 +118,128 @@ class EvalRuntimeRewriteTests(unittest.TestCase):
             self.assertEqual(ranked[0].index, 0)
             self.assertGreater(ranked[0].bm25_score, ranked[1].bm25_score)
             self.assertIn("hash-embedding-v1", retriever.retriever_name)
+
+    def test_local_retriever_uses_canonical_lexical_text_without_replacing_dense_query(self) -> None:
+        payload = self._transactional_canonical_payload()
+        raw_query = "transaction readonly setup"
+        lexical_query = build_canonical_lexical_text(raw_query, [payload], match_text=raw_query)
+        config = build_retriever_config(
+            {
+                "retriever_mode": "hybrid",
+                "dense_fallback_enabled": True,
+                "rerank_enabled": False,
+                "retriever_fusion_weights": {"dense": 0.0, "bm25": 0.7, "technical": 0.3},
+            }
+        )
+
+        with patch.dict(os.environ, {"QUERY_FORGE_LOCAL_REAL_EMBEDDINGS_ENABLED": "false"}, clear=False):
+            local_retriever._MODEL_BACKENDS.clear()
+            local_retriever._RETRIEVER_CACHE.clear()
+            retriever = get_local_text_retriever(
+                namespace="canonical-test",
+                item_ids=["canonical", "plain"],
+                texts=[
+                    "Spring transaction annotation guide @Transactional",
+                    "CacheControl header max-age overview",
+                ],
+                lexical_texts=[
+                    build_canonical_lexical_text(
+                        "Spring transaction annotation guide @Transactional",
+                        payload,
+                    ),
+                    "CacheControl header max-age overview",
+                ],
+                fallback_embeddings=[
+                    embed_text("Spring transaction annotation guide @Transactional"),
+                    embed_text("CacheControl header max-age overview"),
+                ],
+                retriever_config=config,
+            )
+
+            captured_dense_queries: list[str] = []
+
+            def fake_score(self, query_text, dense_passages, fallback_embeddings):
+                captured_dense_queries.append(query_text)
+                return [0.0, 0.0]
+
+            with patch.object(local_retriever._DenseBackend, "score_query", fake_score):
+                ranked = retriever.rank(
+                    raw_query,
+                    top_k=2,
+                    lexical_query_text=lexical_query,
+                )
+
+        self.assertEqual(captured_dense_queries, [raw_query])
+        self.assertEqual(ranked[0].index, 0)
+        self.assertGreater(ranked[0].bm25_score, 0.0)
+        self.assertGreater(ranked[0].technical_score, 0.0)
+
+    def test_memory_top_n_uses_canonical_alias_expansion_when_metadata_exists(self) -> None:
+        payload = self._transactional_canonical_payload()
+        config = build_retriever_config(
+            {
+                "retriever_mode": "hybrid",
+                "dense_fallback_enabled": True,
+                "rerank_enabled": False,
+                "retriever_fusion_weights": {"dense": 0.0, "bm25": 0.7, "technical": 0.3},
+            }
+        )
+        memories = [
+            MemoryItem(
+                memory_id="m-canonical",
+                query_text="Spring annotation guide @Transactional",
+                target_doc_id="doc-tx",
+                target_chunk_ids=["chunk-tx"],
+                gating_preset="full_gating",
+                generation_strategy="A",
+                source_gate_run_id="gate-1",
+                embedding=embed_text("Spring annotation guide @Transactional"),
+                canonical_anchors=payload,
+            ),
+            MemoryItem(
+                memory_id="m-plain",
+                query_text="transaction manager timeout overview",
+                target_doc_id="doc-other",
+                target_chunk_ids=["chunk-other"],
+                gating_preset="full_gating",
+                generation_strategy="A",
+                source_gate_run_id="gate-1",
+                embedding=embed_text("transaction manager timeout overview"),
+            ),
+        ]
+
+        with patch.dict(os.environ, {"QUERY_FORGE_LOCAL_REAL_EMBEDDINGS_ENABLED": "false"}, clear=False):
+            local_retriever._MODEL_BACKENDS.clear()
+            local_retriever._RETRIEVER_CACHE.clear()
+            without_metadata = runtime.memory_top_n(
+                "transaction readonly setup",
+                [
+                    MemoryItem(
+                        memory_id="m-canonical",
+                        query_text="Spring annotation guide @Transactional",
+                        target_doc_id="doc-tx",
+                        target_chunk_ids=["chunk-tx"],
+                        gating_preset="full_gating",
+                        generation_strategy="A",
+                        source_gate_run_id="gate-1",
+                        embedding=embed_text("Spring annotation guide @Transactional"),
+                    ),
+                    memories[1],
+                ],
+                top_n=2,
+                retriever_config=config,
+            )
+            with_metadata = runtime.memory_top_n(
+                "transaction readonly setup",
+                memories,
+                top_n=2,
+                retriever_config=config,
+            )
+
+        self.assertEqual(without_metadata[0]["memory_id"], "m-plain")
+        self.assertEqual(with_metadata[0]["memory_id"], "m-canonical")
+        self.assertGreater(with_metadata[0]["bm25_score"], 0.0)
+        self.assertGreater(with_metadata[0]["technical_token_overlap"], 0.0)
 
     def test_selective_rewrite_uses_candidate_memory_affinity(self) -> None:
         original_builder = runtime.build_rewrite_candidates_v2
