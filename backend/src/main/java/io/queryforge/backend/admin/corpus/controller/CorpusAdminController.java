@@ -2,6 +2,7 @@ package io.queryforge.backend.admin.corpus.controller;
 
 import io.queryforge.backend.admin.corpus.model.CorpusAdminDtos;
 import io.queryforge.backend.admin.corpus.service.CorpusAdminService;
+import io.queryforge.backend.admin.corpus.service.AnchorNormalizationService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -22,6 +23,7 @@ import java.util.UUID;
 public class CorpusAdminController {
 
     private final CorpusAdminService service;
+    private final AnchorNormalizationService anchorNormalizationService;
 
     @GetMapping("/sources")
     public List<CorpusAdminDtos.SourceSummary> listSources() {
@@ -239,6 +241,42 @@ public class CorpusAdminController {
             @RequestParam(name = "offset", required = false) Integer offset
     ) {
         return service.listAnchors(documentId, chunkId, keyword, activeOnly, limit, offset);
+    }
+
+    @PostMapping("/anchors/normalization-runs")
+    public CorpusAdminDtos.AnchorNormalizationRunSummary createAnchorNormalizationRun(
+            @RequestBody(required = false) CorpusAdminDtos.AnchorNormalizationRunCreateRequest request
+    ) {
+        return anchorNormalizationService.createDryRun(request);
+    }
+
+    @GetMapping("/anchors/normalization-runs")
+    public List<CorpusAdminDtos.AnchorNormalizationRunSummary> listAnchorNormalizationRuns(
+            @RequestParam(name = "limit", required = false) Integer limit,
+            @RequestParam(name = "offset", required = false) Integer offset
+    ) {
+        return anchorNormalizationService.listRuns(limit, offset);
+    }
+
+    @GetMapping("/anchors/normalization-runs/{runId}")
+    public CorpusAdminDtos.AnchorNormalizationRunDetail getAnchorNormalizationRun(@PathVariable UUID runId) {
+        return anchorNormalizationService.getRunDetail(runId);
+    }
+
+    @PostMapping("/anchors/normalization-runs/{runId}/approve")
+    public CorpusAdminDtos.AnchorNormalizationRunSummary approveAnchorNormalizationRun(
+            @PathVariable UUID runId,
+            @RequestBody(required = false) CorpusAdminDtos.AnchorNormalizationReviewRequest request
+    ) {
+        return anchorNormalizationService.approve(runId, request);
+    }
+
+    @PostMapping("/anchors/normalization-runs/{runId}/reject")
+    public CorpusAdminDtos.AnchorNormalizationRunSummary rejectAnchorNormalizationRun(
+            @PathVariable UUID runId,
+            @RequestBody(required = false) CorpusAdminDtos.AnchorNormalizationReviewRequest request
+    ) {
+        return anchorNormalizationService.reject(runId, request);
     }
 
     @PostMapping("/anchors/eval/runs")

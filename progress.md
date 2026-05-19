@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-05-19] Session Summary (Admin Anchor Normalization Review Flow)
+- What was done: Added Admin Anchors dry-run/review flow for deterministic anchor canonical-field normalization. Backend now has review-history tables, dry-run report APIs, approve/reject APIs, and approval updates only `corpus_glossary_terms.canonical_form` / `normalized_form` for safe candidates. Frontend Anchors section now has an `Anchor 정규화 Dry-run` button plus normalization history/detail/approve/reject controls.
+- Key decisions: Kept the flow manual-review gated. Dry-run creates only review/report history; approval is blocked for conflict/invalid candidates and does not touch synthetic raw rows, query text, memory entries, evidence, links, or mapping rows. Added migration file only; did not apply it.
+- Issues encountered: Targeted validation passed with `backend .\gradlew.bat compileJava` and `frontend npx eslint src/pages/PipelinePage.jsx` (0 errors, 1 pre-existing hook dependency warning).
+- Next steps: Apply `V32` only after explicit approval, browser-smoke the Anchors UI, then decide whether to add a read-only JSON/Markdown export for normalization histories.
+
 ## [2026-05-19] Session Summary (Canonical Anchor Backfill Dry-Run Documentation)
 - What was done: Added a canonical anchor backfill dry-run policy document covering report schema, manual review, version pinning, reproducibility, and explicit no-overwrite/no-DB-write constraints.
 - Key decisions: Kept Session 12 documentation-only. Did not apply V31, insert mapping rows, run backfill, execute official evaluation, or add a pipeline writer before the review policy is accepted.

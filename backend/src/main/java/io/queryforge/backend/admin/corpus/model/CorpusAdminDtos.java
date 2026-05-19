@@ -252,6 +252,7 @@ public final class CorpusAdminDtos {
     public record AnchorSummary(
             UUID termId,
             String canonicalForm,
+            String normalizedForm,
             String termType,
             boolean keepInEnglish,
             double sourceConfidence,
@@ -316,6 +317,68 @@ public final class CorpusAdminDtos {
             int deactivatedTermCount,
             int remappedSyntheticQueryCount,
             int remappedLinkCount
+    ) {
+    }
+
+    @Builder
+    public record AnchorNormalizationRunCreateRequest(
+            String runName,
+            String documentId,
+            String chunkId,
+            String keyword,
+            Boolean activeOnly,
+            Integer limit,
+            String createdBy
+    ) {
+    }
+
+    @Builder
+    public record AnchorNormalizationReviewRequest(
+            String reviewedBy,
+            String note
+    ) {
+    }
+
+    public record AnchorNormalizationRunSummary(
+            UUID runId,
+            String runName,
+            String status,
+            int candidateCount,
+            int changedCount,
+            int unchangedCount,
+            int conflictCount,
+            int invalidCount,
+            int appliedUpdateCount,
+            String createdBy,
+            String reviewedBy,
+            JsonNode sourceScopeJson,
+            JsonNode summaryJson,
+            Instant createdAt,
+            Instant updatedAt,
+            Instant reviewedAt,
+            Instant appliedAt
+    ) {
+    }
+
+    public record AnchorNormalizationCandidateDto(
+            UUID candidateId,
+            UUID termId,
+            String termType,
+            String currentCanonicalForm,
+            String currentNormalizedForm,
+            String proposedCanonicalForm,
+            String proposedNormalizedForm,
+            String resolutionStatus,
+            boolean changeRequired,
+            UUID conflictTermId,
+            JsonNode metadataJson,
+            Instant appliedAt
+    ) {
+    }
+
+    public record AnchorNormalizationRunDetail(
+            AnchorNormalizationRunSummary run,
+            List<AnchorNormalizationCandidateDto> candidates
     ) {
     }
 

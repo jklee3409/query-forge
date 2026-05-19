@@ -35,6 +35,11 @@ export function PipelinePage({ notify }) {
   const [anchorListLoading, setAnchorListLoading] = useState(false)
   const [anchorPage, setAnchorPage] = useState(0)
   const [anchorHasNextPage, setAnchorHasNextPage] = useState(false)
+  const [anchorNormalizationRuns, setAnchorNormalizationRuns] = useState([])
+  const [anchorNormalizationRunsLoaded, setAnchorNormalizationRunsLoaded] = useState(false)
+  const [anchorNormalizationRunsLoading, setAnchorNormalizationRunsLoading] = useState(false)
+  const [anchorNormalizationBusy, setAnchorNormalizationBusy] = useState(false)
+  const [anchorNormalizationDetailBusy, setAnchorNormalizationDetailBusy] = useState(false)
   const [anchorFilterDocuments, setAnchorFilterDocuments] = useState([])
   const [anchorFilterDocumentsLoaded, setAnchorFilterDocumentsLoaded] = useState(false)
   const [anchorFilterChunks, setAnchorFilterChunks] = useState([])
@@ -216,6 +221,17 @@ export function PipelinePage({ notify }) {
       setAnchorListLoaded(true)
     } finally {
       setAnchorListLoading(false)
+    }
+  }
+
+  const loadAnchorNormalizationRuns = async () => {
+    setAnchorNormalizationRunsLoading(true)
+    try {
+      const payload = await requestJson('/api/admin/corpus/anchors/normalization-runs?limit=20&offset=0')
+      setAnchorNormalizationRuns(Array.isArray(payload) ? payload : [])
+      setAnchorNormalizationRunsLoaded(true)
+    } finally {
+      setAnchorNormalizationRunsLoading(false)
     }
   }
 
@@ -521,6 +537,102 @@ export function PipelinePage({ notify }) {
     }
   }
 
+  const createAnchorNormalizationDryRun = async () => {
+    setAnchorNormalizationBusy(true)
+    try {
+      const created = await requestJson('/api/admin/corpus/anchors/normalization-runs', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          documentId: anchorFilters.documentId || null,
+          chunkId: anchorFilters.chunkId || null,
+          keyword: anchorFilters.keyword || null,
+          activeOnly: true,
+          limit: 500,
+        }),
+      })
+      await loadAnchorNormalizationRuns()
+      notify(`Anchor 정규화 dry-run 생성: ${created.runName}`)
+    } catch (error) {
+      notify(error.message, 'error')
+    } finally {
+      setAnchorNormalizationBusy(false)
+    }
+  }
+
+  const reviewAnchorNormalizationRun = async (runId, action) => {
+    const confirmed = window.confirm(action === 'approve' ? '이 정규화 이력을 승인하고 canonical 컬럼만 업데이트할까요?' : '이 정규화 이력을 거절할까요?')
+    if (!confirmed) return
+    setAnchorNormalizationBusy(true)
+    try {
+      await requestJson(`/api/admin/corpus/anchors/normalization-runs/${runId}/${action}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          reviewedBy: 'admin-ui',
+          note: action === 'approve' ? 'approved from Anchors UI' : 'rejected from Anchors UI',
+        }),
+      })
+      await Promise.all([
+        loadAnchorNormalizationRuns(),
+        loadAnchors(anchorFilters, anchorPage),
+      ])
+      notify(action === 'approve' ? 'Anchor 정규화 이력을 승인했습니다.' : 'Anchor 정규화 이력을 거절했습니다.')
+    } catch (error) {
+      notify(error.message, 'error')
+    } finally {
+      setAnchorNormalizationBusy(false)
+    }
+  }
+
+  const openAnchorNormalizationRunDetail = async (runId) => {
+    setAnchorNormalizationDetailBusy(true)
+    try {
+      const detail = await requestJson(`/api/admin/corpus/anchors/normalization-runs/${runId}`)
+      const candidates = Array.isArray(detail.candidates) ? detail.candidates : []
+      setModal({
+        title: `Anchor 정규화 · ${detail.run.runName}`,
+        body: (
+          <div className="detail-grid detail-grid--single">
+            <DetailCard label="Summary" value={JSON.stringify(detail.run.summaryJson || {}, null, 2)} />
+            <DetailCard label="Source Scope" value={JSON.stringify(detail.run.sourceScopeJson || {}, null, 2)} />
+            <div className="table-wrap">
+              <table className="data-table">
+                <thead>
+                  <tr><th>status</th><th>current</th><th>proposed</th><th>term</th><th>conflict</th></tr>
+                </thead>
+                <tbody>
+                  {candidates.slice(0, 80).map((candidate) => (
+                    <tr key={candidate.candidateId}>
+                      <td><StatusBadge status={candidate.resolutionStatus} /></td>
+                      <td>
+                        <div>{candidate.currentCanonicalForm}</div>
+                        <div className="mono-text">{candidate.currentNormalizedForm}</div>
+                      </td>
+                      <td>
+                        <div>{candidate.proposedCanonicalForm}</div>
+                        <div className="mono-text">{candidate.proposedNormalizedForm}</div>
+                      </td>
+                      <td>{candidate.termType} / {shortId(candidate.termId)}</td>
+                      <td>{candidate.conflictTermId ? shortId(candidate.conflictTermId) : '-'}</td>
+                    </tr>
+                  ))}
+                  {candidates.length === 0 && (
+                    <tr><td colSpan={5}>No candidates.</td></tr>
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        ),
+      })
+    } catch (error) {
+      notify(error.message, 'error')
+    } finally {
+      setAnchorNormalizationDetailBusy(false)
+    }
+  }
+
   const cards = [
     { label: '문서 소스', value: summary?.sourceCount ?? 0 },
     { label: '활성 문서', value: summary?.activeDocumentCount ?? 0 },
@@ -796,6 +908,14 @@ export function PipelinePage({ notify }) {
           <div className="table-title">Anchors</div>
           <button
             type="button"
+            className="button button--primary"
+            disabled={anchorNormalizationBusy}
+            onClick={() => createAnchorNormalizationDryRun()}
+          >
+            Anchor 정규화 Dry-run
+          </button>
+          <button
+            type="button"
             className="button"
             disabled={anchorListLoading}
             onClick={() => loadAnchors(anchorFilters, anchorPage).catch((error) => notify(error.message, 'error'))}
@@ -872,6 +992,7 @@ export function PipelinePage({ notify }) {
                 <tr key={anchor.termId}>
                   <td>
                     <div>{anchor.canonicalForm}</div>
+                    <div className="mono-text">{anchor.normalizedForm || '-'}</div>
                     <div className="line-clamp mono-text">{shortId(anchor.termId)}</div>
                   </td>
                   <td>{anchor.termType || '-'}</td>
@@ -914,6 +1035,72 @@ export function PipelinePage({ notify }) {
               loadAnchors(anchorFilters, nextPage).catch((error) => notify(error.message, 'error'))
             }}
           >다음</button>
+        </div>
+      </section>
+
+      <section className="table-shell">
+        <div className="table-header">
+          <div className="table-title">Anchor 정규화 이력</div>
+          <button type="button" className="button" disabled={anchorNormalizationRunsLoading} onClick={() => loadAnchorNormalizationRuns().catch((error) => notify(error.message, 'error'))}>새로고침</button>
+        </div>
+        <div className="table-wrap">
+          <table className="data-table">
+            <thead>
+              <tr><th>run</th><th>status</th><th>summary</th><th>applied</th><th>created</th><th>actions</th></tr>
+            </thead>
+            <tbody>
+              {!anchorNormalizationRunsLoaded && (
+                <tr>
+                  <td colSpan={6}>{anchorNormalizationRunsLoading ? 'Anchor 정규화 이력을 불러오는 중...' : 'Anchor 정규화 이력은 필요할 때 새로고침합니다.'}</td>
+                </tr>
+              )}
+              {anchorNormalizationRunsLoaded && anchorNormalizationRuns.map((run) => (
+                <tr key={run.runId}>
+                  <td>
+                    <div>{run.runName}</div>
+                    <div className="mono-text">{shortId(run.runId)}</div>
+                  </td>
+                  <td><StatusBadge status={run.status} /></td>
+                  <td>
+                    changed {run.changedCount ?? 0} / unchanged {run.unchangedCount ?? 0}
+                    <div className="mono-text">conflict {run.conflictCount ?? 0} · invalid {run.invalidCount ?? 0}</div>
+                  </td>
+                  <td>{run.appliedUpdateCount ?? 0}</td>
+                  <td>{fmtTime(run.createdAt)}</td>
+                  <td>
+                    <div className="form-actions">
+                      <button type="button" className="button button--ghost" disabled={anchorNormalizationDetailBusy} onClick={() => openAnchorNormalizationRunDetail(run.runId)}>열기</button>
+                      {run.status === 'pending_review' && (
+                        <>
+                          <button
+                            type="button"
+                            className="button button--primary"
+                            disabled={anchorNormalizationBusy || (run.conflictCount ?? 0) > 0 || (run.invalidCount ?? 0) > 0}
+                            onClick={() => reviewAnchorNormalizationRun(run.runId, 'approve')}
+                          >
+                            승인
+                          </button>
+                          <button
+                            type="button"
+                            className="button button--ghost"
+                            disabled={anchorNormalizationBusy}
+                            onClick={() => reviewAnchorNormalizationRun(run.runId, 'reject')}
+                          >
+                            거절
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  </td>
+                </tr>
+              ))}
+              {anchorNormalizationRunsLoaded && anchorNormalizationRuns.length === 0 && (
+                <tr>
+                  <td colSpan={6}>Anchor 정규화 이력이 없습니다.</td>
+                </tr>
+              )}
+            </tbody>
+          </table>
         </div>
       </section>
 

@@ -603,6 +603,7 @@ public class CorpusAdminRepository {
         StringBuilder sql = new StringBuilder("""
                 SELECT gt.term_id,
                        gt.canonical_form,
+                       gt.normalized_form,
                        gt.term_type,
                        gt.keep_in_english,
                        gt.source_confidence,
@@ -1572,6 +1573,7 @@ public class CorpusAdminRepository {
         return (rs, rowNum) -> new CorpusAdminDtos.AnchorSummary(
                 readUuid(rs, "term_id"),
                 rs.getString("canonical_form"),
+                rs.getString("normalized_form"),
                 rs.getString("term_type"),
                 rs.getBoolean("keep_in_english"),
                 rs.getDouble("source_confidence"),

@@ -3,6 +3,12 @@
 ## Overview
 High-level backend progress tracking.
 
+## [2026-05-19] Session Summary (Anchor Normalization Review APIs)
+- What was done: Added `V32__add_anchor_normalization_review_tables.sql`, `AnchorNormalizationService`, and Admin corpus endpoints for anchor normalization dry-run history, detail, approve, and reject.
+- Key decisions: Approval updates only `corpus_glossary_terms.canonical_form` and `normalized_form` for conflict-free candidates. It does not update evidence, synthetic links, synthetic raw data, memory entries, or mapping rows. Migration was added but not applied.
+- Issues encountered: Targeted `.\gradlew.bat compileJava` passed.
+- Next steps: Apply V32 only after explicit DB approval, then smoke dry-run/approve/reject against a small scoped anchor set.
+
 ## [2026-05-19] Session Summary (Canonical Anchor Version Pins for RAG Records)
 - What was done: Added canonical anchor version metadata to Admin RAG generated config, initial/final `rag_eval_experiment_record` configs, and completed RAG `metrics_json`. RAG experiment-record upsert now merges final config JSON with existing config JSON so completion does not drop richer server-created fields.
 - Key decisions: Used additive JSON/config metadata only; no migration was added or applied, and RAG runtime options remain server-driven through the existing catalog path.

@@ -3,6 +3,12 @@
 ## Overview
 High-level progress tracking for the project.
 
+## [2026-05-19] Session Summary (Anchors Normalization Dry-Run UI)
+- What was done: Added `Anchor 정규화 Dry-run` action to `/admin/pipeline` Anchors section and added a normalization history table with detail, approve, and reject controls.
+- Key decisions: UI calls backend review APIs only; it does not perform client-side normalization or direct DB updates. Approval is disabled when a run reports conflict/invalid candidates.
+- Issues encountered: Targeted `npx eslint src/pages/PipelinePage.jsx` passed with 0 errors and 1 pre-existing hook dependency warning.
+- Next steps: Browser-smoke the flow after V32 is applied to the target DB.
+
 ## [2026-05-19] Session Summary (Admin RAG Canonical Anchor Detail)
 - What was done: Updated `/admin/rag-tests` detail rendering so memory candidate cards display canonical anchor metadata when present: canonical form, alias/normalized alias, confidence, resolution status, language, term type, canonical term ID, and scoring-vs-review counts.
 - Key decisions: UI consumes existing backend detail payloads only; no new runtime option lists, merge/review actions, or client-side canonical mapping rules were added.
