@@ -24,7 +24,7 @@ class _FakeCursor:
         self._connection.executed.append((sql, params))
 
     def fetchall(self):
-        return list(self._connection.rows)
+        return list(self._connection.rows_for_last_execute())
 
 
 class _FakeConnection:
@@ -34,6 +34,12 @@ class _FakeConnection:
 
     def cursor(self) -> _FakeCursor:
         return _FakeCursor(self)
+
+    def rows_for_last_execute(self):
+        if self.rows and isinstance(self.rows, list) and isinstance(self.rows[0], list):
+            index = max(0, len(self.executed) - 1)
+            return self.rows[min(index, len(self.rows) - 1)]
+        return self.rows
 
 
 class DbAnnRuntimeTests(unittest.TestCase):
@@ -171,6 +177,126 @@ class DbAnnRuntimeTests(unittest.TestCase):
             )
             with self.assertRaisesRegex(RuntimeError, "query embedding model mismatch"):
                 adapter.retrieve_top_k("BeanFactory", top_k=1)
+
+    def test_db_ann_hybrid_unions_lexical_chunk_candidates_before_rerank(self) -> None:
+        connection = _FakeConnection(
+            [
+                [
+                    {
+                        "chunk_id": "dense-only",
+                        "document_id": "doc-dense",
+                        "chunk_text": "Generic lifecycle overview",
+                        "embedding_literal": "[0.10,0.20]",
+                        "ann_score": 0.99,
+                    }
+                ],
+                [
+                    {
+                        "chunk_id": "lexical-hit",
+                        "document_id": "doc-lexical",
+                        "chunk_text": "BeanFactory basics and extension points",
+                        "embedding_literal": "[0.00,0.00]",
+                        "lexical_score": 0.80,
+                    }
+                ],
+            ]
+        )
+        config = build_retriever_config(
+            {
+                "retriever_mode": "hybrid",
+                "dense_embedding_model": "intfloat/multilingual-e5-small",
+                "dense_embedding_required": True,
+                "dense_fallback_enabled": False,
+                "retriever_candidate_pool_k": 1,
+                "retriever_fusion_weights": {"dense": 0.0, "bm25": 1.0, "technical": 0.0},
+                "rerank_enabled": False,
+            }
+        )
+        with patch.object(
+            runtime,
+            "embed_query_with_retriever_config",
+            return_value=([0.10, 0.20], "intfloat/multilingual-e5-small", False),
+        ):
+            adapter = runtime.DbAnnRuntimeRetrievalAdapter(
+                connection,
+                allowed_products=None,
+                include_document_ids=None,
+                memory_experiment_key="exp-db-ann",
+                retriever_config=config,
+            )
+            rows = adapter.retrieve_top_k("beanfactory", top_k=1)
+
+        self.assertEqual(rows[0].chunk_id, "lexical-hit")
+        self.assertGreaterEqual(len(connection.executed), 2)
+        self.assertIn("similarity(c.chunk_text", connection.executed[1][0])
+
+    def test_db_ann_hybrid_unions_lexical_memory_candidates_before_rerank(self) -> None:
+        connection = _FakeConnection(
+            [
+                [
+                    {
+                        "memory_id": "dense-memory",
+                        "query_text": "Generic lifecycle overview",
+                        "target_doc_id": "doc-dense",
+                        "target_chunk_ids": ["dense-only"],
+                        "generation_strategy": "A",
+                        "product": "spring-framework",
+                        "glossary_terms": [],
+                        "embedding_literal": "[0.10,0.20]",
+                        "ann_score": 0.99,
+                    }
+                ],
+                [
+                    {
+                        "memory_id": "lexical-memory",
+                        "query_text": "BeanFactory basics and extension points",
+                        "target_doc_id": "doc-lexical",
+                        "target_chunk_ids": ["lexical-hit"],
+                        "generation_strategy": "A",
+                        "product": "spring-framework",
+                        "glossary_terms": ["BeanFactory"],
+                        "embedding_literal": "[0.00,0.00]",
+                        "lexical_score": 0.80,
+                    }
+                ],
+            ]
+        )
+        config = build_retriever_config(
+            {
+                "retriever_mode": "hybrid",
+                "dense_embedding_model": "intfloat/multilingual-e5-small",
+                "dense_embedding_required": True,
+                "dense_fallback_enabled": False,
+                "retriever_candidate_pool_k": 1,
+                "retriever_fusion_weights": {"dense": 0.0, "bm25": 1.0, "technical": 0.0},
+                "rerank_enabled": False,
+            }
+        )
+        with patch.object(
+            runtime,
+            "embed_query_with_retriever_config",
+            return_value=([0.10, 0.20], "intfloat/multilingual-e5-small", False),
+        ):
+            adapter = runtime.DbAnnRuntimeRetrievalAdapter(
+                connection,
+                allowed_products=None,
+                include_document_ids=None,
+                memory_experiment_key="exp-db-ann",
+                retriever_config=config,
+            )
+            rows = runtime.memory_top_n(
+                "beanfactory",
+                [],
+                top_n=1,
+                preset_filter="full_gating",
+                source_gate_run_id="gate-run",
+                strategy_filters=["A"],
+                retrieval_adapter=adapter,
+            )
+
+        self.assertEqual(rows[0]["memory_id"], "lexical-memory")
+        self.assertGreaterEqual(len(connection.executed), 2)
+        self.assertIn("similarity(m.query_text", connection.executed[1][0])
 
     def test_chunk_embedding_upsert_uses_chunk_and_model_conflict_key(self) -> None:
         connection = _FakeConnection([])

@@ -219,9 +219,18 @@ class DbAnnRuntimeRetrievalAdapter:
         query_embedding = self._query_embedding(query_text)
         candidate_pool_k = top_k if self.config.mode == RETRIEVAL_MODE_DENSE_ONLY else max(top_k, self.config.candidate_pool_k)
         rows = self._fetch_chunk_ann_pool(query_embedding, limit=candidate_pool_k)
+        lexical_query_text = _canonical_lexical_query_text(query_text, query_canonical_anchors)
+        if self.config.mode == RETRIEVAL_MODE_HYBRID:
+            rows = self._merge_candidate_rows(
+                [
+                    rows,
+                    self._fetch_chunk_lexical_pool(lexical_query_text, limit=candidate_pool_k),
+                    self._fetch_chunk_technical_pool(lexical_query_text, limit=candidate_pool_k),
+                ],
+                key="chunk_id",
+            )
         if not rows:
             return []
-        lexical_query_text = _canonical_lexical_query_text(query_text, query_canonical_anchors)
         ranked = rank_with_precomputed_embeddings(
             query_text,
             item_ids=[row["chunk_id"] for row in rows],
@@ -271,12 +280,37 @@ class DbAnnRuntimeRetrievalAdapter:
             source_gate_run_id=source_gate_run_id,
             strategy_filters=strategy_values,
         )
-        if not rows:
-            return []
         lexical_query_text = _canonical_lexical_query_text(
             query_text,
             [row.get("canonical_anchors") for row in rows],
         )
+        if self.config.mode == RETRIEVAL_MODE_HYBRID:
+            rows = self._merge_candidate_rows(
+                [
+                    rows,
+                    self._fetch_memory_lexical_pool(
+                        lexical_query_text,
+                        limit=candidate_pool_k,
+                        preset_filter=preset_filter,
+                        source_gate_run_id=source_gate_run_id,
+                        strategy_filters=strategy_values,
+                    ),
+                    self._fetch_memory_technical_pool(
+                        lexical_query_text,
+                        limit=candidate_pool_k,
+                        preset_filter=preset_filter,
+                        source_gate_run_id=source_gate_run_id,
+                        strategy_filters=strategy_values,
+                    ),
+                ],
+                key="memory_id",
+            )
+            lexical_query_text = _canonical_lexical_query_text(
+                query_text,
+                [row.get("canonical_anchors") for row in rows],
+            )
+        if not rows:
+            return []
         lexical_texts = [
             build_canonical_lexical_text(row["query_text"], row.get("canonical_anchors"))
             for row in rows
@@ -314,6 +348,96 @@ class DbAnnRuntimeRetrievalAdapter:
             )
         return scored
 
+    @staticmethod
+    def _merge_candidate_rows(row_groups: list[list[dict[str, Any]]], *, key: str) -> list[dict[str, Any]]:
+        merged: dict[str, dict[str, Any]] = {}
+        for rows in row_groups:
+            for row in rows:
+                row_key = str(row.get(key) or "").strip()
+                if row_key and row_key not in merged:
+                    merged[row_key] = row
+        return list(merged.values())
+
+    def _chunk_scope_filters(self) -> tuple[list[str], list[Any]]:
+        where_clauses = ["ce.embedding_model = %s"]
+        parameters: list[Any] = [self.embedding_model]
+        normalized_products = [
+            _normalize_product_scope_key(item)
+            for item in self.allowed_products
+            if str(item).strip()
+        ]
+        if normalized_products and self.include_document_ids:
+            where_clauses.append(
+                "(LOWER(COALESCE(d.product_name, '')) = ANY(%s) OR c.document_id = ANY(%s))"
+            )
+            parameters.extend([normalized_products, self.include_document_ids])
+        elif self.include_document_ids:
+            where_clauses.append("c.document_id = ANY(%s)")
+            parameters.append(self.include_document_ids)
+        elif normalized_products:
+            where_clauses.append("LOWER(COALESCE(d.product_name, '')) = ANY(%s)")
+            parameters.append(normalized_products)
+        return where_clauses, parameters
+
+    @staticmethod
+    def _chunk_row(row: Mapping[str, Any]) -> dict[str, Any]:
+        return {
+            "chunk_id": str(row["chunk_id"]),
+            "document_id": str(row["document_id"]),
+            "chunk_text": str(row["chunk_text"] or ""),
+            "embedding": _parse_halfvec_literal(str(row["embedding_literal"] or "")),
+            "ann_score": float(row.get("ann_score") or 0.0),
+        }
+
+    @staticmethod
+    def _memory_row(row: Mapping[str, Any]) -> dict[str, Any]:
+        return {
+            "memory_id": str(row["memory_id"]),
+            "query_text": str(row["query_text"] or ""),
+            "target_doc_id": str(row["target_doc_id"] or ""),
+            "target_chunk_ids": list(row["target_chunk_ids"] or []),
+            "generation_strategy": str(row["generation_strategy"] or ""),
+            "product": str(row["product"]) if row.get("product") else None,
+            "glossary_terms": [str(item) for item in (row["glossary_terms"] or []) if str(item).strip()],
+            "canonical_anchors": _json_mapping_or_none(row.get("canonical_anchors")),
+            "embedding": _parse_halfvec_literal(str(row["embedding_literal"] or "")),
+            "ann_score": float(row.get("ann_score") or 0.0),
+        }
+
+    @staticmethod
+    def _technical_patterns(query_text: str) -> list[str]:
+        tokens = extract_technical_tokens(query_text, max_items=12)
+        patterns: list[str] = []
+        seen: set[str] = set()
+        for token in tokens:
+            value = str(token or "").strip()
+            if not value:
+                continue
+            key = value.casefold()
+            if key in seen:
+                continue
+            seen.add(key)
+            patterns.append(f"%{value}%")
+        return patterns
+
+    @staticmethod
+    def _lexical_patterns(query_text: str) -> list[str]:
+        raw_tokens = re.findall(r"[@A-Za-z0-9_./:$-]{2,}|[\uac00-\ud7a3]{2,}", str(query_text or ""))
+        patterns: list[str] = []
+        seen: set[str] = set()
+        for raw_token in raw_tokens:
+            token = normalize_anchor_text(raw_token)
+            if len(token) < 2:
+                continue
+            key = token.casefold()
+            if key in seen:
+                continue
+            seen.add(key)
+            patterns.append(f"%{token}%")
+            if len(patterns) >= 16:
+                break
+        return patterns
+
     def _query_embedding(self, query_text: str) -> list[float]:
         cached = self._query_embedding_cache.get(query_text)
         if cached is not None:
@@ -333,24 +457,7 @@ class DbAnnRuntimeRetrievalAdapter:
         return embedding
 
     def _fetch_chunk_ann_pool(self, query_embedding: list[float], *, limit: int) -> list[dict[str, Any]]:
-        where_clauses = ["ce.embedding_model = %s"]
-        parameters: list[Any] = [self.embedding_model]
-        normalized_products = [
-            _normalize_product_scope_key(item)
-            for item in self.allowed_products
-            if str(item).strip()
-        ]
-        if normalized_products and self.include_document_ids:
-            where_clauses.append(
-                "(LOWER(COALESCE(d.product_name, '')) = ANY(%s) OR c.document_id = ANY(%s))"
-            )
-            parameters.extend([normalized_products, self.include_document_ids])
-        elif self.include_document_ids:
-            where_clauses.append("c.document_id = ANY(%s)")
-            parameters.append(self.include_document_ids)
-        elif normalized_products:
-            where_clauses.append("LOWER(COALESCE(d.product_name, '')) = ANY(%s)")
-            parameters.append(normalized_products)
+        where_clauses, parameters = self._chunk_scope_filters()
         embedding_literal = embedding_to_halfvec_literal(query_embedding)
         sql_parameters = [embedding_literal, *parameters, embedding_literal, max(1, int(limit))]
         with self.connection.cursor() as cursor:
@@ -371,26 +478,106 @@ class DbAnnRuntimeRetrievalAdapter:
                 sql_parameters,
             )
             rows = cursor.fetchall()
-        return [
-            {
-                "chunk_id": str(row["chunk_id"]),
-                "document_id": str(row["document_id"]),
-                "chunk_text": str(row["chunk_text"] or ""),
-                "embedding": _parse_halfvec_literal(str(row["embedding_literal"] or "")),
-                "ann_score": float(row["ann_score"] or 0.0),
-            }
-            for row in rows
-        ]
+        return [self._chunk_row(row) for row in rows]
 
-    def _fetch_memory_ann_pool(
+    def _fetch_chunk_lexical_pool(self, query_text: str, *, limit: int) -> list[dict[str, Any]]:
+        lexical_query = str(query_text or "").strip()
+        if not lexical_query:
+            return []
+        patterns = self._lexical_patterns(lexical_query)
+        if not patterns:
+            return []
+        where_clauses, parameters = self._chunk_scope_filters()
+        sql_parameters: list[Any] = [
+            lexical_query,
+            lexical_query,
+            lexical_query,
+            *parameters,
+            patterns,
+            patterns,
+            patterns,
+            max(1, int(limit)),
+        ]
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                f"""
+                SELECT c.chunk_id,
+                       c.document_id,
+                       c.chunk_text,
+                       ce.embedding::text AS embedding_literal,
+                       GREATEST(
+                           similarity(c.chunk_text, %s),
+                           similarity(COALESCE(c.section_path_text, ''), %s),
+                           similarity(COALESCE(d.title, ''), %s)
+                       ) AS lexical_score
+                FROM chunk_embeddings ce
+                JOIN corpus_chunks c ON c.chunk_id = ce.chunk_id
+                JOIN corpus_documents d ON d.document_id = c.document_id
+                WHERE {' AND '.join(where_clauses)}
+                  AND (
+                      c.chunk_text ILIKE ANY(%s)
+                      OR COALESCE(c.section_path_text, '') ILIKE ANY(%s)
+                      OR COALESCE(d.title, '') ILIKE ANY(%s)
+                  )
+                ORDER BY lexical_score DESC, c.chunk_id
+                LIMIT %s
+                """,
+                sql_parameters,
+            )
+            rows = cursor.fetchall()
+        return [self._chunk_row(row) for row in rows]
+
+    def _fetch_chunk_technical_pool(self, query_text: str, *, limit: int) -> list[dict[str, Any]]:
+        patterns = self._technical_patterns(query_text)
+        if not patterns:
+            return []
+        where_clauses, parameters = self._chunk_scope_filters()
+        sql_parameters: list[Any] = [
+            patterns,
+            *parameters,
+            patterns,
+            patterns,
+            patterns,
+            max(1, int(limit)),
+        ]
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                f"""
+                SELECT c.chunk_id,
+                       c.document_id,
+                       c.chunk_text,
+                       ce.embedding::text AS embedding_literal,
+                       (
+                           SELECT COUNT(*)
+                           FROM unnest(%s::text[]) AS pattern(value)
+                           WHERE c.chunk_text ILIKE pattern.value
+                              OR COALESCE(c.section_path_text, '') ILIKE pattern.value
+                              OR COALESCE(d.title, '') ILIKE pattern.value
+                       ) AS technical_match_score
+                FROM chunk_embeddings ce
+                JOIN corpus_chunks c ON c.chunk_id = ce.chunk_id
+                JOIN corpus_documents d ON d.document_id = c.document_id
+                WHERE {' AND '.join(where_clauses)}
+                  AND (
+                      c.chunk_text ILIKE ANY(%s)
+                      OR COALESCE(c.section_path_text, '') ILIKE ANY(%s)
+                      OR COALESCE(d.title, '') ILIKE ANY(%s)
+                  )
+                ORDER BY technical_match_score DESC, c.chunk_id
+                LIMIT %s
+                """,
+                sql_parameters,
+            )
+            rows = cursor.fetchall()
+        return [self._chunk_row(row) for row in rows]
+
+    def _memory_scope_filters(
         self,
-        query_embedding: list[float],
         *,
-        limit: int,
         preset_filter: str | None,
         source_gate_run_id: str | None,
         strategy_filters: list[str],
-    ) -> list[dict[str, Any]]:
+    ) -> tuple[list[str], list[Any]]:
         where_clauses = [
             "m.query_embedding IS NOT NULL",
             "m.metadata ->> 'memory_experiment_key' = %s",
@@ -410,6 +597,22 @@ class DbAnnRuntimeRetrievalAdapter:
         if strategy_filters:
             where_clauses.append("UPPER(m.generation_strategy) = ANY(%s)")
             parameters.append(strategy_filters)
+        return where_clauses, parameters
+
+    def _fetch_memory_ann_pool(
+        self,
+        query_embedding: list[float],
+        *,
+        limit: int,
+        preset_filter: str | None,
+        source_gate_run_id: str | None,
+        strategy_filters: list[str],
+    ) -> list[dict[str, Any]]:
+        where_clauses, parameters = self._memory_scope_filters(
+            preset_filter=preset_filter,
+            source_gate_run_id=source_gate_run_id,
+            strategy_filters=strategy_filters,
+        )
         embedding_literal = embedding_to_halfvec_literal(query_embedding)
         parameters.extend([embedding_literal, max(1, int(limit))])
         with self.connection.cursor() as cursor:
@@ -434,21 +637,126 @@ class DbAnnRuntimeRetrievalAdapter:
                 [embedding_literal, *parameters],
             )
             rows = cursor.fetchall()
-        return [
-            {
-                "memory_id": str(row["memory_id"]),
-                "query_text": str(row["query_text"] or ""),
-                "target_doc_id": str(row["target_doc_id"] or ""),
-                "target_chunk_ids": list(row["target_chunk_ids"] or []),
-                "generation_strategy": str(row["generation_strategy"] or ""),
-                "product": str(row["product"]) if row["product"] else None,
-                "glossary_terms": [str(item) for item in (row["glossary_terms"] or []) if str(item).strip()],
-                "canonical_anchors": _json_mapping_or_none(row["canonical_anchors"]),
-                "embedding": _parse_halfvec_literal(str(row["embedding_literal"] or "")),
-                "ann_score": float(row["ann_score"] or 0.0),
-            }
-            for row in rows
+        return [self._memory_row(row) for row in rows]
+
+    def _fetch_memory_lexical_pool(
+        self,
+        query_text: str,
+        *,
+        limit: int,
+        preset_filter: str | None,
+        source_gate_run_id: str | None,
+        strategy_filters: list[str],
+    ) -> list[dict[str, Any]]:
+        lexical_query = str(query_text or "").strip()
+        if not lexical_query:
+            return []
+        patterns = self._lexical_patterns(lexical_query)
+        if not patterns:
+            return []
+        where_clauses, parameters = self._memory_scope_filters(
+            preset_filter=preset_filter,
+            source_gate_run_id=source_gate_run_id,
+            strategy_filters=strategy_filters,
+        )
+        sql_parameters: list[Any] = [
+            lexical_query,
+            lexical_query,
+            *parameters,
+            patterns,
+            patterns,
+            max(1, int(limit)),
         ]
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                f"""
+                SELECT m.memory_id,
+                       m.query_text,
+                       m.target_doc_id,
+                       m.target_chunk_ids,
+                       m.generation_strategy,
+                       m.product,
+                       m.glossary_terms,
+                       m.metadata -> 'canonical_anchors' AS canonical_anchors,
+                       m.query_embedding::text AS embedding_literal,
+                       GREATEST(
+                           similarity(m.query_text, %s),
+                           similarity(COALESCE(m.glossary_terms::text, ''), %s)
+                       ) AS lexical_score
+                FROM memory_entries m
+                LEFT JOIN synthetic_queries_gated g ON g.gated_query_id = m.source_gated_query_id
+                WHERE {' AND '.join(where_clauses)}
+                  AND (
+                      m.query_text ILIKE ANY(%s)
+                      OR COALESCE(m.glossary_terms::text, '') ILIKE ANY(%s)
+                  )
+                ORDER BY lexical_score DESC, m.memory_id
+                LIMIT %s
+                """,
+                sql_parameters,
+            )
+            rows = cursor.fetchall()
+        return [self._memory_row(row) for row in rows]
+
+    def _fetch_memory_technical_pool(
+        self,
+        query_text: str,
+        *,
+        limit: int,
+        preset_filter: str | None,
+        source_gate_run_id: str | None,
+        strategy_filters: list[str],
+    ) -> list[dict[str, Any]]:
+        patterns = self._technical_patterns(query_text)
+        if not patterns:
+            return []
+        where_clauses, parameters = self._memory_scope_filters(
+            preset_filter=preset_filter,
+            source_gate_run_id=source_gate_run_id,
+            strategy_filters=strategy_filters,
+        )
+        sql_parameters: list[Any] = [
+            patterns,
+            *parameters,
+            patterns,
+            patterns,
+            patterns,
+            max(1, int(limit)),
+        ]
+        with self.connection.cursor() as cursor:
+            cursor.execute(
+                f"""
+                SELECT m.memory_id,
+                       m.query_text,
+                       m.target_doc_id,
+                       m.target_chunk_ids,
+                       m.generation_strategy,
+                       m.product,
+                       m.glossary_terms,
+                       m.metadata -> 'canonical_anchors' AS canonical_anchors,
+                       m.query_embedding::text AS embedding_literal,
+                       (
+                           SELECT COUNT(*)
+                           FROM unnest(%s::text[]) AS pattern(value)
+                           WHERE m.query_text ILIKE pattern.value
+                              OR COALESCE(m.glossary_terms::text, '') ILIKE pattern.value
+                              OR COALESCE((m.metadata -> 'canonical_anchors')::text, '') ILIKE pattern.value
+                       ) AS technical_match_score
+                FROM memory_entries m
+                LEFT JOIN synthetic_queries_gated g ON g.gated_query_id = m.source_gated_query_id
+                WHERE {' AND '.join(where_clauses)}
+                  AND (
+                      m.query_text ILIKE ANY(%s)
+                      OR COALESCE(m.glossary_terms::text, '') ILIKE ANY(%s)
+                      OR COALESCE((m.metadata -> 'canonical_anchors')::text, '') ILIKE ANY(%s)
+                  )
+                ORDER BY technical_match_score DESC, m.memory_id
+                LIMIT %s
+                """,
+                sql_parameters,
+            )
+            rows = cursor.fetchall()
+        return [self._memory_row(row) for row in rows]
 
 
 _REWRITE_CLIENT: LlmClient | None = None

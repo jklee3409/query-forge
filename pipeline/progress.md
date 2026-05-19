@@ -3,6 +3,12 @@
 ## Overview
 High-level pipeline progress tracking.
 
+## [2026-05-19] Session Summary (DB-ANN Hybrid Candidate Union)
+- What was done: Extended `eval/runtime.py` DB-ANN hybrid mode to collect chunk and memory candidates from dense ANN, trigram lexical similarity, and technical-token exact-match pools, then dedupe and feed the union into the existing `rank_with_precomputed_embeddings` hybrid scorer.
+- Key decisions: Preserved `dense_only` DB-ANN as ANN-only, kept Admin materialized chunk embeddings and memory `query_embedding` usage unchanged, and avoided changes to eval stage orchestration, rewrite policy, or stored query/memory text.
+- Issues encountered: Added `test_db_ann_runtime.py` coverage for lexical chunk/memory candidates recovering when ANN prefilter misses them. Validation passed with `python -m py_compile eval\runtime.py tests\test_db_ann_runtime.py`, `python -m unittest pipeline.tests.test_db_ann_runtime -q`, `python -m unittest pipeline.tests.test_eval_runtime -q`, and a read-only PostgreSQL smoke for the new SQL paths.
+- Next steps: Run a fresh same-snapshot Admin RAG `db_ann` evaluation to measure whether `memory_only_gated` recovers toward local hybrid while latency remains below local full-scan.
+
 ## [2026-05-19] Session Summary (Multi-source Anchor Runtime Hints)
 - What was done: Added runtime loading for precomputed `canonical_anchor_relation` rows into an in-memory alias/relation index, built bounded `multi_source_anchor_hints`, injected them into selective rewrite prompts, and recorded anchor-expansion diagnostics in retrieval/answer summaries and rewrite cases.
 - Key decisions: Runtime does not perform heavy all-pairs similarity. Expanded anchors are filtered by relation type, relation score, per-seed cap, total cap, term-type priority, raw-query overlap, and concept score floor; they remain optional low-priority hints and are not mandatory preservation targets.

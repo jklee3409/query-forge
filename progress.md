@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-05-19] Session Summary (DB-ANN Hybrid Candidate Union)
+- What was done: Changed Admin RAG `db_ann` hybrid retrieval so PostgreSQL ANN candidates are unioned with lexical and technical-token candidates before the existing hybrid rerank for both chunk retrieval and memory lookup.
+- Key decisions: Kept Admin GUI flow, chunk embedding materialization button, experiment config shape, pipeline stages, dense-only DB-ANN behavior, and final hybrid scoring function unchanged. The change is scoped to the runtime DB-ANN adapter candidate pool construction.
+- Issues encountered: Targeted Python validation passed, including DB-ANN runtime tests, existing eval runtime tests, and a read-only local PostgreSQL smoke for chunk/memory lexical and technical SQL.
+- Next steps: Re-run the same A/full-gating V4 dataset/snapshot `db_ann` RAG comparison and compare `raw_only`, `memory_only_gated`, `rewrite_always`, and `selective_rewrite` against the previous `1882261a-53f4-4a49-a3cf-30eb96047f94` run.
+
 ## [2026-05-19] Session Summary (Multi-source Anchor Expansion Phase A)
 - What was done: Added additive multi-source anchor relation schema/build API, Admin Anchors UI build action/history, Admin RAG toggle/config wiring, runtime relation-index lookup, `multi_source_anchor_hints` prompt payload injection, and drift-safe prompt guidance.
 - Key decisions: Existing synthetic query text/data and strategy-separated raw tables remain immutable. Relation lookup is precomputed into `canonical_anchor_relation` and loaded once per eval run, while runtime rewrite treats expanded anchors as low-priority optional hints with score/type/count filters.
