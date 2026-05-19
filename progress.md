@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-05-19] Session Summary (Multi-source Anchor Expansion Phase A)
+- What was done: Added additive multi-source anchor relation schema/build API, Admin Anchors UI build action/history, Admin RAG toggle/config wiring, runtime relation-index lookup, `multi_source_anchor_hints` prompt payload injection, and drift-safe prompt guidance.
+- Key decisions: Existing synthetic query text/data and strategy-separated raw tables remain immutable. Relation lookup is precomputed into `canonical_anchor_relation` and loaded once per eval run, while runtime rewrite treats expanded anchors as low-priority optional hints with score/type/count filters.
+- Issues encountered: Java text-block SQL interpolation failed on first compile and was replaced with named SQL parameters. Targeted backend compile, frontend build/lint, and runtime rewrite tests passed.
+- Next steps: Apply `V33` to the intended DB, run one Admin multi-source build from Anchors, then compare a small same-snapshot RAG smoke with multi-source hints off/on before any official evaluation.
+
 ## [2026-05-19] Session Summary (Remove Temporary V4 Restore Dataset)
 - What was done: Deleted the temporary `Spring KR Short User Eval 80 V4 Restore (KR)` dataset row after the canonical `Spring KR Short User Eval 80 (KR)` dataset had been overwritten to use the restored V4 samples.
 - Key decisions: Deleted only the restore dataset/item links. Preserved the `v4-test-short-user-*` sample rows because the canonical KR dataset now references all 80 of them.

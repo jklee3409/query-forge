@@ -509,6 +509,10 @@ public class LlmJobService {
             Map<String, Object> metrics = new LinkedHashMap<>();
             metrics.putAll(canonicalAnchorVersions);
             metrics.put("canonical_anchor_versions", canonicalAnchorVersions);
+            metrics.put(
+                    "multi_source_anchor_expansion_enabled",
+                    runConfig.path("multi_source_anchor_expansion_enabled").asBoolean(false)
+            );
             metrics.put("retrieval", sanitizedRetrievalSummary);
             metrics.put("answer", answerSummary);
             metrics.put("memory", memorySummary);
@@ -582,6 +586,18 @@ public class LlmJobService {
                     "rewrite_anchor_injection_enabled",
                     runConfig.path("rewrite_anchor_injection_enabled").asBoolean(false)
             );
+            rewriteConfig.put(
+                    "multi_source_anchor_expansion_enabled",
+                    runConfig.path("multi_source_anchor_expansion_enabled").asBoolean(false)
+            );
+            rewriteConfig.put(
+                    "multi_source_anchor_relation_version",
+                    runConfig.path("multi_source_anchor_relation_version").asText("multi-source-anchor-v1")
+            );
+            rewriteConfig.put("multi_source_anchor_relation_types", nullableJson(runConfig.get("multi_source_anchor_relation_types")));
+            rewriteConfig.put("multi_source_anchor_min_score", runConfig.path("multi_source_anchor_min_score").asDouble(0.72));
+            rewriteConfig.put("multi_source_anchor_max_total", runConfig.path("multi_source_anchor_max_total").asInt(8));
+            rewriteConfig.put("multi_source_anchor_max_per_seed", runConfig.path("multi_source_anchor_max_per_seed").asInt(2));
             rewriteConfig.put("rewrite_failure_policy", runConfig.path("rewrite_failure_policy").asText("fail_run"));
             rewriteConfig.put("rewrite_prompt_profile", runConfig.path("rewrite_prompt_profile").asText("ko"));
 

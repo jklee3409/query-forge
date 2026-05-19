@@ -3,6 +3,12 @@
 ## Overview
 High-level progress tracking for the project.
 
+## [2026-05-19] Session Summary (Multi-source Anchor Admin Controls)
+- What was done: Added a `Multi-source Build` action and build-history table to `/admin/pipeline` Anchors, plus a `multi-source hints` toggle in `/admin/rag-tests`. Rebuilt the production React bundle served by the backend.
+- Key decisions: UI calls backend relation-build APIs only and does not edit anchors or synthetic queries client-side. RAG submission enables multi-source hints only when rewrite and anchor injection are both enabled.
+- Issues encountered: Targeted `npx eslint src/pages/PipelinePage.jsx src/pages/RagPage.jsx` passed with only pre-existing hook dependency warnings; `npm run build` passed and refreshed backend static assets.
+- Next steps: Browser-smoke the Anchors build button after V33 is applied and verify the RAG run detail/tags show the multi-source setting.
+
 ## [2026-05-19] Session Summary (RAG Method Language Filtering)
 - What was done: Updated `/admin/rag-tests` method chips and snapshot filtering so English eval queries expose English synthetic methods (`E/F`) and Korean eval queries expose Korean/code-mixed methods (`A/B/C/D/G`) within the selected dataset scope.
 - Key decisions: Mirrored backend validation in the UI and kept existing dataset-scope logic, snapshot selectors, and request payload fields unchanged.

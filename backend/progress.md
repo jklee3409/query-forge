@@ -3,6 +3,12 @@
 ## Overview
 High-level backend progress tracking.
 
+## [2026-05-19] Session Summary (Multi-source Anchor Relation API)
+- What was done: Added Flyway `V33` for `canonical_anchor_relation_run` / `canonical_anchor_relation` plus the `rag_test_run.multi_source_anchor_expansion_enabled` flag. Added `MultiSourceAnchorService` and Admin corpus endpoints to build/list/get relation-index runs, and wired Admin RAG config/records to persist multi-source anchor settings.
+- Key decisions: The build writes only additive relation tables, marks older active relation rows superseded by version, and never mutates synthetic raw tables or existing query text. Default relation sources are approved canonical mappings, synthetic-query anchor co-occurrence, and chunk evidence co-occurrence.
+- Issues encountered: `.\gradlew.bat compileJava` initially caught unsafe Java text-block interpolation; named SQL parameters fixed it and compile passed.
+- Next steps: Apply V33 only to the target DB, trigger the Admin build once, and inspect relation counts/source distribution before enabling in larger RAG runs.
+
 ## [2026-05-19] Session Summary (Admin RAG Query-Language Guard)
 - What was done: Added Admin RAG validation that requires English synthetic methods (`E/F`) to run only with `eval_query_language=en` and Korean/code-mixed methods (`A/B/C/D/G`) only with `eval_query_language=ko`. Generated RAG configs and experiment records now include `rewrite_prompt_profile`.
 - Key decisions: Kept source/dataset scope validation and snapshot identity rules unchanged; language compatibility is enforced before job/config creation.

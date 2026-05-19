@@ -40,6 +40,10 @@ export function PipelinePage({ notify }) {
   const [anchorNormalizationRunsLoading, setAnchorNormalizationRunsLoading] = useState(false)
   const [anchorNormalizationBusy, setAnchorNormalizationBusy] = useState(false)
   const [anchorNormalizationDetailBusy, setAnchorNormalizationDetailBusy] = useState(false)
+  const [multiSourceAnchorRuns, setMultiSourceAnchorRuns] = useState([])
+  const [multiSourceAnchorRunsLoaded, setMultiSourceAnchorRunsLoaded] = useState(false)
+  const [multiSourceAnchorRunsLoading, setMultiSourceAnchorRunsLoading] = useState(false)
+  const [multiSourceAnchorBusy, setMultiSourceAnchorBusy] = useState(false)
   const [anchorFilterDocuments, setAnchorFilterDocuments] = useState([])
   const [anchorFilterDocumentsLoaded, setAnchorFilterDocumentsLoaded] = useState(false)
   const [anchorFilterChunks, setAnchorFilterChunks] = useState([])
@@ -232,6 +236,17 @@ export function PipelinePage({ notify }) {
       setAnchorNormalizationRunsLoaded(true)
     } finally {
       setAnchorNormalizationRunsLoading(false)
+    }
+  }
+
+  const loadMultiSourceAnchorRuns = async () => {
+    setMultiSourceAnchorRunsLoading(true)
+    try {
+      const payload = await requestJson('/api/admin/corpus/anchors/multi-source/build-runs?limit=20&offset=0')
+      setMultiSourceAnchorRuns(Array.isArray(payload) ? payload : [])
+      setMultiSourceAnchorRunsLoaded(true)
+    } finally {
+      setMultiSourceAnchorRunsLoading(false)
     }
   }
 
@@ -557,6 +572,30 @@ export function PipelinePage({ notify }) {
       notify(error.message, 'error')
     } finally {
       setAnchorNormalizationBusy(false)
+    }
+  }
+
+  const createMultiSourceAnchorBuildRun = async () => {
+    const confirmed = window.confirm('Build multi-source anchor relations for current active anchors? This writes only relation tables.')
+    if (!confirmed) return
+    setMultiSourceAnchorBusy(true)
+    try {
+      const created = await requestJson('/api/admin/corpus/anchors/multi-source/build-runs', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          relationTypes: ['canonical_alias', 'synthetic_query_cooccurrence', 'chunk_cooccurrence'],
+          minRelationScore: 0.55,
+          maxRelationsPerAnchor: 80,
+          createdBy: 'admin-ui',
+        }),
+      })
+      await loadMultiSourceAnchorRuns()
+      notify(`Multi-source anchor build completed: ${created.relationCount ?? 0} relations`)
+    } catch (error) {
+      notify(error.message, 'error')
+    } finally {
+      setMultiSourceAnchorBusy(false)
     }
   }
 
@@ -905,7 +944,64 @@ export function PipelinePage({ notify }) {
 
       <section className="table-shell">
         <div className="table-header">
+          <div className="table-title">Multi-source Anchor Build History</div>
+          <button
+            type="button"
+            className="button"
+            disabled={multiSourceAnchorRunsLoading}
+            onClick={() => loadMultiSourceAnchorRuns().catch((error) => notify(error.message, 'error'))}
+          >
+            Refresh
+          </button>
+        </div>
+        <div className="table-wrap">
+          <table className="data-table">
+            <thead>
+              <tr><th>run</th><th>status</th><th>version</th><th>relations</th><th>evidence</th><th>created</th></tr>
+            </thead>
+            <tbody>
+              {!multiSourceAnchorRunsLoaded && (
+                <tr>
+                  <td colSpan={6}>{multiSourceAnchorRunsLoading ? 'Loading multi-source anchor build history...' : 'Build history is loaded on demand.'}</td>
+                </tr>
+              )}
+              {multiSourceAnchorRunsLoaded && multiSourceAnchorRuns.map((run) => (
+                <tr key={run.runId}>
+                  <td>
+                    <div>{run.runName}</div>
+                    <div className="mono-text">{shortId(run.runId)}</div>
+                  </td>
+                  <td><StatusBadge status={run.status} /></td>
+                  <td>
+                    <div>{run.relationVersion || '-'}</div>
+                    <div className="mono-text">min {Number(run.minRelationScore || 0).toFixed(2)}</div>
+                  </td>
+                  <td>{run.relationCount ?? 0}</td>
+                  <td>{run.evidenceCount ?? 0}</td>
+                  <td>{fmtTime(run.createdAt)}</td>
+                </tr>
+              ))}
+              {multiSourceAnchorRunsLoaded && multiSourceAnchorRuns.length === 0 && (
+                <tr>
+                  <td colSpan={6}>No multi-source anchor build runs yet.</td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <section className="table-shell">
+        <div className="table-header">
           <div className="table-title">Anchors</div>
+          <button
+            type="button"
+            className="button button--primary"
+            disabled={multiSourceAnchorBusy}
+            onClick={() => createMultiSourceAnchorBuildRun()}
+          >
+            Multi-source Build
+          </button>
           <button
             type="button"
             className="button button--primary"

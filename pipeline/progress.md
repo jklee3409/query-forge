@@ -3,6 +3,12 @@
 ## Overview
 High-level pipeline progress tracking.
 
+## [2026-05-19] Session Summary (Multi-source Anchor Runtime Hints)
+- What was done: Added runtime loading for precomputed `canonical_anchor_relation` rows into an in-memory alias/relation index, built bounded `multi_source_anchor_hints`, injected them into selective rewrite prompts, and recorded anchor-expansion diagnostics in retrieval/answer summaries and rewrite cases.
+- Key decisions: Runtime does not perform heavy all-pairs similarity. Expanded anchors are filtered by relation type, relation score, per-seed cap, total cap, term-type priority, raw-query overlap, and concept score floor; they remain optional low-priority hints and are not mandatory preservation targets.
+- Issues encountered: Targeted validation passed with `python -m py_compile eval\runtime.py eval\retrieval_eval.py eval\answer_eval.py tests\test_eval_runtime.py` and `python -m unittest pipeline.tests.test_eval_runtime.EvalRuntimeRewriteTests -q`.
+- Next steps: After the DB relation build exists, run a small same-snapshot off/on smoke and inspect `multi_source_anchor_diagnostics` before broad comparison.
+
 ## [2026-05-19] Session Summary (Language-Specific Rewrite Prompt Loading)
 - What was done: Updated `eval/runtime.py` so selective rewrite loads `selective_rewrite_en_v1.md` for `query_language=en` and keeps the existing `selective_rewrite_v2`/`v1` fallback chain for Korean queries.
 - Key decisions: Prompt selection follows the evaluation sample query language; no synthetic table layout, memory text, dense query text, or rewrite scoring rule was changed.

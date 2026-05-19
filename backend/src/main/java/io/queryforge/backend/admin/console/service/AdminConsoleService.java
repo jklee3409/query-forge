@@ -731,6 +731,7 @@ public class AdminConsoleService {
         boolean useSessionContext = request.useSessionContext() != null && request.useSessionContext();
         boolean rewriteAnchorInjectionEnabled =
                 request.rewriteAnchorInjectionEnabled() == null || request.rewriteAnchorInjectionEnabled();
+        boolean multiSourceAnchorExpansionEnabled = Boolean.TRUE.equals(request.multiSourceAnchorExpansionEnabled());
         int retrievalTopK = request.retrievalTopK() != null && request.retrievalTopK() > 0
                 ? request.retrievalTopK()
                 : DEFAULT_RAG_RETRIEVAL_TOP_K;
@@ -802,6 +803,7 @@ public class AdminConsoleService {
             selectiveRewrite = false;
             useSessionContext = false;
             rewriteAnchorInjectionEnabled = false;
+            multiSourceAnchorExpansionEnabled = false;
         }
 
         if (RUN_DISCIPLINE_OFFICIAL.equals(runDiscipline) && COMPARISON_REWRITE_EFFECT.equals(officialComparisonType)) {
@@ -856,11 +858,15 @@ public class AdminConsoleService {
             selectiveRewrite = false;
             useSessionContext = false;
             rewriteAnchorInjectionEnabled = false;
+            multiSourceAnchorExpansionEnabled = false;
             stageCutoffEnabled = false;
             stageCutoffLevel = null;
         }
         if (!rewriteEnabled) {
             rewriteAnchorInjectionEnabled = false;
+        }
+        if (!rewriteEnabled || !rewriteAnchorInjectionEnabled) {
+            multiSourceAnchorExpansionEnabled = false;
         }
 
         String experimentName = "admin_eval_" + UUID.randomUUID().toString().replace("-", "").substring(0, 12);
@@ -884,6 +890,15 @@ public class AdminConsoleService {
         config.put("rewrite_threshold", threshold);
         config.put("rewrite_retrieval_strategy", rewriteRetrievalStrategy);
         config.put("rewrite_anchor_injection_enabled", rewriteAnchorInjectionEnabled);
+        config.put("multi_source_anchor_expansion_enabled", multiSourceAnchorExpansionEnabled);
+        config.put("multi_source_anchor_relation_version", "multi-source-anchor-v1");
+        config.put(
+                "multi_source_anchor_relation_types",
+                List.of("canonical_alias", "synthetic_query_cooccurrence", "chunk_cooccurrence")
+        );
+        config.put("multi_source_anchor_min_score", 0.72d);
+        config.put("multi_source_anchor_max_total", 8);
+        config.put("multi_source_anchor_max_per_seed", 2);
         config.put("rewrite_failure_policy", rewriteFailurePolicy);
         config.put("rewrite_prompt_profile", resolveRewritePromptProfile(evalQueryLanguage));
         config.put("retrieval_top_k", retrievalTopK);
@@ -987,6 +1002,7 @@ public class AdminConsoleService {
                 selectiveRewrite,
                 useSessionContext,
                 rewriteAnchorInjectionEnabled,
+                multiSourceAnchorExpansionEnabled,
                 request.topK(),
                 threshold,
                 retrievalTopK,
@@ -1030,6 +1046,12 @@ public class AdminConsoleService {
         initialRewriteConfig.put("rewrite_threshold", threshold);
         initialRewriteConfig.put("rewrite_retrieval_strategy", rewriteRetrievalStrategy);
         initialRewriteConfig.put("rewrite_anchor_injection_enabled", rewriteAnchorInjectionEnabled);
+        initialRewriteConfig.put("multi_source_anchor_expansion_enabled", multiSourceAnchorExpansionEnabled);
+        initialRewriteConfig.put("multi_source_anchor_relation_version", config.get("multi_source_anchor_relation_version"));
+        initialRewriteConfig.put("multi_source_anchor_relation_types", config.get("multi_source_anchor_relation_types"));
+        initialRewriteConfig.put("multi_source_anchor_min_score", config.get("multi_source_anchor_min_score"));
+        initialRewriteConfig.put("multi_source_anchor_max_total", config.get("multi_source_anchor_max_total"));
+        initialRewriteConfig.put("multi_source_anchor_max_per_seed", config.get("multi_source_anchor_max_per_seed"));
         initialRewriteConfig.put("rewrite_failure_policy", rewriteFailurePolicy);
         initialRewriteConfig.put("rewrite_prompt_profile", resolveRewritePromptProfile(evalQueryLanguage));
         CanonicalAnchorVersionMetadata.putDefaults(initialRewriteConfig);

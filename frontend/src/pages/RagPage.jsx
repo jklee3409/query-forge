@@ -1304,9 +1304,15 @@ function resolveRewriteAnchorEnabled(run) {
   return Boolean(run.rewriteAnchorInjectionEnabled)
 }
 
+function resolveMultiSourceAnchorEnabled(run) {
+  if (!resolveRewriteAnchorEnabled(run)) return false
+  return Boolean(run?.multiSourceAnchorExpansionEnabled)
+}
+
 function buildRewriteTags(run) {
   const mode = resolveRewriteMode(run)
   const anchorEnabled = resolveRewriteAnchorEnabled(run)
+  const multiSourceEnabled = resolveMultiSourceAnchorEnabled(run)
   return [
     toHistoryTag(mode.kind, mode.icon, mode.label),
     toHistoryTag(
@@ -1314,6 +1320,12 @@ function buildRewriteTags(run) {
       anchorEnabled ? 'AN' : 'AX',
       anchorEnabled ? 'anchor on' : 'anchor off',
       anchorEnabled ? 'rewrite anchor injection enabled' : 'rewrite anchor injection disabled',
+    ),
+    toHistoryTag(
+      multiSourceEnabled ? 'multi-source-anchor-on' : 'multi-source-anchor-off',
+      multiSourceEnabled ? 'MS' : 'MX',
+      multiSourceEnabled ? 'multi-source on' : 'multi-source off',
+      multiSourceEnabled ? 'multi_source_anchor_hints enabled' : 'multi_source_anchor_hints disabled',
     ),
   ]
 }
@@ -1470,6 +1482,7 @@ export function RagPage({ notify }) {
     useSessionContext: false,
     rewriteRetrievalStrategy: 'replace',
     rewriteAnchorInjectionEnabled: true,
+    multiSourceAnchorExpansionEnabled: false,
     rewriteFailurePolicy: 'fail_run',
   })
 
@@ -1705,12 +1718,15 @@ export function RagPage({ notify }) {
 
   useEffect(() => {
     if (!form.rewriteEnabled && (form.selectiveRewrite || form.useSessionContext)) {
-      setForm((prev) => ({ ...prev, selectiveRewrite: false, useSessionContext: false }))
+      setForm((prev) => ({ ...prev, selectiveRewrite: false, useSessionContext: false, multiSourceAnchorExpansionEnabled: false }))
     }
     if (form.rewriteEnabled && !form.selectiveRewrite && form.useSessionContext) {
       setForm((prev) => ({ ...prev, useSessionContext: false }))
     }
-  }, [form.rewriteEnabled, form.selectiveRewrite, form.useSessionContext])
+    if ((!form.rewriteEnabled || !form.rewriteAnchorInjectionEnabled) && form.multiSourceAnchorExpansionEnabled) {
+      setForm((prev) => ({ ...prev, multiSourceAnchorExpansionEnabled: false }))
+    }
+  }, [form.rewriteEnabled, form.selectiveRewrite, form.useSessionContext, form.rewriteAnchorInjectionEnabled, form.multiSourceAnchorExpansionEnabled])
 
   useEffect(() => {
     if (!form.syntheticFreeBaseline) return
@@ -1727,6 +1743,7 @@ export function RagPage({ notify }) {
         && !prev.selectiveRewrite
         && !prev.useSessionContext
         && !prev.rewriteAnchorInjectionEnabled
+        && !prev.multiSourceAnchorExpansionEnabled
       ) {
         return prev
       }
@@ -1744,6 +1761,7 @@ export function RagPage({ notify }) {
         selectiveRewrite: false,
         useSessionContext: false,
         rewriteAnchorInjectionEnabled: false,
+        multiSourceAnchorExpansionEnabled: false,
       }
     })
   }, [form.syntheticFreeBaseline])
@@ -1977,6 +1995,9 @@ export function RagPage({ notify }) {
       const rewriteAnchorInjectionEnabled = syntheticFreeBaseline
         ? false
         : rewriteEnabled && Boolean(form.rewriteAnchorInjectionEnabled)
+      const multiSourceAnchorExpansionEnabled = syntheticFreeBaseline
+        ? false
+        : rewriteEnabled && rewriteAnchorInjectionEnabled && Boolean(form.multiSourceAnchorExpansionEnabled)
       const created = await requestJson('/api/admin/console/rag/tests/run', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -2011,6 +2032,7 @@ export function RagPage({ notify }) {
           useSessionContext,
           rewriteRetrievalStrategy: form.rewriteRetrievalStrategy,
           rewriteAnchorInjectionEnabled,
+          multiSourceAnchorExpansionEnabled,
           rewriteFailurePolicy: form.rewriteFailurePolicy || 'fail_run',
           llmModel: form.llmModel || runtimeOptions.defaultLlmModel || null,
           threshold: toNumber(form.threshold),
@@ -2129,6 +2151,7 @@ export function RagPage({ notify }) {
       const details = Array.isArray(payload.details) ? payload.details : []
       const rewriteMode = resolveRewriteMode(runRow)
       const anchorEnabled = resolveRewriteAnchorEnabled(runRow)
+      const multiSourceEnabled = resolveMultiSourceAnchorEnabled(runRow)
       setModal({
         title: `RAG 실행 상세 · ${shortId(runId)}`,
         body: (
@@ -2143,6 +2166,7 @@ export function RagPage({ notify }) {
                 {renderRagDetailJsonDisclosure('실행 프로필', {
                   rewrite_mode: rewriteMode.label,
                   rewrite_anchor_injection_enabled: anchorEnabled,
+                  multi_source_anchor_expansion_enabled: multiSourceEnabled,
                 })}
                 {renderRagDetailJsonDisclosure('성능 지표', performance)}
                 {renderRagDetailJsonDisclosure('모드별 검색 지표', retrievalSummaryRows)}
@@ -2763,6 +2787,7 @@ export function RagPage({ notify }) {
             <label><input type="checkbox" checked={form.selectiveRewrite} disabled={form.syntheticFreeBaseline || !form.rewriteEnabled} onChange={(event) => setForm((prev) => ({ ...prev, selectiveRewrite: event.target.checked, useSessionContext: event.target.checked ? prev.useSessionContext : false }))} />선택 적용</label>
             <label><input type="checkbox" checked={form.useSessionContext} disabled={form.syntheticFreeBaseline || !form.rewriteEnabled || !form.selectiveRewrite} onChange={(event) => setForm((prev) => ({ ...prev, useSessionContext: event.target.checked }))} />세션 문맥</label>
             <label><input type="checkbox" checked={form.rewriteAnchorInjectionEnabled} disabled={form.syntheticFreeBaseline || !form.rewriteEnabled} onChange={(event) => setForm((prev) => ({ ...prev, rewriteAnchorInjectionEnabled: event.target.checked }))} />앵커 주입</label>
+            <label><input type="checkbox" checked={form.multiSourceAnchorExpansionEnabled} disabled={form.syntheticFreeBaseline || !form.rewriteEnabled || !form.rewriteAnchorInjectionEnabled} onChange={(event) => setForm((prev) => ({ ...prev, multiSourceAnchorExpansionEnabled: event.target.checked }))} />multi-source hints</label>
             <label className="rewrite-strategy-field">
               <span className="rewrite-strategy-field__label">재작성 검색</span>
               <div className="rewrite-strategy-field__control">

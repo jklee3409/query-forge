@@ -28,6 +28,7 @@ try:
         load_chunk_items,
         load_eval_samples,
         load_memory_items,
+        load_multi_source_anchor_index,
         memory_top_n,
         normalize_retrieval_backend,
         retrieval_metrics,
@@ -50,6 +51,7 @@ except ModuleNotFoundError:  # pragma: no cover
         load_chunk_items,
         load_eval_samples,
         load_memory_items,
+        load_multi_source_anchor_index,
         memory_top_n,
         normalize_retrieval_backend,
         retrieval_metrics,
@@ -103,10 +105,69 @@ def _is_rewrite_anchor_injection_enabled(raw_config: dict[str, Any]) -> bool:
     return True
 
 
+def _is_multi_source_anchor_expansion_enabled(raw_config: dict[str, Any]) -> bool:
+    value = raw_config.get("multi_source_anchor_expansion_enabled", False)
+    if isinstance(value, bool):
+        return value
+    normalized = str(value or "").strip().lower()
+    return normalized in {"true", "1", "yes", "y", "on"}
+
+
+def _multi_source_relation_types(raw_config: dict[str, Any]) -> list[str]:
+    value = raw_config.get("multi_source_anchor_relation_types")
+    if isinstance(value, str):
+        return [item.strip() for item in value.split(",") if item.strip()]
+    if isinstance(value, list):
+        return [str(item).strip() for item in value if str(item).strip()]
+    return ["canonical_alias", "synthetic_query_cooccurrence", "chunk_cooccurrence"]
+
+
 def _mean(rows: list[float]) -> float:
     if not rows:
         return 0.0
     return float(statistics.fmean(rows))
+
+
+def _multi_source_anchor_diagnostics(payload: Any) -> dict[str, Any]:
+    if not isinstance(payload, dict):
+        return {}
+    diagnostics = payload.get("diagnostics")
+    return diagnostics if isinstance(diagnostics, dict) else {}
+
+
+def _aggregate_multi_source_anchor_diagnostics(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    total_candidates = 0
+    total_accepted = 0
+    total_seed_count = 0
+    source_distribution: dict[str, int] = defaultdict(int)
+    type_distribution: dict[str, int] = defaultdict(int)
+    filtered: dict[str, int] = defaultdict(int)
+    enabled_rows = 0
+    for row in rows:
+        diagnostics = _multi_source_anchor_diagnostics(row.get("multi_source_anchor_hints"))
+        if not diagnostics:
+            continue
+        if diagnostics.get("enabled"):
+            enabled_rows += 1
+        total_seed_count += int(diagnostics.get("seed_anchor_count") or 0)
+        total_candidates += int(diagnostics.get("candidate_expanded_anchor_count") or 0)
+        total_accepted += int(diagnostics.get("accepted_expanded_anchor_count") or 0)
+        for key, value in (diagnostics.get("relation_source_distribution") or {}).items():
+            source_distribution[str(key)] += int(value or 0)
+        for key, value in (diagnostics.get("relation_type_distribution") or {}).items():
+            type_distribution[str(key)] += int(value or 0)
+        for key, value in (diagnostics.get("filtered") or {}).items():
+            filtered[str(key)] += int(value or 0)
+    return {
+        "enabled_sample_count": enabled_rows,
+        "seed_anchor_count": total_seed_count,
+        "expanded_anchor_count": total_candidates,
+        "accepted_expanded_anchor_count": total_accepted,
+        "anchor_dedup_rate": 1.0 - (total_accepted / total_candidates) if total_candidates else 0.0,
+        "relation_source_distribution": dict(source_distribution),
+        "relation_type_distribution": dict(type_distribution),
+        "filtered": dict(filtered),
+    }
 
 
 def _write_csv(path: Path, rows: list[dict[str, Any]], fieldnames: list[str]) -> None:
@@ -243,6 +304,7 @@ def _evaluate_mode(
     source_gating_run_id: str | None,
     comparison_source_runs: dict[str, str],
     retrieval_adapter: DbAnnRuntimeRetrievalAdapter | None,
+    multi_source_anchor_index: Any | None,
 ) -> tuple[dict[str, float], dict[str, Any], list[Any]]:
     if mode == "raw_only":
         retrieval = retrieve_top_k(
@@ -377,6 +439,12 @@ def _evaluate_mode(
         rewrite_retrieval_strategy=str(config.raw.get("rewrite_retrieval_strategy") or "replace"),
         rewrite_anchor_injection_enabled=_is_rewrite_anchor_injection_enabled(config.raw),
         rewrite_terminology_hints_max_count=config.raw.get("rewrite_terminology_hints_max_count", 12),
+        multi_source_anchor_expansion_enabled=_is_multi_source_anchor_expansion_enabled(config.raw),
+        multi_source_anchor_index=multi_source_anchor_index,
+        multi_source_anchor_relation_types=_multi_source_relation_types(config.raw),
+        multi_source_anchor_min_score=config.raw.get("multi_source_anchor_min_score", 0.72),
+        multi_source_anchor_max_per_seed=config.raw.get("multi_source_anchor_max_per_seed", 2),
+        multi_source_anchor_max_total=config.raw.get("multi_source_anchor_max_total", 8),
         rewrite_failure_policy=str(config.raw.get("rewrite_failure_policy") or "fail_run"),
         rewrite_adoption_policy=config.rewrite_adoption_policy,
         retriever_config=config.retriever_config,
@@ -402,6 +470,7 @@ def _evaluate_mode(
             "rewrite_heuristic_fallback_used": rewrite_outcome.rewrite_heuristic_fallback_used,
             "final_rewrite_latency_ms": rewrite_outcome.final_rewrite_latency_ms,
             "pure_rewrite_latency_ms": rewrite_outcome.pure_rewrite_latency_ms,
+            "multi_source_anchor_hints": rewrite_outcome.multi_source_anchor_hints,
         },
         retrieval,
     )
@@ -418,6 +487,7 @@ def _evaluate_sample_mode(
     source_gating_run_id: str | None,
     comparison_source_runs: dict[str, str],
     retrieval_adapter: DbAnnRuntimeRetrievalAdapter | None,
+    multi_source_anchor_index: Any | None,
 ) -> dict[str, Any]:
     started = time.perf_counter()
     metrics, rewrite_info, retrieval = _evaluate_mode(
@@ -430,6 +500,7 @@ def _evaluate_sample_mode(
         source_gating_run_id=source_gating_run_id,
         comparison_source_runs=comparison_source_runs,
         retrieval_adapter=retrieval_adapter,
+        multi_source_anchor_index=multi_source_anchor_index,
     )
     elapsed_ms = (time.perf_counter() - started) * 1000.0
     return {
@@ -577,6 +648,14 @@ def run_retrieval_eval(
             retriever_config=config.retriever_config,
             retrieval_adapter=retrieval_adapter,
         )
+        multi_source_anchor_index = None
+        if _is_multi_source_anchor_expansion_enabled(config.raw):
+            multi_source_anchor_index = load_multi_source_anchor_index(
+                connection,
+                relation_version=str(config.raw.get("multi_source_anchor_relation_version") or "multi-source-anchor-v1"),
+                relation_types=_multi_source_relation_types(config.raw),
+                min_relation_score=config.raw.get("multi_source_anchor_min_score", 0.72),
+            )
         raw_metrics_by_sample: dict[str, dict[str, float]] = {}
         mode_scores: dict[str, list[dict[str, Any]]] = defaultdict(list)
         rewrite_rows: dict[str, list[dict[str, Any]]] = defaultdict(list)
@@ -618,6 +697,7 @@ def run_retrieval_eval(
                         source_gating_run_id=source_gating_run_id,
                         comparison_source_runs=comparison_source_runs,
                         retrieval_adapter=retrieval_adapter,
+                        multi_source_anchor_index=multi_source_anchor_index,
                     )
                 )
         else:
@@ -634,6 +714,7 @@ def run_retrieval_eval(
                         source_gating_run_id=source_gating_run_id,
                         comparison_source_runs=comparison_source_runs,
                         retrieval_adapter=retrieval_adapter,
+                        multi_source_anchor_index=multi_source_anchor_index,
                     )
                     for sample, mode in work_items
                 ]
@@ -712,6 +793,7 @@ def run_retrieval_eval(
                     "mode_ndcg": metrics["ndcg@10"],
                     "memory_top_n": rewrite_info.get("memory_top_n", []),
                     "rewrite_candidates": rewrite_info.get("candidates", []),
+                    "multi_source_anchor_hints": rewrite_info.get("multi_source_anchor_hints"),
                     "retrieved_top_k": [
                         {
                             "chunk_id": item.chunk_id,
@@ -852,6 +934,7 @@ def run_retrieval_eval(
             int(stats.get("rewrite_heuristic_fallback_count", 0)) for stats in rewrite_generation_stats_by_mode.values()
         )
 
+        rewrite_flat_rows = [row for rows in rewrite_rows.values() for row in rows]
         canonical_version_payload = canonical_anchor_version_payload(config.raw)
         summary_payload = {
             "experiment_key": config.experiment_key,
@@ -872,6 +955,8 @@ def run_retrieval_eval(
             "rewrite_llm_failure_count": rewrite_llm_failure_total,
             "rewrite_heuristic_fallback_count": rewrite_heuristic_fallback_total,
             "rewrite_generation_stats": rewrite_stats_by_mode_payload,
+            "multi_source_anchor_expansion_enabled": _is_multi_source_anchor_expansion_enabled(config.raw),
+            "multi_source_anchor_diagnostics": _aggregate_multi_source_anchor_diagnostics(rewrite_flat_rows),
             "summary": summary_rows,
             "category_summary": category_rows,
         }
@@ -895,7 +980,6 @@ def run_retrieval_eval(
         )
         _write_csv(category_csv_path, category_rows, ["mode", "category", *METRIC_KEYS])
 
-        rewrite_flat_rows = [row for rows in rewrite_rows.values() for row in rows]
         rewrite_case_path.write_text(
             json.dumps(rewrite_flat_rows, ensure_ascii=False, indent=2),
             encoding="utf-8",

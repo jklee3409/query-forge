@@ -555,6 +555,83 @@ class EvalRuntimeRewriteTests(unittest.TestCase):
         self.assertNotIn("terminology_hints", payload)
         self.assertNotIn("canonical_anchor_hints", payload)
 
+    def test_rewrite_payload_includes_multi_source_anchor_hints_when_enabled(self) -> None:
+        class _FakeRewriteClient:
+            def __init__(self) -> None:
+                self.last_user_prompt = ""
+
+            def chat_json(self, **kwargs):
+                self.last_user_prompt = str(kwargs.get("user_prompt") or "")
+                return {"candidates": [{"label": "explicit_standalone", "query": "DigestAuthenticationFilter SecurityFilterChain"}]}
+
+        fake_client = _FakeRewriteClient()
+        index = runtime.MultiSourceAnchorIndex(
+            relation_version="multi-source-anchor-v1",
+            alias_to_canonical_ids={
+                "digestauthenticationfilter": ["seed-digest"],
+            },
+            terms_by_id={
+                "seed-digest": {
+                    "canonical_form": "DigestAuthenticationFilter",
+                    "normalized_form": "digestauthenticationfilter",
+                    "term_type": "class",
+                },
+                "related-chain": {
+                    "canonical_form": "SecurityFilterChain",
+                    "normalized_form": "securityfilterchain",
+                    "term_type": "interface",
+                },
+            },
+            relations_by_anchor_id={
+                "seed-digest": [
+                    {
+                        "related_anchor_id": "related-chain",
+                        "canonical_form": "SecurityFilterChain",
+                        "normalized_form": "securityfilterchain",
+                        "term_type": "interface",
+                        "relation_type": "synthetic_query_cooccurrence",
+                        "relation_score": 0.86,
+                        "relation_source": "synthetic_query_anchor_link",
+                        "evidence_count": 3,
+                    }
+                ]
+            },
+        )
+        hints = runtime._build_multi_source_anchor_hints(
+            raw_query="DigestAuthenticationFilter order",
+            query_language="en",
+            memory_items=[],
+            anchor_index=index,
+            relation_type_allowlist=["synthetic_query_cooccurrence"],
+            min_relation_score=0.72,
+            max_per_seed=2,
+            max_total=4,
+        )
+
+        with patch.object(runtime, "_REWRITE_PROMPT_TEXT", "rewrite prompt for test"), patch.object(
+            runtime,
+            "_rewrite_client",
+            return_value=fake_client,
+        ):
+            runtime.build_rewrite_candidates_v2(
+                "DigestAuthenticationFilter order",
+                [],
+                session_context={},
+                candidate_count=1,
+                query_language="en",
+                multi_source_anchor_hints=hints,
+            )
+
+        payload = json.loads(fake_client.last_user_prompt)
+        multi_source_hints = payload.get("multi_source_anchor_hints") or {}
+        self.assertIn("SecurityFilterChain", multi_source_hints.get("terms") or [])
+        self.assertEqual(multi_source_hints.get("priority"), "low")
+        self.assertEqual(
+            1,
+            multi_source_hints.get("diagnostics", {}).get("accepted_expanded_anchor_count"),
+        )
+        self.assertNotIn("related-chain", json.dumps(multi_source_hints))
+
     def test_rewrite_canonical_anchor_hints_include_only_scoring_approved_terms(self) -> None:
         hints = runtime._build_rewrite_canonical_anchor_hints(
             memory_items=[

@@ -22,6 +22,7 @@ Inputs:
 - anchor_terms (flattened anchor string list)
 - terminology_hints (`terms` + `source_terms` for high-priority technical token preservation)
 - canonical_anchor_hints (`terms` + compact `source_terms` for approved scoring-only canonical/normalized anchor preservation; optional)
+- multi_source_anchor_hints (`terms` + related anchors from canonical/memory/synthetic/chunk relation lookup; optional, lower priority)
 - candidate_count (1~3)
 
 Output (JSON only):
@@ -42,9 +43,10 @@ Hard rules:
    - Do not translate exact anchors into Korean and do not rewrite their spelling/case/punctuation.
    - If a `terminology_hints.terms` token is intent-compatible, keep it verbatim.
    - If a `canonical_anchor_hints.terms` token is intent-compatible, keep its canonical or normalized form verbatim.
+   - If a `multi_source_anchor_hints.terms` token is intent-compatible, you may use it as a low-priority retrieval hint.
 4) Prefer lexical overlap for retrieval:
    - keep core tokens from raw_query (do not drop decisive intent words)
-   - if raw_query is underspecified and `terminology_hints`, `canonical_anchor_hints`, `anchor_terms`, or `top_memory_candidates` provide compatible anchors, add only 1~2 decisive anchors.
+   - if raw_query is underspecified and `terminology_hints`, `canonical_anchor_hints`, `multi_source_anchor_hints`, `anchor_terms`, or `top_memory_candidates` provide compatible anchors, add only 1~2 decisive anchors.
    - if `anchor_candidates` includes class/property/annotation tokens aligned with raw intent, preserve them verbatim.
 5) Memory usage policy (strict):
    - top_memory_candidates are hints, not authority.
@@ -69,10 +71,12 @@ Hard rules:
    - variation is allowed only in retrieval framing, not in task objective.
 12) Anchor handling:
    - raw_query exact anchors are mandatory in every candidate.
-   - prioritize anchors with source `raw_query`, then compatible `terminology_hints`/`canonical_anchor_hints`, then compatible `memory_glossary`, then `memory_query`.
+   - prioritize anchors with source `raw_query`, then compatible `terminology_hints`/`canonical_anchor_hints`, then compatible `multi_source_anchor_hints`, then compatible `memory_glossary`, then `memory_query`.
    - use `canonical_anchor_hints` only to preserve or add intent-compatible canonical/normalized anchor wording.
+   - use `multi_source_anchor_hints` only as optional low-priority related-anchor wording; never as a required constraint.
    - never inject anchors that shift topic away from raw_query intent.
    - never create synonym expansions, arbitrary translations, or topic substitutions from canonical hints.
+   - never let an expanded anchor override raw_query anchors, raw_query task intent, or session_context constraints.
 13) Never include internal identifiers in candidate query text:
    - no memory_id, target_doc_id, target_chunk_ids, chunk IDs, document IDs, or other internal IDs.
 14) Conservative fallback:
@@ -81,14 +85,14 @@ Hard rules:
    - expand only the missing technical subject, not the task goal.
    - use memory only to recover compatible product/module/API/config anchors.
    - prefer compact Korean + exact English anchor form.
-   - do not add new failure symptoms, product versions, modules, or APIs unless supported by raw_query, session_context, terminology_hints, canonical_anchor_hints, anchor_terms, or top_memory_candidates.
+   - do not add new failure symptoms, product versions, modules, or APIs unless supported by raw_query, session_context, terminology_hints, canonical_anchor_hints, multi_source_anchor_hints, anchor_terms, or top_memory_candidates.
 
 Candidate roles:
 1) explicit_standalone
    - shortest standalone form that preserves intent + key technical terms.
 2) product_version_anchored
    - backward-compatible label for supported_anchor_expanded.
-   - add only supported product/module/API/config/version anchors from raw_query, session_context, terminology_hints, canonical_anchor_hints, anchor_terms, or top_memory_candidates.
+   - add only supported product/module/API/config/version anchors from raw_query, session_context, terminology_hints, canonical_anchor_hints, multi_source_anchor_hints, anchor_terms, or top_memory_candidates.
    - do not infer or invent product, version, module, package, class, or config names.
 3) error_or_task_focused
    - keep intent, but phrase in troubleshooting/task-execution form for better retrieval hit.

@@ -32,6 +32,7 @@ Spring Boot backend for Admin Console APIs, RAG APIs, pipeline command orchestra
 - Pipeline run/step status now supports `warning` in addition to `success/failed/cancelled`, and warning backfill is applied via migration `V27`.
 - Corpus admin exposes paginated anchor list API (`GET /api/admin/corpus/anchors`) with document/chunk scoped filters for pipeline-stage anchor monitoring.
 - Corpus admin exposes anchor normalization dry-run/review APIs under `/api/admin/corpus/anchors/normalization-runs`; approval is manual-review gated and updates only `corpus_glossary_terms.canonical_form` / `normalized_form`.
+- Corpus admin exposes multi-source anchor relation build APIs under `/api/admin/corpus/anchors/multi-source/build-runs`; builds populate additive relation tables for runtime lookup and do not mutate synthetic query text/data.
 - Corpus anchor re-extraction (`POST /api/admin/corpus/anchors/extract`) keeps the same evidence replacement/remap flow but now delegates candidate extraction to pipeline glossary logic via `pipeline/cli.py extract-anchor-candidates`, reducing duplicate extraction implementations across backend/pipeline.
 - In mixed-scope anchor re-extraction requests, `documentIds` takes precedence over `chunkIds` so selected document(s) are reset/re-extracted document-wide and stale anchors are not left behind in unselected chunks.
 - Anchor extraction/injection is used as rewrite grounding control: when Korean query rewriting over English technical-doc memory drops domain terms, anchors are injected to preserve technical intent and improve retrieval stability (`rewrite_anchor_injection_enabled` path).
@@ -51,6 +52,7 @@ Spring Boot backend for Admin Console APIs, RAG APIs, pipeline command orchestra
 - Eval sample storage now supports `user_query_en` plus `query_language`, and Admin RAG run requests persist `evalQueryLanguage` into experiment config for language-specific runtime loading.
 - Admin RAG test run API supports optional snapshot binding via `sourceGatingBatchId` and validates it into fixed `source_gating_run_id`.
 - Admin RAG test run API enforces query-language/method compatibility: `E/F` require English eval queries, while `A/B/C/D/G` require Korean/code-mixed eval queries; generated configs record `rewrite_prompt_profile`.
+- Admin RAG test run API supports optional `multi_source_anchor_expansion_enabled`, writing bounded relation lookup settings so selective rewrite can pass `multi_source_anchor_hints` as low-priority prompt hints.
 - Admin RAG test run API supports `syntheticFreeBaseline` exploratory mode (synthetic-free baseline), forcing raw-only evaluation semantics without snapshot/method selection.
 - Admin RAG test run API accepts `runName` and persists it as `rag_test_run.run_label` plus experiment config `run_name`; migration `V20` assigns legacy auto-labeled RAG runs stable `Legacy RAG Test ###` names.
 - Synthetic-backed Admin RAG test configs include `raw_only`, `memory_only_gated`, `rewrite_always`, and the selected selective rewrite mode for same-dataset comparison; `rewrite_threshold` defaults to `0.10`.

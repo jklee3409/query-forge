@@ -101,6 +101,14 @@ class MemoryItem:
 
 
 @dataclass(slots=True)
+class MultiSourceAnchorIndex:
+    relation_version: str
+    alias_to_canonical_ids: dict[str, list[str]]
+    terms_by_id: dict[str, dict[str, Any]]
+    relations_by_anchor_id: dict[str, list[dict[str, Any]]]
+
+
+@dataclass(slots=True)
 class RetrievalCandidate:
     chunk_id: str
     document_id: str
@@ -122,6 +130,7 @@ class RewriteOutcome:
     rewrite_heuristic_fallback_used: bool = False
     final_rewrite_latency_ms: float | None = None
     pure_rewrite_latency_ms: float | None = None
+    multi_source_anchor_hints: dict[str, Any] | None = None
 
 
 RETRIEVAL_BACKEND_LOCAL = "local"
@@ -459,6 +468,30 @@ _RUNTIME_MEMORY_RETRIEVER_CACHE: dict[
 REWRITE_RETRIEVAL_STRATEGIES = {"replace", "interleave", "max_score"}
 REWRITE_FAILURE_POLICIES = {"fail_run", "skip_to_raw", "heuristic_fallback"}
 DEFAULT_REWRITE_TERMINOLOGY_HINTS_MAX = 12
+DEFAULT_MULTI_SOURCE_ANCHOR_RELATION_VERSION = "multi-source-anchor-v1"
+DEFAULT_MULTI_SOURCE_ANCHOR_TYPES = (
+    "canonical_alias",
+    "synthetic_query_cooccurrence",
+    "chunk_cooccurrence",
+)
+MULTI_SOURCE_ANCHOR_TERM_TYPE_PRIORITY = {
+    "product": 100,
+    "artifact": 92,
+    "class": 90,
+    "interface": 88,
+    "annotation": 86,
+    "config_key": 84,
+    "property": 82,
+    "api": 80,
+    "cli": 78,
+    "concept": 35,
+}
+MULTI_SOURCE_ANCHOR_SEED_PRIORITY = {
+    "raw_query": 100,
+    "memory_canonical": 72,
+    "memory_glossary": 58,
+    "memory_query": 46,
+}
 TROUBLESHOOTING_HINT_TOKENS = (
     "error",
     "exception",
@@ -792,6 +825,220 @@ def _build_rewrite_canonical_anchor_hints(
     }
 
 
+def _normalize_relation_type_allowlist(value: Any) -> list[str]:
+    if isinstance(value, str):
+        raw_items = [item.strip() for item in value.split(",")]
+    elif isinstance(value, (list, tuple, set)):
+        raw_items = [str(item).strip() for item in value]
+    else:
+        raw_items = list(DEFAULT_MULTI_SOURCE_ANCHOR_TYPES)
+    normalized = []
+    for item in raw_items:
+        relation_type = item.lower().replace("-", "_")
+        if relation_type and relation_type not in normalized:
+            normalized.append(relation_type)
+    return normalized or list(DEFAULT_MULTI_SOURCE_ANCHOR_TYPES)
+
+
+def _multi_source_term_priority(term_type: Any) -> int:
+    return MULTI_SOURCE_ANCHOR_TERM_TYPE_PRIORITY.get(str(term_type or "").strip().lower(), 50)
+
+
+def _build_multi_source_anchor_hints(
+    *,
+    raw_query: str,
+    query_language: str,
+    memory_items: list[dict[str, Any]],
+    anchor_index: MultiSourceAnchorIndex | None,
+    relation_type_allowlist: list[str] | tuple[str, ...] | None = None,
+    min_relation_score: float = 0.72,
+    max_per_seed: int = 2,
+    max_total: int = 8,
+) -> dict[str, Any]:
+    allowed_relation_types = set(_normalize_relation_type_allowlist(relation_type_allowlist))
+    try:
+        score_floor = float(min_relation_score)
+    except (TypeError, ValueError):
+        score_floor = 0.72
+    score_floor = max(0.0, min(1.0, score_floor))
+    bounded_max_per_seed = _clamp_count(max_per_seed, default=2, max_value=8)
+    bounded_max_total = _clamp_count(max_total, default=8, max_value=24)
+    diagnostics: dict[str, Any] = {
+        "enabled": bool(anchor_index),
+        "relation_version": anchor_index.relation_version if anchor_index else DEFAULT_MULTI_SOURCE_ANCHOR_RELATION_VERSION,
+        "seed_anchor_count": 0,
+        "candidate_expanded_anchor_count": 0,
+        "accepted_expanded_anchor_count": 0,
+        "anchor_dedup_rate": 0.0,
+        "relation_source_distribution": {},
+        "relation_type_distribution": {},
+        "filtered": {
+            "missing_index": 0,
+            "score_below_threshold": 0,
+            "relation_type_blocked": 0,
+            "duplicate": 0,
+            "raw_query_overlap": 0,
+            "invalid_phrase": 0,
+            "concept_low_score": 0,
+        },
+    }
+    if not anchor_index:
+        diagnostics["filtered"]["missing_index"] = 1
+        return {
+            "priority": "low",
+            "policy": "Expanded anchors are optional hints and must never override raw query intent.",
+            "terms": [],
+            "anchors": [],
+            "diagnostics": diagnostics,
+        }
+
+    raw_query_keys = _anchor_lookup_keys(raw_query)
+    for token in _extract_anchor_tokens(raw_query, language_hint=query_language, max_items=16):
+        raw_query_keys.update(_anchor_lookup_keys(token))
+    seed_rows: list[dict[str, Any]] = []
+    seed_ids: set[str] = set()
+    raw_seed_ids: set[str] = set()
+
+    def add_seed_by_id(canonical_id: Any, source: str, display: Any = None) -> None:
+        seed_id = str(canonical_id or "").strip()
+        if not seed_id:
+            return
+        if seed_id not in anchor_index.terms_by_id and seed_id not in anchor_index.relations_by_anchor_id:
+            return
+        key = f"{source}:{seed_id}"
+        if any(row["key"] == key for row in seed_rows):
+            return
+        seed_rows.append(
+            {
+                "key": key,
+                "canonical_anchor_id": seed_id,
+                "source": source,
+                "display": str(display or "").strip(),
+                "priority": MULTI_SOURCE_ANCHOR_SEED_PRIORITY.get(source, 40),
+            }
+        )
+        seed_ids.add(seed_id)
+        if source == "raw_query":
+            raw_seed_ids.add(seed_id)
+
+    def add_seed_by_alias(alias: Any, source: str) -> None:
+        for key in _anchor_lookup_keys(alias):
+            for canonical_id in anchor_index.alias_to_canonical_ids.get(key, []):
+                add_seed_by_id(canonical_id, source, alias)
+
+    for token in _extract_anchor_tokens(raw_query, language_hint=query_language, max_items=8):
+        add_seed_by_alias(token, "raw_query")
+
+    for memory_row in memory_items[:5]:
+        for anchor in _iter_scoring_canonical_anchors(memory_row.get("canonical_anchors")):
+            add_seed_by_id(
+                anchor.get("canonical_term_id"),
+                "memory_canonical",
+                anchor.get("canonical_form") or anchor.get("display_alias"),
+            )
+        glossary_terms = memory_row.get("glossary_terms")
+        if isinstance(glossary_terms, list):
+            for term in glossary_terms[:8]:
+                add_seed_by_alias(term, "memory_glossary")
+        for token in _extract_anchor_tokens(
+            str(memory_row.get("query_text") or ""),
+            language_hint=query_language,
+            max_items=5,
+        ):
+            add_seed_by_alias(token, "memory_query")
+
+    seed_rows.sort(key=lambda row: (-int(row["priority"]), str(row["display"]).casefold()))
+    diagnostics["seed_anchor_count"] = len({row["canonical_anchor_id"] for row in seed_rows})
+    selected_related_ids: set[str] = set()
+    anchors: list[dict[str, Any]] = []
+    terms: list[str] = []
+    candidate_count = 0
+
+    for seed in seed_rows:
+        accepted_for_seed = 0
+        seed_id = str(seed["canonical_anchor_id"])
+        relations = anchor_index.relations_by_anchor_id.get(seed_id, [])
+        ranked_relations = sorted(
+            relations,
+            key=lambda row: (
+                -float(row.get("relation_score") or 0.0),
+                -_multi_source_term_priority(row.get("term_type")),
+                -int(row.get("evidence_count") or 0),
+                str(row.get("canonical_form") or "").casefold(),
+            ),
+        )
+        for relation in ranked_relations:
+            if len(anchors) >= bounded_max_total or accepted_for_seed >= bounded_max_per_seed:
+                break
+            candidate_count += 1
+            relation_score = float(relation.get("relation_score") or 0.0)
+            relation_type = str(relation.get("relation_type") or "").strip().lower()
+            if relation_score < score_floor:
+                diagnostics["filtered"]["score_below_threshold"] += 1
+                continue
+            if relation_type not in allowed_relation_types:
+                diagnostics["filtered"]["relation_type_blocked"] += 1
+                continue
+            related_id = str(relation.get("related_anchor_id") or "").strip()
+            if not related_id or related_id in seed_ids or related_id in selected_related_ids:
+                diagnostics["filtered"]["duplicate"] += 1
+                continue
+            term = str(relation.get("canonical_form") or "").strip()
+            if not term:
+                diagnostics["filtered"]["invalid_phrase"] += 1
+                continue
+            if any(key in raw_query_keys for key in _anchor_lookup_keys(term)):
+                diagnostics["filtered"]["raw_query_overlap"] += 1
+                continue
+            if not is_valid_anchor_phrase(term, language_hint=query_language):
+                diagnostics["filtered"]["invalid_phrase"] += 1
+                continue
+            term_type = str(relation.get("term_type") or "").strip()
+            if term_type == "concept" and relation_score < max(score_floor, 0.82):
+                diagnostics["filtered"]["concept_low_score"] += 1
+                continue
+            selected_related_ids.add(related_id)
+            terms.append(term)
+            relation_source = str(relation.get("relation_source") or "")
+            diagnostics["relation_source_distribution"][relation_source] = (
+                int(diagnostics["relation_source_distribution"].get(relation_source, 0)) + 1
+            )
+            diagnostics["relation_type_distribution"][relation_type] = (
+                int(diagnostics["relation_type_distribution"].get(relation_type, 0)) + 1
+            )
+            anchor_payload = {
+                "term": term,
+                "normalized_form": str(relation.get("normalized_form") or ""),
+                "term_type": term_type,
+                "relation_type": relation_type,
+                "relation_score": round(relation_score, 4),
+                "relation_source": relation_source,
+                "evidence_count": int(relation.get("evidence_count") or 0),
+                "seed_source": str(seed.get("source") or ""),
+                "priority": "low",
+            }
+            if relation.get("method_code"):
+                anchor_payload["method_code"] = str(relation["method_code"])
+            anchors.append(anchor_payload)
+            accepted_for_seed += 1
+
+    diagnostics["candidate_expanded_anchor_count"] = candidate_count
+    diagnostics["accepted_expanded_anchor_count"] = len(anchors)
+    diagnostics["anchor_dedup_rate"] = (
+        1.0 - (len(anchors) / candidate_count)
+        if candidate_count > 0
+        else 0.0
+    )
+    return {
+        "priority": "low",
+        "relation_version": anchor_index.relation_version,
+        "policy": "Expanded anchors are optional hints only. Raw-query anchors and explicit user intent have higher priority.",
+        "terms": terms,
+        "anchors": anchors,
+        "diagnostics": diagnostics,
+    }
+
+
 def build_memory_guided_query(
     raw_query: str,
     memory_items: list[dict[str, Any]],
@@ -1122,6 +1369,195 @@ def load_memory_items(
         )
         for row in rows
     ]
+
+
+def _anchor_lookup_key(value: Any) -> str:
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    return unicodedata.normalize("NFKC", text).casefold()
+
+
+def _anchor_lookup_keys(value: Any) -> set[str]:
+    keys: set[str] = set()
+    text = str(value or "").strip()
+    if not text:
+        return keys
+    for candidate in (text, normalize_anchor_text(text)):
+        key = _anchor_lookup_key(candidate)
+        if key:
+            keys.add(key)
+    return keys
+
+
+def _append_alias_mapping(
+    alias_to_canonical_ids: dict[str, list[str]],
+    alias_value: Any,
+    canonical_id: str,
+) -> None:
+    canonical_id = str(canonical_id or "").strip()
+    if not canonical_id:
+        return
+    for key in _anchor_lookup_keys(alias_value):
+        bucket = alias_to_canonical_ids.setdefault(key, [])
+        if canonical_id not in bucket:
+            bucket.append(canonical_id)
+
+
+def _table_exists(connection: psycopg.Connection[Any], table_name: str) -> bool:
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT to_regclass(%s) IS NOT NULL AS exists", (f"public.{table_name}",))
+        row = cursor.fetchone()
+    return bool(row and row.get("exists"))
+
+
+def load_multi_source_anchor_index(
+    connection: psycopg.Connection[Any],
+    *,
+    relation_version: str = DEFAULT_MULTI_SOURCE_ANCHOR_RELATION_VERSION,
+    relation_types: list[str] | tuple[str, ...] | None = None,
+    min_relation_score: float = 0.72,
+) -> MultiSourceAnchorIndex | None:
+    normalized_relation_version = str(relation_version or DEFAULT_MULTI_SOURCE_ANCHOR_RELATION_VERSION).strip()
+    if not normalized_relation_version:
+        normalized_relation_version = DEFAULT_MULTI_SOURCE_ANCHOR_RELATION_VERSION
+    try:
+        min_score = float(min_relation_score)
+    except (TypeError, ValueError):
+        min_score = 0.72
+    min_score = max(0.0, min(1.0, min_score))
+    normalized_types = [
+        str(item).strip().lower().replace("-", "_")
+        for item in (relation_types or DEFAULT_MULTI_SOURCE_ANCHOR_TYPES)
+        if str(item).strip()
+    ]
+    if not normalized_types:
+        normalized_types = list(DEFAULT_MULTI_SOURCE_ANCHOR_TYPES)
+
+    if not _table_exists(connection, "canonical_anchor_relation"):
+        return None
+
+    terms_by_id: dict[str, dict[str, Any]] = {}
+    alias_to_canonical_ids: dict[str, list[str]] = {}
+    with connection.cursor() as cursor:
+        cursor.execute(
+            """
+            SELECT term_id,
+                   canonical_form,
+                   normalized_form,
+                   term_type
+            FROM corpus_glossary_terms
+            WHERE is_active = TRUE
+            """
+        )
+        for row in cursor.fetchall():
+            term_id = str(row["term_id"])
+            term = {
+                "canonical_anchor_id": term_id,
+                "canonical_form": str(row["canonical_form"] or ""),
+                "normalized_form": str(row["normalized_form"] or ""),
+                "term_type": str(row["term_type"] or ""),
+            }
+            terms_by_id[term_id] = term
+            _append_alias_mapping(alias_to_canonical_ids, term["canonical_form"], term_id)
+            _append_alias_mapping(alias_to_canonical_ids, term["normalized_form"], term_id)
+
+        cursor.execute(
+            """
+            SELECT a.term_id,
+                   a.alias_text
+            FROM corpus_glossary_aliases a
+            JOIN corpus_glossary_terms t ON t.term_id = a.term_id
+            WHERE t.is_active = TRUE
+            """
+        )
+        for row in cursor.fetchall():
+            _append_alias_mapping(alias_to_canonical_ids, row["alias_text"], str(row["term_id"]))
+
+        if _table_exists(connection, "canonical_anchor_mapping"):
+            cursor.execute(
+                """
+                SELECT canonical_term_id,
+                       alias_text,
+                       normalized_alias,
+                       display_alias
+                FROM canonical_anchor_mapping
+                WHERE mapping_version = 'anchor-map-v1'
+                  AND normalization_version = 'anchor-normalize-v1'
+                  AND review_status = 'approved'
+                  AND mapping_status = 'active'
+                """
+            )
+            for row in cursor.fetchall():
+                canonical_id = str(row["canonical_term_id"])
+                _append_alias_mapping(alias_to_canonical_ids, row["alias_text"], canonical_id)
+                _append_alias_mapping(alias_to_canonical_ids, row["normalized_alias"], canonical_id)
+                _append_alias_mapping(alias_to_canonical_ids, row["display_alias"], canonical_id)
+
+        cursor.execute(
+            """
+            SELECT r.canonical_anchor_id,
+                   r.related_anchor_id,
+                   r.relation_type,
+                   r.relation_score,
+                   r.relation_source,
+                   r.evidence_count,
+                   r.source_query_id,
+                   r.source_chunk_id,
+                   r.source_section_id,
+                   r.method_code,
+                   r.metadata_json,
+                   related.canonical_form AS related_canonical_form,
+                   related.normalized_form AS related_normalized_form,
+                   related.term_type AS related_term_type
+            FROM canonical_anchor_relation r
+            JOIN corpus_glossary_terms related
+              ON related.term_id = r.related_anchor_id
+             AND related.is_active = TRUE
+            WHERE r.relation_version = %s
+              AND r.status = 'active'
+              AND r.relation_score >= %s
+              AND r.relation_type = ANY(%s)
+            ORDER BY r.canonical_anchor_id,
+                     r.relation_score DESC,
+                     r.evidence_count DESC,
+                     related.canonical_form
+            """,
+            (normalized_relation_version, min_score, normalized_types),
+        )
+        relation_rows = cursor.fetchall()
+
+    relations_by_anchor_id: dict[str, list[dict[str, Any]]] = {}
+    for row in relation_rows:
+        seed_id = str(row["canonical_anchor_id"])
+        related_id = str(row["related_anchor_id"])
+        relations_by_anchor_id.setdefault(seed_id, []).append(
+            {
+                "canonical_anchor_id": seed_id,
+                "related_anchor_id": related_id,
+                "canonical_form": str(row["related_canonical_form"] or ""),
+                "normalized_form": str(row["related_normalized_form"] or ""),
+                "term_type": str(row["related_term_type"] or ""),
+                "relation_type": str(row["relation_type"] or ""),
+                "relation_score": float(row["relation_score"] or 0.0),
+                "relation_source": str(row["relation_source"] or ""),
+                "evidence_count": int(row["evidence_count"] or 0),
+                "source_query_id": str(row["source_query_id"]) if row.get("source_query_id") else None,
+                "source_chunk_id": str(row["source_chunk_id"]) if row.get("source_chunk_id") else None,
+                "source_section_id": str(row["source_section_id"]) if row.get("source_section_id") else None,
+                "method_code": str(row["method_code"]) if row.get("method_code") else None,
+                "metadata": _json_mapping_or_none(row.get("metadata_json")) or {},
+            }
+        )
+
+    if not relations_by_anchor_id:
+        return None
+    return MultiSourceAnchorIndex(
+        relation_version=normalized_relation_version,
+        alias_to_canonical_ids=alias_to_canonical_ids,
+        terms_by_id=terms_by_id,
+        relations_by_anchor_id=relations_by_anchor_id,
+    )
 
 
 def _trim_runtime_cache_if_needed(cache: dict[Any, Any]) -> None:
@@ -1682,6 +2118,7 @@ def build_rewrite_candidates_v2(
     query_language: str,
     rewrite_anchor_injection_enabled: bool = True,
     rewrite_terminology_hints_max_count: int = DEFAULT_REWRITE_TERMINOLOGY_HINTS_MAX,
+    multi_source_anchor_hints: dict[str, Any] | None = None,
     rewrite_failure_policy: str | None = None,
     rewrite_runtime_stats: dict[str, int] | None = None,
 ) -> list[dict[str, str]]:
@@ -1733,6 +2170,8 @@ def build_rewrite_candidates_v2(
         )
         if canonical_anchor_hints["terms"]:
             payload["canonical_anchor_hints"] = canonical_anchor_hints
+        if multi_source_anchor_hints and multi_source_anchor_hints.get("terms"):
+            payload["multi_source_anchor_hints"] = multi_source_anchor_hints
     try:
         llm_started = time.perf_counter()
         response = _rewrite_client().chat_json(
@@ -2355,6 +2794,12 @@ def run_selective_rewrite(
     rewrite_retrieval_strategy: str = "replace",
     rewrite_anchor_injection_enabled: bool = True,
     rewrite_terminology_hints_max_count: int = DEFAULT_REWRITE_TERMINOLOGY_HINTS_MAX,
+    multi_source_anchor_expansion_enabled: bool = False,
+    multi_source_anchor_index: MultiSourceAnchorIndex | None = None,
+    multi_source_anchor_relation_types: list[str] | tuple[str, ...] | None = None,
+    multi_source_anchor_min_score: float = 0.72,
+    multi_source_anchor_max_per_seed: int = 2,
+    multi_source_anchor_max_total: int = 8,
     rewrite_failure_policy: str | None = None,
     rewrite_adoption_policy: dict[str, Any] | None = None,
     retriever_config: RetrieverConfig | None = None,
@@ -2445,6 +2890,18 @@ def run_selective_rewrite(
 
     normalized_strategy = _normalize_rewrite_retrieval_strategy(rewrite_retrieval_strategy)
     rewrite_runtime_stats: dict[str, int] = {}
+    multi_source_anchor_hints = None
+    if rewrite_anchor_injection_enabled and multi_source_anchor_expansion_enabled:
+        multi_source_anchor_hints = _build_multi_source_anchor_hints(
+            raw_query=raw_query,
+            query_language=query_language,
+            memory_items=memory_items,
+            anchor_index=multi_source_anchor_index,
+            relation_type_allowlist=multi_source_anchor_relation_types,
+            min_relation_score=multi_source_anchor_min_score,
+            max_per_seed=multi_source_anchor_max_per_seed,
+            max_total=multi_source_anchor_max_total,
+        )
     candidate_templates = build_rewrite_candidates_v2(
         raw_query,
         memory_items,
@@ -2453,6 +2910,7 @@ def run_selective_rewrite(
         query_language=query_language,
         rewrite_anchor_injection_enabled=rewrite_anchor_injection_enabled,
         rewrite_terminology_hints_max_count=rewrite_terminology_hints_max_count,
+        multi_source_anchor_hints=multi_source_anchor_hints,
         rewrite_failure_policy=rewrite_failure_policy,
         rewrite_runtime_stats=rewrite_runtime_stats,
     )
@@ -2636,6 +3094,7 @@ def run_selective_rewrite(
                 rewrite_heuristic_fallback_used=rewrite_heuristic_fallback_used,
                 final_rewrite_latency_ms=None,
                 pure_rewrite_latency_ms=pure_rewrite_latency_ms,
+                multi_source_anchor_hints=multi_source_anchor_hints,
             ),
             raw_retrieval,
         )
@@ -2725,6 +3184,7 @@ def run_selective_rewrite(
             rewrite_heuristic_fallback_used=rewrite_heuristic_fallback_used,
             final_rewrite_latency_ms=rewrite_elapsed_ms if should_apply else None,
             pure_rewrite_latency_ms=pure_rewrite_latency_ms,
+            multi_source_anchor_hints=multi_source_anchor_hints,
         ),
         final_retrieval,
     )

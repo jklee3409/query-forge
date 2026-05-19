@@ -3,6 +3,7 @@ package io.queryforge.backend.admin.corpus.controller;
 import io.queryforge.backend.admin.corpus.model.CorpusAdminDtos;
 import io.queryforge.backend.admin.corpus.service.CorpusAdminService;
 import io.queryforge.backend.admin.corpus.service.AnchorNormalizationService;
+import io.queryforge.backend.admin.corpus.service.MultiSourceAnchorService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -24,6 +25,7 @@ public class CorpusAdminController {
 
     private final CorpusAdminService service;
     private final AnchorNormalizationService anchorNormalizationService;
+    private final MultiSourceAnchorService multiSourceAnchorService;
 
     @GetMapping("/sources")
     public List<CorpusAdminDtos.SourceSummary> listSources() {
@@ -277,6 +279,26 @@ public class CorpusAdminController {
             @RequestBody(required = false) CorpusAdminDtos.AnchorNormalizationReviewRequest request
     ) {
         return anchorNormalizationService.reject(runId, request);
+    }
+
+    @PostMapping("/anchors/multi-source/build-runs")
+    public CorpusAdminDtos.MultiSourceAnchorBuildRunSummary createMultiSourceAnchorBuildRun(
+            @RequestBody(required = false) CorpusAdminDtos.MultiSourceAnchorBuildRequest request
+    ) {
+        return multiSourceAnchorService.buildRelations(request);
+    }
+
+    @GetMapping("/anchors/multi-source/build-runs")
+    public List<CorpusAdminDtos.MultiSourceAnchorBuildRunSummary> listMultiSourceAnchorBuildRuns(
+            @RequestParam(name = "limit", required = false) Integer limit,
+            @RequestParam(name = "offset", required = false) Integer offset
+    ) {
+        return multiSourceAnchorService.listRuns(limit, offset);
+    }
+
+    @GetMapping("/anchors/multi-source/build-runs/{runId}")
+    public CorpusAdminDtos.MultiSourceAnchorBuildRunSummary getMultiSourceAnchorBuildRun(@PathVariable UUID runId) {
+        return multiSourceAnchorService.getRun(runId);
     }
 
     @PostMapping("/anchors/eval/runs")

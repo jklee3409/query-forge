@@ -3,6 +3,12 @@
 ## Overview
 High-level progress tracking for the project.
 
+## [2026-05-19] Session Summary (Multi-source Rewrite Hint Prompt Policy)
+- What was done: Updated Korean/code-mixed and English selective rewrite prompt assets to accept optional `multi_source_anchor_hints`.
+- Key decisions: Prompt policy explicitly treats multi-source anchors as lower-priority optional hints that must never override raw-query anchors, user intent, or session constraints.
+- Issues encountered: Covered by targeted runtime prompt-payload tests; no prompt-only live LLM execution was run.
+- Next steps: Tune prompt wording only after inspecting real off/on rewrite payloads and bad-case diagnostics.
+
 ## [2026-05-19] Session Summary (English Rewrite Prompt Asset)
 - What was done: Added `prompts/rewrite/selective_rewrite_en_v1.md` for English-native RAG rewrite candidate generation in E/F-style English synthetic-query evaluation.
 - Key decisions: Kept the existing Korean/code-mixed `selective_rewrite_v2` asset unchanged and made the English prompt a separate asset with its own id/version.

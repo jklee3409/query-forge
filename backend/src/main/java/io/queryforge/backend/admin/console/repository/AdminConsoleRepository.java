@@ -2047,6 +2047,7 @@ public class AdminConsoleRepository {
             Boolean selectiveRewrite,
             Boolean useSessionContext,
             Boolean rewriteAnchorInjectionEnabled,
+            Boolean multiSourceAnchorExpansionEnabled,
             Integer topK,
             Double threshold,
             Integer retrievalTopK,
@@ -2069,6 +2070,7 @@ public class AdminConsoleRepository {
                     selective_rewrite,
                     use_session_context,
                     rewrite_anchor_injection_enabled,
+                    multi_source_anchor_expansion_enabled,
                     top_k,
                     threshold,
                     retrieval_top_k,
@@ -2088,6 +2090,7 @@ public class AdminConsoleRepository {
                     :selectiveRewrite,
                     :useSessionContext,
                     :rewriteAnchorInjectionEnabled,
+                    :multiSourceAnchorExpansionEnabled,
                     :topK,
                     :threshold,
                     :retrievalTopK,
@@ -2110,6 +2113,7 @@ public class AdminConsoleRepository {
                         .addValue("selectiveRewrite", selectiveRewrite)
                         .addValue("useSessionContext", useSessionContext)
                         .addValue("rewriteAnchorInjectionEnabled", rewriteAnchorInjectionEnabled)
+                        .addValue("multiSourceAnchorExpansionEnabled", multiSourceAnchorExpansionEnabled)
                         .addValue("topK", topK)
                         .addValue("threshold", threshold)
                         .addValue("retrievalTopK", retrievalTopK)
@@ -2519,6 +2523,7 @@ public class AdminConsoleRepository {
                        r.selective_rewrite,
                        r.use_session_context,
                        r.rewrite_anchor_injection_enabled,
+                       r.multi_source_anchor_expansion_enabled,
                        r.retrieval_top_k,
                        r.threshold,
                        COALESCE(job.total_items, 3) AS total_stage_count,
@@ -2761,6 +2766,7 @@ public class AdminConsoleRepository {
                        r.selective_rewrite,
                        r.use_session_context,
                        r.rewrite_anchor_injection_enabled,
+                       r.multi_source_anchor_expansion_enabled,
                        r.retrieval_top_k,
                        r.threshold,
                        COALESCE(job.total_items, 3) AS total_stage_count,
@@ -2929,6 +2935,7 @@ public class AdminConsoleRepository {
                        r.selective_rewrite,
                        r.use_session_context,
                        r.rewrite_anchor_injection_enabled,
+                       r.multi_source_anchor_expansion_enabled,
                        r.retrieval_top_k,
                        r.threshold,
                        COALESCE(job.total_items, 3) AS total_stage_count,
@@ -3242,6 +3249,7 @@ public class AdminConsoleRepository {
                 rs.getObject("selective_rewrite", Boolean.class),
                 rs.getObject("use_session_context", Boolean.class),
                 rs.getObject("rewrite_anchor_injection_enabled", Boolean.class),
+                rs.getObject("multi_source_anchor_expansion_enabled", Boolean.class),
                 rs.getObject("retrieval_top_k", Integer.class),
                 rs.getObject("threshold", Double.class),
                 rs.getObject("total_stage_count", Integer.class),

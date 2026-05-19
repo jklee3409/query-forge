@@ -28,6 +28,7 @@ try:
         load_chunk_items,
         load_eval_samples,
         load_memory_items,
+        load_multi_source_anchor_index,
         normalize_retrieval_backend,
         rerank_retrieval_candidates,
         retrieve_top_k,
@@ -48,6 +49,7 @@ except ModuleNotFoundError:  # pragma: no cover
         load_chunk_items,
         load_eval_samples,
         load_memory_items,
+        load_multi_source_anchor_index,
         normalize_retrieval_backend,
         rerank_retrieval_candidates,
         retrieve_top_k,
@@ -178,6 +180,30 @@ def _is_rewrite_anchor_injection_enabled(raw_config: dict[str, Any]) -> bool:
     return True
 
 
+def _is_multi_source_anchor_expansion_enabled(raw_config: dict[str, Any]) -> bool:
+    value = raw_config.get("multi_source_anchor_expansion_enabled", False)
+    if isinstance(value, bool):
+        return value
+    normalized = str(value or "").strip().lower()
+    return normalized in {"true", "1", "yes", "y", "on"}
+
+
+def _multi_source_relation_types(raw_config: dict[str, Any]) -> list[str]:
+    value = raw_config.get("multi_source_anchor_relation_types")
+    if isinstance(value, str):
+        return [item.strip() for item in value.split(",") if item.strip()]
+    if isinstance(value, list):
+        return [str(item).strip() for item in value if str(item).strip()]
+    return ["canonical_alias", "synthetic_query_cooccurrence", "chunk_cooccurrence"]
+
+
+def _multi_source_anchor_diagnostics(payload: Any) -> dict[str, Any]:
+    if not isinstance(payload, dict):
+        return {}
+    diagnostics = payload.get("diagnostics")
+    return diagnostics if isinstance(diagnostics, dict) else {}
+
+
 def _evaluate_answer_sample(
     *,
     sample: Any,
@@ -190,6 +216,7 @@ def _evaluate_answer_sample(
     source_gating_run_id: str | None,
     memory_strategy_filters: list[str],
     retrieval_adapter: DbAnnRuntimeRetrievalAdapter | None,
+    multi_source_anchor_index: Any | None,
 ) -> dict[str, Any]:
     # query_eval_total_latency_ms:
     #   measured from per-sample evaluation entry through answer text/metric/sample-row
@@ -214,6 +241,12 @@ def _evaluate_answer_sample(
             rewrite_retrieval_strategy=str(config.raw.get("rewrite_retrieval_strategy") or "replace"),
             rewrite_anchor_injection_enabled=_is_rewrite_anchor_injection_enabled(config.raw),
             rewrite_terminology_hints_max_count=config.raw.get("rewrite_terminology_hints_max_count", 12),
+            multi_source_anchor_expansion_enabled=_is_multi_source_anchor_expansion_enabled(config.raw),
+            multi_source_anchor_index=multi_source_anchor_index,
+            multi_source_anchor_relation_types=_multi_source_relation_types(config.raw),
+            multi_source_anchor_min_score=config.raw.get("multi_source_anchor_min_score", 0.72),
+            multi_source_anchor_max_per_seed=config.raw.get("multi_source_anchor_max_per_seed", 2),
+            multi_source_anchor_max_total=config.raw.get("multi_source_anchor_max_total", 8),
             rewrite_failure_policy=str(config.raw.get("rewrite_failure_policy") or "fail_run"),
             rewrite_adoption_policy=config.rewrite_adoption_policy,
             retriever_config=config.retriever_config,
@@ -285,6 +318,7 @@ def _evaluate_answer_sample(
     metrics["query_eval_total_latency_ms"] = query_eval_total_latency_ms
     metrics["final_rewrite_latency_ms"] = rewrite_outcome.final_rewrite_latency_ms
     metrics["pure_rewrite_latency_ms"] = rewrite_outcome.pure_rewrite_latency_ms
+    multi_source_diagnostics = _multi_source_anchor_diagnostics(rewrite_outcome.multi_source_anchor_hints)
     return {
         "sample": sample,
         "metrics": metrics,
@@ -300,6 +334,8 @@ def _evaluate_answer_sample(
             "query_eval_total_latency_ms": query_eval_total_latency_ms,
             "final_rewrite_latency_ms": rewrite_outcome.final_rewrite_latency_ms,
             "pure_rewrite_latency_ms": rewrite_outcome.pure_rewrite_latency_ms,
+            "expanded_anchor_count": multi_source_diagnostics.get("candidate_expanded_anchor_count", 0),
+            "accepted_expanded_anchor_count": multi_source_diagnostics.get("accepted_expanded_anchor_count", 0),
             **metrics,
         },
         "reranked": reranked,
@@ -427,6 +463,14 @@ def run_answer_eval(
             retriever_config=config.retriever_config,
             retrieval_adapter=retrieval_adapter,
         )
+        multi_source_anchor_index = None
+        if _is_multi_source_anchor_expansion_enabled(config.raw):
+            multi_source_anchor_index = load_multi_source_anchor_index(
+                connection,
+                relation_version=str(config.raw.get("multi_source_anchor_relation_version") or "multi-source-anchor-v1"),
+                relation_types=_multi_source_relation_types(config.raw),
+                min_relation_score=config.raw.get("multi_source_anchor_min_score", 0.72),
+            )
 
         sample_rows: list[dict[str, Any]] = []
         with connection.cursor() as cursor:
@@ -454,6 +498,7 @@ def run_answer_eval(
                         source_gating_run_id=source_gating_run_id,
                         memory_strategy_filters=memory_strategy_filters,
                         retrieval_adapter=retrieval_adapter,
+                        multi_source_anchor_index=multi_source_anchor_index,
                     )
                 )
         else:
@@ -471,6 +516,7 @@ def run_answer_eval(
                         source_gating_run_id=source_gating_run_id,
                         memory_strategy_filters=memory_strategy_filters,
                         retrieval_adapter=retrieval_adapter,
+                        multi_source_anchor_index=multi_source_anchor_index,
                     )
                     for sample in samples
                 ]
@@ -546,6 +592,13 @@ def run_answer_eval(
             "context_recall": _mean([row["context_recall"] for row in sample_rows]),
             "rewrite_adoption_rate": _mean([1.0 if row["rewrite_applied"] else 0.0 for row in sample_rows]),
         }
+        multi_source_anchor_diagnostics = {
+            "expanded_anchor_count": sum(int(row.get("expanded_anchor_count") or 0) for row in sample_rows),
+            "accepted_expanded_anchor_count": sum(
+                int(row.get("accepted_expanded_anchor_count") or 0)
+                for row in sample_rows
+            ),
+        }
         performance = _build_latency_summary(sample_rows)
         rewrite_generation_stats = {
             "rewrite_llm_attempted_count": sum(1 for row in sample_rows if row.get("rewrite_llm_attempted")),
@@ -583,6 +636,8 @@ def run_answer_eval(
             "rewrite_llm_failure_count": int(rewrite_generation_stats["rewrite_llm_failure_count"]),
             "rewrite_heuristic_fallback_count": int(rewrite_generation_stats["rewrite_heuristic_fallback_count"]),
             "rewrite_generation_stats": rewrite_generation_stats,
+            "multi_source_anchor_expansion_enabled": _is_multi_source_anchor_expansion_enabled(config.raw),
+            "multi_source_anchor_diagnostics": multi_source_anchor_diagnostics,
             "summary": summary,
             "performance": performance,
             "sample_count": len(sample_rows),

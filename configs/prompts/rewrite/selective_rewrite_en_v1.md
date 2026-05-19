@@ -22,6 +22,7 @@ Inputs:
 - anchor_terms (flattened anchor string list)
 - terminology_hints (`terms` + `source_terms` for high-priority technical token preservation)
 - canonical_anchor_hints (`terms` + compact `source_terms` for approved scoring-only canonical/normalized anchor preservation; optional)
+- multi_source_anchor_hints (`terms` + related anchors from canonical/memory/synthetic/chunk relation lookup; optional, lower priority)
 - candidate_count (1~3)
 
 Output (JSON only):
@@ -44,12 +45,14 @@ Hard rules:
    - never copy a memory query wholesale.
    - ignore memory when it conflicts with raw_query.
 5) If terminology_hints or canonical_anchor_hints are intent-compatible, preserve the relevant technical term verbatim.
+   Use multi_source_anchor_hints only as optional low-priority related-anchor hints.
 6) Never add unsupported products, versions, modules, APIs, failure symptoms, or configuration keys.
 7) Keep candidates short and search-oriented:
    - prefer compact noun/verb technical phrases.
    - avoid explanatory prose, assistant-style wording, and pseudo-document passages.
 8) Output English only except for exact non-English literals that already appear in the input.
 9) If the raw query is underspecified, add at most 1-2 supported English technical anchors from inputs.
+   Expanded multi-source anchors must never override raw_query anchors or change the task intent.
 10) If no safe retrieval-improving rewrite exists, return a conservative candidate close to raw_query.
 
 Candidate roles:
