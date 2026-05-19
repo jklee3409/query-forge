@@ -24,6 +24,13 @@
 - Issues encountered: Strategy B large all-source generation can repeatedly hit Gemini `finish_reason=MAX_TOKENS` during full chunk translation before query generation.
 - Next steps: Design a full-document translation path for Strategy B using chunk/segment translation assets without source summarization or semantic compression.
 
+## [2026-05-18] Session Summary (Canonical Anchor Runtime Normalize Layer Design)
+- What was done: Reviewed AGENTS constraints, root/backend/pipeline progress/index documents, and the limited runtime anchor/rewrite/retriever/memory/synthetic metadata paths for Session 4 without applying migrations, running tests/builds/evaluations, or modifying query/memory/synthetic data.
+- Key decisions: Proposed a metadata-only runtime API that accepts explicit alias language, mapping/normalization versions, source context, and optional glossary fallback candidates; it returns canonical anchor payloads without replacing `query_text`, `glossary_terms`, synthetic raw fields, memory query text, or dense retrieval query text.
+- Confirmed policies: Runtime lookup should use approved+active mappings only for scoring, expose pending candidates only in optional debug/review payloads, handle self fallback through active `corpus_glossary_terms` lookup rather than mapping-table self rows, and keep `normalized_alias` separate from display/debug aliases.
+- Issues encountered: Existing rewrite and retrieval paths score raw token overlap from current strings, so future implementation must thread canonical metadata alongside those strings instead of changing tokenizer, BM25 input, dense input, or rewrite candidate text.
+- Next steps: Session 5/6 should persist the same `canonical_anchors` payload additively in synthetic/memory metadata, and Session 7/8 should consume canonical IDs/terms only for scoring or lexical expansion fields while preserving original query text.
+
 ## [2026-05-18] Session Summary (Canonical Anchor Normalization Rule Design)
 - What was done: Reviewed project constraints and the limited anchor/glossary normalization paths for Session 3 without applying migrations, running full tests/builds/evaluations, or modifying query/memory/synthetic data.
 - Key decisions: Proposed `anchor-normalize-v1` as an application-computed, metadata-only alias normalization contract that lowercases with locale-independent rules, collapses whitespace, preserves code/config punctuation, folds hyphen/underscore only for phrase-like aliases, preserves annotation prefixes, and removes Korean intra-phrase spacing without semantic reordering or synonym merging.
