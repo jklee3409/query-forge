@@ -1,5 +1,17 @@
 # progress.md
 
+## [2026-05-20] Session Summary (Full Anchor Normalization Dry-Run Scope)
+- What was done: Confirmed `anchor-normalize-471d787c` covered only 500 of 6,481 active anchors because the Admin UI sent `limit=500` and the backend defaulted missing create limits to 500. Fixed dry-run creation so missing/zero target limit means all matching active anchors, changed the Admin Pipeline dry-run action to ignore current anchor filters and request the full active-anchor scope, then created `anchor-normalize-7d079b88` against the live DB with 6,481/6,481 candidates and 0 missing anchors.
+- Key decisions: Kept review/approval safety unchanged. The live full-scope run now shows `approved`: 48 `would_update` candidates were approved/applied and 5 `conflict` candidates were skipped, while unchanged candidates remained pending as expected.
+- Issues encountered: Targeted backend integration tests and Pipeline page lint passed; frontend build and backend `processResources` refreshed the served Admin bundle. The active backend was restarted to apply the Java change.
+- Next steps: Use `anchor-normalize-7d079b88` as the full-scope normalization history and investigate the 5 skipped conflicts separately if they need canonical cleanup.
+
+## [2026-05-19] Session Summary (Multi-source Anchor Tracking UI)
+- What was done: Verified the live multi-source anchor build run `3fe9da53-9b97-47f9-af45-b71aceb86efe` is completed with 6,481 candidate anchors, 394,308 relations, and 1,728,212 evidence rows. Added a `/admin/pipeline` tracker section that auto-loads the latest multi-source anchor run, summarizes status/counts/version/policy/source breakdown, polls only while a run is active, and exposes a build/retry action for failed runs.
+- Key decisions: Kept the server relation-build API and additive relation-table semantics unchanged. The UI remains lightweight for low-spec local use: one initial history read plus active-only 15s polling.
+- Issues encountered: Targeted Pipeline page lint passed with the existing hook dependency warning; frontend build passed and refreshed backend static React assets.
+- Next steps: Browser-smoke `/admin/pipeline` against the running backend and use the tracker before enabling multi-source hints in RAG comparisons.
+
 ## [2026-05-19] Session Summary (Anchor Normalization History Delete)
 - What was done: Added hard delete support for Anchor normalization history via `DELETE /api/admin/corpus/anchors/normalization-runs/{runId}` and exposed an `이력 삭제` action in the Admin Anchors normalization history table. Candidate-row decision cells now explain why conflict/invalid rows do not show the approve option.
 - Key decisions: Deleting a normalization run removes only the dry-run/review history and candidate rows; it does not revert canonical values already applied by an approved run. Resume-from-server-restart was confirmed not to exist for an in-flight dry-run because candidate generation is currently one synchronous transaction, while completed pending-review runs persist normally across restart.

@@ -40,6 +40,20 @@ const ANCHOR_RUN_STATUS_LABELS = {
   failed: '실패',
 }
 
+const MULTI_SOURCE_ANCHOR_RELATION_LABELS = {
+  canonical_alias: 'Canonical alias',
+  synthetic_query_cooccurrence: 'Synthetic query co-occurrence',
+  chunk_cooccurrence: 'Chunk co-occurrence',
+}
+
+const MULTI_SOURCE_ANCHOR_ACTIVE_STATUSES = new Set(['running'])
+
+function formatInteger(value) {
+  const numericValue = Number(value ?? 0)
+  if (!Number.isFinite(numericValue)) return '-'
+  return numericValue.toLocaleString()
+}
+
 function reviewDecisionLabel(value) {
   return ANCHOR_REVIEW_DECISION_LABELS[value] || value || '-'
 }
@@ -518,6 +532,19 @@ export function PipelinePage({ notify }) {
     [anchorFilterChunks]
   )
 
+  const latestMultiSourceAnchorRun = multiSourceAnchorRuns[0] || null
+  const latestMultiSourceRelationRows = useMemo(() => {
+    const rows = latestMultiSourceAnchorRun?.summaryJson?.affected_rows_by_relation_type || {}
+    return Object.entries(rows).map(([relationType, count]) => ({
+      relationType,
+      label: MULTI_SOURCE_ANCHOR_RELATION_LABELS[relationType] || relationType,
+      count,
+    }))
+  }, [latestMultiSourceAnchorRun])
+  const multiSourceAnchorBuildActive = MULTI_SOURCE_ANCHOR_ACTIVE_STATUSES.has(
+    String(latestMultiSourceAnchorRun?.status || '').toLowerCase()
+  )
+
   const loadSummary = async () => {
     setSummary(await requestJson('/api/admin/pipeline/dashboard'))
   }
@@ -758,8 +785,19 @@ export function PipelinePage({ notify }) {
       loadRuns(0),
       loadSources(),
       loadDocuments(filters, 0),
+      loadMultiSourceAnchorRuns(),
     ]).catch((error) => notify(error.message, 'error'))
   }, [])
+
+  useEffect(() => {
+    if (!multiSourceAnchorRunsLoaded || !multiSourceAnchorBuildActive) {
+      return undefined
+    }
+    const pollId = window.setInterval(() => {
+      loadMultiSourceAnchorRuns().catch((error) => notify(error.message, 'error'))
+    }, 15000)
+    return () => window.clearInterval(pollId)
+  }, [multiSourceAnchorRunsLoaded, multiSourceAnchorBuildActive, notify])
 
   const parseLines = (value) =>
     String(value || '')
@@ -972,17 +1010,16 @@ export function PipelinePage({ notify }) {
   }
 
   const createAnchorNormalizationDryRun = async () => {
+    const confirmed = window.confirm('현재 DB의 전체 active Anchor를 대상으로 정규화 dry-run을 생성할까요? Anchors 필터와 페이지 제한은 적용하지 않습니다.')
+    if (!confirmed) return
     setAnchorNormalizationBusy(true)
     try {
       const created = await requestJson('/api/admin/corpus/anchors/normalization-runs', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          documentId: anchorFilters.documentId || null,
-          chunkId: anchorFilters.chunkId || null,
-          keyword: anchorFilters.keyword || null,
           activeOnly: true,
-          limit: 500,
+          createdBy: 'admin-ui',
         }),
       })
       await loadAnchorNormalizationRuns()
@@ -1436,27 +1473,109 @@ export function PipelinePage({ notify }) {
         </div>
       </section>
 
-      <section className="table-shell">
+      <section className="table-shell multi-source-anchor-tracker">
         <div className="table-header">
-          <div className="table-title">Multi-source Anchor Build History</div>
-          <button
-            type="button"
-            className="button"
-            disabled={multiSourceAnchorRunsLoading}
-            onClick={() => loadMultiSourceAnchorRuns().catch((error) => notify(error.message, 'error'))}
-          >
-            Refresh
-          </button>
+          <div>
+            <div className="table-title">Multi-source Anchor Tracker</div>
+            <p className="multi-source-anchor-tracker__subtitle">
+              Tracks the relation-index build used by RAG multi-source anchor hints. Polling runs only while a build is active.
+            </p>
+          </div>
+          <div className="multi-source-anchor-tracker__actions">
+            <button
+              type="button"
+              className="button"
+              disabled={multiSourceAnchorRunsLoading}
+              onClick={() => loadMultiSourceAnchorRuns().catch((error) => notify(error.message, 'error'))}
+            >
+              Refresh
+            </button>
+            <button
+              type="button"
+              className="button button--success"
+              disabled={multiSourceAnchorBusy}
+              onClick={() => createMultiSourceAnchorBuildRun()}
+            >
+              Build / Retry
+            </button>
+          </div>
+        </div>
+        <div className="multi-source-anchor-tracker__body">
+          {!multiSourceAnchorRunsLoaded && (
+            <div className="multi-source-anchor-tracker__empty">
+              {multiSourceAnchorRunsLoading ? 'Loading latest multi-source anchor run...' : 'No tracker data loaded yet.'}
+            </div>
+          )}
+          {multiSourceAnchorRunsLoaded && latestMultiSourceAnchorRun && (
+            <>
+              <div className="multi-source-anchor-tracker__summary">
+                <article className="multi-source-anchor-tracker__metric">
+                  <span>Latest status</span>
+                  <strong><StatusBadge value={latestMultiSourceAnchorRun.status} /></strong>
+                  <small>{fmtTime(latestMultiSourceAnchorRun.updatedAt || latestMultiSourceAnchorRun.createdAt)}</small>
+                </article>
+                <article className="multi-source-anchor-tracker__metric">
+                  <span>Candidate anchors</span>
+                  <strong>{formatInteger(latestMultiSourceAnchorRun.candidateAnchorCount)}</strong>
+                  <small>active anchors considered</small>
+                </article>
+                <article className="multi-source-anchor-tracker__metric">
+                  <span>Relations</span>
+                  <strong>{formatInteger(latestMultiSourceAnchorRun.relationCount)}</strong>
+                  <small>active runtime links</small>
+                </article>
+                <article className="multi-source-anchor-tracker__metric">
+                  <span>Evidence</span>
+                  <strong>{formatInteger(latestMultiSourceAnchorRun.evidenceCount)}</strong>
+                  <small>supporting observations</small>
+                </article>
+              </div>
+              <div className="multi-source-anchor-tracker__detail">
+                <div>
+                  <span>Run</span>
+                  <strong>{latestMultiSourceAnchorRun.runName}</strong>
+                  <code>{shortId(latestMultiSourceAnchorRun.runId)}</code>
+                </div>
+                <div>
+                  <span>Versions</span>
+                  <strong>{latestMultiSourceAnchorRun.relationVersion || '-'}</strong>
+                  <small>{latestMultiSourceAnchorRun.mappingVersion || '-'} / {latestMultiSourceAnchorRun.normalizationVersion || '-'}</small>
+                </div>
+                <div>
+                  <span>Runtime policy</span>
+                  <strong>{latestMultiSourceAnchorRun.summaryJson?.topic_drift_policy || 'Expanded anchors stay low-priority runtime hints.'}</strong>
+                </div>
+              </div>
+              {latestMultiSourceRelationRows.length > 0 && (
+                <div className="multi-source-anchor-tracker__breakdown">
+                  {latestMultiSourceRelationRows.map((row) => (
+                    <span key={row.relationType}>
+                      <strong>{row.label}</strong>
+                      <em>{formatInteger(row.count)}</em>
+                    </span>
+                  ))}
+                </div>
+              )}
+              {latestMultiSourceAnchorRun.errorMessage && (
+                <div className="multi-source-anchor-tracker__error">
+                  {latestMultiSourceAnchorRun.errorMessage}
+                </div>
+              )}
+            </>
+          )}
+          {multiSourceAnchorRunsLoaded && !latestMultiSourceAnchorRun && (
+            <div className="multi-source-anchor-tracker__empty">No multi-source anchor build runs yet.</div>
+          )}
         </div>
         <div className="table-wrap">
           <table className="data-table">
             <thead>
-              <tr><th>run</th><th>status</th><th>version</th><th>relations</th><th>evidence</th><th>created</th></tr>
+              <tr><th>run</th><th>status</th><th>version</th><th>relations</th><th>evidence</th><th>created</th><th>action</th></tr>
             </thead>
             <tbody>
               {!multiSourceAnchorRunsLoaded && (
                 <tr>
-                  <td colSpan={6}>{multiSourceAnchorRunsLoading ? 'Loading multi-source anchor build history...' : 'Build history is loaded on demand.'}</td>
+                  <td colSpan={7}>{multiSourceAnchorRunsLoading ? 'Loading multi-source anchor build history...' : 'Build history is loaded on demand.'}</td>
                 </tr>
               )}
               {multiSourceAnchorRunsLoaded && multiSourceAnchorRuns.map((run) => (
@@ -1470,14 +1589,28 @@ export function PipelinePage({ notify }) {
                     <div>{run.relationVersion || '-'}</div>
                     <div className="mono-text">min {Number(run.minRelationScore || 0).toFixed(2)}</div>
                   </td>
-                  <td>{run.relationCount ?? 0}</td>
-                  <td>{run.evidenceCount ?? 0}</td>
+                  <td>{formatInteger(run.relationCount)}</td>
+                  <td>{formatInteger(run.evidenceCount)}</td>
                   <td>{fmtTime(run.createdAt)}</td>
+                  <td>
+                    {String(run.status || '').toLowerCase() === 'failed' ? (
+                      <button
+                        type="button"
+                        className="button button--ghost"
+                        disabled={multiSourceAnchorBusy}
+                        onClick={() => createMultiSourceAnchorBuildRun()}
+                      >
+                        Retry
+                      </button>
+                    ) : (
+                      <span className="plain-badge">-</span>
+                    )}
+                  </td>
                 </tr>
               ))}
               {multiSourceAnchorRunsLoaded && multiSourceAnchorRuns.length === 0 && (
                 <tr>
-                  <td colSpan={6}>No multi-source anchor build runs yet.</td>
+                  <td colSpan={7}>No multi-source anchor build runs yet.</td>
                 </tr>
               )}
             </tbody>

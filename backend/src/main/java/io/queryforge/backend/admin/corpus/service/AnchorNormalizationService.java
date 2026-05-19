@@ -50,13 +50,13 @@ public class AnchorNormalizationService {
         CorpusAdminDtos.AnchorNormalizationRunCreateRequest safeRequest = request == null
                 ? CorpusAdminDtos.AnchorNormalizationRunCreateRequest.builder().build()
                 : request;
-        int limit = normalizeLimit(safeRequest.limit());
+        Integer targetLimit = normalizeTargetLimit(safeRequest.limit());
         List<TargetAnchor> targets = findTargets(
                 safeRequest.documentId(),
                 safeRequest.chunkId(),
                 safeRequest.keyword(),
                 safeRequest.activeOnly() == null || safeRequest.activeOnly(),
-                limit
+                targetLimit
         );
         UUID runId = UUID.randomUUID();
         String runName = blankToDefault(safeRequest.runName(), "anchor-normalize-" + runId.toString().substring(0, 8));
@@ -65,7 +65,7 @@ public class AnchorNormalizationService {
         for (TargetAnchor target : targets) {
             candidates.add(buildCandidate(runId, target));
         }
-        JsonNode sourceScope = objectMapper.valueToTree(sourceScopePayload(safeRequest, limit));
+        JsonNode sourceScope = objectMapper.valueToTree(sourceScopePayload(safeRequest, targetLimit));
         JsonNode summary = objectMapper.valueToTree(summaryPayload(candidates));
         JsonNode report = objectMapper.valueToTree(reportPayload(runId, runName, sourceScope, summary));
         insertRun(runId, runName, sourceScope, summary, report, createdBy);
@@ -99,7 +99,7 @@ public class AnchorNormalizationService {
         return jdbcTemplate.query(
                 sql,
                 new MapSqlParameterSource()
-                        .addValue("limit", normalizeLimit(limit))
+                        .addValue("limit", normalizePageLimit(limit))
                         .addValue("offset", normalizeOffset(offset)),
                 runSummaryRowMapper()
         );
@@ -363,7 +363,7 @@ public class AnchorNormalizationService {
             String chunkId,
             String keyword,
             boolean activeOnly,
-            int limit
+            Integer limit
     ) {
         StringBuilder sql = new StringBuilder("""
                 SELECT gt.term_id,
@@ -405,9 +405,11 @@ public class AnchorNormalizationService {
                 ORDER BY COALESCE(scope_stats.scoped_evidence_count, 0) DESC,
                          gt.evidence_count DESC,
                          gt.canonical_form
-                LIMIT :limit
                 """);
-        params.addValue("limit", limit);
+        if (limit != null) {
+            sql.append(" LIMIT :limit\n");
+            params.addValue("limit", limit);
+        }
         return jdbcTemplate.query(sql.toString(), params, (rs, rowNum) -> new TargetAnchor(
                 readUuid(rs, "term_id"),
                 rs.getString("canonical_form"),
@@ -691,7 +693,7 @@ public class AnchorNormalizationService {
 
     private Map<String, Object> sourceScopePayload(
             CorpusAdminDtos.AnchorNormalizationRunCreateRequest request,
-            int limit
+            Integer limit
     ) {
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("document_id", trimToNull(request.documentId()));
@@ -739,11 +741,18 @@ public class AnchorNormalizationService {
         return count;
     }
 
-    private int normalizeLimit(Integer limit) {
+    private int normalizePageLimit(Integer limit) {
         if (limit == null || limit <= 0) {
             return 500;
         }
         return Math.min(limit, 1000);
+    }
+
+    private Integer normalizeTargetLimit(Integer limit) {
+        if (limit == null || limit <= 0) {
+            return null;
+        }
+        return Math.min(limit, 100_000);
     }
 
     private int normalizeOffset(Integer offset) {

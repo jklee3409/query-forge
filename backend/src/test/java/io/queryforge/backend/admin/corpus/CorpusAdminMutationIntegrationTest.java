@@ -19,6 +19,7 @@ import java.util.UUID;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.hamcrest.Matchers.greaterThanOrEqualTo;
+import static org.hamcrest.Matchers.nullValue;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -173,6 +174,81 @@ class CorpusAdminMutationIntegrationTest {
                 .andExpect(jsonPath("$.candidateCount").value(1))
                 .andExpect(jsonPath("$.unchangedCount").value(1))
                 .andExpect(jsonPath("$.sourceScopeJson.keyword").value("Value"));
+    }
+
+    @Test
+    void anchorNormalizationDryRunWithoutLimitTargetsAllActiveAnchors() throws Exception {
+        jdbcTemplate.update("""
+                INSERT INTO corpus_glossary_terms (
+                    term_id, canonical_form, normalized_form, term_type, keep_in_english, description_short,
+                    source_confidence, first_seen_document_id, first_seen_chunk_id, evidence_count, is_active,
+                    import_run_id, metadata_json
+                ) VALUES
+                (
+                    '66666666-6666-6666-6666-666666666671',
+                    '@Bean',
+                    '@bean',
+                    'annotation',
+                    TRUE,
+                    'Additional active annotation.',
+                    0.9,
+                    'doc_fixture_1',
+                    'chk_fixture_2',
+                    1,
+                    TRUE,
+                    '11111111-1111-1111-1111-111111111111',
+                    '{}'::jsonb
+                ),
+                (
+                    '66666666-6666-6666-6666-666666666672',
+                    'WebClient',
+                    'webclient',
+                    'class',
+                    TRUE,
+                    'Additional active class.',
+                    0.9,
+                    'doc_fixture_2',
+                    'chk_fixture_3',
+                    1,
+                    TRUE,
+                    '11111111-1111-1111-1111-111111111111',
+                    '{}'::jsonb
+                ),
+                (
+                    '66666666-6666-6666-6666-666666666673',
+                    'InactiveAnchor',
+                    'inactiveanchor',
+                    'class',
+                    TRUE,
+                    'Inactive class should not be included.',
+                    0.9,
+                    'doc_fixture_2',
+                    'chk_fixture_3',
+                    1,
+                    FALSE,
+                    '11111111-1111-1111-1111-111111111111',
+                    '{}'::jsonb
+                )
+                """);
+
+        Integer activeAnchorCount = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM corpus_glossary_terms WHERE is_active = TRUE",
+                Integer.class
+        );
+
+        mockMvc.perform(post("/api/admin/corpus/anchors/normalization-runs")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "activeOnly": true
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.candidateCount").value(activeAnchorCount))
+                .andExpect(jsonPath("$.sourceScopeJson.document_id").value(nullValue()))
+                .andExpect(jsonPath("$.sourceScopeJson.chunk_id").value(nullValue()))
+                .andExpect(jsonPath("$.sourceScopeJson.keyword").value(nullValue()))
+                .andExpect(jsonPath("$.sourceScopeJson.limit").value(nullValue()));
     }
 
     @Test

@@ -34,6 +34,8 @@
 ---
 
 ## Recent Update
+- `/admin/pipeline` Anchor 정규화 Dry-run now launches against the full active-anchor scope by default, ignoring the current Anchor table filters and omitting the previous 500-row limit while preserving manual review before approval.
+- `/admin/pipeline` now has a Multi-source Anchor Tracker that auto-loads the latest relation-build run, summarizes status/counts/version/runtime policy/relation-type breakdown, polls only while a build is active, and provides a build/retry action without changing the backend relation-build contract.
 - `/admin/pipeline` Anchor normalization history now exposes an `이력 삭제` action backed by the corpus admin delete API, with confirmation copy clarifying that already-applied canonical values are not reverted. Candidate row decisions now explain that `승인` is only available for safe `would_update` rows, while conflict/invalid rows must remain pending or be skipped.
 - `/admin/pipeline` Anchor normalization detail modal now uses Korean-first review copy, fixes the previously corrupted title literal, shows workflow guidance and disabled approval reasons, renders decision summary badges, guards unsaved close, keeps the `변경 없음 표시` toggle aligned as a horizontal check-pill, and improves current/proposed/conflict table readability in dark mode.
 - `/admin/pipeline` Anchors now includes a `Multi-source Build` action and relation build-history table for precomputing current active-anchor relationships without editing synthetic query data.

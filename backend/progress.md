@@ -1,5 +1,17 @@
 # progress.md
 
+## [2026-05-20] Session Summary (Anchor Normalization Full-Scope Dry-Run)
+- What was done: Changed `AnchorNormalizationService.createDryRun` so an omitted/non-positive target `limit` no longer defaults to 500 and instead scans all matching anchors. List pagination still keeps its bounded page limit. Added integration coverage for unbounded active-anchor dry-run scope.
+- Key decisions: Kept explicit positive create limits available for scoped/testing calls, capped explicit limits at 100,000, and left review/approval semantics unchanged.
+- Issues encountered: `anchor-normalize-471d787c` was verified as partial (500/6,481). After backend restart, `anchor-normalize-7d079b88` covered all 6,481 active anchors with 0 missing candidates and now shows approved with 48 applied updates plus 5 skipped conflicts.
+- Next steps: Investigate the 5 skipped conflicts separately if they need canonical cleanup beyond the approved safe updates.
+
+## [2026-05-19] Session Summary (Multi-source Anchor Tracker Static Bundle)
+- What was done: Refreshed the backend-served React static bundle after adding the `/admin/pipeline` multi-source anchor tracker UI.
+- Key decisions: No backend Java API, service, repository, migration, or relation-build behavior changed.
+- Issues encountered: Frontend build passed and produced new static asset hashes under `src/main/resources/static/react`.
+- Next steps: Serve the refreshed admin bundle and smoke-test the tracker against the completed multi-source anchor run.
+
 ## Overview
 High-level backend progress tracking.
 

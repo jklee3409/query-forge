@@ -1,5 +1,17 @@
 # progress.md
 
+## [2026-05-20] Session Summary (Anchor Normalization Full-Scope Launch)
+- What was done: Updated `/admin/pipeline` Anchor 정규화 Dry-run launch so it confirms and submits a full active-anchor request instead of reusing current anchor filters or sending `limit=500`.
+- Key decisions: Kept the review modal, candidate decisions, approval, rejection, and history deletion behavior unchanged.
+- Issues encountered: `npx eslint src/pages/PipelinePage.jsx` passed with the existing hook dependency warning. `npm run build` passed and refreshed backend-served React assets.
+- Next steps: Browser-smoke the full-scope dry-run button and use `anchor-normalize-7d079b88` as the verified full-scope history row.
+
+## [2026-05-19] Session Summary (Multi-source Anchor Tracker)
+- What was done: Reworked the `/admin/pipeline` multi-source anchor history block into a tracker that loads the latest build automatically, shows status/count/version/runtime-policy summaries, renders relation-type breakdown chips, polls every 15 seconds only while a build is active, and exposes build/retry controls.
+- Key decisions: Kept existing corpus admin APIs and RAG multi-source hint settings unchanged. The tracker uses the already persisted build-run summary payload and avoids continuous polling after completion for low-spec laptops.
+- Issues encountered: `npx eslint src/pages/PipelinePage.jsx` passed with the existing hook dependency warning. `npm run build` passed and regenerated backend-served React assets.
+- Next steps: Browser-smoke the tracker on `/admin/pipeline` with the completed build run and verify the failure retry button path if a failed run is later present.
+
 ## Overview
 High-level progress tracking for the project.
 
