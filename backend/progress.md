@@ -3,6 +3,12 @@
 ## Overview
 High-level backend progress tracking.
 
+## [2026-05-19] Session Summary (Synthetic Batch Completion Recovery)
+- What was done: Operationally completed generation batch `c122d7c2-3bc5-4442-94d1-90c9cd1a31fa` and its `GENERATE_SYNTHETIC_QUERY` job/item without using cancel/fail paths, preserving 1465 generated Strategy B raw rows.
+- Key decisions: Stopped the active backend worker and child `generate-queries` process before DB finalization to avoid `deleteSyntheticQueriesByGenerationBatch` failure/cancel cleanup, then restarted the backend on port 8080.
+- Issues encountered: Repeated retry runs left 13 `experiment_runs` in `running`; these were marked `completed` with per-run raw-row counts and batch completion metadata.
+- Next steps: Patch `pipeline/generation/synthetic_query_generator.py` so retry/resume target accounting counts existing/reused rows for the generation batch, not only newly inserted rows in the current process attempt.
+
 ## [2026-05-18] Session Summary (MAX_TOKENS Retry Guard)
 - What was done: Changed `LlmJobService` retry policy so `failure_category=max_tokens_truncated` retries only once, even when synthetic generation jobs use `max_retries=-1`, and terminal failures include `failure_policy=failed_needs_config` plus category-specific retry metadata.
 - Key decisions: Kept `llm_job.job_status` and generation batch status as `failed` for DB compatibility while recording the new policy in JSON observability payloads.

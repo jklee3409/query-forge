@@ -622,6 +622,9 @@ class SyntheticQueryGeneratorSchemaTests(unittest.TestCase):
             "pipeline.generation.synthetic_query_generator._find_cached_query",
             return_value=True,
         ), patch(
+            "pipeline.generation.synthetic_query_generator._count_queries_for_generation_batch",
+            return_value=1,
+        ), patch(
             "pipeline.generation.synthetic_query_generator._execute_gemini_batch_json_requests",
             side_effect=fake_execute,
         ), patch(
@@ -644,6 +647,7 @@ class SyntheticQueryGeneratorSchemaTests(unittest.TestCase):
                 generation_batch_id="batch-1",
                 method_id_cache={"B": "method-b"},
                 max_total_queries=1,
+                initial_generated_count=0,
                 b_summary_max_chars=900,
                 b_payload_limits=_b_query_payload_limits({}),
                 query_client=_FakeClient(),
@@ -654,7 +658,9 @@ class SyntheticQueryGeneratorSchemaTests(unittest.TestCase):
                 work_dir=Path("tmp"),
             )
 
-        self.assertEqual(result["generated_queries"], 0)
+        self.assertEqual(result["initial_generated_queries"], 0)
+        self.assertEqual(result["new_generated_queries"], 0)
+        self.assertEqual(result["generated_queries"], 1)
         self.assertEqual(result["reused_queries"], 1)
         self.assertEqual(result["asset_cache_hits"]["KO_TRANSLATED_CHUNK"], 1)
         attach_cached.assert_called_once()
@@ -662,6 +668,40 @@ class SyntheticQueryGeneratorSchemaTests(unittest.TestCase):
             attach_cached.call_args.kwargs["generation_asset_ids"],
             ["translation-asset", "summary-asset"],
         )
+
+    def test_b_batch_skips_when_batch_already_reached_target(self) -> None:
+        chunk = _chunk()
+
+        with patch(
+            "pipeline.generation.synthetic_query_generator._execute_gemini_batch_json_requests"
+        ) as execute_batch:
+            result = _run_strategy_b_gemini_batch(
+                connection=object(),
+                config=_experiment_config_for_b(),
+                run_context_id="run-1",
+                prompts=_prompt_bundle(),
+                chunks=[chunk],
+                chunks_by_id={chunk.chunk_id: chunk},
+                relations={},
+                glossary_by_doc={},
+                generation_batch_id="batch-1",
+                method_id_cache={"B": "method-b"},
+                max_total_queries=1,
+                initial_generated_count=1,
+                b_summary_max_chars=900,
+                b_payload_limits=_b_query_payload_limits({}),
+                query_client=_FakeClient(),
+                translate_client=_FakeClient(),
+                input_mode="inline",
+                poll_interval_seconds=1,
+                timeout_seconds=60,
+                work_dir=Path("tmp"),
+            )
+
+        self.assertEqual(result["planned_queries"], 0)
+        self.assertEqual(result["generated_queries"], 1)
+        self.assertEqual(result["new_generated_queries"], 0)
+        execute_batch.assert_not_called()
 
     def test_b_batch_code_mixed_query_still_inserts_into_raw_b(self) -> None:
         chunk = _chunk()
@@ -709,6 +749,9 @@ class SyntheticQueryGeneratorSchemaTests(unittest.TestCase):
             "pipeline.generation.synthetic_query_generator._find_cached_query",
             return_value=False,
         ), patch(
+            "pipeline.generation.synthetic_query_generator._count_queries_for_generation_batch",
+            return_value=1,
+        ), patch(
             "pipeline.generation.synthetic_query_generator._execute_gemini_batch_json_requests",
             side_effect=fake_execute,
         ), patch(
@@ -732,6 +775,7 @@ class SyntheticQueryGeneratorSchemaTests(unittest.TestCase):
                 generation_batch_id="batch-1",
                 method_id_cache={"B": "method-b", "D": "method-d"},
                 max_total_queries=1,
+                initial_generated_count=0,
                 b_summary_max_chars=900,
                 b_payload_limits=_b_query_payload_limits({}),
                 query_client=_FakeClient(),
@@ -742,6 +786,7 @@ class SyntheticQueryGeneratorSchemaTests(unittest.TestCase):
                 work_dir=Path("tmp"),
             )
 
+        self.assertEqual(result["new_generated_queries"], 1)
         self.assertEqual(result["generated_queries"], 1)
         self.assertEqual(inserted_tables, ["synthetic_queries_raw_b"])
 

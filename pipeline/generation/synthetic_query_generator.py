@@ -519,6 +519,40 @@ def _batch_exists(
         return cursor.fetchone() is not None
 
 
+def _count_queries_for_generation_batch(
+    connection: psycopg.Connection[Any],
+    generation_batch_id: str | None,
+) -> int:
+    if not generation_batch_id:
+        return 0
+    with connection.cursor() as cursor:
+        cursor.execute(
+            """
+            SELECT COUNT(*)::int
+            FROM synthetic_queries_raw_all
+            WHERE generation_batch_id = %s
+            """,
+            (generation_batch_id,),
+        )
+        row = cursor.fetchone()
+    if row is None:
+        return 0
+    value = row["count"] if isinstance(row, dict) else row[0]
+    return int(value or 0)
+
+
+def _refresh_generation_count(
+    connection: psycopg.Connection[Any],
+    generation_batch_id: str | None,
+    current_count: int,
+    *,
+    fallback_increment: int = 1,
+) -> int:
+    if generation_batch_id:
+        return max(current_count, _count_queries_for_generation_batch(connection, generation_batch_id))
+    return current_count + fallback_increment
+
+
 def _normalize_query_text(text: str) -> str:
     return " ".join(text.strip().lower().split())
 
@@ -2294,6 +2328,7 @@ def _run_strategy_b_gemini_batch(
     generation_batch_id: str | None,
     method_id_cache: dict[str, str | None],
     max_total_queries: int | None,
+    initial_generated_count: int,
     b_summary_max_chars: int,
     b_payload_limits: BQueryPayloadLimits,
     query_client: LlmClient,
@@ -2303,6 +2338,22 @@ def _run_strategy_b_gemini_batch(
     timeout_seconds: float,
     work_dir: Path,
 ) -> dict[str, Any]:
+    if max_total_queries is not None and initial_generated_count >= max_total_queries:
+        return {
+            "planned_queries": 0,
+            "initial_generated_queries": initial_generated_count,
+            "new_generated_queries": 0,
+            "generated_queries": initial_generated_count,
+            "reused_queries": 0,
+            "skipped_empty_queries": 0,
+            "query_type_distribution": {},
+            "answerability_distribution": {},
+            "asset_created": {},
+            "asset_cache_hits": {},
+            "preview_query_ids": [],
+            "gemini_batch": [],
+        }
+
     planned_items = _plan_query_items(
         chunks=chunks,
         config=config,
@@ -2572,10 +2623,15 @@ def _run_strategy_b_gemini_batch(
             cached=summary_ko_cached,
         )
 
+    generated_count = max(0, initial_generated_count)
+    new_generated_count = 0
     reused_count = 0
+    reserved_new_count = 0
     query_batch_items: list[GeminiBatchRequestItem] = []
     pending_by_key: dict[str, PendingBatchQueryRow] = {}
     for plan in planned_items:
+        if max_total_queries is not None and generated_count + reserved_new_count >= max_total_queries:
+            break
         translation = translation_by_chunk[plan.chunk.chunk_id]
         summary = summary_by_chunk[plan.chunk.chunk_id]
         generation_asset_ids = [translation.asset_id, summary.asset_id]
@@ -2602,6 +2658,11 @@ def _run_strategy_b_gemini_batch(
                 primary_chunk=plan.chunk,
                 target_chunk_ids=plan.target_chunk_ids,
                 chunks_by_id=chunks_by_id,
+            )
+            generated_count = _refresh_generation_count(
+                connection,
+                generation_batch_id,
+                generated_count,
             )
             reused_count += 1
             continue
@@ -2648,6 +2709,7 @@ def _run_strategy_b_gemini_batch(
             summary_ko=summary.summary_ko,
             related_chunks_ko=[],
         )
+        reserved_new_count += 1
 
     query_execution = _execute_gemini_batch_json_requests(
         adapter=_create_gemini_batch_adapter(query_client.config),
@@ -2724,7 +2786,6 @@ def _run_strategy_b_gemini_batch(
             failures=empty_failures,
         )
 
-    generated_count = 0
     skipped_empty_count = 0
     for raw_table_name, plan, payload in row_payloads:
         _insert_query_row(connection, table_name=raw_table_name, payload=payload)
@@ -2735,7 +2796,12 @@ def _run_strategy_b_gemini_batch(
             target_chunk_ids=plan.target_chunk_ids,
             chunks_by_id=chunks_by_id,
         )
-        generated_count += 1
+        generated_count = _refresh_generation_count(
+            connection,
+            generation_batch_id,
+            generated_count,
+        )
+        new_generated_count += 1
         query_type_counter[plan.query_type] += 1
         answerability_counter[plan.answerability_type] += 1
         if len(generated_ids) < 20:
@@ -2743,6 +2809,8 @@ def _run_strategy_b_gemini_batch(
 
     return {
         "planned_queries": len(planned_items),
+        "initial_generated_queries": initial_generated_count,
+        "new_generated_queries": new_generated_count,
         "generated_queries": generated_count,
         "reused_queries": reused_count,
         "skipped_empty_queries": skipped_empty_count,
@@ -2888,6 +2956,8 @@ def run_generation(
             "D": _resolve_generation_method_id(connection, "D"),
         }
         generated_count = 0
+        initial_generated_count = 0
+        new_generated_count = 0
         reused_count = 0
         skipped_empty_count = 0
         query_type_counter: Counter[str] = Counter()
@@ -2901,6 +2971,9 @@ def run_generation(
         max_total_queries = int(max_total_queries) if max_total_queries is not None else None
         if max_total_queries is not None and max_total_queries <= 0:
             max_total_queries = None
+        if generation_batch_id:
+            generated_count = _count_queries_for_generation_batch(connection, generation_batch_id)
+            initial_generated_count = generated_count
 
         if llm_execution_mode == "gemini_batch":
             if b_payload_limits is None:
@@ -2917,6 +2990,7 @@ def run_generation(
                 generation_batch_id=generation_batch_id,
                 method_id_cache=method_id_cache,
                 max_total_queries=max_total_queries,
+                initial_generated_count=initial_generated_count,
                 b_summary_max_chars=b_summary_max_chars,
                 b_payload_limits=b_payload_limits,
                 query_client=query_client,
@@ -3154,6 +3228,11 @@ def run_generation(
                         target_chunk_ids=target_chunk_ids,
                         chunks_by_id=chunks_by_id,
                     )
+                    generated_count = _refresh_generation_count(
+                        connection,
+                        generation_batch_id,
+                        generated_count,
+                    )
                     reused_count += 1
                     continue
 
@@ -3303,6 +3382,9 @@ def run_generation(
                     chunks_by_id=chunks_by_id,
                 )
                 generated_count += 1
+                if generation_batch_id:
+                    generated_count = _count_queries_for_generation_batch(connection, generation_batch_id)
+                new_generated_count += 1
                 query_type_counter[query_type] += 1
                 answerability_counter[answerability_type] += 1
                 if len(generated_ids) < 20:
@@ -3363,6 +3445,8 @@ def run_generation(
                 },
             },
             "chunks_processed": len(chunks),
+            "initial_generated_queries": initial_generated_count,
+            "new_generated_queries": new_generated_count,
             "generated_queries": generated_count,
             "reused_queries": reused_count,
             "skipped_empty_queries": skipped_empty_count,

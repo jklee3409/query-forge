@@ -1,5 +1,17 @@
 # progress.md
 
+## [2026-05-19] Session Summary (Synthetic Retry Target Accounting Fix)
+- What was done: Updated `pipeline/generation/synthetic_query_generator.py` so retry/resume generation initializes and refreshes `generated_queries` from live `generation_batch_id` raw-row counts instead of resetting to the current process attempt.
+- Key decisions: Counted existing/reused batch rows toward `max_total_queries` for both online generation and Strategy B Gemini Batch mode; added `initial_generated_queries` and `new_generated_queries` metrics for observability.
+- Issues encountered: Targeted validation passed with `python -m py_compile pipeline\generation\synthetic_query_generator.py` and `python -m unittest pipeline.tests.test_synthetic_query_generator -q`.
+- Next steps: Use a small retry-forced generation smoke before another large Strategy B batch.
+
+## [2026-05-19] Session Summary (Synthetic Batch Completion Recovery)
+- What was done: Recovered Strategy B generation batch `c122d7c2-3bc5-4442-94d1-90c9cd1a31fa` by stopping the active backend worker/Python subprocess before failure cleanup could run, then marking the generation batch, LLM job/item, and related experiment runs as `completed`.
+- Key decisions: Preserved all generated synthetic rows; final live count is 1465 B queries against target `max_total_queries=1000`, with completion metadata stored in `metrics_json`/job result payloads.
+- Issues encountered: The generator target guard counts only per-attempt newly inserted rows, while retry-attached cached rows are tracked as `reused_count`; combined with unlimited synthetic retry this allowed rows from repeated attempts to exceed the target and continue processing.
+- Next steps: Fix the generator stop condition to include existing/reused batch rows or live batch count before running another large retry-prone generation batch.
+
 ## [2026-05-18] Session Summary (Strategy B Segmented Full Translation)
 - What was done: Implemented deterministic segmented full translation for Strategy B so `KO_TRANSLATED_CHUNK` is reconstructed from token-safe source-preserving segments while keeping `corpus_chunks.chunk_text`, retrieval/eval grounding, and raw B storage unchanged.
 - Key decisions: Used existing `chunk_generation_asset` for both segment cache and final reconstructed translation by versioning prompt template keys (`segment` vs `full`), avoiding a DB migration while preserving deterministic resume for successfully cached segments.

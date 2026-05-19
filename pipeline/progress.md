@@ -3,6 +3,12 @@
 ## Overview
 High-level pipeline progress tracking.
 
+## [2026-05-19] Session Summary (Synthetic Retry Target Accounting Fix)
+- What was done: Changed synthetic generation target accounting to seed `generated_count` from `synthetic_queries_raw_all` by `generation_batch_id` and refresh it after cached-row attach or new row insert.
+- Key decisions: Applied the same cumulative target guard to online generation and Strategy B Gemini Batch mode, including pending batch-query slot reservation so deferred inserts cannot exceed `max_total_queries`.
+- Issues encountered: Existing tests that directly exercise Strategy B Gemini Batch now patch live batch-count reads; added coverage for already-target-satisfied batches skipping Gemini Batch submission.
+- Next steps: Run a retry-forced live smoke with a low target and verify `initial_generated_queries`, `new_generated_queries`, and `generated_queries` in the experiment summary.
+
 ## [2026-05-18] Session Summary (Strategy B Segmented Full Translation)
 - What was done: Added deterministic segmented full translation for Strategy B in `generation/synthetic_query_generator.py`, splitting source chunks on structural boundaries, preserving fenced code verbatim, translating only text segments, caching segment assets, and reconstructing final `KO_TRANSLATED_CHUNK` assets with segmentation metadata.
 - Key decisions: Kept original corpus chunks, retrieval/eval inputs, synthetic raw split tables, and B `EN chunk -> KO translation -> KO summary/query` semantics unchanged. Segment and final translation assets use distinct prompt-template version suffixes under the existing `chunk_generation_asset` schema, so no migration was required.
