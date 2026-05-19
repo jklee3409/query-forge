@@ -3,6 +3,12 @@
 ## Overview
 High-level backend progress tracking.
 
+## [2026-05-19] Session Summary (Canonical Anchor Mapping Migration Draft)
+- What was done: Added Flyway `V31__create_canonical_anchor_mapping.sql` for the additive alias-to-canonical mapping table with FK links to `corpus_glossary_terms`, approved-active deterministic uniqueness, pending multi-candidate support, and a self-row rejection trigger.
+- Key decisions: Stored mapping status as `mapping_status`, kept `term_type` out of the mapping row, and left normalized alias calculation to application code.
+- Issues encountered: Migration SQL was written only; it was not applied to any database in this session.
+- Next steps: Session 6 should review/apply `V31` only after approval and inspect constraints/indexes before any data writes.
+
 ## [2026-05-19] Session Summary (Synthetic Batch Completion Recovery)
 - What was done: Operationally completed generation batch `c122d7c2-3bc5-4442-94d1-90c9cd1a31fa` and its `GENERATE_SYNTHETIC_QUERY` job/item without using cancel/fail paths, preserving 1465 generated Strategy B raw rows.
 - Key decisions: Stopped the active backend worker and child `generate-queries` process before DB finalization to avoid `deleteSyntheticQueriesByGenerationBatch` failure/cancel cleanup, then restarted the backend on port 8080.

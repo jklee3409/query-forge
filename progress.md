@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-05-19] Session Summary (Canonical Anchor Mapping Implementation Start)
+- What was done: Added Flyway `V31__create_canonical_anchor_mapping.sql`, Python `anchor-normalize-v1` helper, metadata-only canonical anchor resolver draft, and fixture coverage for the agreed normalization cases.
+- Key decisions: Kept canonical data additive through a new mapping table and runtime payloads; original `query_text`, `glossary_terms`, synthetic raw rows, and memory query text remain untouched. Existing `anchor_quality.normalize_anchor_text` was not changed.
+- Issues encountered: Validation was limited to the allowed targeted test: `python -m unittest pipeline.tests.test_anchor_normalization -q` passed.
+- Next steps: Review/apply `V31` only in Session 6 with explicit approval, then inspect constraints and runtime lookup behavior before any backfill or metadata persistence work.
+
 ## [2026-05-19] Session Summary (Quality Gating Batch-Scoped Source Load Fix)
 - What was done: Investigated gating batch `ca4ee519-3a9b-4803-a217-06b58ef097de` and fixed `pipeline/gating/quality_gating.py` so Admin gating configs with `source_generation_batch_ids` load raw synthetic queries by generation batch identity and resume over any unprocessed prefix rows.
 - Key decisions: Preserved explicit source identity enforcement, made generation batch IDs take precedence over run IDs, and guarded checkpoint slicing so retry/recovery batches whose raw rows span multiple `experiment_run_id` values are gated as one batch-scoped target.

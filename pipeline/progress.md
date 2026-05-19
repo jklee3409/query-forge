@@ -3,6 +3,12 @@
 ## Overview
 High-level pipeline progress tracking.
 
+## [2026-05-19] Session Summary (Canonical Anchor Normalizer and Resolver Draft)
+- What was done: Added `common/anchor_normalization.py` with `anchor-normalize-v1` fixtures, constants, explicit alias-language validation, display-vs-normalized alias separation, and a metadata-only `resolve_canonical_anchors` draft.
+- Key decisions: Preserved existing `common/anchor_quality.py` semantics and kept resolver output additive; it returns canonical anchor metadata without replacing query, glossary, synthetic, or memory text.
+- Issues encountered: Targeted validation passed with `python -m unittest pipeline.tests.test_anchor_normalization -q`.
+- Next steps: Wire this resolver into new synthetic/memory metadata paths in later sessions after `V31` is reviewed/applied; do not run backfill or memory regeneration from this session.
+
 ## [2026-05-19] Session Summary (Quality Gating Batch-Scoped Source Load)
 - What was done: Updated `gating/quality_gating.py` to resolve `source_generation_batch_ids`, load raw rows by `generation_batch_id` before falling back to `source_generation_run_ids`, and resume without skipping unprocessed prefix rows when source scope expands.
 - Key decisions: Kept auto-latest disabled while allowing batch identity as the primary explicit source identity; checkpoint slicing is now used only when the prefix up to the last processed query is already fully processed.
