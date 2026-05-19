@@ -21,6 +21,7 @@ from pipeline.generation.synthetic_query_generator import _b_summary_max_chars
 from pipeline.generation.synthetic_query_generator import _b_query_payload_limits
 from pipeline.generation.synthetic_query_generator import _build_translation_segments
 from pipeline.generation.synthetic_query_generator import _build_query_payload
+from pipeline.generation.synthetic_query_generator import _build_query_row_payload
 from pipeline.generation.synthetic_query_generator import _extract_query_text
 from pipeline.generation.synthetic_query_generator import _gemini_batch_input_mode
 from pipeline.generation.synthetic_query_generator import _generation_strategy_for_query_type
@@ -346,6 +347,90 @@ class SyntheticQueryGeneratorSchemaTests(unittest.TestCase):
         self.assertLessEqual(len(payload["original_chunk_en"]), 700)
         self.assertLessEqual(len(payload["translated_chunk_ko"]), 360)
         self.assertLessEqual(len(payload["extractive_summary_ko"]), 320)
+
+    def test_query_row_payload_adds_canonical_anchor_metadata_without_rewriting_fields(self) -> None:
+        chunk = _chunk()
+        query_text = "트랜잭션 읽기 전용 설정은 어떻게 하나요?"
+        glossary_terms = ["@Transactional"]
+        query_payload = _build_query_payload(
+            chunk=chunk,
+            generation_strategy="B",
+            original_chunk_ko="",
+            related_chunks_ko=[],
+            extractive_summary_en="",
+            translated_chunk_ko="translated chunk",
+            extractive_summary_ko="summary",
+            glossary_terms_keep_english=glossary_terms,
+            query_type="procedure",
+            answerability_type="single",
+            target_chunk_ids=[chunk.chunk_id],
+            b_payload_limits=None,
+        )
+
+        payload = _build_query_row_payload(
+            synthetic_query_id="syn-1",
+            run_context_id="run-1",
+            generation_method_id="method-b",
+            generation_batch_id="batch-1",
+            chunk=chunk,
+            generation_strategy="B",
+            query_prompt_asset=_prompt_asset("gen_b"),
+            source_fingerprint="source-fingerprint",
+            target_chunk_ids=[chunk.chunk_id],
+            answerability_type="single",
+            query_text=query_text,
+            query_type="procedure",
+            generation_asset_ids=[],
+            query_response={
+                "query_ko": query_text,
+                "query_type": "procedure",
+                "answerability_type": "single",
+            },
+            extra_trace={},
+            chunk_glossary_terms=glossary_terms,
+            glossary_term_candidates=[
+                {
+                    "term_id": "term-transactional",
+                    "canonical_form": "@Transactional",
+                    "normalized_form": "@transactional",
+                    "term_type": "annotation",
+                    "is_active": True,
+                }
+            ],
+            en_summary="",
+            summary_ko="summary",
+            translated_chunk_ko="translated chunk",
+            query_payload=query_payload,
+            b_payload_limits=None,
+            fg_summary_mode="extractive",
+            related_chunks_ko=[],
+            llm_provider="gemini-native",
+            llm_model="gemini-2.5-flash-lite",
+            execution_mode="online",
+        )
+
+        self.assertEqual(payload["query_text"], query_text)
+        self.assertEqual(payload["glossary_terms"].obj, glossary_terms)
+
+        metadata = payload["metadata"].obj
+        self.assertEqual(metadata["anchor_mapping_version"], "anchor-map-v1")
+        self.assertEqual(metadata["anchor_normalization_version"], "anchor-normalize-v1")
+
+        canonical = metadata["canonical_anchors"]
+        self.assertEqual(canonical["schema_version"], "canonical-anchor-runtime-v1")
+        self.assertEqual(canonical["mapping_version"], "anchor-map-v1")
+        self.assertEqual(canonical["normalization_version"], "anchor-normalize-v1")
+        self.assertEqual(canonical["source_context"]["kind"], "synthetic_query")
+        self.assertEqual(canonical["source_context"]["source_id"], "syn-1")
+        self.assertEqual(canonical["source_context"]["source_field"], "query_text")
+        self.assertEqual(canonical["canonical_terms"], ["@Transactional"])
+        self.assertEqual(canonical["canonical_term_ids"], ["term-transactional"])
+
+        anchor = canonical["anchors"][0]
+        self.assertEqual(anchor["input_alias"], "@Transactional")
+        self.assertEqual(anchor["source_field"], "glossary_terms")
+        self.assertEqual(anchor["resolution_status"], "self_fallback")
+        self.assertTrue(anchor["used_for_scoring"])
 
     def test_bounded_query_evidence_text_prefers_paragraph_boundary(self) -> None:
         source = "first paragraph stays intact\n\nsecond paragraph should be omitted"

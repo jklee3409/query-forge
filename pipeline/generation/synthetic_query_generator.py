@@ -17,6 +17,11 @@ from psycopg.types.json import Jsonb
 
 try:
     from common.corpus_shadow_sync import sync_shadow_tables
+    from common.anchor_normalization import (
+        DEFAULT_MAPPING_VERSION as ANCHOR_MAPPING_VERSION,
+        DEFAULT_NORMALIZATION_VERSION as ANCHOR_NORMALIZATION_VERSION,
+        resolve_canonical_anchors,
+    )
     from common.experiment_config import ExperimentConfig, load_experiment_config
     from common.experiment_run import ExperimentRunRecorder
     from common.gemini_batch import (
@@ -31,6 +36,11 @@ try:
     from loaders.common import connect, default_database_args
 except ModuleNotFoundError:  # pragma: no cover - direct module execution fallback
     from pipeline.common.corpus_shadow_sync import sync_shadow_tables
+    from pipeline.common.anchor_normalization import (
+        DEFAULT_MAPPING_VERSION as ANCHOR_MAPPING_VERSION,
+        DEFAULT_NORMALIZATION_VERSION as ANCHOR_NORMALIZATION_VERSION,
+        resolve_canonical_anchors,
+    )
     from pipeline.common.experiment_config import ExperimentConfig, load_experiment_config
     from pipeline.common.experiment_run import ExperimentRunRecorder
     from pipeline.common.gemini_batch import (
@@ -459,6 +469,236 @@ def _load_glossary(
             if term not in glossary_by_doc[document_id]:
                 glossary_by_doc[document_id].append(term)
     return glossary_by_doc
+
+
+def _load_glossary_term_candidates(
+    connection: psycopg.Connection[Any],
+    *,
+    document_ids: set[str] | None = None,
+) -> dict[str, list[dict[str, Any]]]:
+    candidates_by_doc: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    selected_document_ids = sorted(document_ids or [])
+    if document_ids is not None and not selected_document_ids:
+        return candidates_by_doc
+    with connection.cursor() as cursor:
+        if selected_document_ids:
+            cursor.execute(
+                """
+                SELECT term_id,
+                       first_seen_document_id,
+                       canonical_form,
+                       normalized_form,
+                       term_type,
+                       is_active
+                FROM corpus_glossary_terms
+                WHERE is_active = TRUE
+                  AND first_seen_document_id = ANY(%s)
+                ORDER BY evidence_count DESC, canonical_form, term_id
+                """,
+                (selected_document_ids,),
+            )
+        else:
+            cursor.execute(
+                """
+                SELECT term_id,
+                       first_seen_document_id,
+                       canonical_form,
+                       normalized_form,
+                       term_type,
+                       is_active
+                FROM corpus_glossary_terms
+                WHERE is_active = TRUE
+                  AND first_seen_document_id IS NOT NULL
+                ORDER BY evidence_count DESC, canonical_form, term_id
+                """
+            )
+        for row in cursor.fetchall():
+            document_id = str(row["first_seen_document_id"])
+            candidates_by_doc[document_id].append(
+                {
+                    "term_id": str(row["term_id"]),
+                    "canonical_form": str(row["canonical_form"]),
+                    "normalized_form": str(row["normalized_form"] or ""),
+                    "term_type": str(row["term_type"]),
+                    "is_active": bool(row["is_active"]),
+                }
+            )
+    return candidates_by_doc
+
+
+def _canonical_mapping_table_available(connection: Any | None) -> bool:
+    if connection is None or not hasattr(connection, "cursor"):
+        return False
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT to_regclass('canonical_anchor_mapping')")
+            row = cursor.fetchone()
+    except Exception:
+        LOGGER.warning(
+            "Canonical anchor mapping table availability check failed; continuing without mapping lookup.",
+            exc_info=True,
+        )
+        return False
+    if row is None:
+        return False
+    if isinstance(row, dict):
+        return row.get("to_regclass") is not None
+    return row[0] is not None
+
+
+def _canonical_alias_language(*, query_language: str, language_profile: str) -> str:
+    if str(language_profile or "").strip().lower() == "code_mixed":
+        return "und"
+    language = str(query_language or "").strip().lower()
+    if language in {"en", "ko"}:
+        return language
+    return "und"
+
+
+def _candidate_items_for_glossary_terms(
+    *,
+    glossary_terms: list[str],
+    glossary_term_candidates: list[dict[str, Any]],
+    alias_language: str,
+) -> list[dict[str, Any]]:
+    candidates_by_form: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for candidate in glossary_term_candidates:
+        canonical_form = str(candidate.get("canonical_form") or "").strip()
+        term_type = str(candidate.get("term_type") or "").strip()
+        if not canonical_form or not term_type:
+            continue
+        candidates_by_form[canonical_form].append(candidate)
+
+    items: list[dict[str, Any]] = []
+    seen: set[tuple[str, str]] = set()
+    for term in glossary_terms:
+        display_term = str(term or "").strip()
+        if not display_term:
+            continue
+        for candidate in candidates_by_form.get(display_term, []):
+            term_type = str(candidate.get("term_type") or "").strip()
+            key = (display_term, term_type)
+            if not term_type or key in seen:
+                continue
+            seen.add(key)
+            items.append(
+                {
+                    "alias_text": display_term,
+                    "alias_language": alias_language,
+                    "term_type": term_type,
+                    "source_field": "glossary_terms",
+                }
+            )
+    return items
+
+
+def _empty_canonical_anchor_payload(
+    *,
+    synthetic_query_id: str,
+    query_language: str,
+    language_profile: str,
+    generation_strategy: str,
+) -> dict[str, Any]:
+    return resolve_canonical_anchors(
+        [],
+        source_context={
+            "kind": "synthetic_query",
+            "source_id": synthetic_query_id,
+            "source_field": "query_text",
+            "query_language": query_language,
+            "language_profile": language_profile,
+            "generation_strategy": generation_strategy,
+        },
+    )
+
+
+def _build_canonical_anchor_payload(
+    *,
+    connection: Any | None,
+    synthetic_query_id: str,
+    query_language: str,
+    language_profile: str,
+    generation_strategy: str,
+    glossary_terms: list[str],
+    glossary_term_candidates: list[dict[str, Any]] | None,
+) -> dict[str, Any]:
+    candidates = list(glossary_term_candidates or [])
+    alias_language = _canonical_alias_language(
+        query_language=query_language,
+        language_profile=language_profile,
+    )
+    items = _candidate_items_for_glossary_terms(
+        glossary_terms=glossary_terms,
+        glossary_term_candidates=candidates,
+        alias_language=alias_language,
+    )
+    source_context = {
+        "kind": "synthetic_query",
+        "source_id": synthetic_query_id,
+        "source_field": "query_text",
+        "query_language": query_language,
+        "language_profile": language_profile,
+        "generation_strategy": generation_strategy,
+    }
+    try:
+        if connection is not None:
+            with connection.transaction():
+                return resolve_canonical_anchors(
+                    items,
+                    connection=connection,
+                    mapping_version=ANCHOR_MAPPING_VERSION,
+                    normalization_version=ANCHOR_NORMALIZATION_VERSION,
+                    source_context=source_context,
+                    fallback_term_candidates=candidates,
+                )
+        return resolve_canonical_anchors(
+            items,
+            connection=None,
+            mapping_version=ANCHOR_MAPPING_VERSION,
+            normalization_version=ANCHOR_NORMALIZATION_VERSION,
+            source_context=source_context,
+            fallback_term_candidates=candidates,
+        )
+    except Exception:
+        LOGGER.warning(
+            "Canonical anchor resolution failed for synthetic_query_id=%s; storing empty fail-closed payload.",
+            synthetic_query_id,
+            exc_info=True,
+        )
+        return _empty_canonical_anchor_payload(
+            synthetic_query_id=synthetic_query_id,
+            query_language=query_language,
+            language_profile=language_profile,
+            generation_strategy=generation_strategy,
+        )
+
+
+def _with_canonical_anchor_metadata(
+    metadata: dict[str, Any],
+    *,
+    connection: Any | None,
+    synthetic_query_id: str,
+    query_language: str,
+    language_profile: str,
+    generation_strategy: str,
+    glossary_terms: list[str],
+    glossary_term_candidates: list[dict[str, Any]] | None,
+) -> dict[str, Any]:
+    canonical_anchors = _build_canonical_anchor_payload(
+        connection=connection,
+        synthetic_query_id=synthetic_query_id,
+        query_language=query_language,
+        language_profile=language_profile,
+        generation_strategy=generation_strategy,
+        glossary_terms=glossary_terms,
+        glossary_term_candidates=glossary_term_candidates,
+    )
+    return {
+        **metadata,
+        "canonical_anchors": canonical_anchors,
+        "anchor_mapping_version": ANCHOR_MAPPING_VERSION,
+        "anchor_normalization_version": ANCHOR_NORMALIZATION_VERSION,
+    }
 
 
 def _select_answerability_target(
@@ -1823,6 +2063,8 @@ def _insert_source_links_for_targets(
 
 def _build_query_row_payload(
     *,
+    canonical_mapping_connection: Any | None = None,
+    glossary_term_candidates: list[dict[str, Any]] | None = None,
     synthetic_query_id: str,
     run_context_id: str,
     generation_method_id: str | None,
@@ -1884,6 +2126,24 @@ def _build_query_row_payload(
     llm_meta = query_response.get("_llm_meta") if isinstance(query_response.get("_llm_meta"), dict) else {}
     if isinstance(llm_meta.get("gemini_batch"), dict):
         trace["gemini_batch"] = llm_meta.get("gemini_batch")
+    metadata = _with_canonical_anchor_metadata(
+        {
+            "query_type_label": QUERY_TYPE_LABELS_KO.get(query_type, query_type),
+            "title": chunk.title,
+            "product_name": chunk.product_name,
+            "version_label": chunk.version_label,
+            "generation_batch_id": generation_batch_id,
+            "source_fingerprint": source_fingerprint,
+            "llm_execution_mode": execution_mode,
+        },
+        connection=canonical_mapping_connection,
+        synthetic_query_id=synthetic_query_id,
+        query_language=query_language,
+        language_profile=language_profile,
+        generation_strategy=generation_strategy,
+        glossary_terms=chunk_glossary_terms,
+        glossary_term_candidates=glossary_term_candidates,
+    )
     return {
         "synthetic_query_id": synthetic_query_id,
         "experiment_run_id": run_context_id,
@@ -1920,17 +2180,7 @@ def _build_query_row_payload(
                 "trace": trace,
             }
         ),
-        "metadata": Jsonb(
-            {
-                "query_type_label": QUERY_TYPE_LABELS_KO.get(query_type, query_type),
-                "title": chunk.title,
-                "product_name": chunk.product_name,
-                "version_label": chunk.version_label,
-                "generation_batch_id": generation_batch_id,
-                "source_fingerprint": source_fingerprint,
-                "llm_execution_mode": execution_mode,
-            }
-        ),
+        "metadata": Jsonb(metadata),
     }
 
 
@@ -2325,6 +2575,8 @@ def _run_strategy_b_gemini_batch(
     chunks_by_id: dict[str, ChunkRow],
     relations: dict[str, dict[str, list[str]]],
     glossary_by_doc: dict[str, list[str]],
+    glossary_term_candidates_by_doc: dict[str, list[dict[str, Any]]] | None = None,
+    canonical_mapping_connection: Any | None = None,
     generation_batch_id: str | None,
     method_id_cache: dict[str, str | None],
     max_total_queries: int | None,
@@ -2752,6 +3004,11 @@ def _run_strategy_b_gemini_batch(
             )
             continue
         payload = _build_query_row_payload(
+            canonical_mapping_connection=canonical_mapping_connection,
+            glossary_term_candidates=(glossary_term_candidates_by_doc or {}).get(
+                pending.plan.chunk.document_id,
+                [],
+            ),
             synthetic_query_id=pending.plan.stable_query_id,
             run_context_id=run_context_id,
             generation_method_id=pending.plan.generation_method_id,
@@ -2941,6 +3198,11 @@ def run_generation(
         selected_document_ids = {chunk.document_id for chunk in chunks}
         relations = _load_relations(connection, chunk_ids=selected_chunk_ids)
         glossary_by_doc = _load_glossary(connection, document_ids=selected_document_ids)
+        glossary_term_candidates_by_doc = _load_glossary_term_candidates(
+            connection,
+            document_ids=selected_document_ids,
+        )
+        canonical_mapping_connection = connection if _canonical_mapping_table_available(connection) else None
         rng = random.Random(config.random_seed)
 
         generation_batch_id = str(config.raw.get("generation_batch_id") or "").strip() or None
@@ -2987,6 +3249,8 @@ def run_generation(
                 chunks_by_id=chunks_by_id,
                 relations=relations,
                 glossary_by_doc=glossary_by_doc,
+                glossary_term_candidates_by_doc=glossary_term_candidates_by_doc,
+                canonical_mapping_connection=canonical_mapping_connection,
                 generation_batch_id=generation_batch_id,
                 method_id_cache=method_id_cache,
                 max_total_queries=max_total_queries,
@@ -3063,6 +3327,7 @@ def run_generation(
             if max_total_queries is not None and generated_count >= max_total_queries:
                 break
             chunk_glossary_terms = glossary_by_doc.get(chunk.document_id, [])[:12]
+            chunk_glossary_term_candidates = glossary_term_candidates_by_doc.get(chunk.document_id, [])
             base_count = max(1, int(round(config.avg_queries_per_chunk + rng.uniform(-0.9, 0.9))))
             source_fingerprint = _source_fingerprint(chunk)
             for query_index in range(base_count):
@@ -3363,14 +3628,23 @@ def run_generation(
                         }
                     ),
                     "metadata": Jsonb(
-                        {
-                            "query_type_label": QUERY_TYPE_LABELS_KO.get(query_type, query_type),
-                            "title": chunk.title,
-                            "product_name": chunk.product_name,
-                            "version_label": chunk.version_label,
-                            "generation_batch_id": generation_batch_id,
-                            "source_fingerprint": source_fingerprint,
-                        }
+                        _with_canonical_anchor_metadata(
+                            {
+                                "query_type_label": QUERY_TYPE_LABELS_KO.get(query_type, query_type),
+                                "title": chunk.title,
+                                "product_name": chunk.product_name,
+                                "version_label": chunk.version_label,
+                                "generation_batch_id": generation_batch_id,
+                                "source_fingerprint": source_fingerprint,
+                            },
+                            connection=canonical_mapping_connection,
+                            synthetic_query_id=stable_query_id,
+                            query_language=query_language,
+                            language_profile=language_profile,
+                            generation_strategy=generation_strategy,
+                            glossary_terms=chunk_glossary_terms,
+                            glossary_term_candidates=chunk_glossary_term_candidates,
+                        )
                     ),
                 }
                 _insert_query_row(connection, table_name=raw_table_name, payload=payload)
