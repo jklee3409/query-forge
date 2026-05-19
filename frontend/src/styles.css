@@ -3088,7 +3088,7 @@ table.data-table {
 }
 
 table.anchor-review-table {
-  min-width: 1080px;
+  min-width: 1140px;
   table-layout: fixed;
 }
 
@@ -3105,7 +3105,7 @@ table.anchor-review-table {
 
 .anchor-review-table th:nth-child(2),
 .anchor-review-table td:nth-child(2) {
-  width: 150px;
+  width: 190px;
 }
 
 .anchor-review-table th:nth-child(5),
@@ -3164,7 +3164,7 @@ table.anchor-review-table {
 
 .anchor-review-select {
   width: 100%;
-  min-width: 124px;
+  min-width: 148px;
   min-height: 36px;
   padding: 7px 10px;
   border: 1px solid var(--border-subtle);
@@ -3189,6 +3189,14 @@ table.anchor-review-table {
 .anchor-review-select option {
   background: var(--surface-control);
   color: var(--text-primary);
+}
+
+.anchor-review-decision-help {
+  max-width: 100%;
+  margin-top: 6px;
+  color: var(--text-tertiary);
+  font-size: 11px;
+  line-height: 1.35;
 }
 
 .anchor-review-value-stack {

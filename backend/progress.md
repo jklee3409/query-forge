@@ -3,6 +3,12 @@
 ## Overview
 High-level backend progress tracking.
 
+## [2026-05-19] Session Summary (Anchor Normalization History Delete API)
+- What was done: Added `DELETE /api/admin/corpus/anchors/normalization-runs/{runId}` and `AnchorNormalizationService.deleteRun`, deleting candidate review rows before deleting the run history row.
+- Key decisions: The delete operation is history-only and does not reverse canonical values already applied by approved runs. Current dry-run generation remains synchronous and transaction-scoped; restart-time resume would need a separate checkpointed job model.
+- Issues encountered: Targeted `.\gradlew.bat test --tests io.queryforge.backend.admin.corpus.CorpusAdminMutationIntegrationTest.anchorNormalizationRunDeleteRemovesHistoryAndCandidates` passed.
+- Next steps: Smoke-test the endpoint against the intended development DB after confirming V32/V34 are applied.
+
 ## [2026-05-19] Session Summary (Multi-source Anchor Relation API)
 - What was done: Added Flyway `V33` for `canonical_anchor_relation_run` / `canonical_anchor_relation` plus the `rag_test_run.multi_source_anchor_expansion_enabled` flag. Added `MultiSourceAnchorService` and Admin corpus endpoints to build/list/get relation-index runs, and wired Admin RAG config/records to persist multi-source anchor settings.
 - Key decisions: The build writes only additive relation tables, marks older active relation rows superseded by version, and never mutates synthetic raw tables or existing query text. Default relation sources are approved canonical mappings, synthetic-query anchor co-occurrence, and chunk evidence co-occurrence.

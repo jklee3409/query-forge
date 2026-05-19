@@ -3,6 +3,12 @@
 ## Overview
 High-level progress tracking for the project.
 
+## [2026-05-19] Session Summary (Anchor Normalization History Delete UI)
+- What was done: Added an `이력 삭제` action to `/admin/pipeline` Anchor normalization history and wired it to the backend delete endpoint with a confirmation message explaining that applied canonical values are not reverted. Candidate decision cells now show inline guidance for why conflict/invalid rows do not expose `승인`.
+- Key decisions: Kept approval/rejection/save APIs unchanged. The approve option remains available only for `would_update` candidates because backend validation applies only approved safe changes.
+- Issues encountered: `npx eslint src/pages/PipelinePage.jsx` passed with the existing hook dependency warning.
+- Next steps: Browser-smoke the history table actions and the row decision helper text in dark mode with pending/conflict/invalid candidates.
+
 ## [2026-05-19] Session Summary (Anchor Normalization Review Modal UX)
 - What was done: Reworked the Anchor normalization detail/review modal in `PipelinePage.jsx` with Korean-first copy, fixed the corrupted title literal, added operator guidance, status/decision label mapping, workflow sections, approval-disabled reason text, summary badges, safer reject/reset handling, corrected the `변경 없음 표시` check-pill layout, and compact code-style current/proposed values with conflict explanations.
 - Key decisions: Kept the existing review/approve/reject API contract unchanged and handled readability in the React layer. Long anchor values now use ellipsis with full values in `title`, preserving the actual API data instead of hiding broken text.

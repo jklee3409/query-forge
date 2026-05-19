@@ -113,6 +113,23 @@ public class AnchorNormalizationService {
     }
 
     @Transactional
+    public void deleteRun(UUID runId) {
+        getRun(runId);
+        MapSqlParameterSource params = new MapSqlParameterSource("runId", runId);
+        jdbcTemplate.update(
+                "DELETE FROM anchor_normalization_candidate WHERE run_id = :runId",
+                params
+        );
+        int deleted = jdbcTemplate.update(
+                "DELETE FROM anchor_normalization_run WHERE run_id = :runId",
+                params
+        );
+        if (deleted != 1) {
+            throw new IllegalStateException("failed to delete anchor normalization run: " + runId);
+        }
+    }
+
+    @Transactional
     public CorpusAdminDtos.AnchorNormalizationCandidateDto reviewCandidate(
             UUID runId,
             UUID candidateId,

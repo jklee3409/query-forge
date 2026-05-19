@@ -176,6 +176,49 @@ class CorpusAdminMutationIntegrationTest {
     }
 
     @Test
+    void anchorNormalizationRunDeleteRemovesHistoryAndCandidates() throws Exception {
+        mockMvc.perform(post("/api/admin/corpus/anchors/normalization-runs")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "keyword": "Value",
+                                  "activeOnly": true,
+                                  "limit": 10
+                                }
+                                """))
+                .andExpect(status().isOk());
+
+        UUID runId = jdbcTemplate.queryForObject("""
+                SELECT run_id
+                FROM anchor_normalization_run
+                ORDER BY created_at DESC
+                LIMIT 1
+                """, UUID.class);
+        Integer candidateCount = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM anchor_normalization_candidate WHERE run_id = ?",
+                Integer.class,
+                runId
+        );
+        assertEquals(1, candidateCount);
+
+        mockMvc.perform(delete("/api/admin/corpus/anchors/normalization-runs/{runId}", runId))
+                .andExpect(status().isOk());
+
+        Integer remainingRuns = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM anchor_normalization_run WHERE run_id = ?",
+                Integer.class,
+                runId
+        );
+        Integer remainingCandidates = jdbcTemplate.queryForObject(
+                "SELECT COUNT(*) FROM anchor_normalization_candidate WHERE run_id = ?",
+                Integer.class,
+                runId
+        );
+        assertEquals(0, remainingRuns);
+        assertEquals(0, remainingCandidates);
+    }
+
+    @Test
     void anchorNormalizationCandidateReviewCanSkipConflictBeforeRunApproval() throws Exception {
         jdbcTemplate.update("""
                 INSERT INTO corpus_glossary_terms (

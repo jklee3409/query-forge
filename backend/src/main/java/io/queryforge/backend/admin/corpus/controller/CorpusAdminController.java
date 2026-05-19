@@ -265,6 +265,11 @@ public class CorpusAdminController {
         return anchorNormalizationService.getRunDetail(runId);
     }
 
+    @DeleteMapping("/anchors/normalization-runs/{runId}")
+    public void deleteAnchorNormalizationRun(@PathVariable UUID runId) {
+        anchorNormalizationService.deleteRun(runId);
+    }
+
     @PostMapping("/anchors/normalization-runs/{runId}/candidates/{candidateId}/review")
     public CorpusAdminDtos.AnchorNormalizationCandidateDto reviewAnchorNormalizationCandidate(
             @PathVariable UUID runId,

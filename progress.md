@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-05-19] Session Summary (Anchor Normalization History Delete)
+- What was done: Added hard delete support for Anchor normalization history via `DELETE /api/admin/corpus/anchors/normalization-runs/{runId}` and exposed an `이력 삭제` action in the Admin Anchors normalization history table. Candidate-row decision cells now explain why conflict/invalid rows do not show the approve option.
+- Key decisions: Deleting a normalization run removes only the dry-run/review history and candidate rows; it does not revert canonical values already applied by an approved run. Resume-from-server-restart was confirmed not to exist for an in-flight dry-run because candidate generation is currently one synchronous transaction, while completed pending-review runs persist normally across restart.
+- Issues encountered: Targeted backend delete integration test passed. Targeted frontend lint passed with the existing `PipelinePage.jsx` hook dependency warning.
+- Next steps: Browser-smoke deleting pending/approved normalization histories against a running backend and decide separately whether dry-run generation needs a resumable checkpointed job design.
+
 ## [2026-05-19] Session Summary (Anchor Normalization Review Modal UX)
 - What was done: Improved the `/admin/pipeline` anchor normalization review modal with Korean labels, fixed the corrupted modal title literal, added review guidance, workflow-grouped actions, approval-blocking reasons, decision summary badges, destructive reject styling, unsaved-close warning, corrected the `변경 없음 표시` check-pill layout, and readable current/proposed/conflict table presentation.
 - Key decisions: Kept Anchor normalization backend APIs and approval/reject behavior unchanged. The Korean display issue was scoped to frontend-rendered literals; code inspection found no charset conversion in the API/helper path.

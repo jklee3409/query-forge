@@ -107,6 +107,22 @@ function ConflictCell({ conflictTermId }) {
   )
 }
 
+function candidateDecisionHelp(candidate) {
+  if (candidate.resolutionStatus === 'would_update') {
+    return '승인하면 전체 작업 승인 시 제안 값이 적용됩니다.'
+  }
+  if (candidate.resolutionStatus === 'conflict') {
+    return '충돌 항목은 개별 승인할 수 없습니다. 검토 대기 또는 건너뛰기로 처리하세요.'
+  }
+  if (candidate.resolutionStatus === 'invalid') {
+    return '무효 항목은 승인할 수 없습니다. 건너뛰기로 제외하세요.'
+  }
+  if (candidate.resolutionStatus === 'unchanged') {
+    return '변경 없음 항목은 검토 결정이 필요하지 않습니다.'
+  }
+  return ''
+}
+
 function AnchorNormalizationReviewBody({ detail, onSaveReviews, onSaveAndApprove, onRejectRun, onDirtyChange }) {
   const run = detail?.run || {}
   const candidates = useMemo(
@@ -356,6 +372,7 @@ function AnchorNormalizationReviewBody({ detail, onSaveReviews, onSaveAndApprove
             {visibleCandidates.map((candidate) => {
               const decision = decisions[candidate.candidateId] || 'pending'
               const disabled = candidate.resolutionStatus === 'unchanged' || run.status !== 'pending_review'
+              const decisionHelp = candidateDecisionHelp(candidate)
               return (
                 <tr key={candidate.candidateId}>
                   <td><AnchorCandidateStatusBadge status={candidate.resolutionStatus} /></td>
@@ -376,6 +393,7 @@ function AnchorNormalizationReviewBody({ detail, onSaveReviews, onSaveAndApprove
                         <option value="skip">건너뛰기</option>
                       </select>
                     )}
+                    {decisionHelp && <div className="anchor-review-decision-help">{decisionHelp}</div>}
                     {candidate.reviewNote && (
                       <div className="anchor-review-note" title={candidate.reviewNote}>
                         메모: {candidate.reviewNote}
@@ -1031,6 +1049,30 @@ export function PipelinePage({ notify }) {
     }
   }
 
+  const deleteAnchorNormalizationRun = async (run) => {
+    const runId = run?.runId
+    if (!runId) return
+    const runName = run.runName || shortId(runId)
+    const confirmed = window.confirm(
+      `Anchor 정규화 이력 "${runName}"을 삭제할까요?\n후보 검토 기록과 dry-run 보고서만 삭제되며, 이미 승인되어 적용된 canonical 컬럼 값은 되돌리지 않습니다.`
+    )
+    if (!confirmed) return
+    setAnchorNormalizationBusy(true)
+    try {
+      await requestJson(`/api/admin/corpus/anchors/normalization-runs/${runId}`, { method: 'DELETE' })
+      if (modal?.kind === 'anchor-normalization-review' && modal.runId === runId) {
+        setAnchorNormalizationDirty(false)
+        setModal(null)
+      }
+      await loadAnchorNormalizationRuns()
+      notify('Anchor 정규화 이력을 삭제했습니다.')
+    } catch (error) {
+      notify(error.message, 'error')
+    } finally {
+      setAnchorNormalizationBusy(false)
+    }
+  }
+
   const saveAnchorNormalizationCandidateReviews = async (runId, decisions, note, approveAfter = false) => {
     setAnchorNormalizationBusy(true)
     try {
@@ -1088,6 +1130,7 @@ export function PipelinePage({ notify }) {
     setAnchorNormalizationDirty(false)
     setModal({
       kind: 'anchor-normalization-review',
+      runId: detail.run.runId,
       title: `Anchor 정규화 검토 · ${detail.run.runName}`,
       body: (
         <AnchorNormalizationReviewBody
@@ -1639,6 +1682,15 @@ export function PipelinePage({ notify }) {
                           </button>
                         </>
                       )}
+                      <button
+                        type="button"
+                        className="button button--danger-ghost"
+                        disabled={anchorNormalizationBusy}
+                        onClick={() => deleteAnchorNormalizationRun(run)}
+                        title="이력과 후보 검토 기록만 삭제합니다. 이미 적용된 anchor 값은 되돌리지 않습니다."
+                      >
+                        이력 삭제
+                      </button>
                     </div>
                   </td>
                 </tr>
