@@ -3,6 +3,12 @@
 ## Overview
 High-level pipeline progress tracking.
 
+## [2026-05-19] Session Summary (Memory Canonical Anchor Metadata)
+- What was done: Wired `memory/build_memory.py` to add `canonical_anchors`, `anchor_mapping_version`, and `anchor_normalization_version` to new `memory_entries.metadata` payloads, preserving existing snapshot/source metadata and original memory/source query fields.
+- Key decisions: Reused the canonical resolver metadata contract, loaded explicit raw-row `query_language`/`language_profile`, used glossary term candidates for `term_type` and self fallback, and skipped mapping-table lookup when `canonical_anchor_mapping` is absent.
+- Issues encountered: Targeted validation passed with `python -m py_compile memory\build_memory.py` and `python -m unittest pipeline.tests.test_build_memory_canonical_anchor_metadata -q`.
+- Next steps: Apply canonical metadata only in scoring/expansion consumers in later sessions; do not backfill or regenerate memory without an explicit reviewed plan.
+
 ## [2026-05-19] Session Summary (Synthetic Canonical Anchor Metadata)
 - What was done: Wired `generation/synthetic_query_generator.py` to add canonical anchor metadata to newly built raw synthetic row payloads for A~G. The payload uses `common/anchor_normalization.resolve_canonical_anchors`, stores version pins, and keeps `query_text` plus `glossary_terms` unchanged.
 - Key decisions: Loaded explicit glossary term metadata for resolver `term_type`/fallback candidates, used query language/profile only as an explicit alias-language source, skipped mapping-table lookup when V31 is not applied, and preserved split raw-table writes.

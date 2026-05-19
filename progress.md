@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-05-19] Session Summary (Memory Canonical Anchor Metadata)
+- What was done: Added additive canonical anchor metadata construction for newly inserted `memory_entries.metadata`, using explicit synthetic row language/profile and glossary term candidates while preserving memory query text, source synthetic query text, glossary terms, and snapshot/source identity fields.
+- Key decisions: Kept V31 optional/fail-closed, did not apply migrations, insert mapping rows, run memory build, backfill, or alter pipeline order. Canonical payloads are stored only as metadata with `anchor-map-v1` and `anchor-normalize-v1` pins.
+- Issues encountered: Validation was limited to targeted checks: `python -m py_compile memory\build_memory.py` and `python -m unittest pipeline.tests.test_build_memory_canonical_anchor_metadata -q` passed.
+- Next steps: Session 9 should consume existing canonical metadata for rewrite scoring without replacing query text, dense queries, or memory query fields.
+
 ## [2026-05-19] Session Summary (Synthetic Canonical Anchor Metadata)
 - What was done: Added additive `canonical_anchors`, `anchor_mapping_version`, and `anchor_normalization_version` metadata construction for newly generated synthetic raw A~G row payloads, using the canonical anchor resolver with glossary-term metadata while preserving original `query_text` and `glossary_terms`.
 - Key decisions: Kept strategy-specific raw table writes unchanged, did not insert mapping rows or apply V31, and made canonical mapping lookup optional so generation can continue when `canonical_anchor_mapping` is absent.

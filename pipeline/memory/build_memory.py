@@ -10,6 +10,11 @@ import psycopg
 from psycopg.types.json import Jsonb
 
 try:
+    from common.anchor_normalization import (
+        DEFAULT_MAPPING_VERSION as ANCHOR_MAPPING_VERSION,
+        DEFAULT_NORMALIZATION_VERSION as ANCHOR_NORMALIZATION_VERSION,
+        resolve_canonical_anchors,
+    )
     from common.embeddings import embedding_to_halfvec_literal
     from common.experiment_config import load_experiment_config
     from common.experiment_run import ExperimentRunRecorder
@@ -19,6 +24,11 @@ try:
     )
     from loaders.common import connect, default_database_args
 except ModuleNotFoundError:  # pragma: no cover - direct module execution fallback
+    from pipeline.common.anchor_normalization import (
+        DEFAULT_MAPPING_VERSION as ANCHOR_MAPPING_VERSION,
+        DEFAULT_NORMALIZATION_VERSION as ANCHOR_NORMALIZATION_VERSION,
+        resolve_canonical_anchors,
+    )
     from pipeline.common.embeddings import embedding_to_halfvec_literal
     from pipeline.common.experiment_config import load_experiment_config
     from pipeline.common.experiment_run import ExperimentRunRecorder
@@ -45,6 +55,8 @@ class GatedRow:
     synthetic_query_id: str
     query_text: str
     query_type: str
+    query_language: str
+    language_profile: str | None
     generation_strategy: str
     target_chunk_ids: list[str]
     target_doc_id: str
@@ -174,6 +186,8 @@ def _load_gated_rows(
                    g.synthetic_query_id,
                    r.query_text,
                    r.query_type,
+                   r.query_language,
+                   r.language_profile,
                    r.generation_strategy,
                    r.target_chunk_ids,
                    r.target_doc_id,
@@ -205,6 +219,8 @@ def _load_gated_rows(
             synthetic_query_id=str(row["synthetic_query_id"]),
             query_text=str(row["query_text"]),
             query_type=str(row["query_type"]),
+            query_language=str(row["query_language"] or ""),
+            language_profile=row["language_profile"],
             generation_strategy=str(row["generation_strategy"]),
             target_chunk_ids=list(row["target_chunk_ids"] or []),
             target_doc_id=str(row["target_doc_id"]),
@@ -286,6 +302,8 @@ def _load_gated_rows_by_batch(
                    gr.synthetic_query_id,
                    r.query_text,
                    r.query_type,
+                   r.query_language,
+                   r.language_profile,
                    r.generation_strategy,
                    r.target_chunk_ids,
                    r.target_doc_id,
@@ -320,6 +338,8 @@ def _load_gated_rows_by_batch(
             synthetic_query_id=str(row["synthetic_query_id"]),
             query_text=str(row["query_text"]),
             query_type=str(row["query_type"]),
+            query_language=str(row["query_language"] or ""),
+            language_profile=row["language_profile"],
             generation_strategy=str(row["generation_strategy"]),
             target_chunk_ids=list(row["target_chunk_ids"] or []),
             target_doc_id=str(row["target_doc_id"]),
@@ -425,6 +445,8 @@ def _load_stage_cutoff_rows(
                    gr.synthetic_query_id,
                    r.query_text,
                    r.query_type,
+                   r.query_language,
+                   r.language_profile,
                    r.generation_strategy,
                    r.target_chunk_ids,
                    r.target_doc_id,
@@ -458,6 +480,8 @@ def _load_stage_cutoff_rows(
             synthetic_query_id=str(row["synthetic_query_id"]),
             query_text=str(row["query_text"]),
             query_type=str(row["query_type"]),
+            query_language=str(row["query_language"] or ""),
+            language_profile=row["language_profile"],
             generation_strategy=str(row["generation_strategy"]),
             target_chunk_ids=list(row["target_chunk_ids"] or []),
             target_doc_id=str(row["target_doc_id"]),
@@ -545,6 +569,253 @@ def _delete_existing_snapshot_memory_entries(
     if row is None:
         return 0
     return int(row["deleted_count"] or 0)
+
+
+def _load_glossary_term_candidates(
+    connection: psycopg.Connection[Any],
+    *,
+    document_ids: set[str] | None = None,
+) -> dict[str, list[dict[str, Any]]]:
+    candidates_by_doc: dict[str, list[dict[str, Any]]] = {}
+    selected_document_ids = sorted(document_ids or [])
+    if document_ids is not None and not selected_document_ids:
+        return candidates_by_doc
+    with connection.cursor() as cursor:
+        if selected_document_ids:
+            cursor.execute(
+                """
+                SELECT term_id,
+                       first_seen_document_id,
+                       canonical_form,
+                       normalized_form,
+                       term_type,
+                       is_active
+                FROM corpus_glossary_terms
+                WHERE is_active = TRUE
+                  AND first_seen_document_id = ANY(%s)
+                ORDER BY evidence_count DESC, canonical_form, term_id
+                """,
+                (selected_document_ids,),
+            )
+        else:
+            cursor.execute(
+                """
+                SELECT term_id,
+                       first_seen_document_id,
+                       canonical_form,
+                       normalized_form,
+                       term_type,
+                       is_active
+                FROM corpus_glossary_terms
+                WHERE is_active = TRUE
+                  AND first_seen_document_id IS NOT NULL
+                ORDER BY evidence_count DESC, canonical_form, term_id
+                """
+            )
+        for row in cursor.fetchall():
+            document_id = str(row["first_seen_document_id"])
+            candidates_by_doc.setdefault(document_id, []).append(
+                {
+                    "term_id": str(row["term_id"]),
+                    "canonical_form": str(row["canonical_form"]),
+                    "normalized_form": str(row["normalized_form"] or ""),
+                    "term_type": str(row["term_type"]),
+                    "is_active": bool(row["is_active"]),
+                }
+            )
+    return candidates_by_doc
+
+
+def _canonical_mapping_table_available(connection: Any | None) -> bool:
+    if connection is None or not hasattr(connection, "cursor"):
+        return False
+    try:
+        with connection.transaction():
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT to_regclass('canonical_anchor_mapping')")
+                row = cursor.fetchone()
+    except Exception:
+        LOGGER.warning(
+            "Canonical anchor mapping table availability check failed; continuing without mapping lookup.",
+            exc_info=True,
+        )
+        return False
+    if row is None:
+        return False
+    if isinstance(row, dict):
+        return row.get("to_regclass") is not None
+    return row[0] is not None
+
+
+def _canonical_alias_language(*, query_language: str, language_profile: str | None) -> str:
+    if str(language_profile or "").strip().lower() == "code_mixed":
+        return "und"
+    language = str(query_language or "").strip().lower()
+    if language in {"en", "ko"}:
+        return language
+    return "und"
+
+
+def _candidate_items_for_glossary_terms(
+    *,
+    glossary_terms: list[str],
+    glossary_term_candidates: list[dict[str, Any]],
+    alias_language: str,
+) -> list[dict[str, Any]]:
+    candidates_by_form: dict[str, list[dict[str, Any]]] = {}
+    for candidate in glossary_term_candidates:
+        canonical_form = str(candidate.get("canonical_form") or "").strip()
+        term_type = str(candidate.get("term_type") or "").strip()
+        if not canonical_form or not term_type:
+            continue
+        candidates_by_form.setdefault(canonical_form, []).append(candidate)
+
+    items: list[dict[str, Any]] = []
+    seen: set[tuple[str, str]] = set()
+    for term in glossary_terms:
+        display_term = str(term or "").strip()
+        if not display_term:
+            continue
+        for candidate in candidates_by_form.get(display_term, []):
+            term_type = str(candidate.get("term_type") or "").strip()
+            key = (display_term, term_type)
+            if not term_type or key in seen:
+                continue
+            seen.add(key)
+            items.append(
+                {
+                    "alias_text": display_term,
+                    "alias_language": alias_language,
+                    "term_type": term_type,
+                    "source_field": "glossary_terms",
+                }
+            )
+    return items
+
+
+def _empty_memory_canonical_anchor_payload(
+    *,
+    memory_id: str,
+    synthetic_query_id: str,
+    source_gated_query_id: str,
+    query_language: str,
+    language_profile: str | None,
+    generation_strategy: str,
+) -> dict[str, Any]:
+    return resolve_canonical_anchors(
+        [],
+        mapping_version=ANCHOR_MAPPING_VERSION,
+        normalization_version=ANCHOR_NORMALIZATION_VERSION,
+        source_context={
+            "kind": "memory_entry",
+            "source_id": memory_id,
+            "source_field": "query",
+            "synthetic_query_id": synthetic_query_id,
+            "source_gated_query_id": source_gated_query_id,
+            "query_language": query_language,
+            "language_profile": language_profile,
+            "generation_strategy": generation_strategy,
+        },
+    )
+
+
+def _build_memory_canonical_anchor_payload(
+    *,
+    connection: Any | None,
+    memory_id: str,
+    source_gated_query_id: str,
+    synthetic_query_id: str,
+    query_language: str,
+    language_profile: str | None,
+    generation_strategy: str,
+    glossary_terms: list[str],
+    glossary_term_candidates: list[dict[str, Any]] | None,
+) -> dict[str, Any]:
+    candidates = list(glossary_term_candidates or [])
+    alias_language = _canonical_alias_language(
+        query_language=query_language,
+        language_profile=language_profile,
+    )
+    items = _candidate_items_for_glossary_terms(
+        glossary_terms=glossary_terms,
+        glossary_term_candidates=candidates,
+        alias_language=alias_language,
+    )
+    source_context = {
+        "kind": "memory_entry",
+        "source_id": memory_id,
+        "source_field": "query",
+        "synthetic_query_id": synthetic_query_id,
+        "source_gated_query_id": source_gated_query_id,
+        "query_language": query_language,
+        "language_profile": language_profile,
+        "generation_strategy": generation_strategy,
+    }
+    try:
+        if connection is not None:
+            with connection.transaction():
+                return resolve_canonical_anchors(
+                    items,
+                    connection=connection,
+                    mapping_version=ANCHOR_MAPPING_VERSION,
+                    normalization_version=ANCHOR_NORMALIZATION_VERSION,
+                    source_context=source_context,
+                    fallback_term_candidates=candidates,
+                )
+        return resolve_canonical_anchors(
+            items,
+            connection=None,
+            mapping_version=ANCHOR_MAPPING_VERSION,
+            normalization_version=ANCHOR_NORMALIZATION_VERSION,
+            source_context=source_context,
+            fallback_term_candidates=candidates,
+        )
+    except Exception:
+        LOGGER.warning(
+            "Canonical anchor resolution failed for memory_id=%s; storing empty fail-closed payload.",
+            memory_id,
+            exc_info=True,
+        )
+        return _empty_memory_canonical_anchor_payload(
+            memory_id=memory_id,
+            synthetic_query_id=synthetic_query_id,
+            source_gated_query_id=source_gated_query_id,
+            query_language=query_language,
+            language_profile=language_profile,
+            generation_strategy=generation_strategy,
+        )
+
+
+def _with_canonical_anchor_metadata(
+    metadata: dict[str, Any],
+    *,
+    connection: Any | None,
+    memory_id: str,
+    source_gated_query_id: str,
+    synthetic_query_id: str,
+    query_language: str,
+    language_profile: str | None,
+    generation_strategy: str,
+    glossary_terms: list[str],
+    glossary_term_candidates: list[dict[str, Any]] | None,
+) -> dict[str, Any]:
+    canonical_anchors = _build_memory_canonical_anchor_payload(
+        connection=connection,
+        memory_id=memory_id,
+        source_gated_query_id=source_gated_query_id,
+        synthetic_query_id=synthetic_query_id,
+        query_language=query_language,
+        language_profile=language_profile,
+        generation_strategy=generation_strategy,
+        glossary_terms=glossary_terms,
+        glossary_term_candidates=glossary_term_candidates,
+    )
+    return {
+        **metadata,
+        "canonical_anchors": canonical_anchors,
+        "anchor_mapping_version": ANCHOR_MAPPING_VERSION,
+        "anchor_normalization_version": ANCHOR_NORMALIZATION_VERSION,
+    }
 
 
 def _upsert_query_embedding(
@@ -675,6 +946,7 @@ def run_memory_build(
         summary_embedding_model = retriever_config.dense_embedding_model
         retrieval_backend = str(config.raw.get("retrieval_backend") or "local").strip().lower().replace("-", "_")
         require_real_dense = retrieval_backend == "db_ann"
+        canonical_mapping_connection = connection if _canonical_mapping_table_available(connection) else None
         memory_embedding_fallback_used = False
         stage_cutoff_enabled = bool(config.raw.get("stage_cutoff_enabled", False))
         stage_cutoff_level = _normalize_stage_cutoff_level(str(config.raw.get("stage_cutoff_level") or config.gating_preset))
@@ -759,6 +1031,10 @@ def run_memory_build(
                     )
             built_by_snapshot[preset] = len(rows)
             total_rows += len(rows)
+            glossary_term_candidates_by_doc = _load_glossary_term_candidates(
+                connection,
+                document_ids={row.target_doc_id for row in rows},
+            )
             deleted_rows = _delete_existing_snapshot_memory_entries(
                 connection,
                 preset=preset,
@@ -780,6 +1056,30 @@ def run_memory_build(
                     raise RuntimeError("db-ann memory build must not fall back to hash-embedding-v1")
                 summary_embedding_model = embedding_model
                 embedding_literal = embedding_to_halfvec_literal(embedding)
+                memory_metadata = _with_canonical_anchor_metadata(
+                    {
+                        "gating_preset": preset,
+                        "source_gate_run_id": resolved_source_run_id,
+                        "source_gating_batch_id": source_batch_id,
+                        "stage_cutoff_enabled": stage_cutoff_enabled,
+                        "stage_cutoff_level": stage_cutoff_level if stage_cutoff_enabled else None,
+                        "stage_cutoff_source_gating_batch_id": source_batch_id if stage_cutoff_enabled else None,
+                        "memory_build_run_id": run_context.experiment_run_id,
+                        "memory_experiment_key": config.experiment_key,
+                        "embedding_model": embedding_model,
+                        "retrieval_backend": retrieval_backend,
+                        "fallback_used": fallback_used,
+                    },
+                    connection=canonical_mapping_connection,
+                    memory_id=memory_id,
+                    source_gated_query_id=row.gated_query_id,
+                    synthetic_query_id=row.synthetic_query_id,
+                    query_language=row.query_language,
+                    language_profile=row.language_profile,
+                    generation_strategy=row.generation_strategy,
+                    glossary_terms=row.glossary_terms,
+                    glossary_term_candidates=glossary_term_candidates_by_doc.get(row.target_doc_id, []),
+                )
                 with connection.cursor() as cursor:
                     cursor.execute(
                         """
@@ -839,21 +1139,7 @@ def run_memory_build(
                             row.prompt_version,
                             row.prompt_hash,
                             embedding_literal,
-                            Jsonb(
-                                {
-                                    "gating_preset": preset,
-                                    "source_gate_run_id": resolved_source_run_id,
-                                    "source_gating_batch_id": source_batch_id,
-                                    "stage_cutoff_enabled": stage_cutoff_enabled,
-                                    "stage_cutoff_level": stage_cutoff_level if stage_cutoff_enabled else None,
-                                    "stage_cutoff_source_gating_batch_id": source_batch_id if stage_cutoff_enabled else None,
-                                    "memory_build_run_id": run_context.experiment_run_id,
-                                    "memory_experiment_key": config.experiment_key,
-                                    "embedding_model": embedding_model,
-                                    "retrieval_backend": retrieval_backend,
-                                    "fallback_used": fallback_used,
-                                }
-                            ),
+                            Jsonb(memory_metadata),
                         ),
                     )
 
