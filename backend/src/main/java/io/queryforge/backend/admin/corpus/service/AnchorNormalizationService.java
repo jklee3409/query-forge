@@ -32,6 +32,9 @@ public class AnchorNormalizationService {
     private static final String NORMALIZATION_VERSION = "anchor-normalize-v1";
     private static final String RUNTIME_SCHEMA_VERSION = "canonical-anchor-runtime-v1";
     private static final String REPORT_SCHEMA_VERSION = "canonical-anchor-normalization-review-v1";
+    private static final String REVIEW_DECISION_PENDING = "pending";
+    private static final String REVIEW_DECISION_APPROVE = "approve";
+    private static final String REVIEW_DECISION_SKIP = "skip";
     private static final Pattern WHITESPACE = Pattern.compile("\\s+");
     private static final Pattern JAVA_IDENTIFIER = Pattern.compile("[A-Za-z_$][A-Za-z0-9_$]*");
     private static final Pattern HANGUL_BETWEEN_SPACE = Pattern.compile("(?<=[\\uAC00-\\uD7A3])\\s+(?=[\\uAC00-\\uD7A3])");
@@ -74,10 +77,23 @@ public class AnchorNormalizationService {
 
     public List<CorpusAdminDtos.AnchorNormalizationRunSummary> listRuns(Integer limit, Integer offset) {
         String sql = """
-                SELECT run_id, run_name, status, summary_json::text AS summary_json, source_scope_json::text AS source_scope_json,
-                       applied_update_count, created_by, reviewed_by, created_at, updated_at, reviewed_at, applied_at
-                FROM anchor_normalization_run
-                ORDER BY created_at DESC
+                SELECT r.run_id, r.run_name, r.status, r.summary_json::text AS summary_json, r.source_scope_json::text AS source_scope_json,
+                       r.applied_update_count, r.created_by, r.reviewed_by, r.created_at, r.updated_at, r.reviewed_at, r.applied_at,
+                       COALESCE(review_stats.review_approved_count, 0) AS review_approved_count,
+                       COALESCE(review_stats.review_skipped_count, 0) AS review_skipped_count,
+                       COALESCE(review_stats.review_pending_count, 0) AS review_pending_count
+                FROM anchor_normalization_run r
+                LEFT JOIN LATERAL (
+                    SELECT COUNT(*) FILTER (WHERE c.review_decision = 'approve') AS review_approved_count,
+                           COUNT(*) FILTER (WHERE c.review_decision = 'skip') AS review_skipped_count,
+                           COUNT(*) FILTER (
+                               WHERE c.resolution_status <> 'unchanged'
+                                 AND c.review_decision = 'pending'
+                           ) AS review_pending_count
+                    FROM anchor_normalization_candidate c
+                    WHERE c.run_id = r.run_id
+                ) review_stats ON TRUE
+                ORDER BY r.created_at DESC
                 LIMIT :limit OFFSET :offset
                 """;
         return jdbcTemplate.query(
@@ -97,21 +113,64 @@ public class AnchorNormalizationService {
     }
 
     @Transactional
+    public CorpusAdminDtos.AnchorNormalizationCandidateDto reviewCandidate(
+            UUID runId,
+            UUID candidateId,
+            CorpusAdminDtos.AnchorNormalizationCandidateReviewRequest request
+    ) {
+        CorpusAdminDtos.AnchorNormalizationRunSummary run = getRun(runId);
+        ensurePendingReview(run, runId);
+        String decision = normalizeReviewDecision(request == null ? null : request.decision());
+        String reviewedBy = blankToDefault(request == null ? null : request.reviewedBy(), "admin-ui");
+        String note = trimToNull(request == null ? null : request.note());
+        return updateCandidateReview(runId, candidateId, decision, reviewedBy, note);
+    }
+
+    @Transactional
+    public CorpusAdminDtos.AnchorNormalizationRunDetail reviewCandidates(
+            UUID runId,
+            CorpusAdminDtos.AnchorNormalizationCandidateReviewBatchRequest request
+    ) {
+        CorpusAdminDtos.AnchorNormalizationRunSummary run = getRun(runId);
+        ensurePendingReview(run, runId);
+        List<CorpusAdminDtos.AnchorNormalizationCandidateDecision> decisions = request == null
+                ? List.of()
+                : request.decisions();
+        if (decisions == null || decisions.isEmpty()) {
+            return getRunDetail(runId);
+        }
+        String reviewedBy = blankToDefault(request.reviewedBy(), "admin-ui");
+        String batchNote = trimToNull(request.note());
+        for (CorpusAdminDtos.AnchorNormalizationCandidateDecision candidateDecision : decisions) {
+            if (candidateDecision == null || candidateDecision.candidateId() == null) {
+                continue;
+            }
+            String decision = normalizeReviewDecision(candidateDecision.decision());
+            String note = trimToNull(candidateDecision.note());
+            updateCandidateReview(
+                    runId,
+                    candidateDecision.candidateId(),
+                    decision,
+                    reviewedBy,
+                    note == null ? batchNote : note
+            );
+        }
+        return getRunDetail(runId);
+    }
+
+    @Transactional
     public CorpusAdminDtos.AnchorNormalizationRunSummary approve(
             UUID runId,
             CorpusAdminDtos.AnchorNormalizationReviewRequest request
     ) {
         CorpusAdminDtos.AnchorNormalizationRunSummary run = getRun(runId);
-        if (!"pending_review".equals(run.status())) {
-            throw new IllegalArgumentException("anchor normalization run is not pending_review: " + runId);
-        }
-        if (run.conflictCount() > 0 || run.invalidCount() > 0) {
-            throw new IllegalArgumentException("cannot approve run with conflict or invalid candidates: " + runId);
-        }
+        ensurePendingReview(run, runId);
         List<CorpusAdminDtos.AnchorNormalizationCandidateDto> candidates = findCandidates(runId);
+        validateCandidateReviewDecisions(runId, candidates);
         int applied = 0;
         for (CorpusAdminDtos.AnchorNormalizationCandidateDto candidate : candidates) {
-            if (!"would_update".equals(candidate.resolutionStatus())) {
+            if (!"would_update".equals(candidate.resolutionStatus())
+                    || !REVIEW_DECISION_APPROVE.equals(candidate.reviewDecision())) {
                 continue;
             }
             int updated = updateCanonicalColumns(candidate);
@@ -133,13 +192,85 @@ public class AnchorNormalizationService {
             CorpusAdminDtos.AnchorNormalizationReviewRequest request
     ) {
         CorpusAdminDtos.AnchorNormalizationRunSummary run = getRun(runId);
-        if (!"pending_review".equals(run.status())) {
-            throw new IllegalArgumentException("anchor normalization run is not pending_review: " + runId);
-        }
+        ensurePendingReview(run, runId);
         String reviewedBy = blankToDefault(request == null ? null : request.reviewedBy(), "admin-ui");
         String note = trimToNull(request == null ? null : request.note());
         updateRunReview(runId, "rejected", reviewedBy, note, 0);
         return getRun(runId);
+    }
+
+    private void ensurePendingReview(CorpusAdminDtos.AnchorNormalizationRunSummary run, UUID runId) {
+        if (!"pending_review".equals(run.status())) {
+            throw new IllegalArgumentException("anchor normalization run is not pending_review: " + runId);
+        }
+    }
+
+    private void validateCandidateReviewDecisions(
+            UUID runId,
+            List<CorpusAdminDtos.AnchorNormalizationCandidateDto> candidates
+    ) {
+        int pending = 0;
+        int invalidApprove = 0;
+        for (CorpusAdminDtos.AnchorNormalizationCandidateDto candidate : candidates) {
+            if (reviewRequired(candidate) && REVIEW_DECISION_PENDING.equals(candidate.reviewDecision())) {
+                pending += 1;
+            }
+            if (REVIEW_DECISION_APPROVE.equals(candidate.reviewDecision())
+                    && !"would_update".equals(candidate.resolutionStatus())) {
+                invalidApprove += 1;
+            }
+        }
+        if (pending > 0) {
+            throw new IllegalArgumentException("anchor normalization run has pending candidate reviews: " + runId);
+        }
+        if (invalidApprove > 0) {
+            throw new IllegalArgumentException("only would_update candidates can be approved: " + runId);
+        }
+    }
+
+    private boolean reviewRequired(CorpusAdminDtos.AnchorNormalizationCandidateDto candidate) {
+        return !"unchanged".equals(candidate.resolutionStatus());
+    }
+
+    private String normalizeReviewDecision(String decision) {
+        String normalized = blankToDefault(decision, REVIEW_DECISION_PENDING).toLowerCase(Locale.ROOT).trim();
+        if (!List.of(REVIEW_DECISION_PENDING, REVIEW_DECISION_APPROVE, REVIEW_DECISION_SKIP).contains(normalized)) {
+            throw new IllegalArgumentException("unsupported anchor normalization candidate review decision: " + decision);
+        }
+        return normalized;
+    }
+
+    private CorpusAdminDtos.AnchorNormalizationCandidateDto updateCandidateReview(
+            UUID runId,
+            UUID candidateId,
+            String decision,
+            String reviewedBy,
+            String note
+    ) {
+        CorpusAdminDtos.AnchorNormalizationCandidateDto candidate = findCandidate(runId, candidateId);
+        if (REVIEW_DECISION_APPROVE.equals(decision) && !"would_update".equals(candidate.resolutionStatus())) {
+            throw new IllegalArgumentException("only would_update candidates can be approved: " + candidateId);
+        }
+        String sql = """
+                UPDATE anchor_normalization_candidate
+                SET review_decision = :decision,
+                    reviewed_by = CASE WHEN :decision = 'pending' THEN NULL ELSE :reviewedBy END,
+                    review_note = CASE WHEN :decision = 'pending' THEN NULL ELSE :note END,
+                    reviewed_at = CASE WHEN :decision = 'pending' THEN NULL ELSE NOW() END
+                WHERE run_id = :runId
+                  AND candidate_id = :candidateId
+                """;
+        jdbcTemplate.update(sql, new MapSqlParameterSource()
+                .addValue("runId", runId)
+                .addValue("candidateId", candidateId)
+                .addValue("decision", decision)
+                .addValue("reviewedBy", reviewedBy)
+                .addValue("note", note));
+        jdbcTemplate.update(
+                "UPDATE anchor_normalization_run SET updated_at = NOW() WHERE run_id = :runId",
+                new MapSqlParameterSource("runId", runId)
+        );
+        return findCandidate(runId, candidateId);
     }
 
     private CandidateDraft buildCandidate(UUID runId, TargetAnchor target) {
@@ -367,10 +498,23 @@ public class AnchorNormalizationService {
 
     private CorpusAdminDtos.AnchorNormalizationRunSummary getRun(UUID runId) {
         String sql = """
-                SELECT run_id, run_name, status, summary_json::text AS summary_json, source_scope_json::text AS source_scope_json,
-                       applied_update_count, created_by, reviewed_by, created_at, updated_at, reviewed_at, applied_at
-                FROM anchor_normalization_run
-                WHERE run_id = :runId
+                SELECT r.run_id, r.run_name, r.status, r.summary_json::text AS summary_json, r.source_scope_json::text AS source_scope_json,
+                       r.applied_update_count, r.created_by, r.reviewed_by, r.created_at, r.updated_at, r.reviewed_at, r.applied_at,
+                       COALESCE(review_stats.review_approved_count, 0) AS review_approved_count,
+                       COALESCE(review_stats.review_skipped_count, 0) AS review_skipped_count,
+                       COALESCE(review_stats.review_pending_count, 0) AS review_pending_count
+                FROM anchor_normalization_run r
+                LEFT JOIN LATERAL (
+                    SELECT COUNT(*) FILTER (WHERE c.review_decision = 'approve') AS review_approved_count,
+                           COUNT(*) FILTER (WHERE c.review_decision = 'skip') AS review_skipped_count,
+                           COUNT(*) FILTER (
+                               WHERE c.resolution_status <> 'unchanged'
+                                 AND c.review_decision = 'pending'
+                           ) AS review_pending_count
+                    FROM anchor_normalization_candidate c
+                    WHERE c.run_id = r.run_id
+                ) review_stats ON TRUE
+                WHERE r.run_id = :runId
                 """;
         List<CorpusAdminDtos.AnchorNormalizationRunSummary> rows = jdbcTemplate.query(
                 sql,
@@ -383,11 +527,35 @@ public class AnchorNormalizationService {
         return rows.getFirst();
     }
 
+    private CorpusAdminDtos.AnchorNormalizationCandidateDto findCandidate(UUID runId, UUID candidateId) {
+        String sql = """
+                SELECT candidate_id, run_id, term_id, term_type, current_canonical_form, current_normalized_form,
+                       proposed_canonical_form, proposed_normalized_form, resolution_status, change_required,
+                       conflict_term_id, review_decision, reviewed_by, review_note,
+                       metadata_json::text AS metadata_json, reviewed_at, applied_at
+                FROM anchor_normalization_candidate
+                WHERE run_id = :runId
+                  AND candidate_id = :candidateId
+                """;
+        List<CorpusAdminDtos.AnchorNormalizationCandidateDto> rows = jdbcTemplate.query(
+                sql,
+                new MapSqlParameterSource()
+                        .addValue("runId", runId)
+                        .addValue("candidateId", candidateId),
+                candidateRowMapper()
+        );
+        if (rows.isEmpty()) {
+            throw new IllegalArgumentException("anchor normalization candidate not found: " + candidateId);
+        }
+        return rows.getFirst();
+    }
+
     private List<CorpusAdminDtos.AnchorNormalizationCandidateDto> findCandidates(UUID runId) {
         String sql = """
                 SELECT candidate_id, run_id, term_id, term_type, current_canonical_form, current_normalized_form,
                        proposed_canonical_form, proposed_normalized_form, resolution_status, change_required,
-                       conflict_term_id, metadata_json::text AS metadata_json, applied_at
+                       conflict_term_id, review_decision, reviewed_by, review_note,
+                       metadata_json::text AS metadata_json, reviewed_at, applied_at
                 FROM anchor_normalization_candidate
                 WHERE run_id = :runId
                 ORDER BY
@@ -468,6 +636,9 @@ public class AnchorNormalizationService {
                     summary.path("conflict_count").asInt(0),
                     summary.path("invalid_count").asInt(0),
                     rs.getInt("applied_update_count"),
+                    rs.getInt("review_approved_count"),
+                    rs.getInt("review_skipped_count"),
+                    rs.getInt("review_pending_count"),
                     rs.getString("created_by"),
                     rs.getString("reviewed_by"),
                     readJson(rs, "source_scope_json"),
@@ -492,7 +663,11 @@ public class AnchorNormalizationService {
                 rs.getString("resolution_status"),
                 rs.getBoolean("change_required"),
                 readUuid(rs, "conflict_term_id"),
+                rs.getString("review_decision"),
+                rs.getString("reviewed_by"),
+                rs.getString("review_note"),
                 readJson(rs, "metadata_json"),
+                readInstant(rs, "reviewed_at"),
                 readInstant(rs, "applied_at")
         );
     }

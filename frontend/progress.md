@@ -375,6 +375,14 @@ High-level progress tracking for the project.
 
 ---
 
+## [2026-05-19] Session Summary (Anchor Normalization Review UX)
+- What was done: Reworked the `/admin/pipeline` anchor normalization detail view into a candidate review modal with bulk decision save, quick safe-change approval marking, conflict/invalid skip marking, and save-and-approve action.
+- Key decisions: The modal hides unchanged candidates by default so operators review only actionable dry-run results after the full candidate pass is complete.
+- Issues encountered: `PipelinePage.jsx` targeted lint still reports only the pre-existing hook dependency warning.
+- Next steps: Smoke-test the review modal against a real pending run after backend restart/Flyway migration.
+
+---
+
 ## Notes
 - Keep this file concise
 - Only record important changes

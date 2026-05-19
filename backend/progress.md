@@ -451,6 +451,14 @@ High-level backend progress tracking.
 
 ---
 
+## [2026-05-19] Session Summary (Anchor Normalization Candidate Review API)
+- What was done: Added migration `V34` for anchor normalization candidate review decisions, exposed single/bulk candidate review endpoints, and changed run approval to apply only approved `would_update` candidates after all non-unchanged candidates are reviewed.
+- Key decisions: Conflict/invalid candidates can be explicitly skipped instead of blocking the whole run forever; approving conflict/invalid candidates remains rejected server-side.
+- Issues encountered: None; targeted corpus mutation integration tests pass.
+- Next steps: Apply Flyway migration in the runtime DB and smoke-test skip-then-approve on `anchor-normalize-255d113f`.
+
+---
+
 ## Notes
 - Keep this file concise.
 - Record only major backend changes.

@@ -339,6 +339,30 @@ public final class CorpusAdminDtos {
     ) {
     }
 
+    @Builder
+    public record AnchorNormalizationCandidateReviewRequest(
+            String decision,
+            String reviewedBy,
+            String note
+    ) {
+    }
+
+    @Builder
+    public record AnchorNormalizationCandidateDecision(
+            UUID candidateId,
+            String decision,
+            String note
+    ) {
+    }
+
+    @Builder
+    public record AnchorNormalizationCandidateReviewBatchRequest(
+            List<AnchorNormalizationCandidateDecision> decisions,
+            String reviewedBy,
+            String note
+    ) {
+    }
+
     public record AnchorNormalizationRunSummary(
             UUID runId,
             String runName,
@@ -349,6 +373,9 @@ public final class CorpusAdminDtos {
             int conflictCount,
             int invalidCount,
             int appliedUpdateCount,
+            int reviewApprovedCount,
+            int reviewSkippedCount,
+            int reviewPendingCount,
             String createdBy,
             String reviewedBy,
             JsonNode sourceScopeJson,
@@ -371,7 +398,11 @@ public final class CorpusAdminDtos {
             String resolutionStatus,
             boolean changeRequired,
             UUID conflictTermId,
+            String reviewDecision,
+            String reviewedBy,
+            String reviewNote,
             JsonNode metadataJson,
+            Instant reviewedAt,
             Instant appliedAt
     ) {
     }

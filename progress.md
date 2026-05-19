@@ -903,6 +903,14 @@ High-level progress tracking for the project.
 
 ---
 
+## [2026-05-19] Session Summary (Anchor Normalization Candidate Review)
+- What was done: Added candidate-level review decisions for Admin anchor normalization dry-runs, including bulk `approve`/`skip` persistence, save-and-approve UI flow, and static Admin bundle refresh.
+- Key decisions: Kept dry-run generation as a complete upfront pass; run approval now requires all changed/conflict/invalid candidates to be reviewed and applies only `would_update` candidates marked `approve`.
+- Issues encountered: The existing Admin pipeline page still has a pre-existing hook dependency lint warning; the touched page has no new lint errors.
+- Next steps: Restart the backend so Flyway applies `V34`, then review `anchor-normalize-255d113f` in `/admin/pipeline` by skipping the `http {` conflict or approving any safe candidates in future runs.
+
+---
+
 ## Notes
 - Keep this file concise
 - Only record important changes

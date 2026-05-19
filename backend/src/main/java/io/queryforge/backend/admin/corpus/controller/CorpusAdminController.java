@@ -265,6 +265,23 @@ public class CorpusAdminController {
         return anchorNormalizationService.getRunDetail(runId);
     }
 
+    @PostMapping("/anchors/normalization-runs/{runId}/candidates/{candidateId}/review")
+    public CorpusAdminDtos.AnchorNormalizationCandidateDto reviewAnchorNormalizationCandidate(
+            @PathVariable UUID runId,
+            @PathVariable UUID candidateId,
+            @RequestBody CorpusAdminDtos.AnchorNormalizationCandidateReviewRequest request
+    ) {
+        return anchorNormalizationService.reviewCandidate(runId, candidateId, request);
+    }
+
+    @PostMapping("/anchors/normalization-runs/{runId}/candidate-reviews")
+    public CorpusAdminDtos.AnchorNormalizationRunDetail reviewAnchorNormalizationCandidates(
+            @PathVariable UUID runId,
+            @RequestBody CorpusAdminDtos.AnchorNormalizationCandidateReviewBatchRequest request
+    ) {
+        return anchorNormalizationService.reviewCandidates(runId, request);
+    }
+
     @PostMapping("/anchors/normalization-runs/{runId}/approve")
     public CorpusAdminDtos.AnchorNormalizationRunSummary approveAnchorNormalizationRun(
             @PathVariable UUID runId,

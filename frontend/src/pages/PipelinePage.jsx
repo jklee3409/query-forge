@@ -4,6 +4,212 @@ import { SelectDropdown } from '../components/SelectDropdown.jsx'
 import { fmtTime, shortId } from '../lib/format.js'
 import { queryString, requestJson } from '../lib/api.js'
 
+function AnchorNormalizationReviewBody({ detail, onSaveReviews, onSaveAndApprove, onRejectRun }) {
+  const run = detail?.run || {}
+  const candidates = useMemo(
+    () => (Array.isArray(detail?.candidates) ? detail.candidates : []),
+    [detail?.candidates]
+  )
+  const [showUnchanged, setShowUnchanged] = useState(false)
+  const [reviewNote, setReviewNote] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [decisions, setDecisions] = useState(() =>
+    Object.fromEntries(candidates.map((candidate) => [
+      candidate.candidateId,
+      candidate.reviewDecision || 'pending',
+    ]))
+  )
+
+  const actionableCandidates = useMemo(
+    () => candidates.filter((candidate) => candidate.resolutionStatus !== 'unchanged'),
+    [candidates]
+  )
+
+  const visibleCandidates = useMemo(
+    () => (showUnchanged ? candidates : actionableCandidates),
+    [actionableCandidates, candidates, showUnchanged]
+  )
+
+  const reviewStats = useMemo(() => {
+    const pendingCount = actionableCandidates.filter((candidate) => (decisions[candidate.candidateId] || 'pending') === 'pending').length
+    const invalidApprovalCount = actionableCandidates.filter((candidate) =>
+      (decisions[candidate.candidateId] || 'pending') === 'approve' && candidate.resolutionStatus !== 'would_update'
+    ).length
+    const approvedCount = actionableCandidates.filter((candidate) => (decisions[candidate.candidateId] || 'pending') === 'approve').length
+    const skippedCount = actionableCandidates.filter((candidate) => (decisions[candidate.candidateId] || 'pending') === 'skip').length
+    const dirtyCount = actionableCandidates.filter((candidate) =>
+      (decisions[candidate.candidateId] || 'pending') !== (candidate.reviewDecision || 'pending')
+    ).length
+    return { pendingCount, invalidApprovalCount, approvedCount, skippedCount, dirtyCount }
+  }, [actionableCandidates, decisions])
+
+  const updateDecision = (candidateId, decision) => {
+    setDecisions((prev) => ({ ...prev, [candidateId]: decision }))
+  }
+
+  const markWouldUpdateApproved = () => {
+    setDecisions((prev) => {
+      const next = { ...prev }
+      actionableCandidates.forEach((candidate) => {
+        if (candidate.resolutionStatus === 'would_update') {
+          next[candidate.candidateId] = 'approve'
+        }
+      })
+      return next
+    })
+  }
+
+  const markUnsafeSkipped = () => {
+    setDecisions((prev) => {
+      const next = { ...prev }
+      actionableCandidates.forEach((candidate) => {
+        if (candidate.resolutionStatus === 'conflict' || candidate.resolutionStatus === 'invalid') {
+          next[candidate.candidateId] = 'skip'
+        }
+      })
+      return next
+    })
+  }
+
+  const resetActionable = () => {
+    setDecisions((prev) => {
+      const next = { ...prev }
+      actionableCandidates.forEach((candidate) => {
+        next[candidate.candidateId] = candidate.reviewDecision || 'pending'
+      })
+      return next
+    })
+  }
+
+  const buildReviewPayload = () =>
+    actionableCandidates.map((candidate) => ({
+      candidateId: candidate.candidateId,
+      decision: decisions[candidate.candidateId] || 'pending',
+      note: reviewNote || null,
+    }))
+
+  const saveReviews = async () => {
+    setSaving(true)
+    try {
+      await onSaveReviews(run.runId, buildReviewPayload(), reviewNote)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const saveAndApprove = async () => {
+    setSaving(true)
+    try {
+      await onSaveAndApprove(run.runId, buildReviewPayload(), reviewNote)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const rejectRun = async () => {
+    setSaving(true)
+    try {
+      await onRejectRun(run.runId)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const canApprove = run.status === 'pending_review'
+    && reviewStats.pendingCount === 0
+    && reviewStats.invalidApprovalCount === 0
+
+  return (
+    <div className="detail-grid detail-grid--single">
+      <div className="summary-grid">
+        <DetailCard label="Candidates" value={`${run.candidateCount ?? 0}`} mono={false} />
+        <DetailCard label="Changed" value={`${run.changedCount ?? 0}`} mono={false} />
+        <DetailCard label="Conflict / Invalid" value={`${run.conflictCount ?? 0} / ${run.invalidCount ?? 0}`} mono={false} />
+        <DetailCard label="Review pending" value={`${reviewStats.pendingCount}`} mono={false} />
+      </div>
+      <div className="filter-bar filter-bar--stack">
+        <div className="form-actions">
+          <button type="button" className="button button--ghost" onClick={markWouldUpdateApproved} disabled={saving || actionableCandidates.length === 0}>
+            Mark safe changes approve
+          </button>
+          <button type="button" className="button button--ghost" onClick={markUnsafeSkipped} disabled={saving || actionableCandidates.length === 0}>
+            Skip conflicts/invalid
+          </button>
+          <button type="button" className="button button--ghost" onClick={resetActionable} disabled={saving || reviewStats.dirtyCount === 0}>
+            Reset decisions
+          </button>
+          <label className="check-pill">
+            <input type="checkbox" checked={showUnchanged} onChange={(event) => setShowUnchanged(event.target.checked)} />
+            Show unchanged
+          </label>
+        </div>
+        <label className="filter-field filter-field--grow">
+          Review note
+          <input value={reviewNote} onChange={(event) => setReviewNote(event.target.value)} placeholder="optional note for saved decisions" />
+        </label>
+        <div className="form-actions">
+          <button type="button" className="button" onClick={saveReviews} disabled={saving || run.status !== 'pending_review' || actionableCandidates.length === 0 || reviewStats.invalidApprovalCount > 0}>
+            Save review decisions
+          </button>
+          <button type="button" className="button button--primary" onClick={saveAndApprove} disabled={saving || !canApprove}>
+            Save and approve run
+          </button>
+          {run.status === 'pending_review' && (
+            <button type="button" className="button button--ghost" onClick={rejectRun} disabled={saving}>
+              Reject run
+            </button>
+          )}
+        </div>
+        <div className="mono-text">
+          approve {reviewStats.approvedCount} · skip {reviewStats.skippedCount} · pending {reviewStats.pendingCount} · unsaved {reviewStats.dirtyCount}
+        </div>
+      </div>
+      <div className="table-wrap">
+        <table className="data-table">
+          <thead>
+            <tr><th>status</th><th>decision</th><th>current</th><th>proposed</th><th>term</th><th>conflict</th></tr>
+          </thead>
+          <tbody>
+            {visibleCandidates.map((candidate) => {
+              const decision = decisions[candidate.candidateId] || 'pending'
+              const disabled = candidate.resolutionStatus === 'unchanged' || run.status !== 'pending_review'
+              return (
+                <tr key={candidate.candidateId}>
+                  <td><StatusBadge value={candidate.resolutionStatus} /></td>
+                  <td>
+                    {disabled ? (
+                      <span className="plain-badge">{candidate.reviewDecision || '-'}</span>
+                    ) : (
+                      <select value={decision} onChange={(event) => updateDecision(candidate.candidateId, event.target.value)}>
+                        <option value="pending">pending</option>
+                        {candidate.resolutionStatus === 'would_update' && <option value="approve">approve</option>}
+                        <option value="skip">skip</option>
+                      </select>
+                    )}
+                  </td>
+                  <td>
+                    <div>{candidate.currentCanonicalForm}</div>
+                    <div className="mono-text">{candidate.currentNormalizedForm}</div>
+                  </td>
+                  <td>
+                    <div>{candidate.proposedCanonicalForm}</div>
+                    <div className="mono-text">{candidate.proposedNormalizedForm}</div>
+                  </td>
+                  <td>{candidate.termType} / {shortId(candidate.termId)}</td>
+                  <td>{candidate.conflictTermId ? shortId(candidate.conflictTermId) : '-'}</td>
+                </tr>
+              )
+            })}
+            {visibleCandidates.length === 0 && (
+              <tr><td colSpan={6}>No candidates require review.</td></tr>
+            )}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  )
+}
+
 export function PipelinePage({ notify }) {
   const runPageSize = 3
   const documentPageSize = 10
@@ -624,47 +830,77 @@ export function PipelinePage({ notify }) {
     }
   }
 
+  const saveAnchorNormalizationCandidateReviews = async (runId, decisions, note, approveAfter = false) => {
+    setAnchorNormalizationBusy(true)
+    try {
+      let detail = await requestJson(`/api/admin/corpus/anchors/normalization-runs/${runId}/candidate-reviews`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          reviewedBy: 'admin-ui',
+          note: note || 'reviewed from Anchors UI',
+          decisions,
+        }),
+      })
+      if (approveAfter) {
+        const confirmed = window.confirm('Saved candidate decisions will be applied now. Continue?')
+        if (!confirmed) {
+          showAnchorNormalizationRunDetail(detail)
+          return
+        }
+        await requestJson(`/api/admin/corpus/anchors/normalization-runs/${runId}/approve`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            reviewedBy: 'admin-ui',
+            note: note || 'approved after candidate review from Anchors UI',
+          }),
+        })
+        setModal(null)
+        notify('Anchor normalization run approved.')
+      } else {
+        detail = await requestJson(`/api/admin/corpus/anchors/normalization-runs/${runId}`)
+        showAnchorNormalizationRunDetail(detail)
+        notify('Anchor normalization review decisions saved.')
+      }
+      await Promise.all([
+        loadAnchorNormalizationRuns(),
+        loadAnchors(anchorFilters, anchorPage),
+      ])
+    } catch (error) {
+      notify(error.message, 'error')
+    } finally {
+      setAnchorNormalizationBusy(false)
+    }
+  }
+
+  const rejectAnchorNormalizationRunFromDetail = async (runId) => {
+    const confirmed = window.confirm('Reject this anchor normalization run?')
+    if (!confirmed) return
+    await reviewAnchorNormalizationRun(runId, 'reject')
+    setModal(null)
+  }
+
+  const showAnchorNormalizationRunDetail = (detail) => {
+    setModal({
+      title: `Anchor ?뺢퇋??쨌 ${detail.run.runName}`,
+      body: (
+        <AnchorNormalizationReviewBody
+          key={`${detail.run.runId}-${detail.run.updatedAt}-${detail.run.reviewApprovedCount}-${detail.run.reviewSkippedCount}-${detail.run.reviewPendingCount}`}
+          detail={detail}
+          onSaveReviews={(runId, decisions, note) => saveAnchorNormalizationCandidateReviews(runId, decisions, note, false)}
+          onSaveAndApprove={(runId, decisions, note) => saveAnchorNormalizationCandidateReviews(runId, decisions, note, true)}
+          onRejectRun={rejectAnchorNormalizationRunFromDetail}
+        />
+      ),
+    })
+  }
+
   const openAnchorNormalizationRunDetail = async (runId) => {
     setAnchorNormalizationDetailBusy(true)
     try {
       const detail = await requestJson(`/api/admin/corpus/anchors/normalization-runs/${runId}`)
-      const candidates = Array.isArray(detail.candidates) ? detail.candidates : []
-      setModal({
-        title: `Anchor 정규화 · ${detail.run.runName}`,
-        body: (
-          <div className="detail-grid detail-grid--single">
-            <DetailCard label="Summary" value={JSON.stringify(detail.run.summaryJson || {}, null, 2)} />
-            <DetailCard label="Source Scope" value={JSON.stringify(detail.run.sourceScopeJson || {}, null, 2)} />
-            <div className="table-wrap">
-              <table className="data-table">
-                <thead>
-                  <tr><th>status</th><th>current</th><th>proposed</th><th>term</th><th>conflict</th></tr>
-                </thead>
-                <tbody>
-                  {candidates.slice(0, 80).map((candidate) => (
-                    <tr key={candidate.candidateId}>
-                      <td><StatusBadge status={candidate.resolutionStatus} /></td>
-                      <td>
-                        <div>{candidate.currentCanonicalForm}</div>
-                        <div className="mono-text">{candidate.currentNormalizedForm}</div>
-                      </td>
-                      <td>
-                        <div>{candidate.proposedCanonicalForm}</div>
-                        <div className="mono-text">{candidate.proposedNormalizedForm}</div>
-                      </td>
-                      <td>{candidate.termType} / {shortId(candidate.termId)}</td>
-                      <td>{candidate.conflictTermId ? shortId(candidate.conflictTermId) : '-'}</td>
-                    </tr>
-                  ))}
-                  {candidates.length === 0 && (
-                    <tr><td colSpan={5}>No candidates.</td></tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        ),
-      })
+      showAnchorNormalizationRunDetail(detail)
     } catch (error) {
       notify(error.message, 'error')
     } finally {
@@ -971,7 +1207,7 @@ export function PipelinePage({ notify }) {
                     <div>{run.runName}</div>
                     <div className="mono-text">{shortId(run.runId)}</div>
                   </td>
-                  <td><StatusBadge status={run.status} /></td>
+                  <td><StatusBadge value={run.status} /></td>
                   <td>
                     <div>{run.relationVersion || '-'}</div>
                     <div className="mono-text">min {Number(run.minRelationScore || 0).toFixed(2)}</div>
@@ -1159,6 +1395,7 @@ export function PipelinePage({ notify }) {
                   <td><StatusBadge status={run.status} /></td>
                   <td>
                     changed {run.changedCount ?? 0} / unchanged {run.unchangedCount ?? 0}
+                    <div className="mono-text">review approve {run.reviewApprovedCount ?? 0} / skip {run.reviewSkippedCount ?? 0} / pending {run.reviewPendingCount ?? 0}</div>
                     <div className="mono-text">conflict {run.conflictCount ?? 0} · invalid {run.invalidCount ?? 0}</div>
                   </td>
                   <td>{run.appliedUpdateCount ?? 0}</td>
@@ -1171,7 +1408,7 @@ export function PipelinePage({ notify }) {
                           <button
                             type="button"
                             className="button button--primary"
-                            disabled={anchorNormalizationBusy || (run.conflictCount ?? 0) > 0 || (run.invalidCount ?? 0) > 0}
+                            disabled={anchorNormalizationBusy || (run.reviewPendingCount ?? 0) > 0}
                             onClick={() => reviewAnchorNormalizationRun(run.runId, 'approve')}
                           >
                             승인

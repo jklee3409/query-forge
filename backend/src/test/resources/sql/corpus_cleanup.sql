@@ -1,4 +1,6 @@
 TRUNCATE TABLE
+    anchor_normalization_candidate,
+    anchor_normalization_run,
     corpus_glossary_evidence,
     corpus_glossary_aliases,
     corpus_glossary_terms,

@@ -15,6 +15,9 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.utility.DockerImageName;
 
+import java.util.UUID;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.hamcrest.Matchers.greaterThanOrEqualTo;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
@@ -170,6 +173,173 @@ class CorpusAdminMutationIntegrationTest {
                 .andExpect(jsonPath("$.candidateCount").value(1))
                 .andExpect(jsonPath("$.unchangedCount").value(1))
                 .andExpect(jsonPath("$.sourceScopeJson.keyword").value("Value"));
+    }
+
+    @Test
+    void anchorNormalizationCandidateReviewCanSkipConflictBeforeRunApproval() throws Exception {
+        jdbcTemplate.update("""
+                INSERT INTO corpus_glossary_terms (
+                    term_id, canonical_form, normalized_form, term_type, keep_in_english, description_short,
+                    source_confidence, first_seen_document_id, first_seen_chunk_id, evidence_count, is_active,
+                    import_run_id, metadata_json
+                ) VALUES (
+                    '66666666-6666-6666-6666-666666666661',
+                    'Value}',
+                    'value}',
+                    'annotation',
+                    TRUE,
+                    'Conflicting punctuation variant.',
+                    0.8,
+                    'doc_fixture_1',
+                    'chk_fixture_2',
+                    1,
+                    TRUE,
+                    '11111111-1111-1111-1111-111111111111',
+                    '{}'::jsonb
+                )
+                """);
+
+        mockMvc.perform(post("/api/admin/corpus/anchors/normalization-runs")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "keyword": "Value",
+                                  "activeOnly": true,
+                                  "limit": 10
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.conflictCount").value(1))
+                .andExpect(jsonPath("$.reviewPendingCount").value(1));
+
+        UUID runId = jdbcTemplate.queryForObject("""
+                SELECT run_id
+                FROM anchor_normalization_run
+                ORDER BY created_at DESC
+                LIMIT 1
+                """, UUID.class);
+        UUID conflictCandidateId = jdbcTemplate.queryForObject("""
+                SELECT candidate_id
+                FROM anchor_normalization_candidate
+                WHERE run_id = ?
+                  AND resolution_status = 'conflict'
+                """, UUID.class, runId);
+
+        mockMvc.perform(post("/api/admin/corpus/anchors/normalization-runs/{runId}/candidate-reviews", runId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "reviewedBy": "test-admin",
+                                  "decisions": [
+                                    {
+                                      "candidateId": "%s",
+                                      "decision": "skip",
+                                      "note": "duplicate with canonical @Value"
+                                    }
+                                  ]
+                                }
+                                """.formatted(conflictCandidateId)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.run.reviewSkippedCount").value(1))
+                .andExpect(jsonPath("$.run.reviewPendingCount").value(0));
+
+        mockMvc.perform(post("/api/admin/corpus/anchors/normalization-runs/{runId}/approve", runId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "reviewedBy": "test-admin",
+                                  "note": "approved after skipping conflict"
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("approved"))
+                .andExpect(jsonPath("$.appliedUpdateCount").value(0));
+    }
+
+    @Test
+    void anchorNormalizationCandidateReviewAppliesApprovedWouldUpdateOnly() throws Exception {
+        jdbcTemplate.update("""
+                INSERT INTO corpus_glossary_terms (
+                    term_id, canonical_form, normalized_form, term_type, keep_in_english, description_short,
+                    source_confidence, first_seen_document_id, first_seen_chunk_id, evidence_count, is_active,
+                    import_run_id, metadata_json
+                ) VALUES (
+                    '66666666-6666-6666-6666-666666666662',
+                    'http {',
+                    'http {',
+                    'cli',
+                    TRUE,
+                    'CLI punctuation variant.',
+                    0.8,
+                    'doc_fixture_1',
+                    'chk_fixture_2',
+                    1,
+                    TRUE,
+                    '11111111-1111-1111-1111-111111111111',
+                    '{}'::jsonb
+                )
+                """);
+
+        mockMvc.perform(post("/api/admin/corpus/anchors/normalization-runs")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "keyword": "http",
+                                  "activeOnly": true,
+                                  "limit": 10
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.changedCount").value(1))
+                .andExpect(jsonPath("$.reviewPendingCount").value(1));
+
+        UUID runId = jdbcTemplate.queryForObject("""
+                SELECT run_id
+                FROM anchor_normalization_run
+                ORDER BY created_at DESC
+                LIMIT 1
+                """, UUID.class);
+        UUID candidateId = jdbcTemplate.queryForObject("""
+                SELECT candidate_id
+                FROM anchor_normalization_candidate
+                WHERE run_id = ?
+                  AND resolution_status = 'would_update'
+                """, UUID.class, runId);
+
+        mockMvc.perform(post("/api/admin/corpus/anchors/normalization-runs/{runId}/candidate-reviews", runId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "reviewedBy": "test-admin",
+                                  "decisions": [
+                                    {
+                                      "candidateId": "%s",
+                                      "decision": "approve"
+                                    }
+                                  ]
+                                }
+                                """.formatted(candidateId)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.run.reviewApprovedCount").value(1))
+                .andExpect(jsonPath("$.run.reviewPendingCount").value(0));
+
+        mockMvc.perform(post("/api/admin/corpus/anchors/normalization-runs/{runId}/approve", runId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "reviewedBy": "test-admin"
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("approved"))
+                .andExpect(jsonPath("$.appliedUpdateCount").value(1));
+
+        String canonicalForm = jdbcTemplate.queryForObject("""
+                SELECT canonical_form
+                FROM corpus_glossary_terms
+                WHERE term_id = '66666666-6666-6666-6666-666666666662'
+                """, String.class);
+        assertEquals("http", canonicalForm);
     }
 
     @Test
