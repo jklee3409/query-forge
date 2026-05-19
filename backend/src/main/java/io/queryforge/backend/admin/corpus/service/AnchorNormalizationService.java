@@ -237,10 +237,10 @@ public class AnchorNormalizationService {
                 WHERE 1=1
                 """);
         if (activeOnly) {
-            sql.append(" AND gt.is_active = TRUE");
+            sql.append(" AND gt.is_active = TRUE\n");
         }
         if (keyword != null && !keyword.isBlank()) {
-            sql.append(" AND gt.canonical_form ILIKE :keyword");
+            sql.append(" AND gt.canonical_form ILIKE :keyword\n");
             params.addValue("keyword", "%" + keyword.trim() + "%");
         }
         if ((documentId != null && !documentId.isBlank()) || (chunkId != null && !chunkId.isBlank())) {

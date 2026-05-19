@@ -155,6 +155,24 @@ class CorpusAdminMutationIntegrationTest {
     }
 
     @Test
+    void anchorNormalizationDryRunEndpointCreatesReviewRun() throws Exception {
+        mockMvc.perform(post("/api/admin/corpus/anchors/normalization-runs")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "keyword": "Value",
+                                  "activeOnly": true,
+                                  "limit": 10
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("pending_review"))
+                .andExpect(jsonPath("$.candidateCount").value(1))
+                .andExpect(jsonPath("$.unchangedCount").value(1))
+                .andExpect(jsonPath("$.sourceScopeJson.keyword").value("Value"));
+    }
+
+    @Test
     void sourceAutoRegisterFromUrlWorks() throws Exception {
         mockMvc.perform(post("/api/admin/corpus/sources/auto-register")
                         .contentType(MediaType.APPLICATION_JSON)

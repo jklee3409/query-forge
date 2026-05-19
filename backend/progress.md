@@ -3,6 +3,12 @@
 ## Overview
 High-level backend progress tracking.
 
+## [2026-05-19] Session Summary (Anchor Normalization Dry-Run SQL Fix)
+- What was done: Fixed `AnchorNormalizationService.findTargets` SQL assembly so optional `activeOnly` and `keyword` predicates remain separated from the following `ORDER BY`, resolving the Admin anchor normalization dry-run 500.
+- Key decisions: Kept the endpoint contract and review-table schema unchanged and added a targeted `CorpusAdminMutationIntegrationTest` case for `POST /api/admin/corpus/anchors/normalization-runs`.
+- Issues encountered: PostgreSQL logged `syntax error at or near "BY"` from `gt.is_active = TRUEORDER BY ...`; targeted integration test passed and live 8080 smoke succeeded after backend restart.
+- Next steps: Browser-smoke the Anchors normalization history/detail/approve/reject UI with real operator filters.
+
 ## [2026-05-19] Session Summary (Anchor Normalization Review APIs)
 - What was done: Added `V32__add_anchor_normalization_review_tables.sql`, `AnchorNormalizationService`, and Admin corpus endpoints for anchor normalization dry-run history, detail, approve, and reject.
 - Key decisions: Approval updates only `corpus_glossary_terms.canonical_form` and `normalized_form` for conflict-free candidates. It does not update evidence, synthetic links, synthetic raw data, memory entries, or mapping rows. Migration was added but not applied.

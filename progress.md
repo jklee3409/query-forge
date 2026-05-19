@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-05-19] Session Summary (Anchor Normalization Dry-Run 500 Fix)
+- What was done: Fixed `POST /api/admin/corpus/anchors/normalization-runs` dry-run creation by preserving whitespace between dynamically appended SQL predicates and `ORDER BY` in `AnchorNormalizationService.findTargets`.
+- Key decisions: Kept the Admin review flow, V32 schema, approval behavior, and frontend API contract unchanged; added focused backend integration coverage for dry-run creation.
+- Issues encountered: The production 500 was reproduced from PostgreSQL logs as `gt.is_active = TRUEORDER BY ...`. Targeted `.\gradlew.bat test --tests io.queryforge.backend.admin.corpus.CorpusAdminMutationIntegrationTest` passed, and a live 8080 smoke POST returned `pending_review` before the validation row was deleted.
+- Next steps: Browser-smoke the Anchors UI dry-run/detail controls after refreshing the page against the restarted backend.
+
 ## [2026-05-19] Session Summary (Canonical Anchor Rewrite Prompt Hints)
 - What was done: Added compact `canonical_anchor_hints` injection to selective rewrite prompt payloads when `rewrite_anchor_injection_enabled=true`, using only approved/self-fallback `used_for_scoring=true` canonical anchors from top memory metadata.
 - Key decisions: Kept full `canonical_anchors` metadata out of `top_memory_candidates`, did not expose `canonical_term_id` in the LLM prompt, and did not change query text, dense query text, memory query text, raw synthetic payloads, glossary rows, retrieval/scoring expansion, pipeline order, or DB migrations.
