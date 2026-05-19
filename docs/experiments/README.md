@@ -20,6 +20,8 @@
   - Langfuse tracing schema (required tags/metadata), sampling policy, and quota guardrails
 - `langfuse_dashboard_template.md`
   - Langfuse dashboard template for quality + performance monitoring in RAG evaluation runs
+- `canonical_anchor_backfill_dry_run.md`
+  - Canonical Anchor Mapping dry-run report, manual review, version pinning, and no-overwrite policy
 - `first_baseline_template.md`
   - 첫 baseline 결과 기록 템플릿
 

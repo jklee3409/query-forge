@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-05-19] Session Summary (Canonical Anchor Backfill Dry-Run Documentation)
+- What was done: Added a canonical anchor backfill dry-run policy document covering report schema, manual review, version pinning, reproducibility, and explicit no-overwrite/no-DB-write constraints.
+- Key decisions: Kept Session 12 documentation-only. Did not apply V31, insert mapping rows, run backfill, execute official evaluation, or add a pipeline writer before the review policy is accepted.
+- Issues encountered: No tests were run because only Markdown documentation and progress/index links changed.
+- Next steps: If approved, add a read-only dry-run report writer that emits JSON/Markdown artifacts without DB writes or automatic alias merge.
+
 ## [2026-05-19] Session Summary (Canonical Anchor Version Pins + Admin Display)
 - What was done: Added canonical anchor version pins (`anchor-map-v1`, `anchor-normalize-v1`, `canonical-anchor-runtime-v1`) to Admin RAG configs, RAG experiment records, RAG metrics payloads, and retrieval/answer report summaries. Admin RAG detail now renders memory candidate canonical anchor metadata with canonical form, alias, confidence, status, language, type, and scoring/review distinction.
 - Key decisions: Kept changes additive in JSON/config/report/UI payloads only. `query_text`, dense query text, memory query text, raw synthetic payload semantics, pipeline order, V31 migration state, mapping rows, and LLM rewrite prompt exposure were not changed.

@@ -3,6 +3,12 @@
 ## Overview
 High-level progress tracking for the `docs` directory.
 
+## [2026-05-19] Session Summary (Canonical Anchor Backfill Dry-Run Policy)
+- What was done: Added `docs/experiments/canonical_anchor_backfill_dry_run.md` and linked it from the experiment/docs indexes.
+- Key decisions: Documented dry-run-only report scope, version pins, manual review flow, snapshot/source identity requirements, and no-overwrite/no-DB-write rules without adding a pipeline tool.
+- Issues encountered: No tests were run because this was a documentation-only change.
+- Next steps: Add a read-only report writer only after the report schema and review policy are accepted.
+
 ## [2026-05-04] Session Summary (Docs Structure/API/UI Sync with Current Runtime)
 - What was done: Updated docs across `docs/ui`, `docs/architecture`, `docs/api`, and `docs/experiments` to replace legacy route/structure assumptions with current runtime behavior (React admin routes, strategy `E`, anchor admin APIs, warning-aware orchestration model).
 - Key decisions: Prioritized implementation-aligned corrections over broad editorial rewrites so the docs can be used as operational references immediately.

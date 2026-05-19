@@ -16,6 +16,7 @@ Key experiment docs:
 - `experiments/monitoring_trace.md`
 - `experiments/langfuse_event_schema.md`
 - `experiments/langfuse_dashboard_template.md`
+- `experiments/canonical_anchor_backfill_dry_run.md`
 - `experiments/first_baseline_template.md`
 - `experiments/latest_report.md`
 - `experiments/latest_answer_report.md`
