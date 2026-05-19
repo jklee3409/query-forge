@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-05-19] Session Summary (Rewrite Scoring Canonical Metadata)
+- What was done: Extended rewrite scoring in `pipeline/eval/runtime.py` to consume existing `memory_entries.metadata.canonical_anchors` as scoring-only metadata for terminology preservation, anchor overlap, and memory-target token hints.
+- Key decisions: Kept raw query text, rewrite candidate text, dense retrieval query text, memory query text, rewrite prompt schema, V31 migration state, and mapping rows unchanged. Canonical scoring uses only anchors marked `used_for_scoring=true` and falls back to previous behavior when metadata is absent.
+- Issues encountered: Validation was limited to targeted checks: `python -m py_compile eval\runtime.py tests\test_eval_runtime.py` and `python -m unittest pipeline.tests.test_eval_runtime -q` passed.
+- Next steps: Session 10 should add canonical expansion only to BM25/technical-overlap retrieval fields without replacing dense queries or raw stored text.
+
 ## [2026-05-19] Session Summary (Memory Canonical Anchor Metadata)
 - What was done: Added additive canonical anchor metadata construction for newly inserted `memory_entries.metadata`, using explicit synthetic row language/profile and glossary term candidates while preserving memory query text, source synthetic query text, glossary terms, and snapshot/source identity fields.
 - Key decisions: Kept V31 optional/fail-closed, did not apply migrations, insert mapping rows, run memory build, backfill, or alter pipeline order. Canonical payloads are stored only as metadata with `anchor-map-v1` and `anchor-normalize-v1` pins.

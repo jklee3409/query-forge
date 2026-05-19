@@ -7,6 +7,8 @@ import os
 import re
 import threading
 import time
+import unicodedata
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -93,6 +95,7 @@ class MemoryItem:
     embedding: list[float]
     product: str | None = None
     glossary_terms: list[str] = field(default_factory=list)
+    canonical_anchors: dict[str, Any] | None = None
 
 
 @dataclass(slots=True)
@@ -137,6 +140,19 @@ def _parse_halfvec_literal(raw: str) -> list[float]:
     if not text.strip():
         return []
     return [float(part.strip()) for part in text.split(",") if part.strip()]
+
+
+def _json_mapping_or_none(value: Any) -> dict[str, Any] | None:
+    if isinstance(value, Mapping):
+        return dict(value)
+    if isinstance(value, str) and value.strip():
+        try:
+            parsed = json.loads(value)
+        except json.JSONDecodeError:
+            return None
+        if isinstance(parsed, Mapping):
+            return dict(parsed)
+    return None
 
 
 class DbAnnRuntimeRetrievalAdapter:
@@ -259,6 +275,7 @@ class DbAnnRuntimeRetrievalAdapter:
                     "generation_strategy": row["generation_strategy"],
                     "product": row["product"],
                     "glossary_terms": row["glossary_terms"],
+                    "canonical_anchors": row.get("canonical_anchors"),
                     "similarity": item.score,
                     "dense_similarity": item.dense_score,
                     "bm25_score": item.bm25_score,
@@ -376,6 +393,7 @@ class DbAnnRuntimeRetrievalAdapter:
                        m.generation_strategy,
                        m.product,
                        m.glossary_terms,
+                       m.metadata -> 'canonical_anchors' AS canonical_anchors,
                        m.query_embedding::text AS embedding_literal,
                        1 - (m.query_embedding <=> CAST(%s AS halfvec)) AS ann_score
                 FROM memory_entries m
@@ -396,6 +414,7 @@ class DbAnnRuntimeRetrievalAdapter:
                 "generation_strategy": str(row["generation_strategy"] or ""),
                 "product": str(row["product"]) if row["product"] else None,
                 "glossary_terms": [str(item) for item in (row["glossary_terms"] or []) if str(item).strip()],
+                "canonical_anchors": _json_mapping_or_none(row["canonical_anchors"]),
                 "embedding": _parse_halfvec_literal(str(row["embedding_literal"] or "")),
                 "ann_score": float(row["ann_score"] or 0.0),
             }
@@ -967,7 +986,8 @@ def load_memory_items(
                    m.generation_strategy,
                    m.metadata ->> 'source_gate_run_id' AS source_gate_run_id,
                    m.product,
-                   m.glossary_terms
+                   m.glossary_terms,
+                   m.metadata -> 'canonical_anchors' AS canonical_anchors
             FROM memory_entries m
             LEFT JOIN synthetic_queries_gated g ON g.gated_query_id = m.source_gated_query_id
             {where_clause}
@@ -988,6 +1008,7 @@ def load_memory_items(
             embedding=embed_text(str(row["query_text"])),
             product=str(row["product"]) if row["product"] else None,
             glossary_terms=[str(item) for item in (row["glossary_terms"] or []) if str(item).strip()],
+            canonical_anchors=_json_mapping_or_none(row["canonical_anchors"]),
         )
         for row in rows
     ]
@@ -1301,6 +1322,7 @@ def memory_top_n(
                 "generation_strategy": memory.generation_strategy,
                 "product": memory.product,
                 "glossary_terms": memory.glossary_terms,
+                "canonical_anchors": memory.canonical_anchors,
                 "similarity": ranked.score,
                 "dense_similarity": ranked.dense_score,
                 "bm25_score": ranked.bm25_score,
@@ -1387,7 +1409,7 @@ def build_rewrite_candidates(
     payload: dict[str, Any] = {
         "raw_query": raw_query,
         "session_context": session_context,
-        "top_memory_candidates": memory_items[:5],
+        "top_memory_candidates": _memory_prompt_candidates(memory_items),
         "candidate_count": candidate_count,
     }
     if rewrite_anchor_injection_enabled:
@@ -1525,7 +1547,7 @@ def build_rewrite_candidates_v2(
         "raw_query": raw_query,
         "query_language": query_language,
         "session_context": session_context,
-        "top_memory_candidates": memory_items[:5],
+        "top_memory_candidates": _memory_prompt_candidates(memory_items),
         "candidate_count": candidate_count,
     }
     if rewrite_anchor_injection_enabled:
@@ -1736,6 +1758,147 @@ def _content_token_set(
     return collected
 
 
+def _iter_scoring_canonical_anchors(payload: Any) -> list[Mapping[str, Any]]:
+    canonical_payload = _json_mapping_or_none(payload)
+    if not canonical_payload:
+        return []
+    anchors = canonical_payload.get("anchors")
+    if not isinstance(anchors, list):
+        return []
+    scoring_anchors: list[Mapping[str, Any]] = []
+    for anchor in anchors:
+        if not isinstance(anchor, Mapping):
+            continue
+        if anchor.get("used_for_scoring") is not True:
+            continue
+        canonical_term_id = str(anchor.get("canonical_term_id") or "").strip()
+        canonical_form = str(anchor.get("canonical_form") or "").strip()
+        if not canonical_term_id and not canonical_form:
+            continue
+        scoring_anchors.append(anchor)
+    return scoring_anchors
+
+
+def _canonical_anchor_group_key(anchor: Mapping[str, Any]) -> str:
+    canonical_term_id = str(anchor.get("canonical_term_id") or "").strip()
+    if canonical_term_id:
+        return f"id:{canonical_term_id}"
+    canonical_form = str(anchor.get("canonical_form") or "").strip().casefold()
+    return f"term:{canonical_form}"
+
+
+def _add_canonical_variant(variants: set[str], value: Any) -> None:
+    text = str(value or "").strip()
+    if not text:
+        return
+    variants.add(text)
+
+
+def _collect_scoring_canonical_anchor_groups(memory_items: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    groups: dict[str, dict[str, Any]] = {}
+    for memory_row in memory_items[:5]:
+        for anchor in _iter_scoring_canonical_anchors(memory_row.get("canonical_anchors")):
+            key = _canonical_anchor_group_key(anchor)
+            if key.endswith("term:"):
+                continue
+            group = groups.setdefault(
+                key,
+                {
+                    "canonical_term_id": str(anchor.get("canonical_term_id") or "").strip() or None,
+                    "canonical_term": str(anchor.get("canonical_form") or "").strip() or None,
+                    "variants": set(),
+                },
+            )
+            if not group.get("canonical_term") and anchor.get("canonical_form"):
+                group["canonical_term"] = str(anchor.get("canonical_form")).strip()
+            for field_name in (
+                "input_alias",
+                "display_alias",
+                "normalized_alias",
+                "canonical_form",
+                "canonical_normalized_form",
+            ):
+                _add_canonical_variant(group["variants"], anchor.get(field_name))
+    return {key: value for key, value in groups.items() if value.get("variants")}
+
+
+def _canonical_match_indexes(text: str) -> tuple[str, str]:
+    normalized = unicodedata.normalize("NFKC", str(text or "")).casefold()
+    normalized = normalized.replace("_", " ").replace("-", " ")
+    spaced = re.sub(r"[^0-9a-z@\uac00-\ud7a3]+", " ", normalized)
+    spaced = re.sub(r"\s+", " ", spaced).strip()
+    compact = re.sub(r"[^0-9a-z@\uac00-\ud7a3]+", "", normalized)
+    return spaced, compact
+
+
+def _canonical_text_contains(text: str, variant: str) -> bool:
+    variant_spaced, variant_compact = _canonical_match_indexes(variant)
+    if not variant_compact:
+        return False
+    text_spaced, text_compact = _canonical_match_indexes(text)
+    if variant_spaced and f" {variant_spaced} " in f" {text_spaced} ":
+        return True
+    is_phrase = " " in variant_spaced
+    has_hangul = bool(re.search(r"[\uac00-\ud7a3]", variant_compact))
+    if (is_phrase or has_hangul or variant_compact.startswith("@")) and variant_compact in text_compact:
+        return True
+    return False
+
+
+def _canonical_anchor_hits(text: str, groups: dict[str, dict[str, Any]]) -> set[str]:
+    hits: set[str] = set()
+    for key, group in groups.items():
+        variants = group.get("variants")
+        if not isinstance(variants, set):
+            continue
+        if any(_canonical_text_contains(text, variant) for variant in variants):
+            hits.add(key)
+    return hits
+
+
+def _canonical_hit_values(
+    hit_keys: set[str],
+    groups: dict[str, dict[str, Any]],
+    field_name: str,
+) -> list[str]:
+    values: list[str] = []
+    for key in sorted(hit_keys):
+        value = groups.get(key, {}).get(field_name)
+        if value:
+            values.append(str(value))
+    return values
+
+
+def _canonical_memory_target_texts(memory_row: dict[str, Any]) -> list[str]:
+    groups = _collect_scoring_canonical_anchor_groups([memory_row])
+    texts: list[str] = []
+    seen: set[str] = set()
+    for group in groups.values():
+        canonical_term = str(group.get("canonical_term") or "").strip()
+        if canonical_term and canonical_term.casefold() not in seen:
+            seen.add(canonical_term.casefold())
+            texts.append(canonical_term)
+        variants = group.get("variants")
+        if not isinstance(variants, set):
+            continue
+        for variant in sorted(variants):
+            folded = variant.casefold()
+            if folded in seen:
+                continue
+            seen.add(folded)
+            texts.append(variant)
+    return texts
+
+
+def _memory_prompt_candidates(memory_items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    prompt_rows: list[dict[str, Any]] = []
+    for memory_row in memory_items[:5]:
+        prompt_row = dict(memory_row)
+        prompt_row.pop("canonical_anchors", None)
+        prompt_rows.append(prompt_row)
+    return prompt_rows
+
+
 def _memory_target_metrics(
     *,
     raw_query: str,
@@ -1766,6 +1929,10 @@ def _memory_target_metrics(
     for term in top_memory.get("glossary_terms") or []:
         memory_target_tokens |= _content_token_set(str(term), max_items=8)
         if len(memory_target_tokens) >= 16:
+            break
+    for canonical_text in _canonical_memory_target_texts(top_memory):
+        memory_target_tokens |= _content_token_set(str(canonical_text), max_items=8)
+        if len(memory_target_tokens) >= 24:
             break
 
     product_tokens = _content_token_set(
@@ -1813,7 +1980,8 @@ def _terminology_preservation_metrics(
     candidate_query: str,
     query_language: str,
     raw_anchor_terms: list[str],
-) -> dict[str, float]:
+    canonical_anchor_groups: dict[str, dict[str, Any]] | None = None,
+) -> dict[str, Any]:
     raw_tokens = _technical_token_set(
         raw_query,
         query_language=query_language,
@@ -1829,6 +1997,7 @@ def _terminology_preservation_metrics(
         if raw_token_count > 0
         else 1.0
     )
+    raw_technical_preservation_ratio = technical_preservation_ratio
 
     raw_anchor_set = {str(item).casefold() for item in raw_anchor_terms if str(item).strip()}
     anchor_overlap_ratio = (
@@ -1836,12 +2005,44 @@ def _terminology_preservation_metrics(
         if raw_anchor_set
         else technical_preservation_ratio
     )
+    raw_anchor_overlap_ratio = anchor_overlap_ratio
+
+    canonical_groups = canonical_anchor_groups or {}
+    canonical_raw_hits = _canonical_anchor_hits(raw_query, canonical_groups) if canonical_groups else set()
+    canonical_candidate_hits = _canonical_anchor_hits(candidate_query, canonical_groups) if canonical_groups else set()
+    canonical_preserved_hits = canonical_raw_hits & canonical_candidate_hits
+    canonical_anchor_overlap_ratio = (
+        _safe_ratio(len(canonical_preserved_hits), len(canonical_raw_hits), default=1.0)
+        if canonical_raw_hits
+        else 0.0
+    )
+    if canonical_raw_hits:
+        technical_preservation_ratio = max(technical_preservation_ratio, canonical_anchor_overlap_ratio)
+        anchor_overlap_ratio = max(anchor_overlap_ratio, canonical_anchor_overlap_ratio)
+
     terminology_preservation_score = _clamp01((0.70 * technical_preservation_ratio) + (0.30 * anchor_overlap_ratio))
+    if canonical_raw_hits:
+        terminology_preservation_score = max(terminology_preservation_score, canonical_anchor_overlap_ratio)
     return {
         "raw_technical_token_count": float(raw_token_count),
         "preserved_technical_token_count": float(preserved_count),
+        "raw_technical_preservation_ratio": raw_technical_preservation_ratio,
+        "raw_anchor_overlap_ratio": raw_anchor_overlap_ratio,
         "technical_preservation_ratio": technical_preservation_ratio,
         "anchor_overlap_ratio": anchor_overlap_ratio,
+        "canonical_anchor_overlap_ratio": canonical_anchor_overlap_ratio,
+        "canonical_anchor_raw_count": float(len(canonical_raw_hits)),
+        "canonical_anchor_preserved_count": float(len(canonical_preserved_hits)),
+        "canonical_anchor_term_ids": _canonical_hit_values(
+            canonical_raw_hits,
+            canonical_groups,
+            "canonical_term_id",
+        ),
+        "canonical_anchor_terms": _canonical_hit_values(
+            canonical_raw_hits,
+            canonical_groups,
+            "canonical_term",
+        ),
         "terminology_preservation_score": terminology_preservation_score,
     }
 
@@ -2094,6 +2295,7 @@ def run_selective_rewrite(
         memory_items=memory_items,
     )
     raw_anchor_terms = [str(item) for item in anchor_context.get("anchor_terms") or [] if str(item).strip()]
+    canonical_anchor_groups = _collect_scoring_canonical_anchor_groups(memory_items)
     candidates: list[dict[str, Any]] = []
     best_candidate: dict[str, Any] | None = None
     best_eligible_candidate: dict[str, Any] | None = None
@@ -2130,6 +2332,7 @@ def run_selective_rewrite(
             candidate_query=template["query"],
             query_language=query_language,
             raw_anchor_terms=raw_anchor_terms,
+            canonical_anchor_groups=canonical_anchor_groups,
         )
         terminology_preservation_score = terminology_metrics["terminology_preservation_score"]
         technical_preservation_ratio = terminology_metrics["technical_preservation_ratio"]
@@ -2211,6 +2414,11 @@ def run_selective_rewrite(
             "memory_alignment_score": memory_alignment_score,
             "technical_preservation_ratio": technical_preservation_ratio,
             "anchor_overlap_ratio": anchor_overlap_ratio,
+            "canonical_anchor_overlap_ratio": terminology_metrics.get("canonical_anchor_overlap_ratio", 0.0),
+            "canonical_anchor_raw_count": terminology_metrics.get("canonical_anchor_raw_count", 0.0),
+            "canonical_anchor_preserved_count": terminology_metrics.get("canonical_anchor_preserved_count", 0.0),
+            "canonical_anchor_term_ids": terminology_metrics.get("canonical_anchor_term_ids", []),
+            "canonical_anchor_terms": terminology_metrics.get("canonical_anchor_terms", []),
             "verbosity_penalty": verbosity_penalty,
             "preservation_penalty": preservation_penalty,
             "memory_target_presence_bonus": memory_target_metrics["memory_target_presence_bonus"],
@@ -2311,6 +2519,11 @@ def run_selective_rewrite(
                     "memory_alignment_score": candidate.get("memory_alignment_score", 0.0),
                     "technical_preservation_ratio": candidate.get("technical_preservation_ratio", 0.0),
                     "anchor_overlap_ratio": candidate.get("anchor_overlap_ratio", 0.0),
+                    "canonical_anchor_overlap_ratio": candidate.get("canonical_anchor_overlap_ratio", 0.0),
+                    "canonical_anchor_raw_count": candidate.get("canonical_anchor_raw_count", 0.0),
+                    "canonical_anchor_preserved_count": candidate.get("canonical_anchor_preserved_count", 0.0),
+                    "canonical_anchor_term_ids": candidate.get("canonical_anchor_term_ids", []),
+                    "canonical_anchor_terms": candidate.get("canonical_anchor_terms", []),
                     "verbosity_penalty": candidate.get("verbosity_penalty", 0.0),
                     "preservation_penalty": candidate.get("preservation_penalty", 0.0),
                     "memory_target_presence_bonus": candidate.get("memory_target_presence_bonus", 0.0),

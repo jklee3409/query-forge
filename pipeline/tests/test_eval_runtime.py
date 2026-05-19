@@ -31,6 +31,52 @@ class EvalRuntimeRewriteTests(unittest.TestCase):
             )
         ]
 
+    def _transactional_canonical_payload(self) -> dict[str, object]:
+        def anchor(alias: str, *, language: str, term_type: str, normalized_alias: str | None = None) -> dict[str, object]:
+            return {
+                "input_alias": alias,
+                "display_alias": alias,
+                "normalized_alias": normalized_alias or alias.casefold(),
+                "alias_language": language,
+                "resolution_status": "mapped" if alias != "@Transactional" else "self_fallback",
+                "mapping_id": None if alias == "@Transactional" else f"mapping-{len(alias)}",
+                "canonical_term_id": "term-transactional",
+                "canonical_form": "@Transactional",
+                "canonical_normalized_form": "@transactional",
+                "term_type": term_type,
+                "confidence": 1.0,
+                "review_status": "approved",
+                "used_for_scoring": True,
+                "source_field": "glossary_terms",
+            }
+
+        return {
+            "schema_version": "canonical-anchor-runtime-v1",
+            "mapping_version": "anchor-map-v1",
+            "normalization_version": "anchor-normalize-v1",
+            "source_context": {"kind": "memory_entry", "source_id": "m-canonical"},
+            "canonical_terms": ["@Transactional"],
+            "canonical_term_ids": ["term-transactional"],
+            "unresolved_aliases": [],
+            "anchors": [
+                anchor("@Transactional", language="en", term_type="annotation", normalized_alias="@transactional"),
+                anchor("transaction readonly", language="en", term_type="concept"),
+                anchor("transactional read only", language="en", term_type="concept"),
+                anchor("트랜잭션 읽기 전용", language="ko", term_type="concept", normalized_alias="트랜잭션읽기전용"),
+                {
+                    "input_alias": "transaction read-only candidate",
+                    "display_alias": "transaction read-only candidate",
+                    "normalized_alias": "transaction read only candidate",
+                    "alias_language": "en",
+                    "resolution_status": "miss",
+                    "canonical_term_id": None,
+                    "canonical_form": None,
+                    "term_type": "concept",
+                    "used_for_scoring": False,
+                },
+            ],
+        }
+
     def test_unavailable_cohere_reranker_returns_no_synthetic_scores(self) -> None:
         reranker = CohereReranker(
             CohereRerankConfig(
@@ -195,6 +241,7 @@ class EvalRuntimeRewriteTests(unittest.TestCase):
                     "수 있습니다",
                     "지원합니다",
                 ],
+                "canonical_anchors": self._transactional_canonical_payload(),
                 "similarity": 0.9,
             }
         ]
@@ -228,6 +275,7 @@ class EvalRuntimeRewriteTests(unittest.TestCase):
         self.assertNotIn("수 있습니다", terminology_terms)
         self.assertNotIn("지원합니다", terminology_terms)
         self.assertLessEqual(len(terminology_terms), 3)
+        self.assertNotIn("canonical_anchors", payload["top_memory_candidates"][0])
 
     def test_rewrite_payload_skips_anchor_when_disabled(self) -> None:
         class _FakeRewriteClient:
@@ -397,6 +445,106 @@ class EvalRuntimeRewriteTests(unittest.TestCase):
         self.assertEqual(outcome.rewrite_reason, "preservation_below_floor")
         self.assertEqual(outcome.candidates[0]["rejection_reason"], "preservation_below_floor")
         self.assertLess(outcome.candidates[0]["terminology_preservation_score"], outcome.candidates[0]["preservation_floor"])
+
+    def test_canonical_alias_metadata_boosts_terminology_overlap(self) -> None:
+        groups = runtime._collect_scoring_canonical_anchor_groups(
+            [
+                {
+                    "memory_id": "m-canonical",
+                    "query_text": "Spring Framework guide",
+                    "glossary_terms": [],
+                    "canonical_anchors": self._transactional_canonical_payload(),
+                }
+            ]
+        )
+
+        for candidate_query in (
+            "transaction readonly setup",
+            "transactional read only setup",
+            "트랜잭션 읽기 전용 설정",
+        ):
+            with self.subTest(candidate_query=candidate_query):
+                metrics = runtime._terminology_preservation_metrics(
+                    raw_query="@Transactional 읽기 전용 설정",
+                    candidate_query=candidate_query,
+                    query_language="ko",
+                    raw_anchor_terms=["@Transactional"],
+                    canonical_anchor_groups=groups,
+                )
+
+                self.assertEqual(metrics["canonical_anchor_term_ids"], ["term-transactional"])
+                self.assertAlmostEqual(metrics["canonical_anchor_overlap_ratio"], 1.0)
+                self.assertAlmostEqual(metrics["anchor_overlap_ratio"], 1.0)
+                self.assertAlmostEqual(metrics["terminology_preservation_score"], 1.0)
+
+    def test_selective_rewrite_uses_canonical_alias_metadata_for_preservation(self) -> None:
+        raw_query = "@Transactional 읽기 전용 설정"
+        candidate_query = "transaction readonly setup"
+
+        def fake_retrieve(query_text: str, *args, **kwargs):
+            if query_text == raw_query:
+                return self._single_retrieval(query_text, score=0.20, chunk_id="raw")
+            return self._single_retrieval(query_text, score=0.85, chunk_id="cand")
+
+        def fake_memory(query_text: str, *args, **kwargs):
+            return [
+                {
+                    "memory_id": "m-canonical",
+                    "query_text": "Spring Framework guide",
+                    "similarity": 0.0,
+                    "product": "spring-framework",
+                    "glossary_terms": [],
+                    "canonical_anchors": self._transactional_canonical_payload(),
+                }
+            ]
+
+        with patch.object(runtime, "build_rewrite_candidates_v2", return_value=[{"label": "c1", "query": candidate_query}]), patch.object(
+            runtime,
+            "retrieve_top_k",
+            side_effect=fake_retrieve,
+        ), patch.object(runtime, "memory_top_n", side_effect=fake_memory):
+            outcome, retrieval = runtime.run_selective_rewrite(
+                raw_query=raw_query,
+                query_language="ko",
+                query_category="definition",
+                session_context={},
+                chunks=[],
+                memories=[],
+                memory_top_n_value=3,
+                candidate_count=1,
+                threshold=0.01,
+                retrieval_top_k=3,
+                retriever_config=build_retriever_config({"dense_fallback_enabled": True}),
+            )
+
+        self.assertTrue(outcome.rewrite_applied)
+        self.assertEqual(outcome.rewrite_reason, "delta_above_threshold")
+        self.assertEqual(retrieval[0].chunk_id, "cand")
+        self.assertAlmostEqual(outcome.candidates[0]["canonical_anchor_overlap_ratio"], 1.0)
+        self.assertEqual(outcome.candidates[0]["canonical_anchor_term_ids"], ["term-transactional"])
+        self.assertGreaterEqual(outcome.candidates[0]["terminology_preservation_score"], outcome.candidates[0]["preservation_floor"])
+        self.assertTrue(any("transaction" in token for token in outcome.candidates[0]["memory_target_tokens"]))
+
+    def test_terminology_metrics_without_canonical_metadata_keep_raw_ratios(self) -> None:
+        base_metrics = runtime._terminology_preservation_metrics(
+            raw_query="@Transactional 읽기 전용 설정",
+            candidate_query="transaction readonly setup",
+            query_language="ko",
+            raw_anchor_terms=["@Transactional"],
+        )
+        empty_metadata_metrics = runtime._terminology_preservation_metrics(
+            raw_query="@Transactional 읽기 전용 설정",
+            candidate_query="transaction readonly setup",
+            query_language="ko",
+            raw_anchor_terms=["@Transactional"],
+            canonical_anchor_groups={},
+        )
+
+        self.assertEqual(base_metrics["technical_preservation_ratio"], empty_metadata_metrics["technical_preservation_ratio"])
+        self.assertEqual(base_metrics["anchor_overlap_ratio"], empty_metadata_metrics["anchor_overlap_ratio"])
+        self.assertEqual(base_metrics["terminology_preservation_score"], empty_metadata_metrics["terminology_preservation_score"])
+        self.assertEqual(empty_metadata_metrics["canonical_anchor_raw_count"], 0.0)
+        self.assertEqual(empty_metadata_metrics["canonical_anchor_overlap_ratio"], 0.0)
 
     def test_selective_rewrite_rejects_candidate_with_insufficient_gain(self) -> None:
         raw_query = "DigestAuthenticationFilter 설정 방법"

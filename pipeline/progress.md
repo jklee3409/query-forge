@@ -3,6 +3,12 @@
 ## Overview
 High-level pipeline progress tracking.
 
+## [2026-05-19] Session Summary (Rewrite Scoring Canonical Metadata)
+- What was done: Updated `eval/runtime.py` so memory top-N rows carry existing `canonical_anchors` metadata and selective rewrite scoring additively boosts terminology preservation, anchor overlap, and memory-target tokens when raw/candidate aliases share a `used_for_scoring=true` canonical anchor.
+- Key decisions: Filtered canonical metadata out of rewrite LLM prompt memory candidates, kept query/candidate/memory/dense text unchanged, and avoided DB lookup, mapping insert, migration apply, or alias-language/term-type inference.
+- Issues encountered: Targeted validation passed with `python -m py_compile eval\runtime.py tests\test_eval_runtime.py` and `python -m unittest pipeline.tests.test_eval_runtime -q`.
+- Next steps: In Session 10, apply canonical expansion narrowly to hybrid retrieval lexical/technical-overlap fields while preserving dense-query and stored-text identity.
+
 ## [2026-05-19] Session Summary (Memory Canonical Anchor Metadata)
 - What was done: Wired `memory/build_memory.py` to add `canonical_anchors`, `anchor_mapping_version`, and `anchor_normalization_version` to new `memory_entries.metadata` payloads, preserving existing snapshot/source metadata and original memory/source query fields.
 - Key decisions: Reused the canonical resolver metadata contract, loaded explicit raw-row `query_language`/`language_profile`, used glossary term candidates for `term_type` and self fallback, and skipped mapping-table lookup when `canonical_anchor_mapping` is absent.
