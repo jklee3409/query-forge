@@ -59,6 +59,7 @@ function retrieverModeLabel(mode) {
 
 const SPRING_TECHDOC_METHOD_CODES = ['A', 'B', 'C', 'D', 'E']
 const PYTHON_KR_METHOD_CODES = ['F', 'G']
+const ENGLISH_SYNTHETIC_METHOD_CODES = new Set(['E', 'F'])
 
 function normalizeStrategyHint(value) {
   return String(value || '').trim().toLowerCase()
@@ -66,6 +67,12 @@ function normalizeStrategyHint(value) {
 
 function normalizeStrategyMethodCode(value) {
   return String(value || '').trim().toUpperCase()
+}
+
+function methodMatchesEvalLanguage(methodCode, evalQueryLanguage) {
+  const normalizedMethod = normalizeStrategyMethodCode(methodCode)
+  const normalizedLanguage = String(evalQueryLanguage || '').trim().toLowerCase() === 'en' ? 'en' : 'ko'
+  return ENGLISH_SYNTHETIC_METHOD_CODES.has(normalizedMethod) === (normalizedLanguage === 'en')
 }
 
 function resolveDatasetAllowedMethodCodes(dataset) {
@@ -1635,34 +1642,44 @@ export function RagPage({ notify }) {
     () => resolveDatasetAllowedMethodCodes(selectedDataset),
     [selectedDataset],
   )
-  const datasetAllowedMethodKey = datasetAllowedMethodCodes ? datasetAllowedMethodCodes.join(',') : ''
+  const effectiveAllowedMethodCodes = useMemo(
+    () => (
+      datasetAllowedMethodCodes
+        ? datasetAllowedMethodCodes.filter((methodCode) => methodMatchesEvalLanguage(methodCode, form.evalQueryLanguage))
+        : null
+    ),
+    [datasetAllowedMethodCodes, form.evalQueryLanguage],
+  )
+  const datasetAllowedMethodKey = effectiveAllowedMethodCodes ? effectiveAllowedMethodCodes.join(',') : ''
   const datasetAllowedMethodSet = useMemo(
-    () => (datasetAllowedMethodCodes ? new Set(datasetAllowedMethodCodes) : null),
-    [datasetAllowedMethodCodes],
+    () => (effectiveAllowedMethodCodes ? new Set(effectiveAllowedMethodCodes) : null),
+    [effectiveAllowedMethodCodes],
   )
   const selectableMethods = useMemo(
     () => (
-      datasetAllowedMethodSet
-        ? methods.filter((method) => datasetAllowedMethodSet.has(normalizeStrategyMethodCode(method.methodCode)))
-        : methods
+      methods.filter((method) => {
+        const methodCode = normalizeStrategyMethodCode(method.methodCode)
+        return (!datasetAllowedMethodSet || datasetAllowedMethodSet.has(methodCode))
+          && methodMatchesEvalLanguage(methodCode, form.evalQueryLanguage)
+      })
     ),
-    [methods, datasetAllowedMethodSet],
+    [methods, datasetAllowedMethodSet, form.evalQueryLanguage],
   )
 
   useEffect(() => {
-    if (!datasetAllowedMethodCodes || form.syntheticFreeBaseline) return
+    if (!effectiveAllowedMethodCodes || form.syntheticFreeBaseline) return
     setSelectedMethods((prev) => {
       const filtered = prev
         .map(normalizeStrategyMethodCode)
-        .filter((methodCode) => datasetAllowedMethodCodes.includes(methodCode))
-      const next = filtered.length > 0 ? filtered : [datasetAllowedMethodCodes[0]]
+        .filter((methodCode) => effectiveAllowedMethodCodes.includes(methodCode))
+      const next = filtered.length > 0 ? filtered : (effectiveAllowedMethodCodes[0] ? [effectiveAllowedMethodCodes[0]] : [])
       const current = prev.map(normalizeStrategyMethodCode)
       if (next.length === current.length && next.every((methodCode, index) => methodCode === current[index])) {
         return prev
       }
       return next
     })
-  }, [datasetAllowedMethodCodes, datasetAllowedMethodKey, form.syntheticFreeBaseline])
+  }, [effectiveAllowedMethodCodes, datasetAllowedMethodKey, form.syntheticFreeBaseline])
 
   useEffect(() => {
     const totalPages = Math.max(1, Math.ceil(tests.length / historyPageSize))
@@ -1763,7 +1780,8 @@ export function RagPage({ notify }) {
     ? []
     : rawMethodCodesForRun
       .map(normalizeStrategyMethodCode)
-      .filter((methodCode) => !datasetAllowedMethodSet || datasetAllowedMethodSet.has(methodCode))
+      .filter((methodCode) => (!datasetAllowedMethodSet || datasetAllowedMethodSet.has(methodCode))
+        && methodMatchesEvalLanguage(methodCode, form.evalQueryLanguage))
 
   useEffect(() => {
     if (!form.sourceGatingBatchId) return
@@ -1835,6 +1853,7 @@ export function RagPage({ notify }) {
   const handleToggleMethod = (methodCode, checked) => {
     const normalizedMethodCode = normalizeStrategyMethodCode(methodCode)
     if (datasetAllowedMethodSet && !datasetAllowedMethodSet.has(normalizedMethodCode)) return
+    if (!methodMatchesEvalLanguage(normalizedMethodCode, form.evalQueryLanguage)) return
     if (methodSelectionLocked) return
     setSelectedMethods((prev) => {
       const normalized = prev.map(normalizeStrategyMethodCode)
@@ -1849,6 +1868,13 @@ export function RagPage({ notify }) {
     const usingDbAnn = form.retrievalBackend === 'db_ann'
     if (!syntheticFreeBaseline && methodCodesForRun.length === 0) {
       notify('최소 1개 생성 전략을 선택해야 합니다.', 'error')
+      return
+    }
+    const languageMismatchedMethod = methodCodesForRun.find(
+      (methodCode) => !methodMatchesEvalLanguage(methodCode, form.evalQueryLanguage),
+    )
+    if (!syntheticFreeBaseline && languageMismatchedMethod) {
+      notify(`evalQueryLanguage=${form.evalQueryLanguage} and method ${languageMismatchedMethod} do not match.`, 'error')
       return
     }
     if (!form.llmModel) {

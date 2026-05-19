@@ -3,6 +3,12 @@
 ## Overview
 High-level pipeline progress tracking.
 
+## [2026-05-19] Session Summary (Language-Specific Rewrite Prompt Loading)
+- What was done: Updated `eval/runtime.py` so selective rewrite loads `selective_rewrite_en_v1.md` for `query_language=en` and keeps the existing `selective_rewrite_v2`/`v1` fallback chain for Korean queries.
+- Key decisions: Prompt selection follows the evaluation sample query language; no synthetic table layout, memory text, dense query text, or rewrite scoring rule was changed.
+- Issues encountered: Targeted `python -m py_compile eval\runtime.py tests\test_eval_runtime.py` and `python -m unittest pipeline.tests.test_eval_runtime.EvalRuntimeRewriteTests -q` passed.
+- Next steps: Inspect English rewrite debug logs from an E/en Admin run to tune the new prompt only if it over-expands.
+
 ## [2026-05-19] Session Summary (Canonical Anchor Rewrite Prompt Hints)
 - What was done: Added `eval/runtime.py` compact canonical-anchor hint construction for selective rewrite LLM payloads and covered it in `tests/test_eval_runtime.py`.
 - Key decisions: Canonical rewrite hints are emitted only when `rewrite_anchor_injection_enabled=true`, include only approved/self-fallback `used_for_scoring=true` anchors, omit full metadata and `canonical_term_id`, and reuse `rewrite_terminology_hints_max_count` for capping.

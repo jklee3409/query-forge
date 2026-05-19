@@ -34,6 +34,7 @@
 ---
 
 ## Recent Update
+- `/admin/rag-tests` now filters generation strategy chips and completed snapshot options by both dataset scope and eval query language: English eval queries show E/F, while Korean eval queries show A/B/C/D/G where the dataset scope allows them.
 - `/admin/pipeline` Anchors section now exposes `Anchor 정규화 Dry-run` plus review history/detail/approve/reject controls. The UI delegates normalization and approval to backend review APIs and blocks approval when conflict/invalid candidates are reported.
 - `/admin/synthetic-queries` now makes the selected synthetic generation strategy and chunk sampling option more prominent. Strategy A/B/C/D/E source selection is scoped to the five Spring reference sources, F/G is scoped to `docs-python-org-ko-3-14`, and the all-allowed-sources option submits one batch request while backend/pipeline config applies the scoped `source_ids` filter. `arahansa-github-io-docs-spring` is hidden from the UI and excluded from request construction.
 - `/admin/rag-tests` now shows selected comparison runs in a fixed bottom dock with pill-style selected items and clear/remove actions. RAG run detail disclosures render metric contribution, recommended synthetic memory candidates, rewrite candidates, and retrieved chunks as theme-aware structured cards instead of raw JSON blocks.

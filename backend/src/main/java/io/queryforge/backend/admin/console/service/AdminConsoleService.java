@@ -689,6 +689,7 @@ public class AdminConsoleService {
         }
         if (!syntheticFreeBaseline) {
             validateDatasetMethodRestriction(request.datasetId(), methodCodes);
+            validateRagMethodLanguageCompatibility(evalQueryLanguage, methodCodes);
         }
         List<UUID> batchIds = request.generationBatchIds() == null ? List.of() : request.generationBatchIds();
         String runDiscipline = normalizeRunDiscipline(request.officialRun());
@@ -884,6 +885,7 @@ public class AdminConsoleService {
         config.put("rewrite_retrieval_strategy", rewriteRetrievalStrategy);
         config.put("rewrite_anchor_injection_enabled", rewriteAnchorInjectionEnabled);
         config.put("rewrite_failure_policy", rewriteFailurePolicy);
+        config.put("rewrite_prompt_profile", resolveRewritePromptProfile(evalQueryLanguage));
         config.put("retrieval_top_k", retrievalTopK);
         config.put("rerank_top_n", rerankTopN);
         attachRetrieverConfig(config, retrieverConfig);
@@ -1029,6 +1031,7 @@ public class AdminConsoleService {
         initialRewriteConfig.put("rewrite_retrieval_strategy", rewriteRetrievalStrategy);
         initialRewriteConfig.put("rewrite_anchor_injection_enabled", rewriteAnchorInjectionEnabled);
         initialRewriteConfig.put("rewrite_failure_policy", rewriteFailurePolicy);
+        initialRewriteConfig.put("rewrite_prompt_profile", resolveRewritePromptProfile(evalQueryLanguage));
         CanonicalAnchorVersionMetadata.putDefaults(initialRewriteConfig);
         repository.upsertRagExperimentRecord(
                 runId,
@@ -2169,6 +2172,28 @@ public class AdminConsoleService {
         }
     }
 
+    private void validateRagMethodLanguageCompatibility(String evalQueryLanguage, List<String> methodCodes) {
+        if (methodCodes == null || methodCodes.isEmpty()) {
+            return;
+        }
+        boolean englishEval = QUERY_LANGUAGE_EN.equalsIgnoreCase(evalQueryLanguage);
+        Set<String> allowedMethodsForLanguage = englishEval
+                ? Set.of("E", "F")
+                : Set.of("A", "B", "C", "D", "G");
+        for (String methodCode : methodCodes) {
+            String normalized = normalizeMethodCode(methodCode);
+            boolean englishMethod = isEnglishOnlyMethod(normalized);
+            if (englishEval == englishMethod) {
+                continue;
+            }
+            throw new IllegalArgumentException(
+                    "method_code " + normalized
+                            + " is not allowed for eval_query_language=" + evalQueryLanguage
+                            + " (allowed=" + allowedMethodsForLanguage + ")"
+            );
+        }
+    }
+
     private SourceResolution resolveSourceScope(String sourceId, String sourceDocumentId, boolean strict) {
         String normalizedSourceId = blankToNull(sourceId);
         String normalizedSourceDocumentId = blankToNull(sourceDocumentId);
@@ -2431,6 +2456,10 @@ public class AdminConsoleService {
             throw new IllegalArgumentException("unsupported eval_query_language: " + requested);
         }
         return candidate;
+    }
+
+    private String resolveRewritePromptProfile(String evalQueryLanguage) {
+        return QUERY_LANGUAGE_EN.equalsIgnoreCase(evalQueryLanguage) ? "en" : "ko";
     }
 
     private String normalizeGatingPreset(String value) {

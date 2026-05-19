@@ -583,6 +583,7 @@ public class LlmJobService {
                     runConfig.path("rewrite_anchor_injection_enabled").asBoolean(false)
             );
             rewriteConfig.put("rewrite_failure_policy", runConfig.path("rewrite_failure_policy").asText("fail_run"));
+            rewriteConfig.put("rewrite_prompt_profile", runConfig.path("rewrite_prompt_profile").asText("ko"));
 
             Integer memorySize = memorySummary.path("memory_entries_built").isNumber()
                     ? memorySummary.path("memory_entries_built").asInt()

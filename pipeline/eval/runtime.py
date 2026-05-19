@@ -444,6 +444,7 @@ class DbAnnRuntimeRetrievalAdapter:
 
 _REWRITE_CLIENT: LlmClient | None = None
 _REWRITE_PROMPT_TEXT: str | None = None
+_REWRITE_PROMPT_TEXTS: dict[str, str] = {}
 _RERANKER: CohereReranker | None = None
 _RUNTIME_RETRIEVER_CACHE_LOCK = threading.Lock()
 _RUNTIME_CACHE_MAX_ENTRIES = 32
@@ -1472,23 +1473,45 @@ def memory_top_n(
     return scored
 
 
-def _rewrite_prompt_text() -> str:
-    global _REWRITE_PROMPT_TEXT
+def _rewrite_prompt_text(*, query_language: str = "ko") -> str:
+    global _REWRITE_PROMPT_TEXT, _REWRITE_PROMPT_TEXTS
     if _REWRITE_PROMPT_TEXT is not None:
         return _REWRITE_PROMPT_TEXT
+    normalized_language = "en" if str(query_language or "").strip().lower() == "en" else "ko"
+    cached = _REWRITE_PROMPT_TEXTS.get(normalized_language)
+    if cached is not None:
+        return cached
     root = Path(os.getenv("PROMPT_ROOT") or "configs/prompts")
-    candidates = [
-        root / "rewrite" / "selective_rewrite_v2.md",
-        root / "rewrite" / "selective_rewrite_v1.md",
-        Path("configs/prompts/rewrite/selective_rewrite_v2.md"),
-        Path("configs/prompts/rewrite/selective_rewrite_v1.md"),
-        Path("../configs/prompts/rewrite/selective_rewrite_v2.md"),
-        Path("../configs/prompts/rewrite/selective_rewrite_v1.md"),
-    ]
+    if normalized_language == "en":
+        candidates = [
+            root / "rewrite" / "selective_rewrite_en_v1.md",
+            root / "rewrite" / "selective_rewrite_v2.md",
+            root / "rewrite" / "selective_rewrite_v1.md",
+            Path("configs/prompts/rewrite/selective_rewrite_en_v1.md"),
+            Path("configs/prompts/rewrite/selective_rewrite_v2.md"),
+            Path("configs/prompts/rewrite/selective_rewrite_v1.md"),
+            Path("../configs/prompts/rewrite/selective_rewrite_en_v1.md"),
+            Path("../configs/prompts/rewrite/selective_rewrite_v2.md"),
+            Path("../configs/prompts/rewrite/selective_rewrite_v1.md"),
+        ]
+    else:
+        candidates = [
+            root / "rewrite" / "selective_rewrite_v2.md",
+            root / "rewrite" / "selective_rewrite_v1.md",
+            Path("configs/prompts/rewrite/selective_rewrite_v2.md"),
+            Path("configs/prompts/rewrite/selective_rewrite_v1.md"),
+            Path("../configs/prompts/rewrite/selective_rewrite_v2.md"),
+            Path("../configs/prompts/rewrite/selective_rewrite_v1.md"),
+        ]
     for path in candidates:
         if path.exists():
-            _REWRITE_PROMPT_TEXT = path.read_text(encoding="utf-8")
-            return _REWRITE_PROMPT_TEXT
+            prompt_text = path.read_text(encoding="utf-8")
+            _REWRITE_PROMPT_TEXTS[normalized_language] = prompt_text
+            return prompt_text
+    if normalized_language == "en":
+        raise FileNotFoundError(
+            "rewrite prompt file not found: selective_rewrite_en_v1.md, selective_rewrite_v2.md, or selective_rewrite_v1.md"
+        )
     raise FileNotFoundError("rewrite prompt file not found: selective_rewrite_v2.md or selective_rewrite_v1.md")
 
 
@@ -1713,7 +1736,7 @@ def build_rewrite_candidates_v2(
     try:
         llm_started = time.perf_counter()
         response = _rewrite_client().chat_json(
-            system_prompt=_rewrite_prompt_text(),
+            system_prompt=_rewrite_prompt_text(query_language=query_language),
             user_prompt=json.dumps(
                 payload,
                 ensure_ascii=False,

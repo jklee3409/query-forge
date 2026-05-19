@@ -36,6 +36,7 @@
 
 ## Recent Notes
 - selective rewrite v2 prompt now accepts optional `canonical_anchor_hints` and treats them as compact intent-compatible canonical/normalized anchor preservation hints.
+- `prompts/rewrite/selective_rewrite_en_v1.md` is the English-native rewrite prompt for `query_language=en`; Korean/code-mixed runs continue to use the existing `selective_rewrite_v2` -> `v1` path.
 - Strategy B query generation prompt `gen_b_v1` is now version `v5` and emits query-only JSON (`query_ko`, `query_type`, `answerability_type`); `translated_chunk_ko` and `extractive_summary_ko` are fixed upstream inputs.
 - `experiments/strategy_b_smoke.yaml` is the controlled B smoke preset: one Spring source, one chunk, one forced `code_mixed` query, explicit B payload bounds, and a B-specific translation output-token budget.
 - selective rewrite v2 prompt now consumes `terminology_hints` and enforces verbatim preservation for intent-compatible technical tokens.

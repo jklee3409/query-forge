@@ -18,6 +18,7 @@ import org.testcontainers.utility.DockerImageName;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.containsString;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.http.MediaType.APPLICATION_JSON;
@@ -664,6 +665,24 @@ class AdminConsoleRagIntegrationTest {
                                 """.formatted(datasetId)))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.detail").value("dense_embedding_model is not allowed by catalog: not-allowed-dense-model"));
+    }
+
+    @Test
+    void runRagRejectsEnglishSyntheticMethodWithKoreanEvalLanguage() throws Exception {
+        UUID datasetId = insertEvalDataset("spring-rag-e-ko-language-mismatch");
+        mockMvc.perform(post("/api/admin/console/rag/tests/run")
+                        .contentType(APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "datasetId": "%s",
+                                  "evalQueryLanguage": "ko",
+                                  "methodCodes": ["E"]
+                                }
+                                """.formatted(datasetId)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.detail").value(containsString(
+                        "method_code E is not allowed for eval_query_language=ko"
+                )));
     }
 
     @Test

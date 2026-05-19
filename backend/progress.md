@@ -3,6 +3,12 @@
 ## Overview
 High-level backend progress tracking.
 
+## [2026-05-19] Session Summary (Admin RAG Query-Language Guard)
+- What was done: Added Admin RAG validation that requires English synthetic methods (`E/F`) to run only with `eval_query_language=en` and Korean/code-mixed methods (`A/B/C/D/G`) only with `eval_query_language=ko`. Generated RAG configs and experiment records now include `rewrite_prompt_profile`.
+- Key decisions: Kept source/dataset scope validation and snapshot identity rules unchanged; language compatibility is enforced before job/config creation.
+- Issues encountered: Targeted `.\gradlew.bat test --tests io.queryforge.backend.admin.console.AdminConsoleRagIntegrationTest` passed.
+- Next steps: Smoke-test one accepted E/en request through the running Admin API after selecting a completed E snapshot.
+
 ## [2026-05-19] Session Summary (Anchor Normalization Dry-Run SQL Fix)
 - What was done: Fixed `AnchorNormalizationService.findTargets` SQL assembly so optional `activeOnly` and `keyword` predicates remain separated from the following `ORDER BY`, resolving the Admin anchor normalization dry-run 500.
 - Key decisions: Kept the endpoint contract and review-table schema unchanged and added a targeted `CorpusAdminMutationIntegrationTest` case for `POST /api/admin/corpus/anchors/normalization-runs`.

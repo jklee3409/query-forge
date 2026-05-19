@@ -3,6 +3,12 @@
 ## Overview
 High-level progress tracking for the project.
 
+## [2026-05-19] Session Summary (English Rewrite Prompt Asset)
+- What was done: Added `prompts/rewrite/selective_rewrite_en_v1.md` for English-native RAG rewrite candidate generation in E/F-style English synthetic-query evaluation.
+- Key decisions: Kept the existing Korean/code-mixed `selective_rewrite_v2` asset unchanged and made the English prompt a separate asset with its own id/version.
+- Issues encountered: Covered by pipeline prompt-selection tests; no standalone prompt execution was run.
+- Next steps: Tune the English prompt only after reviewing real E/en rewrite payloads.
+
 ## [2026-05-19] Session Summary (Selective Rewrite Canonical Anchor Hints)
 - What was done: Updated `prompts/rewrite/selective_rewrite_v2.md` to document optional `canonical_anchor_hints` input and require intent-compatible canonical/normalized anchor preservation without synonym expansion or topic substitution.
 - Key decisions: Kept the prompt family/id/version unchanged and treated canonical hints as compact additive input, not as raw canonical metadata or a new runtime option list.

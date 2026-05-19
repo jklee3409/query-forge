@@ -3,6 +3,12 @@
 ## Overview
 High-level progress tracking for the project.
 
+## [2026-05-19] Session Summary (RAG Method Language Filtering)
+- What was done: Updated `/admin/rag-tests` method chips and snapshot filtering so English eval queries expose English synthetic methods (`E/F`) and Korean eval queries expose Korean/code-mixed methods (`A/B/C/D/G`) within the selected dataset scope.
+- Key decisions: Mirrored backend validation in the UI and kept existing dataset-scope logic, snapshot selectors, and request payload fields unchanged.
+- Issues encountered: `npx eslint src/pages/RagPage.jsx` passed with the existing two hook dependency warnings; `npm run build` refreshed the backend-served React bundle.
+- Next steps: Browser-smoke dataset/language switching to confirm selected methods and snapshot lists update immediately.
+
 ## [2026-05-19] Session Summary (Anchors Normalization Dry-Run UI)
 - What was done: Added `Anchor 정규화 Dry-run` action to `/admin/pipeline` Anchors section and added a normalization history table with detail, approve, and reject controls.
 - Key decisions: UI calls backend review APIs only; it does not perform client-side normalization or direct DB updates. Approval is disabled when a run reports conflict/invalid candidates.

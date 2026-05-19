@@ -20,6 +20,8 @@ class EvalRuntimeRewriteTests(unittest.TestCase):
     def tearDown(self) -> None:
         local_retriever._MODEL_BACKENDS.clear()
         local_retriever._RETRIEVER_CACHE.clear()
+        runtime._REWRITE_PROMPT_TEXTS.clear()
+        runtime._REWRITE_PROMPT_TEXT = None
 
     def _single_retrieval(self, query_text: str, *, score: float, chunk_id: str) -> list[runtime.RetrievalCandidate]:
         return [
@@ -164,6 +166,19 @@ class EvalRuntimeRewriteTests(unittest.TestCase):
                 ),
             ],
         }
+
+    def test_rewrite_prompt_text_uses_language_specific_prompt_for_english(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            prompt_root = Path(temp_dir)
+            rewrite_dir = prompt_root / "rewrite"
+            rewrite_dir.mkdir(parents=True)
+            (rewrite_dir / "selective_rewrite_v2.md").write_text("ko rewrite prompt", encoding="utf-8")
+            (rewrite_dir / "selective_rewrite_en_v1.md").write_text("en rewrite prompt", encoding="utf-8")
+
+            with patch.dict(os.environ, {"PROMPT_ROOT": str(prompt_root)}):
+                runtime._REWRITE_PROMPT_TEXTS.clear()
+                self.assertEqual(runtime._rewrite_prompt_text(query_language="ko"), "ko rewrite prompt")
+                self.assertEqual(runtime._rewrite_prompt_text(query_language="en"), "en rewrite prompt")
 
     def test_unavailable_cohere_reranker_returns_no_synthetic_scores(self) -> None:
         reranker = CohereReranker(
