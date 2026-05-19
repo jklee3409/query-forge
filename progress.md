@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-05-19] Session Summary (Canonical Anchor Rewrite Prompt Hints)
+- What was done: Added compact `canonical_anchor_hints` injection to selective rewrite prompt payloads when `rewrite_anchor_injection_enabled=true`, using only approved/self-fallback `used_for_scoring=true` canonical anchors from top memory metadata.
+- Key decisions: Kept full `canonical_anchors` metadata out of `top_memory_candidates`, did not expose `canonical_term_id` in the LLM prompt, and did not change query text, dense query text, memory query text, raw synthetic payloads, glossary rows, retrieval/scoring expansion, pipeline order, or DB migrations.
+- Issues encountered: Targeted validation passed with `python -m py_compile pipeline\eval\runtime.py pipeline\eval\retrieval_eval.py pipeline\eval\answer_eval.py` and `python -m unittest pipeline.tests.test_eval_runtime.EvalRuntimeRewriteTests -q`.
+- Next steps: Run an Admin GUI RAG quality test only after choosing a reviewed snapshot, then inspect rewrite debug payloads for hint density without running official evaluation.
+
 ## [2026-05-19] Session Summary (Admin Anchor Normalization Review Flow)
 - What was done: Added Admin Anchors dry-run/review flow for deterministic anchor canonical-field normalization. Backend now has review-history tables, dry-run report APIs, approve/reject APIs, and approval updates only `corpus_glossary_terms.canonical_form` / `normalized_form` for safe candidates. Frontend Anchors section now has an `Anchor 정규화 Dry-run` button plus normalization history/detail/approve/reject controls.
 - Key decisions: Kept the flow manual-review gated. Dry-run creates only review/report history; approval is blocked for conflict/invalid candidates and does not touch synthetic raw rows, query text, memory entries, evidence, links, or mapping rows. Added migration file only; did not apply it.

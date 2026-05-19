@@ -77,6 +77,94 @@ class EvalRuntimeRewriteTests(unittest.TestCase):
             ],
         }
 
+    def _canonical_payload_with_review_noise(self) -> dict[str, object]:
+        def anchor(
+            *,
+            display_alias: str,
+            canonical_form: str | None,
+            resolution_status: str,
+            review_status: str | None,
+            used_for_scoring: bool,
+            canonical_term_id: str | None = "term-test",
+            pending_candidates: list[dict[str, object]] | None = None,
+        ) -> dict[str, object]:
+            payload: dict[str, object] = {
+                "input_alias": display_alias,
+                "display_alias": display_alias,
+                "normalized_alias": display_alias.casefold(),
+                "alias_language": "en",
+                "resolution_status": resolution_status,
+                "mapping_id": None,
+                "canonical_term_id": canonical_term_id,
+                "canonical_form": canonical_form,
+                "canonical_normalized_form": canonical_form.casefold() if canonical_form else None,
+                "term_type": "concept",
+                "confidence": 1.0,
+                "review_status": review_status,
+                "used_for_scoring": used_for_scoring,
+                "source_field": "glossary_terms",
+            }
+            if pending_candidates is not None:
+                payload["pending_candidates"] = pending_candidates
+            return payload
+
+        return {
+            "schema_version": "canonical-anchor-runtime-v1",
+            "mapping_version": "anchor-map-v1",
+            "normalization_version": "anchor-normalize-v1",
+            "anchors": [
+                anchor(
+                    display_alias="transaction readonly",
+                    canonical_form="@Transactional",
+                    resolution_status="mapped",
+                    review_status="approved",
+                    used_for_scoring=True,
+                    canonical_term_id="term-transactional",
+                ),
+                anchor(
+                    display_alias="SelfFallbackAnchor",
+                    canonical_form="SelfFallbackAnchor",
+                    resolution_status="self_fallback",
+                    review_status=None,
+                    used_for_scoring=True,
+                    canonical_term_id="term-self",
+                ),
+                anchor(
+                    display_alias="ReviewOnlyAnchor",
+                    canonical_form="ReviewOnlyAnchor",
+                    resolution_status="mapped",
+                    review_status="pending",
+                    used_for_scoring=True,
+                    canonical_term_id="term-review",
+                ),
+                anchor(
+                    display_alias="AmbiguousAnchor",
+                    canonical_form="AmbiguousAnchor",
+                    resolution_status="ambiguous",
+                    review_status="approved",
+                    used_for_scoring=True,
+                    canonical_term_id="term-ambiguous",
+                ),
+                anchor(
+                    display_alias="UnresolvedAnchor",
+                    canonical_form=None,
+                    resolution_status="miss",
+                    review_status=None,
+                    used_for_scoring=False,
+                    canonical_term_id=None,
+                ),
+                anchor(
+                    display_alias="PendingCandidateAnchor",
+                    canonical_form="PendingCandidateAnchor",
+                    resolution_status="mapped",
+                    review_status="approved",
+                    used_for_scoring=True,
+                    canonical_term_id="term-pending",
+                    pending_candidates=[{"canonical_form": "OtherAnchor"}],
+                ),
+            ],
+        }
+
     def test_unavailable_cohere_reranker_returns_no_synthetic_scores(self) -> None:
         reranker = CohereReranker(
             CohereRerankConfig(
@@ -388,6 +476,9 @@ class EvalRuntimeRewriteTests(unittest.TestCase):
         anchor_terms = payload.get("anchor_terms") or []
         terminology_hints = payload.get("terminology_hints") or {}
         terminology_terms = terminology_hints.get("terms") or []
+        canonical_anchor_hints = payload.get("canonical_anchor_hints") or {}
+        canonical_anchor_terms = canonical_anchor_hints.get("terms") or []
+        canonical_source_terms = canonical_anchor_hints.get("source_terms") or []
         self.assertGreaterEqual(len(anchor_candidates), 1)
         self.assertIn("DigestAuthenticationFilter", anchor_terms)
         self.assertNotIn("수 있습니다", anchor_terms)
@@ -397,6 +488,12 @@ class EvalRuntimeRewriteTests(unittest.TestCase):
         self.assertNotIn("수 있습니다", terminology_terms)
         self.assertNotIn("지원합니다", terminology_terms)
         self.assertLessEqual(len(terminology_terms), 3)
+        self.assertIn("@Transactional", canonical_anchor_terms)
+        self.assertIn("transaction readonly", canonical_anchor_terms)
+        self.assertLessEqual(len(canonical_anchor_terms), 3)
+        self.assertNotIn("anchors", canonical_anchor_hints)
+        self.assertTrue(all(item.get("source") == "canonical_anchor" for item in canonical_source_terms))
+        self.assertTrue(all("canonical_term_id" not in item for item in canonical_source_terms))
         self.assertNotIn("canonical_anchors", payload["top_memory_candidates"][0])
 
     def test_rewrite_payload_skips_anchor_when_disabled(self) -> None:
@@ -441,6 +538,30 @@ class EvalRuntimeRewriteTests(unittest.TestCase):
         self.assertNotIn("anchor_candidates", payload)
         self.assertNotIn("anchor_terms", payload)
         self.assertNotIn("terminology_hints", payload)
+        self.assertNotIn("canonical_anchor_hints", payload)
+
+    def test_rewrite_canonical_anchor_hints_include_only_scoring_approved_terms(self) -> None:
+        hints = runtime._build_rewrite_canonical_anchor_hints(
+            memory_items=[
+                {
+                    "memory_id": "memory-canonical-noise",
+                    "query_text": "Spring transaction guide",
+                    "canonical_anchors": self._canonical_payload_with_review_noise(),
+                }
+            ],
+            query_language="ko",
+            max_terms=8,
+        )
+
+        terms = hints["terms"]
+        self.assertIn("@Transactional", terms)
+        self.assertIn("transaction readonly", terms)
+        self.assertIn("SelfFallbackAnchor", terms)
+        self.assertNotIn("ReviewOnlyAnchor", terms)
+        self.assertNotIn("AmbiguousAnchor", terms)
+        self.assertNotIn("UnresolvedAnchor", terms)
+        self.assertNotIn("PendingCandidateAnchor", terms)
+        self.assertTrue(all("canonical_term_id" not in item for item in hints["source_terms"]))
 
     def test_rewrite_failure_policy_fail_run_raises(self) -> None:
         class _FailingRewriteClient:

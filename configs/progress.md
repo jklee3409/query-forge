@@ -3,6 +3,12 @@
 ## Overview
 High-level progress tracking for the project.
 
+## [2026-05-19] Session Summary (Selective Rewrite Canonical Anchor Hints)
+- What was done: Updated `prompts/rewrite/selective_rewrite_v2.md` to document optional `canonical_anchor_hints` input and require intent-compatible canonical/normalized anchor preservation without synonym expansion or topic substitution.
+- Key decisions: Kept the prompt family/id/version unchanged and treated canonical hints as compact additive input, not as raw canonical metadata or a new runtime option list.
+- Issues encountered: Covered through the pipeline targeted rewrite runtime test class; no standalone prompt-only command was needed.
+- Next steps: Tune wording only if real rewrite debug payloads show over-injection or ignored canonical hints.
+
 ## [2026-05-15] Session Summary (Strategy B Admin Config Smoke)
 - What was done: Inspected Admin-generated Strategy B configs from live smoke runs. The current-code one-source config persisted B-only safe defaults, and the all-allowed-sources config additionally wrote the five Spring reference `source_ids` in a single batch config.
 - Key decisions: Kept generated `admin_gen_*.yaml` files as ignored runtime artifacts; no tracked experiment preset changes were needed after validation.

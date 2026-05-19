@@ -702,6 +702,95 @@ def _build_rewrite_terminology_hints(
     }
 
 
+def _is_prompt_eligible_canonical_anchor(anchor: Mapping[str, Any]) -> bool:
+    if anchor.get("used_for_scoring") is not True:
+        return False
+    resolution_status = str(anchor.get("resolution_status") or "").strip().lower()
+    if resolution_status not in {"mapped", "self_fallback"}:
+        return False
+    review_status = str(anchor.get("review_status") or "").strip().lower()
+    if resolution_status == "mapped" and review_status != "approved":
+        return False
+    if resolution_status == "self_fallback" and review_status not in {"", "approved"}:
+        return False
+    if anchor.get("pending_candidates"):
+        return False
+    if not str(anchor.get("canonical_form") or "").strip():
+        return False
+    return True
+
+
+def _canonical_hint_key(value: str) -> str:
+    return unicodedata.normalize("NFKC", value).casefold()
+
+
+def _build_rewrite_canonical_anchor_hints(
+    *,
+    memory_items: list[dict[str, Any]],
+    query_language: str,
+    max_terms: int = DEFAULT_REWRITE_TERMINOLOGY_HINTS_MAX,
+) -> dict[str, Any]:
+    bounded_max_terms = _clamp_count(
+        max_terms,
+        default=DEFAULT_REWRITE_TERMINOLOGY_HINTS_MAX,
+        max_value=24,
+    )
+    terms: list[str] = []
+    source_terms: list[dict[str, str]] = []
+    seen: set[str] = set()
+
+    def add_term(term: Any, *, alias: str | None, canonical_form: str | None) -> bool:
+        if len(terms) >= bounded_max_terms:
+            return False
+        value = str(term or "").strip()
+        if not value:
+            return True
+        if not is_valid_anchor_phrase(value, language_hint=query_language):
+            return True
+        dedup_key = _canonical_hint_key(value)
+        if dedup_key in seen:
+            return True
+        seen.add(dedup_key)
+        terms.append(value)
+        source_term: dict[str, str] = {
+            "term": value,
+            "source": "canonical_anchor",
+        }
+        if alias:
+            source_term["alias"] = alias
+        if canonical_form and canonical_form != value:
+            source_term["canonical_form"] = canonical_form
+        source_terms.append(source_term)
+        return True
+
+    for memory_row in memory_items[:5]:
+        for anchor in _iter_scoring_canonical_anchors(memory_row.get("canonical_anchors")):
+            if not _is_prompt_eligible_canonical_anchor(anchor):
+                continue
+            display_alias = str(anchor.get("display_alias") or "").strip() or None
+            canonical_form = str(anchor.get("canonical_form") or "").strip() or None
+            for field_name in (
+                "canonical_form",
+                "display_alias",
+                "normalized_alias",
+                "canonical_normalized_form",
+            ):
+                if not add_term(
+                    anchor.get(field_name),
+                    alias=display_alias,
+                    canonical_form=canonical_form,
+                ):
+                    return {
+                        "terms": terms,
+                        "source_terms": source_terms,
+                    }
+
+    return {
+        "terms": terms,
+        "source_terms": source_terms,
+    }
+
+
 def build_memory_guided_query(
     raw_query: str,
     memory_items: list[dict[str, Any]],
@@ -1614,6 +1703,13 @@ def build_rewrite_candidates_v2(
             memory_items=memory_items,
             max_terms=rewrite_terminology_hints_max_count,
         )
+        canonical_anchor_hints = _build_rewrite_canonical_anchor_hints(
+            memory_items=memory_items,
+            query_language=query_language,
+            max_terms=rewrite_terminology_hints_max_count,
+        )
+        if canonical_anchor_hints["terms"]:
+            payload["canonical_anchor_hints"] = canonical_anchor_hints
     try:
         llm_started = time.perf_counter()
         response = _rewrite_client().chat_json(

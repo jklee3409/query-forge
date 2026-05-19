@@ -3,6 +3,12 @@
 ## Overview
 High-level pipeline progress tracking.
 
+## [2026-05-19] Session Summary (Canonical Anchor Rewrite Prompt Hints)
+- What was done: Added `eval/runtime.py` compact canonical-anchor hint construction for selective rewrite LLM payloads and covered it in `tests/test_eval_runtime.py`.
+- Key decisions: Canonical rewrite hints are emitted only when `rewrite_anchor_injection_enabled=true`, include only approved/self-fallback `used_for_scoring=true` anchors, omit full metadata and `canonical_term_id`, and reuse `rewrite_terminology_hints_max_count` for capping.
+- Issues encountered: Targeted validation passed with `python -m py_compile pipeline\eval\runtime.py pipeline\eval\retrieval_eval.py pipeline\eval\answer_eval.py` and `python -m unittest pipeline.tests.test_eval_runtime.EvalRuntimeRewriteTests -q`.
+- Next steps: Inspect a small Admin RAG rewrite debug payload before any broader comparison run.
+
 ## [2026-05-19] Session Summary (Canonical Anchor Version Pins in Eval Reports)
 - What was done: Added a shared canonical anchor version payload helper and included `anchor_mapping_version`, `anchor_normalization_version`, `canonical_anchor_runtime_schema_version`, and grouped `canonical_anchor_versions` in retrieval/answer summary JSON payloads.
 - Key decisions: Kept existing anchor normalization semantics unchanged and did not alter query text, dense inputs, memory query text, raw synthetic payload semantics, or report metric calculations.
