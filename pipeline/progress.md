@@ -3,6 +3,12 @@
 ## Overview
 High-level pipeline progress tracking.
 
+## [2026-05-19] Session Summary (Quality Gating Batch-Scoped Source Load)
+- What was done: Updated `gating/quality_gating.py` to resolve `source_generation_batch_ids`, load raw rows by `generation_batch_id` before falling back to `source_generation_run_ids`, and resume without skipping unprocessed prefix rows when source scope expands.
+- Key decisions: Kept auto-latest disabled while allowing batch identity as the primary explicit source identity; checkpoint slicing is now used only when the prefix up to the last processed query is already fully processed.
+- Issues encountered: Batch `c122d7c2-3bc5-4442-94d1-90c9cd1a31fa` had 1465 raw B rows by batch ID but only 105 rows by the stored final source generation run ID, causing gating batch `ca4ee519-3a9b-4803-a217-06b58ef097de` to complete early; the first re-run exposed the existing checkpoint optimization as a second skip path.
+- Next steps: Re-run job `29b16a6f-43a1-46a0-85e4-ae7e2b6096ed` is running; initial DB check showed gating result rows moving past the previous 105-row ceiling.
+
 ## [2026-05-19] Session Summary (Synthetic Retry Target Accounting Fix)
 - What was done: Changed synthetic generation target accounting to seed `generated_count` from `synthetic_queries_raw_all` by `generation_batch_id` and refresh it after cached-row attach or new row insert.
 - Key decisions: Applied the same cumulative target guard to online generation and Strategy B Gemini Batch mode, including pending batch-query slot reservation so deferred inserts cannot exceed `max_total_queries`.

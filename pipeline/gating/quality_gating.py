@@ -130,9 +130,12 @@ def _resolve_generation_run_ids(raw_config: dict[str, Any]) -> list[str]:
         if configured_run_id_str:
             generation_run_ids = [configured_run_id_str]
 
+    if not generation_run_ids and _resolve_generation_batch_ids(raw_config):
+        return []
+
     if not generation_run_ids:
         raise ValueError(
-            "source_generation_run_id (or source_generation_run_ids) is required for gate-queries "
+            "source_generation_batch_ids or source_generation_run_id is required for gate-queries "
             "(auto-latest generation-run selection is disabled)"
         )
 
@@ -144,6 +147,28 @@ def _resolve_generation_run_ids(raw_config: dict[str, Any]) -> list[str]:
         seen.add(run_id)
         deduped_run_ids.append(run_id)
     return deduped_run_ids
+
+
+def _resolve_generation_batch_ids(raw_config: dict[str, Any]) -> list[str]:
+    configured_batch_ids = raw_config.get("source_generation_batch_ids")
+    generation_batch_ids: list[str] = []
+    if isinstance(configured_batch_ids, list):
+        generation_batch_ids = [str(value).strip() for value in configured_batch_ids if str(value).strip()]
+
+    configured_batch_id = raw_config.get("source_generation_batch_id")
+    if configured_batch_id and not generation_batch_ids:
+        configured_batch_id_str = str(configured_batch_id).strip()
+        if configured_batch_id_str:
+            generation_batch_ids = [configured_batch_id_str]
+
+    deduped_batch_ids: list[str] = []
+    seen: set[str] = set()
+    for batch_id in generation_batch_ids:
+        if batch_id in seen:
+            continue
+        seen.add(batch_id)
+        deduped_batch_ids.append(batch_id)
+    return deduped_batch_ids
 
 
 def _gating_batch_exists(
@@ -166,13 +191,18 @@ def _load_raw_queries(
     connection: psycopg.Connection[Any],
     *,
     strategies: list[str],
+    generation_batch_ids: list[str] | None,
     generation_run_ids: list[str] | None,
 ) -> list[RawQueryRow]:
-    where_run = ""
+    where_source = ""
     parameters: list[Any] = [strategies]
+    normalized_batch_ids = [str(value).strip() for value in (generation_batch_ids or []) if str(value).strip()]
     normalized_run_ids = [str(value).strip() for value in (generation_run_ids or []) if str(value).strip()]
-    if normalized_run_ids:
-        where_run = " AND experiment_run_id = ANY(%s)"
+    if normalized_batch_ids:
+        where_source = " AND generation_batch_id = ANY(%s)"
+        parameters.append(normalized_batch_ids)
+    elif normalized_run_ids:
+        where_source = " AND experiment_run_id = ANY(%s)"
         parameters.append(normalized_run_ids)
     with connection.cursor() as cursor:
         cursor.execute(
@@ -195,7 +225,7 @@ def _load_raw_queries(
                    metadata
             FROM synthetic_queries_raw_all
             WHERE generation_strategy = ANY(%s)
-            {where_run}
+            {where_source}
             ORDER BY created_at ASC
             """,
             parameters,
@@ -218,6 +248,23 @@ def _load_raw_queries(
         )
         for row in rows
     ]
+
+
+def _pending_raw_queries(
+    raw_queries: list[RawQueryRow],
+    *,
+    processed_query_ids: set[str],
+    last_processed_query_id: str | None,
+) -> list[RawQueryRow]:
+    pending_queries = raw_queries
+    if last_processed_query_id:
+        index_by_query_id = {query.synthetic_query_id: index for index, query in enumerate(raw_queries)}
+        last_index = index_by_query_id.get(last_processed_query_id)
+        if last_index is not None:
+            processed_prefix_ids = {query.synthetic_query_id for query in raw_queries[: last_index + 1]}
+            if processed_prefix_ids.issubset(processed_query_ids):
+                pending_queries = raw_queries[last_index + 1 :]
+    return [query for query in pending_queries if query.synthetic_query_id not in processed_query_ids]
 
 
 def _stage_passes_from_persisted_row(
@@ -714,10 +761,12 @@ def run_quality_gating(
                 gating_batch_id,
             )
             gating_batch_id = None
+        generation_batch_ids = _resolve_generation_batch_ids(config.raw)
         generation_run_ids = _resolve_generation_run_ids(config.raw)
         raw_queries = _load_raw_queries(
             connection,
             strategies=strategies,
+            generation_batch_ids=generation_batch_ids,
             generation_run_ids=generation_run_ids,
         )
         existing_state = _load_existing_gating_state(
@@ -728,16 +777,11 @@ def run_quality_gating(
         processed_query_ids: set[str] = set(existing_state["processed_query_ids"])
         processed_existing_count = len(processed_query_ids)
 
-        pending_queries = raw_queries
-        last_processed_query_id = existing_state["last_processed_query_id"]
-        if last_processed_query_id:
-            index_by_query_id = {query.synthetic_query_id: index for index, query in enumerate(raw_queries)}
-            last_index = index_by_query_id.get(last_processed_query_id)
-            if last_index is not None:
-                pending_queries = raw_queries[last_index + 1 :]
-            else:
-                pending_queries = raw_queries
-        pending_queries = [query for query in pending_queries if query.synthetic_query_id not in processed_query_ids]
+        pending_queries = _pending_raw_queries(
+            raw_queries,
+            processed_query_ids=processed_query_ids,
+            last_processed_query_id=existing_state["last_processed_query_id"],
+        )
 
         chunks, chunk_index = _load_chunk_items(connection)
 
@@ -1206,6 +1250,7 @@ def run_quality_gating(
         summary = {
             "experiment_key": config.experiment_key,
             "experiment_run_id": run_context.experiment_run_id,
+            "source_generation_batch_ids": generation_batch_ids,
             "source_generation_run_id": generation_run_ids[0] if generation_run_ids else None,
             "source_generation_run_ids": generation_run_ids,
             "gating_preset": config.gating_preset,

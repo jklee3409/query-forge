@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-05-19] Session Summary (Quality Gating Batch-Scoped Source Load Fix)
+- What was done: Investigated gating batch `ca4ee519-3a9b-4803-a217-06b58ef097de` and fixed `pipeline/gating/quality_gating.py` so Admin gating configs with `source_generation_batch_ids` load raw synthetic queries by generation batch identity and resume over any unprocessed prefix rows.
+- Key decisions: Preserved explicit source identity enforcement, made generation batch IDs take precedence over run IDs, and guarded checkpoint slicing so retry/recovery batches whose raw rows span multiple `experiment_run_id` values are gated as one batch-scoped target.
+- Issues encountered: Source generation batch `c122d7c2-3bc5-4442-94d1-90c9cd1a31fa` contains 1465 B rows across 13 generation run IDs, while the completed gating batch processed only the final run's 105 rows; the first re-run loaded 1465 rows but skipped earlier unprocessed rows because the previous checkpoint was at the end of the expanded batch order.
+- Next steps: Re-run job `29b16a6f-43a1-46a0-85e4-ae7e2b6096ed` is running for the affected gating batch; full completion can be monitored from Admin LLM jobs/gating result counts.
+
 ## [2026-05-19] Session Summary (Synthetic Retry Target Accounting Fix)
 - What was done: Updated `pipeline/generation/synthetic_query_generator.py` so retry/resume generation initializes and refreshes `generated_queries` from live `generation_batch_id` raw-row counts instead of resetting to the current process attempt.
 - Key decisions: Counted existing/reused batch rows toward `max_total_queries` for both online generation and Strategy B Gemini Batch mode; added `initial_generated_queries` and `new_generated_queries` metrics for observability.
