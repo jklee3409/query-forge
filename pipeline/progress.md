@@ -3,6 +3,18 @@
 ## Overview
 High-level pipeline progress tracking.
 
+## [2026-05-19] Session Summary (Synthetic Canonical Anchor Metadata)
+- What was done: Wired `generation/synthetic_query_generator.py` to add canonical anchor metadata to newly built raw synthetic row payloads for A~G. The payload uses `common/anchor_normalization.resolve_canonical_anchors`, stores version pins, and keeps `query_text` plus `glossary_terms` unchanged.
+- Key decisions: Loaded explicit glossary term metadata for resolver `term_type`/fallback candidates, used query language/profile only as an explicit alias-language source, skipped mapping-table lookup when V31 is not applied, and preserved split raw-table writes.
+- Issues encountered: Targeted validation passed with `python -m py_compile generation/synthetic_query_generator.py` and `python -m unittest pipeline.tests.test_synthetic_query_generator -q`.
+- Next steps: Extend the metadata-only canonical payload to new memory entries in Session 8 without memory rebuild/backfill.
+
+## [2026-05-19] Session Summary (Canonical Anchor Resolver Contract Review)
+- What was done: Checked `common/anchor_normalization.py` resolver SQL against V31 columns and the existing `corpus_glossary_terms` schema.
+- Key decisions: Left resolver code unchanged because approved-active lookup, pending lookup, and self-fallback queries reference columns available in the reviewed schema and preserve metadata-only behavior.
+- Issues encountered: Targeted validation passed with `python -m unittest pipeline.tests.test_anchor_normalization -q`.
+- Next steps: In Session 7, thread resolver output into new synthetic metadata only, without overwriting existing raw query text or merging strategy tables.
+
 ## [2026-05-19] Session Summary (Canonical Anchor Normalizer and Resolver Draft)
 - What was done: Added `common/anchor_normalization.py` with `anchor-normalize-v1` fixtures, constants, explicit alias-language validation, display-vs-normalized alias separation, and a metadata-only `resolve_canonical_anchors` draft.
 - Key decisions: Preserved existing `common/anchor_quality.py` semantics and kept resolver output additive; it returns canonical anchor metadata without replacing query, glossary, synthetic, or memory text.

@@ -1,5 +1,17 @@
 # progress.md
 
+## [2026-05-19] Session Summary (Synthetic Canonical Anchor Metadata)
+- What was done: Added additive `canonical_anchors`, `anchor_mapping_version`, and `anchor_normalization_version` metadata construction for newly generated synthetic raw A~G row payloads, using the canonical anchor resolver with glossary-term metadata while preserving original `query_text` and `glossary_terms`.
+- Key decisions: Kept strategy-specific raw table writes unchanged, did not insert mapping rows or apply V31, and made canonical mapping lookup optional so generation can continue when `canonical_anchor_mapping` is absent.
+- Issues encountered: Validation was limited to targeted checks: `python -m py_compile generation/synthetic_query_generator.py` and `python -m unittest pipeline.tests.test_synthetic_query_generator -q` passed.
+- Next steps: Session 8 should thread the same metadata-only canonical payload into new `memory_entries.metadata` without rebuilding or overwriting existing memory queries.
+
+## [2026-05-19] Session Summary (Canonical Anchor Mapping Migration Review)
+- What was done: Reviewed `V31__create_canonical_anchor_mapping.sql` against `corpus_glossary_terms` schema and the Python resolver SQL contract; confirmed the local development DB has Flyway applied through `V30` only and does not yet contain `canonical_anchor_mapping`.
+- Key decisions: Did not apply the migration because explicit approval was not given. Kept V31 unchanged because FK types, approved-active uniqueness, pending multi-candidate allowance, alias-language checks, no `term_type` duplication, and self-row guard match the Session 6 constraints.
+- Issues encountered: `psql` is not available on PATH, so DB inspection used a read-only Python PostgreSQL connection. Targeted validation passed with `python -m unittest pipeline.tests.test_anchor_normalization -q`.
+- Next steps: Apply V31 only after explicit user approval to the intended development DB, then inspect table/index/constraint/trigger existence without inserting mappings or backfilling data.
+
 ## [2026-05-19] Session Summary (Canonical Anchor Mapping Implementation Start)
 - What was done: Added Flyway `V31__create_canonical_anchor_mapping.sql`, Python `anchor-normalize-v1` helper, metadata-only canonical anchor resolver draft, and fixture coverage for the agreed normalization cases.
 - Key decisions: Kept canonical data additive through a new mapping table and runtime payloads; original `query_text`, `glossary_terms`, synthetic raw rows, and memory query text remain untouched. Existing `anchor_quality.normalize_anchor_text` was not changed.

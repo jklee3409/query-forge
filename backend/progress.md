@@ -3,6 +3,12 @@
 ## Overview
 High-level backend progress tracking.
 
+## [2026-05-19] Session Summary (Canonical Anchor Mapping Migration Review)
+- What was done: Reviewed Flyway `V31__create_canonical_anchor_mapping.sql` for FK compatibility with `corpus_glossary_terms(term_id)`, approved-active unique indexing, pending candidate allowance, alias-language checks, and canonical self-row rejection.
+- Key decisions: Left V31 unchanged and did not apply it. Read-only inspection of the local development DB showed Flyway latest `V30`, no `V31` history row, and no `canonical_anchor_mapping` table.
+- Issues encountered: `psql` was unavailable locally, so catalog inspection used a read-only Python PostgreSQL connection.
+- Next steps: With explicit approval, apply V31 only to the intended development DB and inspect the created table, indexes, constraints, trigger, and function before any mapping-row insert/backfill work.
+
 ## [2026-05-19] Session Summary (Canonical Anchor Mapping Migration Draft)
 - What was done: Added Flyway `V31__create_canonical_anchor_mapping.sql` for the additive alias-to-canonical mapping table with FK links to `corpus_glossary_terms`, approved-active deterministic uniqueness, pending multi-candidate support, and a self-row rejection trigger.
 - Key decisions: Stored mapping status as `mapping_status`, kept `term_type` out of the mapping row, and left normalized alias calculation to application code.
