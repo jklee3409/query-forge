@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-05-19] Session Summary (V4 Eval Dataset Restore Attempt)
+- What was done: Compared RAG test runs `e5a12249-d71b-4572-8b66-5dfffcf2935b` and `5fd51176-32db-413b-a09d-5ec00143af89`, confirmed the main retrieval jump came from short-user dataset `v4-2026-04-19` to `v5-2026-05-13`, and restored a non-destructive V4 copy in DB as dataset `5b919915-bd7e-46cb-a60c-905c9989edd4` with `v4-` prefixed sample IDs.
+- Key decisions: Did not overwrite the live V5 dataset. Reused the saved V4 snapshot report `data/reports/short_user_current_dump_2026-05-13.json`; verified all referenced V4 chunks, docs, and synthetic provenance IDs still exist in the local DB.
+- Issues encountered: Launched RAG run `4328c647-c814-4c1f-afe5-ad9dea898800` against the restored V4 dataset and same A/full-gating snapshot, but `eval-retrieval` failed because the backend worker could not find `configs/experiments/admin_eval_0ea374c48298.yaml` from its runtime config path after `build-memory` completed.
+- Next steps: Fix or align the Admin RAG experiment config path before retrying the V4 restore run; compare the completed V4-current-code run against V5 only after the retry succeeds.
+
 ## [2026-05-19] Session Summary (Anchor Normalization Dry-Run 500 Fix)
 - What was done: Fixed `POST /api/admin/corpus/anchors/normalization-runs` dry-run creation by preserving whitespace between dynamically appended SQL predicates and `ORDER BY` in `AnchorNormalizationService.findTargets`.
 - Key decisions: Kept the Admin review flow, V32 schema, approval behavior, and frontend API contract unchanged; added focused backend integration coverage for dry-run creation.
