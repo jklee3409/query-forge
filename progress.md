@@ -1,10 +1,28 @@
 # progress.md
 
+## [2026-05-19] Session Summary (Remove Temporary V4 Restore Dataset)
+- What was done: Deleted the temporary `Spring KR Short User Eval 80 V4 Restore (KR)` dataset row after the canonical `Spring KR Short User Eval 80 (KR)` dataset had been overwritten to use the restored V4 samples.
+- Key decisions: Deleted only the restore dataset/item links. Preserved the `v4-test-short-user-*` sample rows because the canonical KR dataset now references all 80 of them.
+- Issues encountered: None. Verification showed the canonical KR dataset remains `v4-2026-04-19` with 80 active `v4-test-short-user-*` items, and the temporary restore dataset no longer appears in the dataset list.
+- Next steps: Use `Spring KR Short User Eval 80 (KR)` as the single KR short-user evaluation dataset for future V4-based RAG runs.
+
+## [2026-05-19] Session Summary (Canonical Short-User Dataset V4 Overwrite)
+- What was done: Overwrote canonical dataset `Spring KR Short User Eval 80 (KR)` (`b2d47254-8655-4c9c-81ac-7615677ec5bd`) to point at the restored V4 sample set from `Spring KR Short User Eval 80 V4 Restore (KR)` while preserving the separate restore dataset.
+- Key decisions: Kept both dataset rows. Replaced only canonical `eval_dataset_item` links with the existing `v4-test-short-user-*` samples, updated canonical version/metadata to `v4-2026-04-19`, and left old `test-short-user-*` sample rows in place for historical RAG result references.
+- Issues encountered: The first attempted destructive cleanup query failed before commit due to PostgreSQL parameter type inference and was rolled back. The corrected operation deleted only the default `기본 평가 데이터셋 (build-eval-dataset)` row plus its unreferenced 140 `dev-human-*`/`test-human-*` samples.
+- Next steps: Future RAG runs using `human_eval_short_user_40` now use V4 restored queries. If a fresh V4 comparison run is needed, retry after aligning the Admin RAG experiment config path.
+
 ## [2026-05-19] Session Summary (V4 Eval Dataset Restore Attempt)
 - What was done: Compared RAG test runs `e5a12249-d71b-4572-8b66-5dfffcf2935b` and `5fd51176-32db-413b-a09d-5ec00143af89`, confirmed the main retrieval jump came from short-user dataset `v4-2026-04-19` to `v5-2026-05-13`, and restored a non-destructive V4 copy in DB as dataset `5b919915-bd7e-46cb-a60c-905c9989edd4` with `v4-` prefixed sample IDs.
 - Key decisions: Did not overwrite the live V5 dataset. Reused the saved V4 snapshot report `data/reports/short_user_current_dump_2026-05-13.json`; verified all referenced V4 chunks, docs, and synthetic provenance IDs still exist in the local DB.
 - Issues encountered: Launched RAG run `4328c647-c814-4c1f-afe5-ad9dea898800` against the restored V4 dataset and same A/full-gating snapshot, but `eval-retrieval` failed because the backend worker could not find `configs/experiments/admin_eval_0ea374c48298.yaml` from its runtime config path after `build-memory` completed.
 - Next steps: Fix or align the Admin RAG experiment config path before retrying the V4 restore run; compare the completed V4-current-code run against V5 only after the retry succeeds.
+
+## [2026-05-19] Session Summary (Language-Specific RAG Rewrite Prompt Split)
+- What was done: Split Admin RAG rewrite prompt selection by evaluation query language so English-query runs use a new English rewrite prompt while Korean/code-mixed runs keep the existing selective rewrite prompt. Admin RAG now rejects synthetic method/eval-language mismatches such as E with `ko` queries or A-D/G with `en` queries.
+- Key decisions: Used query-language/profile separation rather than changing A/B/C/D/E generation tables or the RAG stage order. Frontend method chips and snapshot filtering now mirror the backend language guard.
+- Issues encountered: Targeted pipeline/backend tests passed; `RagPage.jsx` lint still has the existing two hook dependency warnings.
+- Next steps: Run a small E + English eval dataset RAG smoke and compare rewrite debug payloads against an A-D + Korean eval run.
 
 ## [2026-05-19] Session Summary (Anchor Normalization Dry-Run 500 Fix)
 - What was done: Fixed `POST /api/admin/corpus/anchors/normalization-runs` dry-run creation by preserving whitespace between dynamically appended SQL predicates and `ORDER BY` in `AnchorNormalizationService.findTargets`.
