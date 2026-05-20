@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-05-20] Session Summary (Admin Root Forward)
+- What was done: Changed backend `/admin` handling from a redirect to `/admin/pipeline` into a direct React app forward so the Domain Atlas entry route is preserved on direct backend-served access.
+- Key decisions: Left legacy admin page redirects and concrete React routes unchanged.
+- Issues encountered: Targeted `.\gradlew.bat compileJava` passed. Frontend `npm run build` refreshed the backend-served React bundle.
+- Next steps: Smoke-test direct `/admin` access after serving the backend bundle.
+
 ## [2026-05-20] Session Summary (Pipeline CLI Domain Forwarding)
 - What was done: Forwarded selected pipeline `domainId` into `pipeline/cli.py import-corpus --domain-id` from backend-managed import/full-ingest runs.
 - Key decisions: Kept backend post-import domain propagation in place as the Admin-side guard while allowing the Python CLI to record the same domain context directly.

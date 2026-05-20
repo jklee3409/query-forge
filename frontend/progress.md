@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-05-20] Session Summary (Admin Entry Button)
+- What was done: Updated the chat surface Admin console button to navigate to `/admin` instead of `/admin/pipeline`.
+- Key decisions: Kept all Admin workspace routes and page components unchanged; `/admin` remains the Domain Atlas entry page.
+- Issues encountered: Targeted `npm exec eslint -- src/pages/ChatPage.jsx` and `npm run build` passed.
+- Next steps: Smoke-test the button from `http://localhost:5173/`.
+
 ## [2026-05-20] Session Summary (Domain Source Membership UI)
 - What was done: Added a Domain Atlas Source Membership panel that loads domain details, lists linked corpus sources, and supports attaching/detaching sources through the domain Admin API.
 - Key decisions: Kept the map node click as workspace navigation, and added a separate Sources action in the domain registry list to avoid accidental navigation while editing memberships.

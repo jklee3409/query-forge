@@ -54,7 +54,7 @@ export function ChatPage({ navigate, notify }) {
       <header className="chat-hero">
         <div className="chat-hero__title">Query Forge Chat</div>
         <div className="chat-hero__subtitle">Spring 문서 기반 질의응답 + selective rewrite trace</div>
-        <button type="button" className="button button--primary" onClick={() => navigate('/admin/pipeline')}>관리자 콘솔 이동</button>
+        <button type="button" className="button button--primary" onClick={() => navigate('/admin')}>관리자 콘솔 이동</button>
       </header>
 
       <section className="chat-controls">

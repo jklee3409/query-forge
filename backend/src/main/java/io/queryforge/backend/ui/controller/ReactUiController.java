@@ -8,7 +8,7 @@ public class ReactUiController {
 
     @GetMapping("/admin")
     public String adminRoot() {
-        return "redirect:/admin/pipeline";
+        return "forward:/react/index.html";
     }
 
     @GetMapping({

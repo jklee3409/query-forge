@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-05-20] Session Summary (Admin Entry Route)
+- What was done: Changed the chat-surface "Admin console" button to navigate to `/admin` instead of `/admin/pipeline`, and aligned the backend `/admin` route to serve the React app rather than redirecting to the pipeline page.
+- Key decisions: Kept existing `/admin/pipeline` and legacy redirects unchanged; this only restores the Domain Atlas admin entry path.
+- Issues encountered: Targeted `npm exec eslint -- src/pages/ChatPage.jsx`, backend `compileJava`, and frontend `npm run build` passed.
+- Next steps: Smoke-test the root chat button on the Vite dev server.
+
 ## [2026-05-20] Session Summary (Pipeline Import Domain ID)
 - What was done: Added `--domain-id` to `pipeline/cli.py import-corpus`, included domain identity in import run source/config snapshots, and applied domain assignment to imported sources, documents, chunks, relations, glossary rows, and aliases after standalone CLI imports. Backend pipeline orchestration now forwards selected domain IDs into the import command.
 - Key decisions: Kept the import row upsert logic unchanged and reused a post-import domain propagation step so existing idempotency comparisons remain stable.
