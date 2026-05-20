@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-05-20] Session Summary (Domain and Prompt Admin APIs)
+- What was done: Added /api/admin/domains APIs for domain list/detail/create/update/source attach/detach/summary and /api/admin/prompt-assets plus /api/admin/prompt-bindings APIs for global prompt catalog/binding management.
+- Key decisions: Kept the new controllers/services/repositories isolated from existing AdminConsole execution paths so domain runtime filtering can be wired in a later commit.
+- Issues encountered: No DB migration execution was performed. Targeted backend compileJava passed.
+- Next steps: Add frontend Domain Home/Workspace and Prompt Studio surfaces against these APIs.
+
 ## [2026-05-20] Session Summary (Domain and Prompt Schema)
 - What was done: Added Flyway migration V35__add_domain_and_prompt_management.sql for first-class technical document domains, domain-source/method policy seed data, global prompt asset bindings, and nullable domain_id columns across corpus/synthetic/gating/memory/eval/RAG/anchor/job tables.
 - Key decisions: Kept prompt assets above domains, kept A-G raw strategy tables split, seeded Spring/Python domains without strict NOT NULL enforcement, and backfilled only deterministic same-domain mappings.

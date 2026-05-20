@@ -3,6 +3,12 @@
 ## Overview
 High-level progress tracking for the `docs` directory.
 
+## [2026-05-20] Session Summary (Domain and Prompt Admin APIs)
+- What was done: Implemented backend Admin APIs for technical document domains and global prompt asset/binding management.
+- Key decisions: Kept API implementation separate from existing Synthetic/Gating/RAG runtime wiring to preserve small reviewable phases.
+- Issues encountered: Backend `compileJava` passed; DB migration execution was skipped by instruction to avoid unnecessary local DB work.
+- Next steps: Build the frontend Domain Home/Workspace and Prompt Studio shells.
+
 ## [2026-05-20] Session Summary (Domain and Prompt Schema Implementation)
 - What was done: Added the first implementation migration for the domain pipeline integration design: domain tables, prompt bindings, seed mappings, nullable `domain_id` columns, and deterministic backfill SQL.
 - Key decisions: Kept this phase additive and nullable so backend/API/frontend migration can proceed before strict enforcement.

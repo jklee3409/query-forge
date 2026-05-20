@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-05-20] Session Summary (Domain and Prompt Admin APIs)
+- What was done: Added backend Admin APIs for domain catalog/workspace summary/source membership and global prompt asset/binding management.
+- Key decisions: Keep the first backend API phase read/write catalog-focused and leave existing pipeline/Synthetic/RAG execution filters for a separate wiring step.
+- Issues encountered: Targeted backend compileJava passed. No DB migration was executed to avoid unnecessary local DB work.
+- Next steps: Implement frontend Domain Home/Workspace and Prompt Studio using these APIs.
+
 ## [2026-05-20] Session Summary (Domain and Prompt Schema)
 - What was done: Added additive Flyway schema for tech_doc_domain, source/method policy mapping, global prompt asset binding, seed data for Spring/Python and A-G/RAG rewrite prompts, plus nullable domain_id backfill columns across major runtime tables.
 - Key decisions: Keep strict domain enforcement for a later phase; this migration establishes catalog and backfill shape without forcing NOT NULL while existing services are being retrofitted.
