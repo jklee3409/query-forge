@@ -1018,3 +1018,11 @@ High-level progress tracking for the project.
 - Key decisions: Kept `arahansa-github-io-docs-spring` outside the Spring domain and treated the five Spring reference sources plus `docs-python-org-ko-3-14` as the canonical domain source set.
 - Issues encountered: Fresh DBs can sync source YAML after Flyway, so backend source config sync now assigns canonical source IDs to Spring/Python domains after upsert.
 - Next steps: Apply Flyway in the runtime DB and verify unmapped domain counts for the canonical source/eval/RAG tables.
+
+---
+
+## [2026-05-20] Session Summary (V35/V36 Migration Repair)
+- What was done: Fixed V35/V36 migration failures caused by PostgreSQL not supporting `MIN(uuid)` by aggregating `domain_id::text` and casting back to UUID.
+- Key decisions: Preserved the existing single-domain `COUNT(DISTINCT domain_id) = 1` guard, so the repair changes only SQL compatibility and does not broaden data updates.
+- Issues encountered: The first backend restart failed at V35 and rolled back cleanly; after the fix, non-web backend startup validated all 36 migrations and reported schema version 36.
+- Next steps: Use normal backend restart; no manual DB repair was required.

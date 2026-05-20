@@ -542,3 +542,11 @@ High-level backend progress tracking.
 - Key decisions: Domain repair uses explicit canonical aliases plus expected document/chunk domain evidence for eval samples, then propagates to datasets, RAG runs, LLM jobs, and anchor artifacts.
 - Issues encountered: `V35` handled product aliases but not all reference-style `source_product` values used by existing eval data.
 - Next steps: Run Flyway on the runtime DB and spot-check that Spring/Python domain workspaces show the expected source and eval/RAG histories.
+
+---
+
+## [2026-05-20] Session Summary (V35/V36 Migration Repair)
+- What was done: Repaired V35/V36 UUID aggregate SQL by replacing `MIN(domain_id)` with `MIN(domain_id::text)::uuid`.
+- Key decisions: Kept the one-domain-only grouping checks unchanged to avoid changing backfill semantics or touching ambiguous rows.
+- Issues encountered: PostgreSQL 16 rejects `MIN(uuid)`, causing V35 rollback at backend startup.
+- Next steps: Restart backend normally; Flyway validation now reports schema version 36.

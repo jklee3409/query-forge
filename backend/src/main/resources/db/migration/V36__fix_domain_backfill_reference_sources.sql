@@ -162,7 +162,7 @@ WHERE reg.synthetic_query_id = raw.synthetic_query_id
 
 WITH batch_domains AS (
     SELECT generation_batch_id,
-           MIN(domain_id) AS domain_id
+           MIN(domain_id::text)::uuid AS domain_id
     FROM synthetic_queries_raw_all
     WHERE generation_batch_id IS NOT NULL
       AND domain_id IS NOT NULL
@@ -281,7 +281,7 @@ sample_candidates AS (
 ),
 sample_domains AS (
     SELECT sample_id,
-           MIN(domain_id) AS domain_id
+           MIN(domain_id::text)::uuid AS domain_id
     FROM sample_candidates
     GROUP BY sample_id
     HAVING COUNT(DISTINCT domain_id) = 1
@@ -294,7 +294,7 @@ WHERE s.sample_id = sd.sample_id
 
 WITH dataset_domains AS (
     SELECT i.dataset_id,
-           MIN(s.domain_id) AS domain_id
+           MIN(s.domain_id::text)::uuid AS domain_id
     FROM eval_dataset_item i
     JOIN eval_samples s ON s.sample_id = i.sample_id
     WHERE s.domain_id IS NOT NULL
@@ -386,7 +386,7 @@ WHERE c.term_id = t.term_id
   AND c.domain_id IS DISTINCT FROM t.domain_id;
 
 WITH normalization_run_domains AS (
-    SELECT run_id, MIN(domain_id) AS domain_id
+    SELECT run_id, MIN(domain_id::text)::uuid AS domain_id
     FROM anchor_normalization_candidate
     WHERE domain_id IS NOT NULL
     GROUP BY run_id
@@ -413,7 +413,7 @@ WHERE rel.canonical_anchor_id = t.term_id
   AND rel.domain_id IS DISTINCT FROM t.domain_id;
 
 WITH relation_run_domains AS (
-    SELECT run_id, MIN(domain_id) AS domain_id
+    SELECT run_id, MIN(domain_id::text)::uuid AS domain_id
     FROM canonical_anchor_relation
     WHERE run_id IS NOT NULL
       AND domain_id IS NOT NULL
