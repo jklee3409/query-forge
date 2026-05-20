@@ -29,6 +29,95 @@ GENERIC_TERMS = {
 
 EN_DATASET_ID = "8f0d6e0f-6f9e-4d64-9b07-f4e8ce5ebec0"
 EN_DATASET_KEY = "human_eval_short_user_80_en"
+EN_VERSION_LABEL = "v2-2026-05-20"
+
+EN_QUERY_TEXTS = [
+    "DigestAuthenticationFilter Digest Authentication setup?",
+    "X.509 logout session management?",
+    "X-Forwarded-Ssl X-Forwarded-Prefix role?",
+    "JPA traversal point underscore usage?",
+    "@AspectJ aop namespace?",
+    "RestClient RestTemplate migration?",
+    "oauth2Login loginPage redirectionEndpoint?",
+    "OAuth2AccessTokenResponseHttpMessageConverter customization?",
+    "streaming long-lived connection web stack?",
+    "interface projection?",
+    "SpEL varargs type conversion?",
+    "UnboundID LDAP setup?",
+    "WebTestClient MockMvc assertion?",
+    "Spring Data Commons 4.0.4?",
+    "HTTP Service Client interface?",
+    "PropertyPathFactoryBean value reference?",
+    "oauth2-client namespace setup?",
+    "EntityCallback sync reactive difference?",
+    "aop namespace context schema?",
+    "PagedModel JSON page?",
+    "DTO projection @PersistenceCreator?",
+    "executable jar unpack?",
+    "JmsTemplate JmsClient receive?",
+    "partial projection entity view?",
+    "@QuerydslPredicate web binding?",
+    "MockMvc HtmlUnit integration reason?",
+    "Spring Security source code?",
+    "IoC Container BeanFactory relation?",
+    "RegisteredClient clientId grantType?",
+    "Hibernate DAO transaction?",
+    "cloudfoundryapplication endpoint?",
+    "exchange asyncExchange difference?",
+    "saml2Metadata endpoint publishing?",
+    "RunAsManager RunAsManagerImpl?",
+    "@ManagedAttribute read-only property?",
+    "RestClient customization?",
+    "MvcTestResult JSON AssertJ?",
+    "JwtIssuerReactiveAuthenticationManagerResolver multi-tenancy?",
+    "OAuth2AuthorizedClientManager default publish?",
+    "AOT runtime hints reason?",
+    "@Proxyable proxy type?",
+    "Sort.by and sorting?",
+    "POST 403 CSRF?",
+    "Kotlin override property @Transient?",
+    "ApplicationEventPublisher custom event?",
+    "RepositoryMethodContext metadata expose?",
+    "ProxyFactoryBean interceptorNames bean name?",
+    "exchangeToMono status mapping?",
+    "DefaultMessageListenerContainer JtaTransactionManager?",
+    "OpenTelemetry OTLP Zipkin starter?",
+    "OAuth2AccessTokenResponseClient bean registration manager?",
+    "WebSocketMessageBrokerStats 30 minute INFO?",
+    "Repository marker interface?",
+    "AbstractPreAuthenticatedProcessingFilter user info?",
+    "xmlns:jms schemaLocation?",
+    "logout JSESSIONID cookie delete?",
+    "PropertySource hierarchy lookup?",
+    "ReflectiveIndexAccessor custom structure?",
+    "PartEvent multipart streaming?",
+    "web mocks autowire?",
+    "SecurityMockMvcRequestPostProcessors static import?",
+    "OAuth2 prompt parameter?",
+    "ExampleMatcher string matching?",
+    "MultipartResolver multipart/form-data parameter?",
+    "repository fragment spring.factories?",
+    "concurrent session limit?",
+    "cache-control header disable?",
+    "AssertJ MockMvc exception handling?",
+    "kotlin.version BOM?",
+    "Repository include exclude filter?",
+    "@Scheduled Kotlin suspend?",
+    "Spring MVC Spring WebFlux choice?",
+    "matching-strategy ant-path-matcher?",
+    "named pointcut composition?",
+    "inner bean id scope?",
+    "AOT @Table @Document @Entity?",
+    "PlatformTransactionManager ReactiveTransactionManager?",
+    "@Import @Bean dependency injection?",
+    "multipart CSRF token body url?",
+    "@Sql before after test?",
+]
+
+EN_QUERY_OVERRIDES = {
+    f"test-short-user-{index:03d}": query
+    for index, query in enumerate(EN_QUERY_TEXTS, start=1)
+}
 
 
 def _normalize_spaces(text: str) -> str:
@@ -102,7 +191,7 @@ def _build_query(source_row: dict[str, Any]) -> str:
 def _build_en_rows(source_rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
     for index, row in enumerate(source_rows, start=1):
-        query_en = _build_query(row)
+        query_en = EN_QUERY_OVERRIDES.get(str(row["sample_id"]), _build_query(row))
         rows.append(
             {
                 "sample_id": f"test-short-user-en-{index:03d}",
@@ -121,9 +210,10 @@ def _build_en_rows(source_rows: list[dict[str, Any]]) -> list[dict[str, Any]]:
                 "source_product": row.get("source_product"),
                 "source_version_if_available": row.get("source_version_if_available"),
                 "metadata": {
-                    "builder": "short-user-en-v1",
+                    "builder": "short-user-en-v2",
                     "query_language": "en",
                     "paired_sample_id": row["sample_id"],
+                    "paired_user_query_ko": row.get("user_query_ko"),
                     "dataset_key": EN_DATASET_KEY,
                     "target_method": "E",
                     "evaluation_focus": ["rewrite", "retrieval", "language_comparison"],
@@ -165,9 +255,9 @@ def _upsert_dataset(connection: psycopg.Connection[Any], rows: list[dict[str, An
             (
                 EN_DATASET_ID,
                 EN_DATASET_KEY,
-                "English Short User Eval 80",
-                "English short-user evaluation dataset paired to the existing Korean short-user 80 set.",
-                "v1-2026-04-28",
+                "Spring KR Short User Eval 80 (EN)",
+                "English short-user evaluation dataset paired one-to-one with Spring KR Short User Eval 80 (KR).",
+                EN_VERSION_LABEL,
                 "test_only",
                 len(rows),
                 Jsonb({"short_user": len(rows)}),
@@ -180,7 +270,8 @@ def _upsert_dataset(connection: psycopg.Connection[Any], rows: list[dict[str, An
                 Jsonb(
                     {
                         "query_language": "en",
-                        "paired_dataset_key": "human_eval_short_user_80",
+                        "paired_dataset_key": "human_eval_short_user_40",
+                        "pairing_policy": "same order, same expected_doc_ids, same expected_chunk_ids",
                         "source_file": output_file,
                         "updated_at": datetime.now(timezone.utc).isoformat(),
                     }
@@ -278,6 +369,10 @@ def run(
     db_password: str,
 ) -> dict[str, Any]:
     source_rows = [json.loads(line) for line in input_file.read_text(encoding="utf-8").splitlines() if line.strip()]
+    if len(source_rows) != len(EN_QUERY_TEXTS):
+        raise RuntimeError(
+            f"English query override count mismatch: source={len(source_rows)} overrides={len(EN_QUERY_TEXTS)}"
+        )
     en_rows = _build_en_rows(source_rows)
     output_file.parent.mkdir(parents=True, exist_ok=True)
     output_file.write_text(

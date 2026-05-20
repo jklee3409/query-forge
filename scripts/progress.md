@@ -3,6 +3,12 @@
 ## Overview
 High-level progress tracking for the project.
 
+## [2026-05-20] Session Summary (Spring Short-User EN Pairing Refresh)
+- What was done: Updated `scripts/build_short_user_en_dataset.py` to use manually paired English short-user queries for the 80 refined KR samples, enforce source/override count parity, write `v2-2026-05-20`, and upsert the EN dataset to DB.
+- Key decisions: The script keeps the same grounded doc/chunk IDs from the KR source rows and records `paired_user_query_ko` metadata for auditability.
+- Issues encountered: None; running the script generated 80 EN rows and upserted dataset `8f0d6e0f-6f9e-4d64-9b07-f4e8ce5ebec0`.
+- Next steps: Re-run this script whenever the KR refined JSONL changes so EN pairing remains exact.
+
 ## [2026-05-12] Session Summary (Python KR Eval Dataset Builder)
 - What was done: Added `scripts/build_python_kr_eval_datasets.py` to generate paired KO/EN Python Korean-document short-user 80 JSONL files, write an audit report, and upsert both datasets into DB tables.
 - Key decisions: Hardcoded only the manually reviewed short-user query specs while resolving actual `expected_doc_ids` and `expected_chunk_ids` from the current `docs-python-org-ko-3-14` corpus at runtime.

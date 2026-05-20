@@ -3,6 +3,12 @@
 ## Overview
 High-level progress tracking for the project.
 
+## [2026-05-20] Session Summary (Spring KR Short-User Pair Restored)
+- What was done: Restored DB dataset `b2d47254-8655-4c9c-81ac-7615677ec5bd` to the refined V5 `test-short-user-*` active samples and regenerated/upserted `data/eval/human_eval_short_user_test_80_en.jsonl` as a one-to-one English companion dataset.
+- Key decisions: KR and EN datasets now share order, `expected_doc_ids`, and `expected_chunk_ids`; EN rows keep paired-sample metadata and concise English user queries that mirror the KR short-user intent.
+- Issues encountered: Existing historical V4 sample rows were left in `eval_samples` for old result references, but they are no longer active in the canonical KR dataset.
+- Next steps: Use the paired KR/EN datasets for language-gap comparisons under the same memory snapshot and retrieval backend.
+
 ## [2026-05-12] Session Summary (Python KR KO/EN Eval Dataset Assets)
 - What was done: Added paired Python Korean-document short-user eval datasets under `data/eval/` and a generation audit report under `data/reports/`.
 - Key decisions: Kept KO and EN datasets separate with paired sample IDs, `strategy_profile=python_kr`, and target methods `G`/`F` so F/G comparisons can use the same grounded chunks without mixing query languages.
