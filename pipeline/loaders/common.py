@@ -96,7 +96,8 @@ class ImportOptions:
     source_ids: set[str]
     document_ids: set[str]
     run_type: str
-    external_run_id: str | None
+    external_run_id: str | None = None
+    domain_id: str | None = None
 
 
 def build_options(args: Any) -> ImportOptions:
@@ -120,6 +121,7 @@ def build_options(args: Any) -> ImportOptions:
         document_ids=set(args.document_id or []),
         run_type=str(args.run_type),
         external_run_id=getattr(args, "external_run_id", None),
+        domain_id=getattr(args, "domain_id", None),
     )
 
 
@@ -203,6 +205,7 @@ def filter_rows(
 
 def source_scope_json(options: ImportOptions) -> dict[str, Any]:
     return {
+        "domain_id": options.domain_id,
         "source_ids": sorted(options.source_ids),
         "document_ids": sorted(options.document_ids),
         "raw_input_path": str(options.raw_input_path) if options.raw_input_path else None,
@@ -214,6 +217,7 @@ def source_scope_json(options: ImportOptions) -> dict[str, Any]:
 
 def config_snapshot_json(options: ImportOptions) -> dict[str, Any]:
     return {
+        "domain_id": options.domain_id,
         "source_config_dir": str(options.source_config_dir),
         "batch_size": options.batch_size,
         "dry_run": options.dry_run,
@@ -234,6 +238,7 @@ class RunRecorder:
         source_scope: dict[str, Any],
         config_snapshot: dict[str, Any],
         created_by: str,
+        domain_id: str | None,
     ) -> str:
         run_id = str(uuid.uuid4())
         with self.connection.cursor() as cursor:
@@ -241,6 +246,7 @@ class RunRecorder:
                 """
                 INSERT INTO corpus_runs (
                     run_id,
+                    domain_id,
                     run_type,
                     run_status,
                     trigger_type,
@@ -251,10 +257,11 @@ class RunRecorder:
                     created_by,
                     created_at,
                     updated_at
-                ) VALUES (%s, %s, 'running', %s, %s, %s, '{}'::jsonb, NOW(), %s, NOW(), NOW())
+                ) VALUES (%s, %s, %s, 'running', %s, %s, %s, '{}'::jsonb, NOW(), %s, NOW(), NOW())
                 """,
                 (
                     run_id,
+                    domain_id,
                     run_type,
                     trigger_type,
                     jsonb(source_scope),

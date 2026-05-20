@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-05-20] Session Summary (Pipeline Import Domain ID)
+- What was done: Added `--domain-id` to `pipeline/cli.py import-corpus`, included domain identity in import run source/config snapshots, and applied domain assignment to imported sources, documents, chunks, relations, glossary rows, and aliases after standalone CLI imports. Backend pipeline orchestration now forwards selected domain IDs into the import command.
+- Key decisions: Kept the import row upsert logic unchanged and reused a post-import domain propagation step so existing idempotency comparisons remain stable.
+- Issues encountered: `python -m compileall` for the touched pipeline files and backend `compileJava` both passed.
+- Next steps: Run a small migrated-DB import smoke with `--domain-id` when local DB load is acceptable.
+
 ## [2026-05-20] Session Summary (Domain Source Membership UI)
 - What was done: Added a Source Membership panel to the Domain Atlas so operators can select a domain, inspect linked corpus sources, attach an available source, or detach an existing source without leaving the domain entry page.
 - Key decisions: Kept source creation in the domain Pipeline page and used the existing `/api/admin/domains/{domainRef}/sources` attach/detach APIs for existing-source membership edits.

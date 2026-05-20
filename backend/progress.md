@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-05-20] Session Summary (Pipeline CLI Domain Forwarding)
+- What was done: Forwarded selected pipeline `domainId` into `pipeline/cli.py import-corpus --domain-id` from backend-managed import/full-ingest runs.
+- Key decisions: Kept backend post-import domain propagation in place as the Admin-side guard while allowing the Python CLI to record the same domain context directly.
+- Issues encountered: Targeted `.\gradlew.bat compileJava` passed.
+- Next steps: Smoke-test a migrated backend import/full-ingest run when DB work is acceptable.
+
 ## [2026-05-20] Session Summary (Domain Source Membership Bundle)
 - What was done: Refreshed the backend-served React static bundle after adding Domain Atlas source membership controls.
 - Key decisions: No backend Java/API/schema behavior changed in this UI-only slice; the bundle consumes the existing domain source attach/detach endpoints.

@@ -15,6 +15,9 @@ try:
         configure_logging,
         connect,
         default_database_args,
+        filter_rows,
+        load_jsonl,
+        load_raw_documents,
         source_scope_json,
     )
     from loaders.import_chunks import import_chunks
@@ -30,6 +33,9 @@ except ModuleNotFoundError:  # pragma: no cover - direct module execution fallba
         configure_logging,
         connect,
         default_database_args,
+        filter_rows,
+        load_jsonl,
+        load_raw_documents,
         source_scope_json,
     )
     from pipeline.loaders.import_chunks import import_chunks
@@ -91,6 +97,163 @@ def flatten_summary(step_summaries: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def resolve_domain_scope_ids(options: ImportOptions) -> tuple[list[str], list[str], list[str]]:
+    raw_documents = load_raw_documents(options.raw_input_path)
+    section_rows = filter_rows(
+        load_jsonl(options.sections_input_path),
+        source_ids=options.source_ids,
+        document_ids=options.document_ids,
+        raw_documents=raw_documents,
+    )
+    document_ids = sorted({str(row["document_id"]) for row in section_rows})
+    source_ids = sorted(
+        {
+            str(raw_documents.get(document_id, {}).get("source_id") or "")
+            for document_id in document_ids
+        }
+        | set(options.source_ids)
+    )
+    source_ids = [source_id for source_id in source_ids if source_id]
+    chunk_rows = filter_rows(
+        load_jsonl(options.chunks_input_path),
+        source_ids=options.source_ids,
+        document_ids=set(document_ids),
+        raw_documents=raw_documents,
+    )
+    chunk_ids = sorted({str(row["chunk_id"]) for row in chunk_rows})
+    return document_ids, chunk_ids, source_ids
+
+
+def apply_domain_scope(connection: Any, options: ImportOptions, run_id: str) -> None:
+    if not options.domain_id:
+        return
+    document_ids, chunk_ids, source_ids = resolve_domain_scope_ids(options)
+    with connection.cursor() as cursor:
+        cursor.execute(
+            """
+            UPDATE corpus_runs
+            SET domain_id = %s,
+                updated_at = NOW()
+            WHERE run_id = %s
+            """,
+            (options.domain_id, run_id),
+        )
+        if source_ids:
+            cursor.execute(
+                """
+                INSERT INTO tech_doc_domain_source (domain_id, source_id, source_role, active)
+                SELECT %s, source_id, 'primary', TRUE
+                FROM UNNEST(%s::text[]) AS source_ids(source_id)
+                ON CONFLICT (source_id) DO UPDATE
+                SET domain_id = EXCLUDED.domain_id,
+                    source_role = EXCLUDED.source_role,
+                    active = EXCLUDED.active
+                """,
+                (options.domain_id, source_ids),
+            )
+            cursor.execute(
+                """
+                UPDATE corpus_sources
+                SET domain_id = %s,
+                    updated_at = NOW()
+                WHERE source_id = ANY(%s)
+                """,
+                (options.domain_id, source_ids),
+            )
+        if document_ids:
+            cursor.execute(
+                """
+                UPDATE corpus_documents
+                SET domain_id = %s,
+                    updated_at = NOW()
+                WHERE import_run_id = %s
+                   OR document_id = ANY(%s)
+                """,
+                (options.domain_id, run_id, document_ids),
+            )
+            cursor.execute(
+                """
+                UPDATE corpus_sections
+                SET domain_id = %s,
+                    updated_at = NOW()
+                WHERE import_run_id = %s
+                   OR document_id = ANY(%s)
+                """,
+                (options.domain_id, run_id, document_ids),
+            )
+            cursor.execute(
+                """
+                UPDATE corpus_glossary_terms
+                SET domain_id = %s,
+                    updated_at = NOW()
+                WHERE import_run_id = %s
+                   OR first_seen_document_id = ANY(%s)
+                """,
+                (options.domain_id, run_id, document_ids),
+            )
+            cursor.execute(
+                """
+                UPDATE corpus_glossary_evidence
+                SET domain_id = %s
+                WHERE import_run_id = %s
+                   OR document_id = ANY(%s)
+                """,
+                (options.domain_id, run_id, document_ids),
+            )
+        if chunk_ids:
+            cursor.execute(
+                """
+                UPDATE corpus_chunks
+                SET domain_id = %s,
+                    updated_at = NOW()
+                WHERE import_run_id = %s
+                   OR chunk_id = ANY(%s)
+                """,
+                (options.domain_id, run_id, chunk_ids),
+            )
+            cursor.execute(
+                """
+                UPDATE corpus_chunk_relations
+                SET domain_id = %s
+                WHERE import_run_id = %s
+                   OR source_chunk_id = ANY(%s)
+                   OR target_chunk_id = ANY(%s)
+                """,
+                (options.domain_id, run_id, chunk_ids, chunk_ids),
+            )
+            cursor.execute(
+                """
+                UPDATE corpus_glossary_terms
+                SET domain_id = %s,
+                    updated_at = NOW()
+                WHERE first_seen_chunk_id = ANY(%s)
+                """,
+                (options.domain_id, chunk_ids),
+            )
+            cursor.execute(
+                """
+                UPDATE corpus_glossary_evidence
+                SET domain_id = %s
+                WHERE chunk_id = ANY(%s)
+                """,
+                (options.domain_id, chunk_ids),
+            )
+        cursor.execute(
+            """
+            UPDATE corpus_glossary_aliases a
+            SET domain_id = %s
+            WHERE import_run_id = %s
+               OR EXISTS (
+                   SELECT 1
+                   FROM corpus_glossary_terms t
+                   WHERE t.term_id = a.term_id
+                     AND t.domain_id = %s
+               )
+            """,
+            (options.domain_id, run_id, options.domain_id),
+        )
+
+
 def run_import(options: ImportOptions) -> dict[str, Any]:
     meta_connection = None
     recorder = None
@@ -107,6 +270,7 @@ def run_import(options: ImportOptions) -> dict[str, Any]:
                 source_scope=source_scope_json(options),
                 config_snapshot=config_snapshot_json(options),
                 created_by=options.created_by,
+                domain_id=options.domain_id,
             )
         elif options.external_run_id is not None:
             run_id = options.external_run_id
@@ -188,6 +352,10 @@ def run_import(options: ImportOptions) -> dict[str, Any]:
                 import_run_id=run_id or "dry-run",
             ),
         )
+
+        if not options.dry_run and run_id and options.domain_id:
+            with data_connection.transaction():
+                apply_domain_scope(data_connection, options, run_id)
 
         summary = {
             "dry_run": options.dry_run,

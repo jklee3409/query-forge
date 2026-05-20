@@ -813,6 +813,10 @@ public class PipelineAdminService {
         command.add(runId.toString());
         command.add("--run-type");
         command.add("full_ingest".equals(runType) ? "full_ingest" : "import");
+        if (scope.domainId() != null) {
+            command.add("--domain-id");
+            command.add(scope.domainId().toString());
+        }
         command.add("--trigger-type");
         command.add(scope.triggerType());
         command.add("--created-by");

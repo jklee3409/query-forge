@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-05-20] Session Summary (Import Corpus Domain ID)
+- What was done: Added `--domain-id` support to `import-corpus`, recorded it in import run source/config snapshots, and applied it after import to corpus sources, documents, sections, chunks, relations, glossary terms, aliases, and evidence.
+- Key decisions: Domain assignment is a post-import propagation step rather than a rewrite of every row upsert, preserving existing import idempotency and dedupe behavior.
+- Issues encountered: `python -m compileall pipeline\cli.py pipeline\loaders\common.py pipeline\loaders\import_corpus_to_postgres.py` passed.
+- Next steps: Run a migrated-DB CLI smoke with a known `tech_doc_domain.domain_id` when DB work is acceptable.
+
 ## Overview
 High-level pipeline progress tracking.
 

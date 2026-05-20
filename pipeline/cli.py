@@ -127,6 +127,7 @@ def build_parser() -> argparse.ArgumentParser:
     import_corpus.add_argument("--created-by", default=None)
     import_corpus.add_argument("--run-type", default="import")
     import_corpus.add_argument("--external-run-id", default=None)
+    import_corpus.add_argument("--domain-id", default=None)
     import_corpus.add_argument("--source-id", action="append", default=None)
     import_corpus.add_argument("--document-id", action="append", default=None)
     import_corpus.add_argument("--log-level", default="INFO")
