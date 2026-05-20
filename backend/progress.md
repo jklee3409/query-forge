@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-05-20] Session Summary (Admin RAG Hint Defaults)
+- What was done: Updated Admin RAG config generation so `rewrite_threshold` defaults to `0.05`, generated configs include intent-preserving memory lookup and rewrite memory-hint retrieval, and `short_user` rewrite adoption is relaxed through explicit config metadata.
+- Key decisions: Kept multi-source anchor expansion behind the existing toggle and kept direct synthetic-query replacement out of the default path.
+- Issues encountered: Targeted `.\gradlew.bat compileJava` passed.
+- Next steps: Run a new Admin RAG test from the GUI and inspect the persisted rewrite config for `memory_hint_query` observability.
+
 ## [2026-05-20] Session Summary (Anchor Normalization Full-Scope Dry-Run)
 - What was done: Changed `AnchorNormalizationService.createDryRun` so an omitted/non-positive target `limit` no longer defaults to 500 and instead scans all matching anchors. List pagination still keeps its bounded page limit. Added integration coverage for unbounded active-anchor dry-run scope.
 - Key decisions: Kept explicit positive create limits available for scoped/testing calls, capped explicit limits at 100,000, and left review/approval semantics unchanged.

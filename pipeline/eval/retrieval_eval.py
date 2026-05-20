@@ -361,32 +361,16 @@ def _evaluate_mode(
             retriever_config=config.retriever_config,
             retrieval_adapter=retrieval_adapter,
         )
-        memory_lookup_intent_preserving_enabled = str(
-            config.raw.get("memory_lookup_intent_preserving_enabled", False)
+        memory_lookup_direct_enabled = str(
+            config.raw.get("memory_lookup_direct_enabled", False)
         ).strip().lower() in {"1", "true", "yes", "on"}
-        if top_memory and memory_lookup_intent_preserving_enabled:
-            final_query = build_memory_guided_query(
-                sample.query_text,
-                top_memory,
-                query_language=sample.query_language,
-                max_hint_tokens=config.raw.get("memory_lookup_hint_token_max", 2),
-            )
-            guided_retrieval = retrieve_top_k(
-                final_query,
-                chunks,
-                top_k=config.retrieval_top_k,
-                retriever_config=config.retriever_config,
-                retrieval_adapter=retrieval_adapter,
-            )
-            retrieval = _merge_retrieval_results(
-                strategy=str(config.raw.get("memory_lookup_retrieval_strategy") or "max_score"),
-                raw_retrieval=raw_retrieval,
-                guided_retrieval=guided_retrieval,
-                top_k=config.retrieval_top_k,
-            )
-            reason = f"memory_lookup_intent_guided:{preset_filter}"
-        else:
-            final_query = top_memory[0]["query_text"] if top_memory else sample.query_text
+        memory_lookup_intent_preserving_enabled = str(
+            config.raw.get("memory_lookup_intent_preserving_enabled", True)
+        ).strip().lower() in {"1", "true", "yes", "on"}
+        memory_hint_query = None
+        memory_hint_retrieval_applied = False
+        if top_memory and memory_lookup_direct_enabled:
+            final_query = top_memory[0]["query_text"]
             retrieval = retrieve_top_k(
                 final_query,
                 chunks,
@@ -394,7 +378,37 @@ def _evaluate_mode(
                 retriever_config=config.retriever_config,
                 retrieval_adapter=retrieval_adapter,
             )
-            reason = f"memory_lookup:{preset_filter}"
+            reason = f"memory_lookup_direct:{preset_filter}"
+            rewrite_applied = True
+        elif top_memory and memory_lookup_intent_preserving_enabled:
+            memory_hint_query = build_memory_guided_query(
+                sample.query_text,
+                top_memory,
+                query_language=sample.query_language,
+                max_hint_tokens=config.raw.get("memory_lookup_hint_token_max", 3),
+            )
+            guided_retrieval = retrieve_top_k(
+                memory_hint_query,
+                chunks,
+                top_k=config.retrieval_top_k,
+                retriever_config=config.retriever_config,
+                retrieval_adapter=retrieval_adapter,
+            )
+            memory_hint_retrieval_applied = bool(guided_retrieval)
+            retrieval = _merge_retrieval_results(
+                strategy=str(config.raw.get("memory_lookup_retrieval_strategy") or "max_score"),
+                raw_retrieval=raw_retrieval,
+                guided_retrieval=guided_retrieval,
+                top_k=config.retrieval_top_k,
+            )
+            reason = f"memory_lookup_intent_guided:{preset_filter}"
+            final_query = sample.query_text
+            rewrite_applied = False
+        else:
+            final_query = sample.query_text
+            retrieval = raw_retrieval
+            reason = f"memory_lookup_raw:{preset_filter}"
+            rewrite_applied = False
         metrics = retrieval_metrics(
             expected_chunk_ids=sample.expected_chunk_ids,
             expected_doc_ids=sample.expected_doc_ids,
@@ -403,13 +417,15 @@ def _evaluate_mode(
         return (
             metrics,
             {
-                "rewrite_applied": bool(top_memory),
+                "rewrite_applied": rewrite_applied,
                 "raw_confidence": 0.0,
                 "best_candidate_confidence": 0.0,
                 "final_query": final_query,
                 "rewrite_reason": reason,
                 "memory_top_n": top_memory,
                 "candidates": [],
+                "memory_hint_query": memory_hint_query,
+                "memory_hint_retrieval_applied": memory_hint_retrieval_applied,
                 "rewrite_llm_attempted": False,
                 "rewrite_llm_succeeded": False,
                 "rewrite_heuristic_fallback_used": False,
@@ -449,6 +465,15 @@ def _evaluate_mode(
         rewrite_adoption_policy=config.rewrite_adoption_policy,
         retriever_config=config.retriever_config,
         retrieval_adapter=retrieval_adapter,
+        rewrite_memory_hint_retrieval_enabled=str(
+            config.raw.get("rewrite_memory_hint_retrieval_enabled", True)
+        ).strip().lower() in {"1", "true", "yes", "on"},
+        rewrite_memory_hint_token_max=config.raw.get("rewrite_memory_hint_token_max", 3),
+        rewrite_memory_hint_retrieval_strategy=str(
+            config.raw.get("rewrite_memory_hint_retrieval_strategy")
+            or config.raw.get("memory_lookup_retrieval_strategy")
+            or "max_score"
+        ),
     )
     metrics = retrieval_metrics(
         expected_chunk_ids=sample.expected_chunk_ids,
@@ -471,6 +496,8 @@ def _evaluate_mode(
             "final_rewrite_latency_ms": rewrite_outcome.final_rewrite_latency_ms,
             "pure_rewrite_latency_ms": rewrite_outcome.pure_rewrite_latency_ms,
             "multi_source_anchor_hints": rewrite_outcome.multi_source_anchor_hints,
+            "memory_hint_query": rewrite_outcome.memory_hint_query,
+            "memory_hint_retrieval_applied": rewrite_outcome.memory_hint_retrieval_applied,
         },
         retrieval,
     )
@@ -770,6 +797,9 @@ def run_retrieval_eval(
                     ),
                     "final_rewrite_latency_ms": rewrite_info.get("final_rewrite_latency_ms"),
                     "pure_rewrite_latency_ms": rewrite_info.get("pure_rewrite_latency_ms"),
+                    "memory_hint_retrieval_applied": bool(
+                        rewrite_info.get("memory_hint_retrieval_applied")
+                    ),
                 }
             )
             rewrite_rows[mode].append(
@@ -782,6 +812,10 @@ def run_retrieval_eval(
                     "confidence_delta": rewrite_info["best_candidate_confidence"] - rewrite_info["raw_confidence"],
                     "final_query": rewrite_info["final_query"],
                     "rewrite_reason": rewrite_info["rewrite_reason"],
+                    "memory_hint_query": rewrite_info.get("memory_hint_query"),
+                    "memory_hint_retrieval_applied": bool(
+                        rewrite_info.get("memory_hint_retrieval_applied")
+                    ),
                     "rewrite_llm_attempted": bool(rewrite_info.get("rewrite_llm_attempted")),
                     "rewrite_llm_succeeded": bool(rewrite_info.get("rewrite_llm_succeeded")),
                     "rewrite_heuristic_fallback_used": bool(rewrite_info.get("rewrite_heuristic_fallback_used")),

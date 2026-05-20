@@ -751,7 +751,7 @@ public class AdminConsoleService {
                 request.runName(),
                 retrievalBackend + ":" + String.valueOf(retrieverConfig.get("retriever_mode"))
         );
-        double threshold = request.threshold() != null ? request.threshold() : 0.10d;
+        double threshold = request.threshold() != null ? request.threshold() : 0.05d;
         String rewriteRetrievalStrategy = normalizeRewriteRetrievalStrategy(request.rewriteRetrievalStrategy());
         String rewriteFailurePolicy = normalizeRewriteFailurePolicy(request.rewriteFailurePolicy());
         validateRewriteFailurePolicySelection(rewriteFailurePolicy, runtimeCatalog);
@@ -890,6 +890,12 @@ public class AdminConsoleService {
         config.put("rewrite_threshold", threshold);
         config.put("rewrite_retrieval_strategy", rewriteRetrievalStrategy);
         config.put("rewrite_anchor_injection_enabled", rewriteAnchorInjectionEnabled);
+        config.put("memory_lookup_intent_preserving_enabled", true);
+        config.put("memory_lookup_hint_token_max", 3);
+        config.put("memory_lookup_retrieval_strategy", "max_score");
+        config.put("rewrite_memory_hint_retrieval_enabled", true);
+        config.put("rewrite_memory_hint_token_max", 3);
+        config.put("rewrite_memory_hint_retrieval_strategy", "max_score");
         config.put("multi_source_anchor_expansion_enabled", multiSourceAnchorExpansionEnabled);
         config.put("multi_source_anchor_relation_version", "multi-source-anchor-v1");
         config.put(
@@ -1046,6 +1052,12 @@ public class AdminConsoleService {
         initialRewriteConfig.put("rewrite_threshold", threshold);
         initialRewriteConfig.put("rewrite_retrieval_strategy", rewriteRetrievalStrategy);
         initialRewriteConfig.put("rewrite_anchor_injection_enabled", rewriteAnchorInjectionEnabled);
+        initialRewriteConfig.put("memory_lookup_intent_preserving_enabled", config.get("memory_lookup_intent_preserving_enabled"));
+        initialRewriteConfig.put("memory_lookup_hint_token_max", config.get("memory_lookup_hint_token_max"));
+        initialRewriteConfig.put("memory_lookup_retrieval_strategy", config.get("memory_lookup_retrieval_strategy"));
+        initialRewriteConfig.put("rewrite_memory_hint_retrieval_enabled", config.get("rewrite_memory_hint_retrieval_enabled"));
+        initialRewriteConfig.put("rewrite_memory_hint_token_max", config.get("rewrite_memory_hint_token_max"));
+        initialRewriteConfig.put("rewrite_memory_hint_retrieval_strategy", config.get("rewrite_memory_hint_retrieval_strategy"));
         initialRewriteConfig.put("multi_source_anchor_expansion_enabled", multiSourceAnchorExpansionEnabled);
         initialRewriteConfig.put("multi_source_anchor_relation_version", config.get("multi_source_anchor_relation_version"));
         initialRewriteConfig.put("multi_source_anchor_relation_types", config.get("multi_source_anchor_relation_types"));
@@ -1549,7 +1561,7 @@ public class AdminConsoleService {
         LinkedHashMap<String, AdminConsoleDtos.RuntimeParameterRange> ranges = new LinkedHashMap<>();
         ranges.put("retrieval_top_k", new AdminConsoleDtos.RuntimeParameterRange(1.0d, 100.0d, (double) DEFAULT_RAG_RETRIEVAL_TOP_K));
         ranges.put("rerank_top_n", new AdminConsoleDtos.RuntimeParameterRange(1.0d, 100.0d, 5.0d));
-        ranges.put("rewrite_threshold", new AdminConsoleDtos.RuntimeParameterRange(0.0d, 1.0d, 0.10d));
+        ranges.put("rewrite_threshold", new AdminConsoleDtos.RuntimeParameterRange(0.0d, 1.0d, 0.05d));
         ranges.put("retriever_candidate_pool_k", new AdminConsoleDtos.RuntimeParameterRange(1.0d, 500.0d, (double) DEFAULT_RETRIEVER_CANDIDATE_POOL_K));
         return Map.copyOf(ranges);
     }
@@ -2763,6 +2775,33 @@ public class AdminConsoleService {
         return weights;
     }
 
+    private Map<String, Object> relaxedShortUserRewriteAdoptionPolicy() {
+        Map<String, Object> shortUserThresholds = new LinkedHashMap<>();
+        shortUserThresholds.put("min_improvement", 0.02d);
+        shortUserThresholds.put("preservation_floor", 0.68d);
+        shortUserThresholds.put("max_length_ratio", 2.10d);
+        shortUserThresholds.put("underspecified_memory_norm_cutoff", 0.66d);
+
+        Map<String, Object> shortUserPenalties = new LinkedHashMap<>();
+        shortUserPenalties.put("verbosity_per_extra_ratio", 0.035d);
+        shortUserPenalties.put("memory_target_missing", 0.06d);
+
+        Map<String, Object> shortUserBonuses = new LinkedHashMap<>();
+        shortUserBonuses.put("memory_target_presence", 0.10d);
+
+        Map<String, Object> shortUserPolicy = new LinkedHashMap<>();
+        shortUserPolicy.put("thresholds", shortUserThresholds);
+        shortUserPolicy.put("penalties", shortUserPenalties);
+        shortUserPolicy.put("bonuses", shortUserBonuses);
+
+        Map<String, Object> categoryOverrides = new LinkedHashMap<>();
+        categoryOverrides.put("short_user", shortUserPolicy);
+
+        Map<String, Object> policy = new LinkedHashMap<>();
+        policy.put("category_overrides", categoryOverrides);
+        return policy;
+    }
+
     private Map<String, Object> baseExperimentConfig(String experimentKey, String methodCode) {
         boolean englishOnly = isEnglishOnlyMethod(methodCode);
         Map<String, Object> config = new LinkedHashMap<>();
@@ -2792,8 +2831,15 @@ public class AdminConsoleService {
         config.put("llm_batch_size", 20);
         config.put("memory_top_n", 5);
         config.put("rewrite_candidate_count", 3);
-        config.put("rewrite_threshold", 0.10);
+        config.put("rewrite_threshold", 0.05);
         config.put("rewrite_failure_policy", REWRITE_FAILURE_POLICY_FAIL_RUN);
+        config.put("rewrite_adoption_policy", relaxedShortUserRewriteAdoptionPolicy());
+        config.put("memory_lookup_intent_preserving_enabled", true);
+        config.put("memory_lookup_hint_token_max", 3);
+        config.put("memory_lookup_retrieval_strategy", "max_score");
+        config.put("rewrite_memory_hint_retrieval_enabled", true);
+        config.put("rewrite_memory_hint_token_max", 3);
+        config.put("rewrite_memory_hint_retrieval_strategy", "max_score");
         config.put("retrieval_top_k", DEFAULT_RAG_RETRIEVAL_TOP_K);
         config.put("rerank_top_n", 5);
         config.put("use_session_context", false);

@@ -251,6 +251,15 @@ def _evaluate_answer_sample(
             rewrite_adoption_policy=config.rewrite_adoption_policy,
             retriever_config=config.retriever_config,
             retrieval_adapter=retrieval_adapter,
+            rewrite_memory_hint_retrieval_enabled=str(
+                config.raw.get("rewrite_memory_hint_retrieval_enabled", True)
+            ).strip().lower() in {"1", "true", "yes", "on"},
+            rewrite_memory_hint_token_max=config.raw.get("rewrite_memory_hint_token_max", 3),
+            rewrite_memory_hint_retrieval_strategy=str(
+                config.raw.get("rewrite_memory_hint_retrieval_strategy")
+                or config.raw.get("memory_lookup_retrieval_strategy")
+                or "max_score"
+            ),
         )
     else:
         retrieval = retrieve_top_k(
@@ -327,6 +336,8 @@ def _evaluate_answer_sample(
             "split": sample.split,
             "category": sample.query_category,
             "final_query": rewrite_outcome.final_query,
+            "memory_hint_query": rewrite_outcome.memory_hint_query,
+            "memory_hint_retrieval_applied": bool(rewrite_outcome.memory_hint_retrieval_applied),
             "answer_text": answer_text,
             "rewrite_llm_attempted": bool(rewrite_outcome.rewrite_llm_attempted),
             "rewrite_llm_succeeded": bool(rewrite_outcome.rewrite_llm_succeeded),

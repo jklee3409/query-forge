@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-05-20] Session Summary (RAG Rewrite Threshold Default)
+- What was done: Updated `/admin/rag-tests` form initialization so the rewrite threshold defaults to `0.05`, matching the backend Admin RAG default and relaxed short-user adoption profile.
+- Key decisions: UI request shape and existing rewrite/multi-source toggles were kept unchanged.
+- Issues encountered: No frontend build was run; the change is a single default-value update.
+- Next steps: Browser-smoke a new RAG form load to confirm the displayed threshold matches backend defaults.
+
 ## [2026-05-20] Session Summary (Anchor Normalization Full-Scope Launch)
 - What was done: Updated `/admin/pipeline` Anchor 정규화 Dry-run launch so it confirms and submits a full active-anchor request instead of reusing current anchor filters or sending `limit=500`.
 - Key decisions: Kept the review modal, candidate decisions, approval, rejection, and history deletion behavior unchanged.

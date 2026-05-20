@@ -131,6 +131,8 @@ class RewriteOutcome:
     final_rewrite_latency_ms: float | None = None
     pure_rewrite_latency_ms: float | None = None
     multi_source_anchor_hints: dict[str, Any] | None = None
+    memory_hint_query: str | None = None
+    memory_hint_retrieval_applied: bool = False
 
 
 RETRIEVAL_BACKEND_LOCAL = "local"
@@ -882,6 +884,27 @@ PRODUCT_SCOPE_SUFFIXES = (
     "-doc",
     "_doc",
 )
+MEMORY_HINT_TOKEN_RE = re.compile(r"@[A-Za-z][A-Za-z0-9_]+|[A-Za-z][A-Za-z0-9_.:/+-]{2,}")
+GENERIC_MEMORY_HINT_TOKENS = {
+    "spring",
+    "security",
+    "framework",
+    "reference",
+    "docs",
+    "doc",
+    "guide",
+    "example",
+    "examples",
+    "setup",
+    "config",
+    "configuration",
+    "usage",
+    "role",
+    "reason",
+    "difference",
+    "default",
+    "basic",
+}
 
 def _normalize_anchor_token(token: str) -> str:
     return normalize_anchor_text(token)
@@ -897,6 +920,49 @@ def _extract_anchor_tokens(text: str, *, language_hint: str, max_items: int) -> 
         language_hint=language_hint,
         max_items=max_items,
     )
+
+
+def _extract_memory_hint_tokens(text: str, *, language_hint: str, max_items: int) -> list[str]:
+    collected: list[str] = []
+    seen: set[str] = set()
+    candidates = [
+        *_extract_anchor_tokens(text, language_hint=language_hint, max_items=max_items * 2),
+        *MEMORY_HINT_TOKEN_RE.findall(str(text or "")),
+    ]
+    for raw_token in candidates:
+        token = _normalize_anchor_token(raw_token)
+        if not token:
+            continue
+        folded = token.casefold()
+        if folded in seen or folded in GENERIC_MEMORY_HINT_TOKENS:
+            continue
+        if not _is_probable_memory_hint_anchor(token):
+            continue
+        if not is_valid_anchor_phrase(token, language_hint=language_hint):
+            continue
+        seen.add(folded)
+        collected.append(token)
+        if len(collected) >= max_items:
+            break
+    return collected[:max_items]
+
+
+def _is_probable_memory_hint_anchor(token: str) -> bool:
+    value = _normalize_anchor_token(token)
+    if not value:
+        return False
+    folded = value.casefold()
+    if folded in GENERIC_MEMORY_HINT_TOKENS:
+        return False
+    if value.startswith("@"):
+        return True
+    if any(separator in value for separator in (".", "_", "-", "/", ":")):
+        return True
+    if any(char.isdigit() for char in value):
+        return True
+    if value.isupper() and any(char.isalpha() for char in value) and len(value) >= 4:
+        return True
+    return any(char.isupper() for char in value[1:]) and any(char.islower() for char in value)
 
 
 def _clamp_count(value: Any, *, default: int, max_value: int) -> int:
@@ -1352,7 +1418,7 @@ def build_memory_guided_query(
     memory_items: list[dict[str, Any]],
     *,
     query_language: str = "ko",
-    max_hint_tokens: int = 2,
+    max_hint_tokens: int = 3,
 ) -> str:
     normalized_raw_query = str(raw_query or "").strip()
     if not normalized_raw_query:
@@ -1360,11 +1426,11 @@ def build_memory_guided_query(
     if not memory_items:
         return normalized_raw_query
 
-    bounded_hint_count = _clamp_count(max_hint_tokens, default=2, max_value=6)
+    bounded_hint_count = _clamp_count(max_hint_tokens, default=3, max_value=6)
     raw_query_folded = normalized_raw_query.casefold()
     raw_anchor_set = {
         token.casefold()
-        for token in _extract_anchor_tokens(
+        for token in _extract_memory_hint_tokens(
             normalized_raw_query,
             language_hint=query_language,
             max_items=16,
@@ -1389,16 +1455,16 @@ def build_memory_guided_query(
         normalized = _normalize_anchor_token(token)
         if not normalized:
             return None
-        if not _looks_technical_anchor(normalized):
+        if not _is_probable_memory_hint_anchor(normalized):
             return None
         if not is_valid_anchor_phrase(normalized, language_hint=query_language):
             return None
         folded = normalized.casefold()
         if folded in raw_anchor_set:
             return None
-        if len(normalized) > 32:
+        if len(normalized) > 40:
             return None
-        if any(marker in normalized for marker in ("{", "}", "(", ")", ";", "=", ".", "$", "/")):
+        if any(marker in normalized for marker in ("{", "}", "(", ")", ";", "=", "$")):
             return None
         return normalized
 
@@ -1409,10 +1475,10 @@ def build_memory_guided_query(
             product_scores[product_phrase] = product_scores.get(product_phrase, 0.0) + (2.0 * rank_weight)
 
         query_text = str(memory.get("query_text") or "")
-        for token in _extract_anchor_tokens(
+        for token in _extract_memory_hint_tokens(
             query_text,
             language_hint=query_language,
-            max_items=5,
+            max_items=7,
         ):
             accepted = _accept_hint(token)
             if not accepted:
@@ -1429,15 +1495,6 @@ def build_memory_guided_query(
             if selected_products:
                 return f"{normalized_raw_query} {' '.join(selected_products)}".strip()
         return normalized_raw_query
-
-    if product_scores:
-        ranked_products = sorted(
-            product_scores.items(),
-            key=lambda item: (-item[1], item[0].casefold()),
-        )
-        product_hints = [token for token, _score in ranked_products[:bounded_hint_count]]
-        if product_hints:
-            return f"{normalized_raw_query} {' '.join(product_hints)}".strip()
 
     ranked_hints = sorted(
         hint_scores.items(),
@@ -3083,6 +3140,41 @@ def _merge_raw_and_rewrite_retrieval(
     return ranked[:top_k]
 
 
+def _memory_hint_retrieval(
+    *,
+    raw_query: str,
+    query_language: str,
+    memory_items: list[dict[str, Any]],
+    chunks: list[ChunkItem],
+    top_k: int,
+    retriever_config: RetrieverConfig,
+    retrieval_adapter: DbAnnRuntimeRetrievalAdapter | None,
+    query_canonical_anchors: Any | None,
+    max_hint_tokens: int,
+) -> tuple[str | None, list[RetrievalCandidate], bool]:
+    if not memory_items:
+        return None, [], False
+    hint_query = build_memory_guided_query(
+        raw_query,
+        memory_items,
+        query_language=query_language,
+        max_hint_tokens=max_hint_tokens,
+    )
+    normalized_raw_query = " ".join(str(raw_query or "").split()).casefold()
+    normalized_hint_query = " ".join(str(hint_query or "").split()).casefold()
+    if not hint_query.strip() or normalized_hint_query == normalized_raw_query:
+        return hint_query, [], False
+    retrieval = retrieve_top_k(
+        hint_query,
+        chunks,
+        top_k=top_k,
+        retriever_config=retriever_config,
+        retrieval_adapter=retrieval_adapter,
+        query_canonical_anchors=query_canonical_anchors,
+    )
+    return hint_query, retrieval, bool(retrieval)
+
+
 def run_selective_rewrite(
     *,
     raw_query: str,
@@ -3112,6 +3204,9 @@ def run_selective_rewrite(
     rewrite_adoption_policy: dict[str, Any] | None = None,
     retriever_config: RetrieverConfig | None = None,
     retrieval_adapter: DbAnnRuntimeRetrievalAdapter | None = None,
+    rewrite_memory_hint_retrieval_enabled: bool = False,
+    rewrite_memory_hint_token_max: int = 3,
+    rewrite_memory_hint_retrieval_strategy: str = "max_score",
 ) -> tuple[RewriteOutcome, list[RetrievalCandidate]]:
     # Staged selective-rewrite scoring:
     # 1) retrieval gain (confidence + shift)
@@ -3197,6 +3292,28 @@ def run_selective_rewrite(
     raw_confidence = raw_reference_score
 
     normalized_strategy = _normalize_rewrite_retrieval_strategy(rewrite_retrieval_strategy)
+    normalized_memory_hint_strategy = _normalize_rewrite_retrieval_strategy(
+        rewrite_memory_hint_retrieval_strategy
+    )
+    memory_hint_query: str | None = None
+    memory_hint_retrieval: list[RetrievalCandidate] = []
+    memory_hint_retrieval_applied = False
+    if rewrite_memory_hint_retrieval_enabled:
+        (
+            memory_hint_query,
+            memory_hint_retrieval,
+            memory_hint_retrieval_applied,
+        ) = _memory_hint_retrieval(
+            raw_query=raw_query,
+            query_language=query_language,
+            memory_items=memory_items,
+            chunks=chunks,
+            top_k=retrieval_top_k,
+            retriever_config=config,
+            retrieval_adapter=retrieval_adapter,
+            query_canonical_anchors=memory_canonical_anchor_payloads,
+            max_hint_tokens=rewrite_memory_hint_token_max,
+        )
     rewrite_runtime_stats: dict[str, int] = {}
     multi_source_anchor_hints = None
     if rewrite_anchor_injection_enabled and multi_source_anchor_expansion_enabled:
@@ -3388,6 +3505,16 @@ def run_selective_rewrite(
 
     if best_candidate is None:
         rewrite_elapsed_ms = (time.perf_counter() - rewrite_started) * 1000.0
+        final_retrieval = (
+            _merge_raw_and_rewrite_retrieval(
+                strategy=normalized_memory_hint_strategy,
+                raw_retrieval=raw_retrieval,
+                rewrite_retrieval=memory_hint_retrieval,
+                top_k=retrieval_top_k,
+            )
+            if memory_hint_retrieval_applied
+            else raw_retrieval
+        )
         return (
             RewriteOutcome(
                 final_query=raw_query,
@@ -3403,8 +3530,10 @@ def run_selective_rewrite(
                 final_rewrite_latency_ms=None,
                 pure_rewrite_latency_ms=pure_rewrite_latency_ms,
                 multi_source_anchor_hints=multi_source_anchor_hints,
+                memory_hint_query=memory_hint_query,
+                memory_hint_retrieval_applied=memory_hint_retrieval_applied,
             ),
-            raw_retrieval,
+            final_retrieval,
         )
 
     selected_candidate = best_eligible_candidate or best_candidate
@@ -3426,6 +3555,13 @@ def run_selective_rewrite(
         )
     else:
         final_retrieval = raw_retrieval
+    if memory_hint_retrieval_applied:
+        final_retrieval = _merge_raw_and_rewrite_retrieval(
+            strategy=normalized_memory_hint_strategy,
+            raw_retrieval=final_retrieval,
+            rewrite_retrieval=memory_hint_retrieval,
+            top_k=retrieval_top_k,
+        )
     reason = (
         "forced"
         if should_apply and force_rewrite
@@ -3493,6 +3629,8 @@ def run_selective_rewrite(
             final_rewrite_latency_ms=rewrite_elapsed_ms if should_apply else None,
             pure_rewrite_latency_ms=pure_rewrite_latency_ms,
             multi_source_anchor_hints=multi_source_anchor_hints,
+            memory_hint_query=memory_hint_query,
+            memory_hint_retrieval_applied=memory_hint_retrieval_applied,
         ),
         final_retrieval,
     )

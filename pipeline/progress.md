@@ -3,6 +3,12 @@
 ## Overview
 High-level pipeline progress tracking.
 
+## [2026-05-20] Session Summary (Synthetic Memory as Retrieval Hints)
+- What was done: Updated retrieval/answer eval runtime so selective rewrite and memory-only modes preserve raw-query retrieval and use top memory anchors as a bounded guided retrieval query. Added `memory_hint_query` and `memory_hint_retrieval_applied` observability fields to rewrite payloads.
+- Key decisions: Synthetic memory text is no longer the default final retrieval query. Direct memory replacement is retained only behind `memory_lookup_direct_enabled=true`; default merging uses `max_score` and at most 3 hint anchors.
+- Issues encountered: The existing anchor extractor treated first-letter-capitalized words as technical, so memory-hint filtering now requires stronger markers such as separators, digits, acronyms, or inner camel-case.
+- Next steps: Re-run snapshot-pinned retrieval eval to compare `raw_only`, `memory_only_gated`, and `selective_rewrite` after hint retrieval is active.
+
 ## [2026-05-19] Session Summary (DB-ANN Hybrid Candidate Union)
 - What was done: Extended `eval/runtime.py` DB-ANN hybrid mode to collect chunk and memory candidates from dense ANN, trigram lexical similarity, and technical-token exact-match pools, then dedupe and feed the union into the existing `rank_with_precomputed_embeddings` hybrid scorer.
 - Key decisions: Preserved `dense_only` DB-ANN as ANN-only, kept Admin materialized chunk embeddings and memory `query_embedding` usage unchanged, and avoided changes to eval stage orchestration, rewrite policy, or stored query/memory text.

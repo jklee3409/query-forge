@@ -1468,7 +1468,7 @@ export function RagPage({ notify }) {
     officialGatingRuleOnlyBatchId: '',
     officialGatingFullGatingBatchId: '',
     llmModel: '',
-    threshold: '0.14',
+    threshold: '0.05',
     retrievalTopK: '10',
     rerankTopN: '5',
     retrievalBackend: 'local',

@@ -76,14 +76,14 @@ DEFAULT_REWRITE_ADOPTION_POLICY: dict[str, Any] = {
     "category_overrides": {
         "short_user": {
             "thresholds": {
-                "min_improvement": 0.05,
-                "preservation_floor": 0.76,
-                "max_length_ratio": 1.70,
-                "underspecified_memory_norm_cutoff": 0.72,
+                "min_improvement": 0.02,
+                "preservation_floor": 0.68,
+                "max_length_ratio": 2.10,
+                "underspecified_memory_norm_cutoff": 0.66,
             },
             "penalties": {
-                "verbosity_per_extra_ratio": 0.05,
-                "memory_target_missing": 0.14,
+                "verbosity_per_extra_ratio": 0.035,
+                "memory_target_missing": 0.06,
             },
             "bonuses": {
                 "memory_target_presence": 0.10,
