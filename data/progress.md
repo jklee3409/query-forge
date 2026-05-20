@@ -3,6 +3,12 @@
 ## Overview
 High-level progress tracking for the project.
 
+## [2026-05-20] Session Summary (Method-Compressed Stress Eval Assets)
+- What was done: Generated five Spring method-compressed stress eval JSONL artifacts under `data/eval/` and an audit report under `data/reports/`, then upserted the matching DB datasets.
+- Key decisions: Kept each method as a separate dataset and preserved retrieval-aware fields from the source corpus chunks. The new assets are intentionally compressed and multi-chunk-heavy for stress testing, while the canonical V5 short-user datasets remain unchanged.
+- Issues encountered: None after the final full run; each JSONL has 80 rows and all expected chunk references exist in DB.
+- Next steps: Use these assets for A/B/C/D/E controlled RAG comparisons with explicit snapshot IDs.
+
 ## [2026-05-20] Session Summary (Spring KR Short-User Pair Restored)
 - What was done: Restored DB dataset `b2d47254-8655-4c9c-81ac-7615677ec5bd` to the refined V5 `test-short-user-*` active samples and regenerated/upserted `data/eval/human_eval_short_user_test_80_en.jsonl` as a one-to-one English companion dataset.
 - Key decisions: KR and EN datasets now share order, `expected_doc_ids`, and `expected_chunk_ids`; EN rows keep paired-sample metadata and concise English user queries that mirror the KR short-user intent.

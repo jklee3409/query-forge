@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-05-20] Session Summary (Method-Compressed Stress Eval Datasets)
+- What was done: Built separate Spring method-compressed stress eval datasets from existing accepted synthetic queries in gating batches A/B/C/D/E, 80 items each, and upserted them into `eval_dataset`, `eval_samples`, and `eval_dataset_item`.
+- Key decisions: Kept canonical V5 short-user datasets unchanged. The new datasets use actual DB synthetic queries as source text, compress them into short-user anchor queries, preserve expected doc/chunk grounding, and prioritize `far`/`near` multi-chunk rows to make retrieval deliberately challenging without fabricating metrics.
+- Issues encountered: A reduced smoke run overwrote the output JSONL files with fewer rows, so the full 80-item run was executed immediately afterward and verified.
+- Next steps: Run snapshot-pinned RAG retrieval tests against these new dataset keys to measure whether synthetic memory/rewrite improves the intentionally compressed queries.
+
 ## [2026-05-20] Session Summary (RAG Memory-Hint Rewrite and Paired Short-User Eval)
 - What was done: Changed RAG rewrite/memory lookup so synthetic queries are used as bounded retrieval hints instead of final replacement queries by default. Admin RAG defaults now use `rewrite_threshold=0.05`, relaxed `short_user` adoption policy, raw-query preservation, and top memory-anchor hint retrieval. Restored canonical `Spring KR Short User Eval 80 (KR)` to the refined V5 active samples and regenerated/upserted the paired `Spring KR Short User Eval 80 (EN)` dataset with exact KR/EN grounding parity.
 - Key decisions: Kept A/B/C/D/E synthetic raw tables and stored synthetic query text unchanged. Memory hints append only 1-3 probable anchors to the raw query, then merge raw and hint retrieval by `max_score`; direct synthetic-query replacement is now opt-in via `memory_lookup_direct_enabled=true`.

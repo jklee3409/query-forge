@@ -10,6 +10,11 @@
 - `human_eval_short_user_test_80_en.jsonl`: Spring 도메인 영어 short-user 80문항
 - `python_kr_short_user_test_80_ko.jsonl`: Python KR 도메인 한글 short-user 80문항
 - `python_kr_short_user_test_80_en.jsonl`: Python KR 도메인 영어 short-user 80문항
+- `spring_method_a_compressed_eval_80_ko.jsonl`: Method A compressed Spring stress eval 80문항
+- `spring_method_b_compressed_eval_80_ko.jsonl`: Method B compressed Spring stress eval 80문항
+- `spring_method_c_compressed_eval_80_ko.jsonl`: Method C compressed Spring stress eval 80문항
+- `spring_method_d_compressed_eval_80_ko.jsonl`: Method D compressed Spring stress eval 80문항
+- `spring_method_e_compressed_eval_80_en.jsonl`: Method E compressed Spring stress eval 80문항
 
 ## Responsibilities
 - RAG retrieval/answer 평가 입력을 JSONL artifact로 보존합니다.

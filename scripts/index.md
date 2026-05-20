@@ -13,6 +13,7 @@
 - `rebuild_short_user_dataset_from_synthetic.py`: synthetic 후보 기반 short-user dataset 재생성
 - `build_short_user_en_dataset.py`: Spring 영어 short-user companion dataset 생성
 - `build_python_kr_eval_datasets.py`: Python KR KO/EN paired short-user dataset 생성
+- `build_method_compressed_eval_datasets.py`: A/B/C/D/E accepted synthetic queries to compressed Spring stress eval datasets
 - `audit_short_user_dataset.py`: Spring short-user dataset 구조/grounding 감사
 - `refine_short_user_dataset.py`: Spring short-user dataset 수동 정제 + DB/JSONL 동기화
 - `verify_eval_dataset_origin.py`: eval dataset 출처/grounding 검증
@@ -25,6 +26,7 @@
 ## Key Flows
 - Spring short-user 영어 companion 생성: `python scripts/build_short_user_en_dataset.py`
 - Python KR KO/EN paired dataset 생성: `python scripts/build_python_kr_eval_datasets.py`
+- Spring method-compressed stress eval dataset generation: `python scripts/build_method_compressed_eval_datasets.py`
 - Spring short-user dataset 감사: `python scripts/audit_short_user_dataset.py`
 - Spring short-user dataset 정제: `python scripts/refine_short_user_dataset.py --pre-audit-report <audit_report>`
 - eval dataset 검증: `python scripts/verify_eval_dataset_origin.py --dataset-id <dataset_id>`

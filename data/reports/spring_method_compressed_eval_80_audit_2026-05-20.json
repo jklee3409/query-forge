@@ -1,0 +1,338 @@
+{
+  "version": "v1-2026-05-20",
+  "dataset_family": "spring_method_compressed_eval_80",
+  "target_total_per_method": 80,
+  "built_at": "2026-05-20T04:03:09.933286+00:00",
+  "skip_db": false,
+  "summaries": [
+    {
+      "method": "A",
+      "dataset_id": "feb18f16-d082-5306-bf3d-720cda8555bd",
+      "dataset_key": "spring_method_a_compressed_eval_80_ko",
+      "language": "ko",
+      "source_gating_batch_id": "b45a1b9e-c135-4252-9aa2-ecb130c496cd",
+      "candidate_count": 614,
+      "selected_count": 80,
+      "skipped_count": 1,
+      "answerability_distribution": {
+        "far": 23,
+        "near": 57
+      },
+      "single_multi_distribution": {
+        "multi": 80
+      },
+      "output_file": "data/eval/spring_method_a_compressed_eval_80_ko.jsonl",
+      "sample_preview": [
+        {
+          "sample_id": "spring-method-a-compressed-001",
+          "query": "spring-boot-devtools 차이?",
+          "source_query_text": "Spring Boot에서 Docker Compose와 Testcontainers 개발 시간 서비스 간의 차이점은 무엇인가요?",
+          "expected_chunk_ids": [
+            "chk_a2ad05cb4f1d704a",
+            "chk_9e0c9fbd3db76ff1"
+          ]
+        },
+        {
+          "sample_id": "spring-method-a-compressed-002",
+          "query": "SmartLifecycle 차이?",
+          "source_query_text": "SmartLifecycle와 Lifecycle의 차이점은 무엇이며, 각 인터페이스의 주요 메서드는 무엇인가요?",
+          "expected_chunk_ids": [
+            "chk_969ec0a8358bb112",
+            "chk_d54eedaeb59f2a60"
+          ]
+        },
+        {
+          "sample_id": "spring-method-a-compressed-003",
+          "query": "@SpringBootTest 방법?",
+          "source_query_text": "@SpringBootTest에서 useMainMethod 속성을 ALWAYS로 설정하는 방법은 무엇인가요?",
+          "expected_chunk_ids": [
+            "chk_b4e1e66f9400f627",
+            "chk_25c2c4a56d106ff7"
+          ]
+        },
+        {
+          "sample_id": "spring-method-a-compressed-004",
+          "query": "ReactiveOpaqueTokenIntrospector 방법?",
+          "source_query_text": "ReactiveOpaqueTokenIntrospector를 사용하여 권한을 추출하는 방법을 사용자 정의하는 방법은 무엇인가요?",
+          "expected_chunk_ids": [
+            "chk_73a48f54dcb44247",
+            "chk_4c2d958a0c8ba35f"
+          ]
+        },
+        {
+          "sample_id": "spring-method-a-compressed-005",
+          "query": "ROLE_ 방법?",
+          "source_query_text": "Spring Security에서 ROLE_ 접두사가 권한의 성격을 식별하는 방법은 무엇인가요?",
+          "expected_chunk_ids": [
+            "chk_2c608e256edf465d",
+            "chk_4012f5f42addd511"
+          ]
+        }
+      ]
+    },
+    {
+      "method": "B",
+      "dataset_id": "461ab706-a90f-5aac-ab1a-0d8c21a02524",
+      "dataset_key": "spring_method_b_compressed_eval_80_ko",
+      "language": "ko",
+      "source_gating_batch_id": "ca4ee519-3a9b-4803-a217-06b58ef097de",
+      "candidate_count": 859,
+      "selected_count": 80,
+      "skipped_count": 0,
+      "answerability_distribution": {
+        "far": 43,
+        "near": 37
+      },
+      "single_multi_distribution": {
+        "multi": 80
+      },
+      "output_file": "data/eval/spring_method_b_compressed_eval_80_ko.jsonl",
+      "sample_preview": [
+        {
+          "sample_id": "spring-method-b-compressed-001",
+          "query": "MyCustomRequestMatcher 이거?",
+          "source_query_text": "MyCustomRequestMatcher를 사용한 역할 기반 접근 제어 설정 방법은?",
+          "expected_chunk_ids": [
+            "chk_f037448e151b2d4b",
+            "chk_d0b72ecb378823ac"
+          ]
+        },
+        {
+          "sample_id": "spring-method-b-compressed-002",
+          "query": "@PostPersist 차이?",
+          "source_query_text": "JPA 엔티티 생명주기 콜백 @PostPersist, @PreUpdate, @PostUpdate는 언제 호출되나요?",
+          "expected_chunk_ids": [
+            "chk_7b00c8d9a580b77e",
+            "chk_da1b4af471c25535"
+          ]
+        },
+        {
+          "sample_id": "spring-method-b-compressed-003",
+          "query": "@Scope 차이?",
+          "source_query_text": "@Scope 어노테이션으로 singleton 외 다른 스코프를 지정하는 방법은?",
+          "expected_chunk_ids": [
+            "chk_b27384545d822fc4",
+            "chk_bb68a1909ea12dc9"
+          ]
+        },
+        {
+          "sample_id": "spring-method-b-compressed-004",
+          "query": "OneTimeTokenGenerationSuccessHandler 차이?",
+          "source_query_text": "Spring Security에서 일회용 토큰(OTT)과 일회용 비밀번호(OTP)의 차이점은 무엇인가요?",
+          "expected_chunk_ids": [
+            "chk_b440e5eac3272d4b",
+            "chk_63b2cbd768189e9f"
+          ]
+        },
+        {
+          "sample_id": "spring-method-b-compressed-005",
+          "query": "util:set 차이?",
+          "source_query_text": "<util:set>에서 java.util.TreeSet을 명시적으로 사용하는 방법은?",
+          "expected_chunk_ids": [
+            "chk_b858f0d11292e294",
+            "chk_7caa164eeb69f02f"
+          ]
+        }
+      ]
+    },
+    {
+      "method": "C",
+      "dataset_id": "8d872406-9c5b-5e2f-95b4-bb68e1a12cf3",
+      "dataset_key": "spring_method_c_compressed_eval_80_ko",
+      "language": "ko",
+      "source_gating_batch_id": "73b5bfc1-73b5-4cfe-ab64-daf94729578b",
+      "candidate_count": 586,
+      "selected_count": 80,
+      "skipped_count": 0,
+      "answerability_distribution": {
+        "far": 21,
+        "near": 59
+      },
+      "single_multi_distribution": {
+        "multi": 80
+      },
+      "output_file": "data/eval/spring_method_c_compressed_eval_80_ko.jsonl",
+      "sample_preview": [
+        {
+          "sample_id": "spring-method-c-compressed-001",
+          "query": "@PostConstruct 차이?",
+          "source_query_text": "Spring에서 @PostConstruct, afterPropertiesSet, 사용자 정의 init 메서드 호출 순서 비교",
+          "expected_chunk_ids": [
+            "chk_969ec0a8358bb112",
+            "chk_d54eedaeb59f2a60"
+          ]
+        },
+        {
+          "sample_id": "spring-method-c-compressed-002",
+          "query": "@Scope 차이?",
+          "source_query_text": "@Scope 어노테이션과 scoped-proxy 속성의 차이점은 무엇인가요?",
+          "expected_chunk_ids": [
+            "chk_b27384545d822fc4",
+            "chk_bb68a1909ea12dc9"
+          ]
+        },
+        {
+          "sample_id": "spring-method-c-compressed-003",
+          "query": "JobDetail 방법?",
+          "source_query_text": "Quartz JobDetail에서 concurrent 플래그를 false로 설정하여 non-concurrent job을 실행하는 방법은 무엇인가요?",
+          "expected_chunk_ids": [
+            "chk_9a2a872a281b3030",
+            "chk_7a5d04be2f7fae9b"
+          ]
+        },
+        {
+          "sample_id": "spring-method-c-compressed-004",
+          "query": "intercept-url 방법?",
+          "source_query_text": "Spring Security에서 <intercept-url>의 filters='none' 속성 사용 시 SecurityContextHolder가 채워지지 않는 문제 해결 방법은?",
+          "expected_chunk_ids": [
+            "chk_2c608e256edf465d",
+            "chk_4012f5f42addd511"
+          ]
+        },
+        {
+          "sample_id": "spring-method-c-compressed-005",
+          "query": "@SpringBootTest 방법?",
+          "source_query_text": "Spring Boot 테스트에서 @SpringBootTest의 useMainMethod 속성을 ALWAYS로 설정하면 어떻게 되나요?",
+          "expected_chunk_ids": [
+            "chk_b4e1e66f9400f627",
+            "chk_25c2c4a56d106ff7"
+          ]
+        }
+      ]
+    },
+    {
+      "method": "D",
+      "dataset_id": "367b4026-0faa-53e1-ad90-6b4f9ea28394",
+      "dataset_key": "spring_method_d_compressed_eval_80_ko",
+      "language": "ko",
+      "source_gating_batch_id": "d9fd3ae5-4e16-4746-a0b8-4740678747ed",
+      "candidate_count": 540,
+      "selected_count": 80,
+      "skipped_count": 2,
+      "answerability_distribution": {
+        "far": 20,
+        "near": 60
+      },
+      "single_multi_distribution": {
+        "multi": 80
+      },
+      "output_file": "data/eval/spring_method_d_compressed_eval_80_ko.jsonl",
+      "sample_preview": [
+        {
+          "sample_id": "spring-method-d-compressed-001",
+          "query": "@Scope 차이?",
+          "source_query_text": "@Scope 어노테이션과 scoped-proxy 속성의 차이점은 무엇인가요?",
+          "expected_chunk_ids": [
+            "chk_b27384545d822fc4",
+            "chk_bb68a1909ea12dc9"
+          ]
+        },
+        {
+          "sample_id": "spring-method-d-compressed-002",
+          "query": "FactoryBean 차이?",
+          "source_query_text": "Spring에서 aop 태그와 context 태그의 주요 기능은 무엇인가요?",
+          "expected_chunk_ids": [
+            "chk_b858f0d11292e294",
+            "chk_7caa164eeb69f02f"
+          ]
+        },
+        {
+          "sample_id": "spring-method-d-compressed-003",
+          "query": "@ComponentScan 차이?",
+          "source_query_text": "@ComponentScan에서 속성 플레이스홀더와 Ant 스타일 패턴 사용법과 필터 적용 방법을 비교 설명해줘.",
+          "expected_chunk_ids": [
+            "chk_2b4a78ff0f4bf213",
+            "chk_04563d8f56eb5811"
+          ]
+        },
+        {
+          "sample_id": "spring-method-d-compressed-004",
+          "query": "spring-boot-devtools 차이?",
+          "source_query_text": "Spring Boot에서 Docker Compose와 Testcontainers의 차이점은 무엇인가요?",
+          "expected_chunk_ids": [
+            "chk_a2ad05cb4f1d704a",
+            "chk_9e0c9fbd3db76ff1"
+          ]
+        },
+        {
+          "sample_id": "spring-method-d-compressed-005",
+          "query": "ForwardedHeaderTransformer 방법?",
+          "source_query_text": "ForwardedHeaderTransformer를 사용하여 forwarded 헤더를 기반으로 요청의 호스트, 포트, 스킴을 수정하고 헤더를 제거하는 방법을 설명해주세요.",
+          "expected_chunk_ids": [
+            "chk_c31f82a45ce2de36",
+            "chk_7890b32e14ea717d"
+          ]
+        }
+      ]
+    },
+    {
+      "method": "E",
+      "dataset_id": "9374632a-bd58-5c4a-b26b-7358dd341e32",
+      "dataset_key": "spring_method_e_compressed_eval_80_en",
+      "language": "en",
+      "source_gating_batch_id": "5fef4f64-47a1-4340-9a2f-7825a3c2b854",
+      "candidate_count": 790,
+      "selected_count": 80,
+      "skipped_count": 0,
+      "answerability_distribution": {
+        "far": 29,
+        "near": 51
+      },
+      "single_multi_distribution": {
+        "multi": 80
+      },
+      "output_file": "data/eval/spring_method_e_compressed_eval_80_en.jsonl",
+      "sample_preview": [
+        {
+          "sample_id": "spring-method-e-compressed-001",
+          "query": "spring-boot-docker-compose difference?",
+          "source_query_text": "what happens when spring-boot-docker-compose module is included in a project",
+          "expected_chunk_ids": [
+            "chk_a2ad05cb4f1d704a",
+            "chk_9e0c9fbd3db76ff1"
+          ]
+        },
+        {
+          "sample_id": "spring-method-e-compressed-002",
+          "query": "component-scan difference?",
+          "source_query_text": "spring component-scan scoped-proxy modes",
+          "expected_chunk_ids": [
+            "chk_b27384545d822fc4",
+            "chk_bb68a1909ea12dc9"
+          ]
+        },
+        {
+          "sample_id": "spring-method-e-compressed-003",
+          "query": "OidcUserInfoEndpointConfigurer difference?",
+          "source_query_text": "What is the difference between OidcUserInfoEndpointConfigurer and OidcClientRegistrationEndpointConfigurer?",
+          "expected_chunk_ids": [
+            "chk_44b7cb79d03d0900",
+            "chk_daf6575864320bd1"
+          ]
+        },
+        {
+          "sample_id": "spring-method-e-compressed-004",
+          "query": "component-scan jakarta.inject.Named difference?",
+          "source_query_text": "spring component-scan filter types comparison",
+          "expected_chunk_ids": [
+            "chk_2b4a78ff0f4bf213",
+            "chk_04563d8f56eb5811"
+          ]
+        },
+        {
+          "sample_id": "spring-method-e-compressed-005",
+          "query": "ROLE_ how?",
+          "source_query_text": "what does ROLE_ mean in spring security",
+          "expected_chunk_ids": [
+            "chk_2c608e256edf465d",
+            "chk_4012f5f42addd511"
+          ]
+        }
+      ]
+    }
+  ],
+  "structural_validation": {
+    "status": "pass",
+    "issues": []
+  }
+}

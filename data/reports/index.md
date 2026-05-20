@@ -6,6 +6,7 @@
 ## Structure
 - `README.md`: 리포트 디렉터리 개요
 - `python_kr_eval_dataset_80_audit_2026-05-12.json`: Python KR KO/EN short-user 80 평가셋 생성 audit
+- `spring_method_compressed_eval_80_audit_2026-05-20.json`: Spring A/B/C/D/E method-compressed stress eval 생성 audit
 - `answer_*`, `retrieval_*`: RAG 실행별 answer/retrieval 결과 산출물
 
 ## Responsibilities

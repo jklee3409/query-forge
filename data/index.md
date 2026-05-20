@@ -8,7 +8,7 @@
 - `raw/`: 수집 원본 데이터
 - `processed/`: 전처리된 section/chunk/glossary 산출물
 - `synthetic/`: 합성 질의와 memory 관련 산출물
-- `eval/`: retrieval-aware 평가 데이터셋 JSONL
+- `eval/`: retrieval-aware 평가 데이터셋 JSONL, including Spring method-compressed stress datasets
 - `reports/`: 평가 요약, audit, retrieval/answer 리포트
 - `artifacts/`: 실행 중 생성되는 artifact
 - `logs/`: 실행 로그
@@ -24,7 +24,7 @@
 - `preprocess`, `chunk-docs`, `glossary-docs` 결과는 `processed/`에 저장합니다.
 - generation/gating/memory 관련 산출물은 `synthetic/`에 저장합니다.
 - retrieval/answer 평가 입력은 `eval/`, 요약 리포트와 audit는 `reports/`에 저장합니다.
-- `eval/`에는 기존 Spring 도메인 KO/EN short-user 데이터셋과 Python KR 도메인 KO/EN paired short-user 데이터셋이 포함됩니다.
+- `eval/`에는 기존 Spring 도메인 KO/EN short-user 데이터셋, Python KR 도메인 KO/EN paired short-user 데이터셋, A/B/C/D/E method-compressed Spring stress 데이터셋이 포함됩니다.
 
 ## Notes
 - 구조나 책임이 바뀌면 이 파일을 함께 갱신합니다.

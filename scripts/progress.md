@@ -3,6 +3,12 @@
 ## Overview
 High-level progress tracking for the project.
 
+## [2026-05-20] Session Summary (Method-Compressed Eval Dataset Builder)
+- What was done: Added `scripts/build_method_compressed_eval_datasets.py` to build five 80-item Spring method-compressed eval datasets from accepted synthetic queries in existing A/B/C/D/E gating batches.
+- Key decisions: The builder keeps A/B/C/D/E source identity explicit, selects `far`/`near` multi-chunk rows first, compresses source synthetic query text into short anchor-style user queries, writes JSONL artifacts, emits an audit report, and upserts DB eval dataset/sample/item rows.
+- Issues encountered: Target-total validation was adjusted to honor `--target-total` so reduced smoke runs produce accurate audit status.
+- Next steps: Use the generated dataset keys for snapshot-pinned RAG runs instead of replacing the canonical V5 short-user datasets.
+
 ## [2026-05-20] Session Summary (Spring Short-User EN Pairing Refresh)
 - What was done: Updated `scripts/build_short_user_en_dataset.py` to use manually paired English short-user queries for the 80 refined KR samples, enforce source/override count parity, write `v2-2026-05-20`, and upsert the EN dataset to DB.
 - Key decisions: The script keeps the same grounded doc/chunk IDs from the KR source rows and records `paired_user_query_ko` metadata for auditability.
