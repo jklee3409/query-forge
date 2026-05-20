@@ -35,6 +35,7 @@
 ---
 
 ## Recent Notes
+- selective rewrite v2 is now metadata version `v3`, preserving the runtime schema/labels while prioritizing English technical-document anchor overlap for Korean/code-mixed queries.
 - selective rewrite v2 and English rewrite prompts now accept optional `multi_source_anchor_hints`, with lower-priority drift safeguards so expanded anchors cannot override raw-query intent.
 - selective rewrite v2 prompt now accepts optional `canonical_anchor_hints` and treats them as compact intent-compatible canonical/normalized anchor preservation hints.
 - `prompts/rewrite/selective_rewrite_en_v1.md` is the English-native rewrite prompt for `query_language=en`; Korean/code-mixed runs continue to use the existing `selective_rewrite_v2` -> `v1` path.

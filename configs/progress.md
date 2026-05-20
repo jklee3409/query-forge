@@ -3,6 +3,12 @@
 ## Overview
 High-level progress tracking for the project.
 
+## [2026-05-20] Session Summary (Selective Rewrite v3 Retrieval Anchors)
+- What was done: Updated `prompts/rewrite/selective_rewrite_v2.md` to metadata version `v3`, reframing Korean/code-mixed rewrite as an English technical-document search query rather than a natural Korean sentence.
+- Key decisions: Preserved the existing JSON schema and labels while redefining candidate roles as conservative standalone, anchor-expanded, and compact retrieval-phrase strategies.
+- Issues encountered: No live LLM prompt execution was run; validation was kept to prompt/schema/static checks.
+- Next steps: Compare fixed-snapshot rewrite traces to confirm compatible synthetic-memory anchors appear in final candidates without topic drift.
+
 ## [2026-05-19] Session Summary (Multi-source Rewrite Hint Prompt Policy)
 - What was done: Updated Korean/code-mixed and English selective rewrite prompt assets to accept optional `multi_source_anchor_hints`.
 - Key decisions: Prompt policy explicitly treats multi-source anchors as lower-priority optional hints that must never override raw-query anchors, user intent, or session constraints.

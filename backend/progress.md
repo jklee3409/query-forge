@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-05-20] Session Summary (Selective Rewrite Prompt v3 Seed)
+- What was done: Added Flyway migration `V37__seed_selective_rewrite_v2_v3_prompt_asset.sql` to register `selective_rewrite_v2` metadata version `v3` and bind `rag_rewrite.ko` to it while retaining v2/v1 fallbacks.
+- Key decisions: Kept the prompt name/id and candidate labels stable for runtime/frontend compatibility; the migration is catalog metadata only and does not change rewrite execution code.
+- Issues encountered: No DB migration execution was performed in this low-scope prompt edit.
+- Next steps: Apply Flyway in the runtime DB when prompt catalog bindings need to reflect v3.
+
 ## [2026-05-20] Session Summary (Admin Root Forward)
 - What was done: Changed backend `/admin` handling from a redirect to `/admin/pipeline` into a direct React app forward so the Domain Atlas entry route is preserved on direct backend-served access.
 - Key decisions: Left legacy admin page redirects and concrete React routes unchanged.

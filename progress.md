@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-05-20] Session Summary (Selective Rewrite v3 Prompt)
+- What was done: Updated `configs/prompts/rewrite/selective_rewrite_v2.md` to version `v3` with a retrieval-anchor-first policy for Korean queries over English Spring docs, and added a prompt-catalog migration to bind `rag_rewrite.ko` to v3.
+- Key decisions: Preserved the JSON output schema and existing candidate labels for backend/frontend compatibility while making memory/canonical/terminology anchors more active when intent-compatible.
+- Issues encountered: Validation was limited to targeted static/schema checks; no full build, full test, pipeline run, live LLM call, or DB migration execution was performed.
+- Next steps: Run a fixed-snapshot selective rewrite comparison to confirm anchor expansion improves Recall/MRR/nDCG without topic drift.
+
 ## [2026-05-20] Session Summary (Admin Entry Route)
 - What was done: Changed the chat-surface "Admin console" button to navigate to `/admin` instead of `/admin/pipeline`, and aligned the backend `/admin` route to serve the React app rather than redirecting to the pipeline page.
 - Key decisions: Kept existing `/admin/pipeline` and legacy redirects unchanged; this only restores the Domain Atlas admin entry path.
