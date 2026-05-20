@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-05-20] Session Summary (Domain Scoped Admin Flow Wiring)
+- What was done: Wired selected technical-document `domain_id` through Admin list/run paths for corpus sources/documents, synthetic generation/history/query stats, quality-gating history/execution, and RAG dataset/run execution. Frontend domain workspaces now wait for the selected domain summary before loading scoped operation pages.
+- Key decisions: Kept global legacy `/admin/*` pages compatible by making `domain_id` optional, while domain workspace routes attach it to API queries and runtime request payloads.
+- Issues encountered: Backend `compileJava`, targeted frontend ESLint, and frontend `npm run build` passed; ESLint still reports existing hook-dependency warnings in legacy pages.
+- Next steps: Extend domain membership editing in the GUI and carry domain context into deeper pipeline import/materialization jobs.
+
 ## [2026-05-20] Session Summary (Domain Workspace and Prompt Studio UI)
 - What was done: Added the frontend Domain Atlas entry page, domain workspace routing, selected-domain summary banner, and Prompt Studio UI for shared A-G/rewrite prompt bindings. Prompt asset detail now falls back to file-backed prompt content so existing prompts can be viewed before DB-backed revisions exist.
 - Key decisions: Reuse existing Pipeline/Synthetic/Gating/RAG pages under /admin/domains/:domainKey/* first, then wire strict domain-scoped API execution in the next phase.

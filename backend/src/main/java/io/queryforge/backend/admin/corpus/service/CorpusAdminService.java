@@ -28,8 +28,13 @@ public class CorpusAdminService {
 
     @Transactional
     public List<CorpusAdminDtos.SourceSummary> listSources() {
+        return listSources(null);
+    }
+
+    @Transactional
+    public List<CorpusAdminDtos.SourceSummary> listSources(UUID domainId) {
         sourceCatalogService.syncSourcesFromConfig();
-        return repository.findSources();
+        return repository.findSources(domainId);
     }
 
     public List<CorpusAdminDtos.RunSummary> listRuns(
@@ -58,6 +63,7 @@ public class CorpusAdminService {
             String chunkKeyword,
             String search,
             UUID runId,
+            UUID domainId,
             boolean activeOnly,
             Integer limit,
             Integer offset
@@ -71,6 +77,7 @@ public class CorpusAdminService {
                 chunkKeyword,
                 search,
                 runId,
+                domainId,
                 activeOnly,
                 limit,
                 offset

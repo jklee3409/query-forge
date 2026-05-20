@@ -28,8 +28,10 @@ public class CorpusAdminController {
     private final MultiSourceAnchorService multiSourceAnchorService;
 
     @GetMapping("/sources")
-    public List<CorpusAdminDtos.SourceSummary> listSources() {
-        return service.listSources();
+    public List<CorpusAdminDtos.SourceSummary> listSources(
+            @RequestParam(name = "domain_id", required = false) UUID domainId
+    ) {
+        return service.listSources(domainId);
     }
 
     @GetMapping("/runs")
@@ -58,6 +60,7 @@ public class CorpusAdminController {
             @RequestParam(name = "chunk_keyword", required = false) String chunkKeyword,
             @RequestParam(name = "search", required = false) String search,
             @RequestParam(name = "run_id", required = false) UUID runId,
+            @RequestParam(name = "domain_id", required = false) UUID domainId,
             @RequestParam(name = "active_only", defaultValue = "true") boolean activeOnly,
             @RequestParam(name = "limit", required = false) Integer limit,
             @RequestParam(name = "offset", required = false) Integer offset
@@ -71,6 +74,7 @@ public class CorpusAdminController {
                 chunkKeyword,
                 search,
                 runId,
+                domainId,
                 activeOnly,
                 limit,
                 offset

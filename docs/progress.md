@@ -3,6 +3,12 @@
 ## Overview
 High-level progress tracking for the `docs` directory.
 
+## [2026-05-20] Session Summary (Domain Scoped Admin Runtime Wiring)
+- What was done: Recorded the implementation phase that threads selected domain IDs through existing Admin runtime APIs and domain workspace GUI calls.
+- Key decisions: Kept prompt assets global above domains; only execution/list artifacts are domain scoped in this phase.
+- Issues encountered: Backend compile, frontend targeted ESLint, and frontend build passed.
+- Next steps: Document deeper pipeline domain propagation once import/materialization jobs are wired.
+
 ## [2026-05-20] Session Summary (Domain Workspace and Prompt Studio UI)
 - What was done: Added frontend Domain Atlas, domain workspace routing, selected-domain banner, and Prompt Studio UI for global prompt bindings.
 - Key decisions: Reused existing operation pages inside the new domain route first, leaving strict domain-scoped API calls for the next implementation phase.

@@ -3,7 +3,7 @@ import { BalanceBar } from '../components/AdminUi.jsx'
 import { DetailCard, IdBadge, Modal, StatusBadge } from '../components/Common.jsx'
 import { LlmJobsTable } from '../components/LlmJobsTable.jsx'
 import { RemainingEta } from '../components/RemainingEta.jsx'
-import { queryString, requestJson, toNumber } from '../lib/api.js'
+import { appendQuery, queryString, requestJson, toNumber } from '../lib/api.js'
 import { shortId } from '../lib/format.js'
 
 function ControlField({ label, value, onChange, step = '1', min, max, disabled = false, emphasis = false }) {
@@ -90,7 +90,7 @@ function CapabilityChip({ label, meta, checked, disabled = false, onChange }) {
   )
 }
 
-export function GatingPage({ notify }) {
+export function GatingPage({ notify, domainId = null }) {
   const resultPageSize = 20
   const historyPageSize = 3
   const normalizeMethodCode = (value) => String(value || '').trim().toUpperCase()
@@ -211,8 +211,8 @@ export function GatingPage({ notify }) {
 
   const loadSelectors = async () => {
     const [methodRows, batchRows, runtimePayload] = await Promise.all([
-      requestJson('/api/admin/console/synthetic/methods'),
-      requestJson('/api/admin/console/synthetic/batches?limit=100'),
+      requestJson(appendQuery('/api/admin/console/synthetic/methods', { domain_id: domainId })),
+      requestJson(appendQuery('/api/admin/console/synthetic/batches?limit=100', { domain_id: domainId })),
       requestJson('/api/admin/console/runtime/options'),
     ])
     const normalizedMethods = Array.isArray(methodRows) ? methodRows : []
@@ -247,7 +247,7 @@ export function GatingPage({ notify }) {
   }
 
   const loadGatingBatches = async () => {
-    const rows = await requestJson('/api/admin/console/gating/batches?limit=200')
+    const rows = await requestJson(appendQuery('/api/admin/console/gating/batches?limit=200', { domain_id: domainId }))
     const normalized = Array.isArray(rows) ? rows : []
     setGatingBatches(normalized)
     const hasSelected = Boolean(selectedBatchId) && normalized.some((batch) => batch.gatingBatchId === selectedBatchId)
@@ -396,6 +396,7 @@ export function GatingPage({ notify }) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           methodCode: form.methodCode || selectedMethodCodes[0] || null,
+          domainId: domainId || null,
           methodCodes: selectedMethodCodes.length > 0 ? selectedMethodCodes : null,
           generationBatchId: effectiveBatchIds[0] || null,
           generationBatchIds: effectiveBatchIds,

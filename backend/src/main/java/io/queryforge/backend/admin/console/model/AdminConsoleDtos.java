@@ -94,6 +94,7 @@ public final class AdminConsoleDtos {
 
     public record SyntheticBatchRunRequest(
             String methodCode,
+            UUID domainId,
             String versionName,
             String sourceDocumentVersion,
             String sourceId,
@@ -177,6 +178,7 @@ public final class AdminConsoleDtos {
 
     public record GatingBatchRunRequest(
             String gatingPreset,
+            UUID domainId,
             UUID generationBatchId,
             List<UUID> generationBatchIds,
             String methodCode,
@@ -342,6 +344,7 @@ public final class AdminConsoleDtos {
 
     public record RagTestRunRequest(
             UUID datasetId,
+            UUID domainId,
             String evalQueryLanguage,
             String runName,
             List<String> methodCodes,

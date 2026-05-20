@@ -116,7 +116,7 @@ public class AdminConsoleService {
     private final Yaml yaml = new Yaml();
 
     public List<AdminConsoleDtos.SyntheticGenerationMethod> listGenerationMethods() {
-        return listGenerationMethods(null, null, null);
+        return listGenerationMethods(null, null, null, null);
     }
 
     public List<AdminConsoleDtos.SyntheticGenerationMethod> listGenerationMethods(
@@ -124,14 +124,27 @@ public class AdminConsoleService {
             String sourceDocumentId,
             UUID datasetId
     ) {
+        return listGenerationMethods(sourceId, sourceDocumentId, datasetId, null);
+    }
+
+    public List<AdminConsoleDtos.SyntheticGenerationMethod> listGenerationMethods(
+            String sourceId,
+            String sourceDocumentId,
+            UUID datasetId,
+            UUID domainId
+    ) {
         Set<String> allowedMethodCodes = resolveAllowedMethodCodesForMethodList(sourceId, sourceDocumentId, datasetId);
-        return repository.findGenerationMethods().stream()
+        return repository.findGenerationMethods(domainId).stream()
                 .filter(method -> allowedMethodCodes.contains(normalizeMethodCode(method.methodCode())))
                 .toList();
     }
 
     public List<AdminConsoleDtos.SyntheticGenerationBatchRow> listGenerationBatches(Integer limit) {
-        return repository.findGenerationBatches(limit);
+        return listGenerationBatches(limit, null);
+    }
+
+    public List<AdminConsoleDtos.SyntheticGenerationBatchRow> listGenerationBatches(Integer limit, UUID domainId) {
+        return repository.findGenerationBatches(limit, domainId);
     }
 
     @Transactional
@@ -158,7 +171,19 @@ public class AdminConsoleService {
             Integer limit,
             Integer offset
     ) {
-        return repository.findSyntheticQueries(methodCode, batchId, queryType, gated, limit, offset);
+        return listSyntheticQueries(methodCode, batchId, queryType, gated, limit, offset, null);
+    }
+
+    public List<AdminConsoleDtos.SyntheticQueryRow> listSyntheticQueries(
+            String methodCode,
+            UUID batchId,
+            String queryType,
+            Boolean gated,
+            Integer limit,
+            Integer offset,
+            UUID domainId
+    ) {
+        return repository.findSyntheticQueries(methodCode, batchId, queryType, gated, limit, offset, domainId);
     }
 
     public AdminConsoleDtos.SyntheticQueryDetailResponse getSyntheticQueryDetail(String queryId) {
@@ -167,7 +192,11 @@ public class AdminConsoleService {
     }
 
     public AdminConsoleDtos.SyntheticStatsResponse getSyntheticStats(String methodCode, UUID batchId) {
-        return repository.findSyntheticStats(methodCode, batchId);
+        return getSyntheticStats(methodCode, batchId, null);
+    }
+
+    public AdminConsoleDtos.SyntheticStatsResponse getSyntheticStats(String methodCode, UUID batchId, UUID domainId) {
+        return repository.findSyntheticStats(methodCode, batchId, domainId);
     }
 
     public AdminConsoleDtos.AdminDashboardStats getDashboardStats() {
@@ -310,7 +339,9 @@ public class AdminConsoleService {
     @Transactional
     public AdminConsoleDtos.SyntheticGenerationBatchRow runSyntheticGeneration(AdminConsoleDtos.SyntheticBatchRunRequest request) {
         String methodCode = normalizeMethodCode(request.methodCode());
+        UUID domainId = request.domainId();
         validateSyntheticSourceMethodRestriction(methodCode, request.sourceId(), request.sourceDocumentId());
+        validateSyntheticDomainScope(domainId, methodCode, request.sourceId(), request.sourceDocumentId());
         AdminConsoleDtos.SyntheticGenerationMethod method = repository.findGenerationMethodByCode(methodCode)
                 .orElseThrow(() -> new IllegalArgumentException("generation method not found: " + methodCode));
         RuntimeCatalog runtimeCatalog = loadRuntimeCatalog();
@@ -318,6 +349,9 @@ public class AdminConsoleService {
 
         String experimentName = "admin_gen_" + UUID.randomUUID().toString().replace("-", "").substring(0, 12);
         Map<String, Object> config = baseExperimentConfig(experimentName, methodCode);
+        if (domainId != null) {
+            config.put("domain_id", domainId.toString());
+        }
         if (request.limitChunks() != null) {
             config.put("limit_chunks", clampRange(request.limitChunks(), 1, 200, "limit_chunks"));
         }
@@ -331,7 +365,7 @@ public class AdminConsoleService {
             config.put("source_document_id", request.sourceDocumentId().trim());
         }
         if (blankToNull(request.sourceId()) == null && blankToNull(request.sourceDocumentId()) == null) {
-            List<String> sourceIds = allowedSourceIdsForMethod(methodCode);
+            List<String> sourceIds = allowedSourceIdsForRun(methodCode, domainId);
             if (!sourceIds.isEmpty()) {
                 config.put("source_ids", sourceIds);
             }
@@ -354,6 +388,7 @@ public class AdminConsoleService {
 
         UUID batchId = repository.createGenerationBatch(
                 method.generationMethodId(),
+                domainId,
                 normalizeVersionName(request.versionName()),
                 blankToNull(request.sourceDocumentVersion()),
                 defaultCreatedBy(request.createdBy()),
@@ -367,7 +402,11 @@ public class AdminConsoleService {
     }
 
     public List<AdminConsoleDtos.GatingBatchRow> listGatingBatches(Integer limit) {
-        return repository.findGatingBatches(limit);
+        return listGatingBatches(limit, null);
+    }
+
+    public List<AdminConsoleDtos.GatingBatchRow> listGatingBatches(Integer limit, UUID domainId) {
+        return repository.findGatingBatches(limit, domainId);
     }
 
     public AdminConsoleDtos.GatingFunnelResponse getGatingFunnel(UUID gatingBatchId, String methodCode) {
@@ -395,6 +434,7 @@ public class AdminConsoleService {
     @Transactional
     public AdminConsoleDtos.GatingBatchRow runGating(AdminConsoleDtos.GatingBatchRunRequest request) {
         RuntimeCatalog runtimeCatalog = loadRuntimeCatalog();
+        UUID domainId = request.domainId();
         List<UUID> selectedBatchIds = normalizeGenerationBatchIds(request.generationBatchIds(), request.generationBatchId());
         if (selectedBatchIds.isEmpty()) {
             throw new IllegalArgumentException("generation_batch_id is required");
@@ -412,6 +452,7 @@ public class AdminConsoleService {
             if (batch.sourceGenerationRunId() == null) {
                 throw new IllegalArgumentException("generation batch has no source_generation_run_id: " + generationBatchId);
             }
+            validateGenerationBatchDomain(domainId, generationBatchId);
             String batchMethodCode = normalizeMethodCode(batch.methodCode());
             AdminConsoleDtos.SyntheticGenerationMethod method = methodByCode.computeIfAbsent(
                     batchMethodCode,
@@ -534,6 +575,9 @@ public class AdminConsoleService {
         stageConfig.put("source_generation_strategies", selectedMethodCodes);
         stageConfig.put("source_generation_batch_ids", selectedBatchIdStrings);
         stageConfig.put("source_generation_run_ids", sourceGenerationRunIdStrings);
+        if (domainId != null) {
+            stageConfig.put("domain_id", domainId.toString());
+        }
         if (sourceGenerationRunIdStrings.size() == 1) {
             stageConfig.put("source_generation_run_id", sourceGenerationRunIdStrings.getFirst());
         }
@@ -552,12 +596,16 @@ public class AdminConsoleService {
                 primaryMethod.generationMethodId(),
                 primaryGenerationBatchId,
                 primarySourceGenerationRunId,
+                domainId,
                 defaultCreatedBy(request.createdBy()),
                 objectMapper.valueToTree(stageConfig)
         );
 
         String experimentName = "admin_gate_" + UUID.randomUUID().toString().replace("-", "").substring(0, 12);
         Map<String, Object> config = baseExperimentConfig(experimentName, primaryMethodCode);
+        if (domainId != null) {
+            config.put("domain_id", domainId.toString());
+        }
         config.put("source_generation_strategies", selectedMethodCodes);
         config.put("source_generation_batch_ids", selectedBatchIdStrings);
         config.put("source_generation_run_ids", sourceGenerationRunIdStrings);
@@ -597,8 +645,13 @@ public class AdminConsoleService {
 
     @Transactional
     public List<AdminConsoleDtos.EvalDatasetRow> listEvalDatasets() {
+        return listEvalDatasets(null);
+    }
+
+    @Transactional
+    public List<AdminConsoleDtos.EvalDatasetRow> listEvalDatasets(UUID domainId) {
         ensureDefaultEvalDataset();
-        return repository.findEvalDatasets();
+        return repository.findEvalDatasets(domainId);
     }
 
     @Transactional
@@ -608,7 +661,11 @@ public class AdminConsoleService {
     }
 
     public List<AdminConsoleDtos.RagTestRunRow> listRagTestRuns(Integer limit) {
-        return repository.findRagTestRuns(limit);
+        return listRagTestRuns(limit, null);
+    }
+
+    public List<AdminConsoleDtos.RagTestRunRow> listRagTestRuns(Integer limit, UUID domainId) {
+        return repository.findRagTestRuns(limit, domainId);
     }
 
     public AdminConsoleDtos.RagTestRunDetail getRagTestRunDetail(UUID runId, Integer detailLimit) {
@@ -678,6 +735,8 @@ public class AdminConsoleService {
         if (request.datasetId() == null) {
             throw new IllegalArgumentException("dataset_id is required");
         }
+        UUID domainId = request.domainId();
+        validateEvalDatasetDomain(domainId, request.datasetId());
         String evalQueryLanguage = normalizeEvalQueryLanguage(
                 request.evalQueryLanguage(),
                 repository.findEvalDatasetQueryLanguage(request.datasetId()).orElse(null)
@@ -697,6 +756,9 @@ public class AdminConsoleService {
         Map<String, UUID> comparisonBatchIds = normalizeComparisonBatchIds(request.comparisonGatingBatchIds());
         UUID sourceGatingBatchId = request.sourceGatingBatchId();
         boolean stageCutoffEnabled = Boolean.TRUE.equals(request.stageCutoffEnabled());
+        validateGenerationBatchDomains(domainId, batchIds);
+        validateGatingBatchDomains(domainId, sourceGatingBatchId);
+        validateGatingBatchDomains(domainId, comparisonBatchIds.values());
 
         if (syntheticFreeBaseline) {
             if (RUN_DISCIPLINE_OFFICIAL.equals(runDiscipline)) {
@@ -878,6 +940,9 @@ public class AdminConsoleService {
         applyLlmModelOverrides(config, request.llmModel());
         config.put("run_name", runLabel);
         config.put("dataset_id", request.datasetId().toString());
+        if (domainId != null) {
+            config.put("domain_id", domainId.toString());
+        }
         config.put("eval_query_language", evalQueryLanguage);
         config.put("memory_generation_strategies", methodCodes);
         config.put("source_generation_strategies", methodCodes);
@@ -1000,6 +1065,7 @@ public class AdminConsoleService {
         UUID runId = repository.createRagTestRun(
                 runLabel,
                 request.datasetId(),
+                domainId,
                 methodCodesNode,
                 batchIdsNode,
                 gatingApplied,
@@ -2372,6 +2438,96 @@ public class AdminConsoleService {
             return PYTHON_KR_SOURCE_IDS;
         }
         return List.of();
+    }
+
+    private List<String> allowedSourceIdsForRun(String methodCode, UUID domainId) {
+        List<String> methodAllowedSourceIds = allowedSourceIdsForMethod(methodCode);
+        if (domainId == null) {
+            return methodAllowedSourceIds;
+        }
+        List<String> domainSourceIds = repository.findDomainSourceIds(domainId);
+        if (methodAllowedSourceIds.isEmpty()) {
+            return domainSourceIds;
+        }
+        List<String> scopedSourceIds = domainSourceIds.stream()
+                .filter(sourceId -> containsSourceId(methodAllowedSourceIds, sourceId))
+                .toList();
+        if (scopedSourceIds.isEmpty()) {
+            throw new IllegalArgumentException(
+                    "domain has no source allowed for method_code " + methodCode + " (domain_id=" + domainId + ")"
+            );
+        }
+        return scopedSourceIds;
+    }
+
+    private void validateSyntheticDomainScope(
+            UUID domainId,
+            String methodCode,
+            String sourceId,
+            String sourceDocumentId
+    ) {
+        if (domainId == null) {
+            return;
+        }
+        if (!repository.isGenerationMethodEnabledForDomain(domainId, methodCode)) {
+            throw new IllegalArgumentException(
+                    "method_code " + methodCode + " is not enabled for domain_id=" + domainId
+            );
+        }
+        String normalizedSourceId = blankToNull(sourceId);
+        if (normalizedSourceId != null && !repository.sourceBelongsToDomain(domainId, normalizedSourceId)) {
+            throw new IllegalArgumentException(
+                    "source_id " + normalizedSourceId + " does not belong to domain_id=" + domainId
+            );
+        }
+        String normalizedDocumentId = blankToNull(sourceDocumentId);
+        if (normalizedDocumentId != null && !repository.sourceDocumentBelongsToDomain(domainId, normalizedDocumentId)) {
+            throw new IllegalArgumentException(
+                    "source_document_id " + normalizedDocumentId + " does not belong to domain_id=" + domainId
+            );
+        }
+    }
+
+    private void validateGenerationBatchDomain(UUID domainId, UUID batchId) {
+        if (!repository.generationBatchBelongsToDomain(domainId, batchId)) {
+            throw new IllegalArgumentException(
+                    "generation_batch_id " + batchId + " does not belong to domain_id=" + domainId
+            );
+        }
+    }
+
+    private void validateGenerationBatchDomains(UUID domainId, Collection<UUID> batchIds) {
+        if (batchIds == null) {
+            return;
+        }
+        for (UUID batchId : batchIds) {
+            validateGenerationBatchDomain(domainId, batchId);
+        }
+    }
+
+    private void validateGatingBatchDomains(UUID domainId, UUID batchId) {
+        if (!repository.gatingBatchBelongsToDomain(domainId, batchId)) {
+            throw new IllegalArgumentException(
+                    "gating_batch_id " + batchId + " does not belong to domain_id=" + domainId
+            );
+        }
+    }
+
+    private void validateGatingBatchDomains(UUID domainId, Collection<UUID> batchIds) {
+        if (batchIds == null) {
+            return;
+        }
+        for (UUID batchId : batchIds) {
+            validateGatingBatchDomains(domainId, batchId);
+        }
+    }
+
+    private void validateEvalDatasetDomain(UUID domainId, UUID datasetId) {
+        if (!repository.evalDatasetBelongsToDomain(domainId, datasetId)) {
+            throw new IllegalArgumentException(
+                    "dataset_id " + datasetId + " does not belong to domain_id=" + domainId
+            );
+        }
     }
 
     private boolean isAllowedSyntheticSourceForScope(String sourceId, StrategyScope scope) {

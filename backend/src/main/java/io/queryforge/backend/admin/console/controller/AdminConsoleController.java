@@ -26,16 +26,18 @@ public class AdminConsoleController {
     public List<AdminConsoleDtos.SyntheticGenerationMethod> syntheticMethods(
             @RequestParam(name = "source_id", required = false) String sourceId,
             @RequestParam(name = "source_document_id", required = false) String sourceDocumentId,
-            @RequestParam(name = "dataset_id", required = false) UUID datasetId
+            @RequestParam(name = "dataset_id", required = false) UUID datasetId,
+            @RequestParam(name = "domain_id", required = false) UUID domainId
     ) {
-        return service.listGenerationMethods(sourceId, sourceDocumentId, datasetId);
+        return service.listGenerationMethods(sourceId, sourceDocumentId, datasetId, domainId);
     }
 
     @GetMapping("/synthetic/batches")
     public List<AdminConsoleDtos.SyntheticGenerationBatchRow> syntheticBatches(
-            @RequestParam(name = "limit", required = false) Integer limit
+            @RequestParam(name = "limit", required = false) Integer limit,
+            @RequestParam(name = "domain_id", required = false) UUID domainId
     ) {
-        return service.listGenerationBatches(limit);
+        return service.listGenerationBatches(limit, domainId);
     }
 
     @PostMapping("/synthetic/batches/run")
@@ -57,9 +59,10 @@ public class AdminConsoleController {
             @RequestParam(name = "query_type", required = false) String queryType,
             @RequestParam(name = "gated", required = false) Boolean gated,
             @RequestParam(name = "limit", required = false) Integer limit,
-            @RequestParam(name = "offset", required = false) Integer offset
+            @RequestParam(name = "offset", required = false) Integer offset,
+            @RequestParam(name = "domain_id", required = false) UUID domainId
     ) {
-        return service.listSyntheticQueries(methodCode, batchId, queryType, gated, limit, offset);
+        return service.listSyntheticQueries(methodCode, batchId, queryType, gated, limit, offset, domainId);
     }
 
     @GetMapping("/synthetic/queries/{queryId}")
@@ -70,9 +73,10 @@ public class AdminConsoleController {
     @GetMapping("/synthetic/stats")
     public AdminConsoleDtos.SyntheticStatsResponse syntheticStats(
             @RequestParam(name = "method_code", required = false) String methodCode,
-            @RequestParam(name = "batch_id", required = false) UUID batchId
+            @RequestParam(name = "batch_id", required = false) UUID batchId,
+            @RequestParam(name = "domain_id", required = false) UUID domainId
     ) {
-        return service.getSyntheticStats(methodCode, batchId);
+        return service.getSyntheticStats(methodCode, batchId, domainId);
     }
 
     @GetMapping("/dashboard/stats")
@@ -101,9 +105,10 @@ public class AdminConsoleController {
 
     @GetMapping("/gating/batches")
     public List<AdminConsoleDtos.GatingBatchRow> gatingBatches(
-            @RequestParam(name = "limit", required = false) Integer limit
+            @RequestParam(name = "limit", required = false) Integer limit,
+            @RequestParam(name = "domain_id", required = false) UUID domainId
     ) {
-        return service.listGatingBatches(limit);
+        return service.listGatingBatches(limit, domainId);
     }
 
     @PostMapping("/gating/batches/run")
@@ -134,8 +139,10 @@ public class AdminConsoleController {
     }
 
     @GetMapping("/rag/datasets")
-    public List<AdminConsoleDtos.EvalDatasetRow> ragDatasets() {
-        return service.listEvalDatasets();
+    public List<AdminConsoleDtos.EvalDatasetRow> ragDatasets(
+            @RequestParam(name = "domain_id", required = false) UUID domainId
+    ) {
+        return service.listEvalDatasets(domainId);
     }
 
     @GetMapping("/rag/datasets/{datasetId}/items")
@@ -149,9 +156,10 @@ public class AdminConsoleController {
 
     @GetMapping("/rag/tests")
     public List<AdminConsoleDtos.RagTestRunRow> ragTests(
-            @RequestParam(name = "limit", required = false) Integer limit
+            @RequestParam(name = "limit", required = false) Integer limit,
+            @RequestParam(name = "domain_id", required = false) UUID domainId
     ) {
-        return service.listRagTestRuns(limit);
+        return service.listRagTestRuns(limit, domainId);
     }
 
     @PostMapping("/rag/tests/run")

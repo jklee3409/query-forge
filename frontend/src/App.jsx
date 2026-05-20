@@ -176,8 +176,10 @@ function App() {
 
 function AdminApp({ path, navigate, notify, theme, onToggleTheme }) {
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [domainSummary, setDomainSummary] = useState(null)
   const route = useMemo(() => parseAdminRoute(path), [path])
   const pageKey = route.pageKey
+  const domainId = route.domainKey ? domainSummary?.domainId || null : null
   const metaKey = pageKey === 'synthetic-queries' ? 'synthetic'
     : pageKey === 'quality-gating' ? 'gating'
       : pageKey === 'rag-tests' ? 'rag'
@@ -194,6 +196,12 @@ function AdminApp({ path, navigate, notify, theme, onToggleTheme }) {
       : pageKey === 'rag' ? 'rag-tests'
         : pageKey
   const themeLabel = theme === 'dark' ? 'Dark' : 'Light'
+  const workspacePending = Boolean(route.domainKey && pageKey !== 'domains' && !domainId)
+  const pageInstanceKey = `${pageKey}:${route.domainKey || 'global'}:${domainId || 'none'}`
+
+  useEffect(() => {
+    setDomainSummary(null)
+  }, [route.domainKey])
 
   return (
     <div className={`admin-shell ${sidebarOpen ? 'is-sidebar-open' : ''}`}>
@@ -297,7 +305,7 @@ function AdminApp({ path, navigate, notify, theme, onToggleTheme }) {
         </header>
         <main className="admin-content">
           {pageKey !== 'domains' && route.domainKey && (
-            <DomainWorkspaceBanner domainKey={route.domainKey} notify={notify} />
+            <DomainWorkspaceBanner domainKey={route.domainKey} notify={notify} onSummary={setDomainSummary} />
           )}
           <section className="page-header">
             <div className="page-header__eyebrow">
@@ -308,10 +316,15 @@ function AdminApp({ path, navigate, notify, theme, onToggleTheme }) {
           </section>
           {pageKey === 'domains' && <DomainHomePage navigate={navigate} notify={notify} />}
           {pageKey === 'prompts' && <PromptStudioPage path={path} notify={notify} />}
-          {pageKey === 'pipeline' && <PipelinePage notify={notify} domainKey={route.domainKey} />}
-          {pageKey === 'synthetic-queries' && <SyntheticPage notify={notify} domainKey={route.domainKey} />}
-          {pageKey === 'quality-gating' && <GatingPage notify={notify} domainKey={route.domainKey} />}
-          {pageKey === 'rag-tests' && <RagPage notify={notify} domainKey={route.domainKey} />}
+          {workspacePending && (
+            <section className="empty-state">
+              <h2>도메인 컨텍스트 로딩 중</h2>
+            </section>
+          )}
+          {!workspacePending && pageKey === 'pipeline' && <PipelinePage key={pageInstanceKey} notify={notify} domainKey={route.domainKey} domainId={domainId} />}
+          {!workspacePending && pageKey === 'synthetic-queries' && <SyntheticPage key={pageInstanceKey} notify={notify} domainKey={route.domainKey} domainId={domainId} />}
+          {!workspacePending && pageKey === 'quality-gating' && <GatingPage key={pageInstanceKey} notify={notify} domainKey={route.domainKey} domainId={domainId} />}
+          {!workspacePending && pageKey === 'rag-tests' && <RagPage key={pageInstanceKey} notify={notify} domainKey={route.domainKey} domainId={domainId} />}
           {pageKey === 'synthetic' && <SyntheticPage notify={notify} />}
           {pageKey === 'gating' && <GatingPage notify={notify} />}
           {pageKey === 'rag' && <RagPage notify={notify} />}
@@ -321,7 +334,7 @@ function AdminApp({ path, navigate, notify, theme, onToggleTheme }) {
   )
 }
 
-function DomainWorkspaceBanner({ domainKey, notify }) {
+function DomainWorkspaceBanner({ domainKey, notify, onSummary }) {
   const [summary, setSummary] = useState(null)
 
   useEffect(() => {
@@ -334,13 +347,22 @@ function DomainWorkspaceBanner({ domainKey, notify }) {
         return payload
       })
       .then((payload) => {
-        if (!cancelled) setSummary(payload)
+        if (!cancelled) {
+          setSummary(payload)
+          onSummary?.(payload)
+        }
       })
-      .catch((error) => notify(error.message, 'danger'))
+      .catch((error) => {
+        if (!cancelled) {
+          setSummary(null)
+          onSummary?.(null)
+        }
+        notify(error.message, 'danger')
+      })
     return () => {
       cancelled = true
     }
-  }, [domainKey, notify])
+  }, [domainKey, notify, onSummary])
 
   return (
     <section className="domain-workspace-banner">

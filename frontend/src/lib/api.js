@@ -27,11 +27,18 @@ export function queryString(params) {
   return search.toString()
 }
 
-export function fetchSyntheticMethods({ sourceId, sourceDocumentId, datasetId } = {}) {
+export function appendQuery(url, params) {
+  const query = queryString(params)
+  if (!query) return url
+  return `${url}${url.includes('?') ? '&' : '?'}${query}`
+}
+
+export function fetchSyntheticMethods({ sourceId, sourceDocumentId, datasetId, domainId } = {}) {
   const query = queryString({
     source_id: sourceId || null,
     source_document_id: sourceDocumentId || null,
     dataset_id: datasetId || null,
+    domain_id: domainId || null,
   })
   return requestJson(`/api/admin/console/synthetic/methods${query ? `?${query}` : ''}`)
 }

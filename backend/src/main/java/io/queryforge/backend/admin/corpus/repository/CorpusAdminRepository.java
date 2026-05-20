@@ -31,6 +31,10 @@ public class CorpusAdminRepository {
     private final ObjectMapper objectMapper;
 
     public List<CorpusAdminDtos.SourceSummary> findSources() {
+        return findSources(null);
+    }
+
+    public List<CorpusAdminDtos.SourceSummary> findSources(UUID domainId) {
         String sql = """
                 SELECT cs.source_id,
                        cs.source_type,
@@ -71,9 +75,19 @@ public class CorpusAdminRepository {
                         GROUP BY cd.version_label
                     ) version_counts
                 ) version_stats ON TRUE
+                WHERE (
+                    :domainId IS NULL
+                    OR EXISTS (
+                        SELECT 1
+                        FROM tech_doc_domain_source ds
+                        WHERE ds.domain_id = :domainId
+                          AND ds.source_id = cs.source_id
+                          AND ds.active IS TRUE
+                    )
+                )
                 ORDER BY cs.product_name, cs.source_id
                 """;
-        return jdbcTemplate.query(sql, sourceRowMapper());
+        return jdbcTemplate.query(sql, new MapSqlParameterSource("domainId", domainId), sourceRowMapper());
     }
 
     public CorpusAdminDtos.SourceSummary findSourceById(String sourceId) {
@@ -232,6 +246,36 @@ public class CorpusAdminRepository {
             Integer limit,
             Integer offset
     ) {
+        return findDocuments(
+                productName,
+                versionLabel,
+                sourceId,
+                documentId,
+                headingKeyword,
+                chunkKeyword,
+                search,
+                runId,
+                null,
+                activeOnly,
+                limit,
+                offset
+        );
+    }
+
+    public List<CorpusAdminDtos.DocumentSummary> findDocuments(
+            String productName,
+            String versionLabel,
+            String sourceId,
+            String documentId,
+            String headingKeyword,
+            String chunkKeyword,
+            String search,
+            UUID runId,
+            UUID domainId,
+            boolean activeOnly,
+            Integer limit,
+            Integer offset
+    ) {
         StringBuilder sql = new StringBuilder("""
                 SELECT d.document_id,
                        d.source_id,
@@ -255,7 +299,7 @@ public class CorpusAdminRepository {
                 WHERE 1=1
                 """);
         MapSqlParameterSource params = new MapSqlParameterSource();
-        appendDocumentFilters(sql, params, productName, versionLabel, sourceId, documentId, headingKeyword, chunkKeyword, search, runId, activeOnly);
+        appendDocumentFilters(sql, params, productName, versionLabel, sourceId, documentId, headingKeyword, chunkKeyword, search, runId, domainId, activeOnly);
         sql.append("""
 
                 GROUP BY d.document_id, d.source_id, d.product_name, d.version_label, d.canonical_url, d.title,
@@ -1126,8 +1170,13 @@ public class CorpusAdminRepository {
             String chunkKeyword,
             String search,
             UUID runId,
+            UUID domainId,
             boolean activeOnly
     ) {
+        if (domainId != null) {
+            sql.append(" AND d.domain_id = :domainId");
+            params.addValue("domainId", domainId);
+        }
         if (productName != null && !productName.isBlank()) {
             sql.append(" AND d.product_name = :productName");
             params.addValue("productName", productName);

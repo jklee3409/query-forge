@@ -8,7 +8,7 @@ import {
 import { DetailCard, IdBadge, Modal, StatusBadge } from '../components/Common.jsx'
 import { LlmJobsTable } from '../components/LlmJobsTable.jsx'
 import { RemainingEta } from '../components/RemainingEta.jsx'
-import { requestJson, toNumber } from '../lib/api.js'
+import { appendQuery, requestJson, toNumber } from '../lib/api.js'
 import { fmtTime, shortId } from '../lib/format.js'
 
 const RETRIEVER_MODE_PRESETS = {
@@ -1424,7 +1424,7 @@ function averageMetric(values) {
   return normalized.reduce((sum, value) => sum + value, 0) / normalized.length
 }
 
-export function RagPage({ notify }) {
+export function RagPage({ notify, domainId = null }) {
   const historyPageSize = 3
   const [methods, setMethods] = useState([])
   const [datasets, setDatasets] = useState([])
@@ -1487,7 +1487,7 @@ export function RagPage({ notify }) {
   })
 
   const loadMethods = async () => {
-    const rows = await requestJson('/api/admin/console/synthetic/methods')
+    const rows = await requestJson(appendQuery('/api/admin/console/synthetic/methods', { domain_id: domainId }))
     const normalized = Array.isArray(rows) ? rows : []
     setMethods(normalized)
     if (normalized.length > 0 && selectedMethods.length === 0) {
@@ -1544,19 +1544,19 @@ export function RagPage({ notify }) {
   }
 
   const loadDatasets = async () => {
-    const rows = await requestJson('/api/admin/console/rag/datasets')
+    const rows = await requestJson(appendQuery('/api/admin/console/rag/datasets', { domain_id: domainId }))
     const normalized = Array.isArray(rows) ? rows : []
     setDatasets(normalized)
     setForm((prev) => ({ ...prev, datasetId: prev.datasetId || normalized[0]?.datasetId || '' }))
   }
 
   const loadTests = async () => {
-    const rows = await requestJson('/api/admin/console/rag/tests?limit=50')
+    const rows = await requestJson(appendQuery('/api/admin/console/rag/tests?limit=50', { domain_id: domainId }))
     setTests(Array.isArray(rows) ? rows : [])
   }
 
   const loadGatingBatches = async () => {
-    const rows = await requestJson('/api/admin/console/gating/batches?limit=100')
+    const rows = await requestJson(appendQuery('/api/admin/console/gating/batches?limit=100', { domain_id: domainId }))
     setGatingBatches(Array.isArray(rows) ? rows : [])
   }
 
@@ -2003,6 +2003,7 @@ export function RagPage({ notify }) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           datasetId: form.datasetId,
+          domainId: domainId || null,
           evalQueryLanguage: form.evalQueryLanguage,
           runName: form.runName || null,
           methodCodes: syntheticFreeBaseline ? [] : methodCodesForRun,

@@ -11,7 +11,7 @@ import {
 import { DetailCard, IdBadge, Modal, StatusBadge } from '../components/Common.jsx'
 import { LlmJobsTable } from '../components/LlmJobsTable.jsx'
 import { RemainingEta } from '../components/RemainingEta.jsx'
-import { fetchSyntheticMethods, queryString, requestJson, toNumber } from '../lib/api.js'
+import { appendQuery, fetchSyntheticMethods, queryString, requestJson, toNumber } from '../lib/api.js'
 import { fmtTime, shortId } from '../lib/format.js'
 import { usePolling } from '../lib/hooks.js'
 
@@ -123,7 +123,7 @@ function compactStatus(value) {
   return String(value || '-').toLowerCase()
 }
 
-export function SyntheticPage({ notify }) {
+export function SyntheticPage({ notify, domainId = null }) {
   const pageSize = 20
   const historyPageSize = 4
 
@@ -172,7 +172,7 @@ export function SyntheticPage({ notify }) {
   })
 
   const loadMethods = async () => {
-    const rows = await fetchSyntheticMethods()
+    const rows = await fetchSyntheticMethods({ domainId })
     const normalized = Array.isArray(rows) ? rows : []
     setMethods(normalized)
     setRunForm((prev) => ({ ...prev, methodCode: prev.methodCode || normalized[0]?.methodCode || '' }))
@@ -182,6 +182,7 @@ export function SyntheticPage({ notify }) {
     const rows = await fetchSyntheticMethods({
       sourceId: sourceId || null,
       sourceDocumentId: sourceDocumentId || null,
+      domainId,
     })
     const normalized = Array.isArray(rows) ? rows : []
     setRunMethods(normalized)
@@ -206,14 +207,14 @@ export function SyntheticPage({ notify }) {
   }
 
   const loadBatches = async () => {
-    const rows = await requestJson('/api/admin/console/synthetic/batches?limit=50')
+    const rows = await requestJson(appendQuery('/api/admin/console/synthetic/batches?limit=50', { domain_id: domainId }))
     setBatches(Array.isArray(rows) ? rows : [])
   }
 
   const loadSources = async () => {
-    let sourceRows = await requestJson('/api/admin/corpus/sources')
+    let sourceRows = await requestJson(appendQuery('/api/admin/corpus/sources', { domain_id: domainId }))
     if (!Array.isArray(sourceRows) || sourceRows.length === 0) {
-      const docs = await requestJson('/api/admin/corpus/documents?active_only=true&limit=300')
+      const docs = await requestJson(appendQuery('/api/admin/corpus/documents?active_only=true&limit=300', { domain_id: domainId }))
       const dedup = new Map()
       ;(Array.isArray(docs) ? docs : []).forEach((doc) => {
         if (!doc?.sourceId || dedup.has(doc.sourceId)) return
@@ -229,13 +230,13 @@ export function SyntheticPage({ notify }) {
       setSourceDocuments([])
       return
     }
-    const query = queryString({ source_id: sourceId, active_only: true, limit: 200 })
+    const query = queryString({ source_id: sourceId, domain_id: domainId, active_only: true, limit: 200 })
     const rows = await requestJson(`/api/admin/corpus/documents?${query}`)
     setSourceDocuments(Array.isArray(rows) ? rows : [])
   }
 
   const loadStats = async () => {
-    const query = queryString({ method_code: filterForm.method_code || null, batch_id: filterForm.batch_id || null })
+    const query = queryString({ method_code: filterForm.method_code || null, batch_id: filterForm.batch_id || null, domain_id: domainId })
     const payload = await requestJson(`/api/admin/console/synthetic/stats${query ? `?${query}` : ''}`)
     setStats({
       byMethod: Array.isArray(payload.byMethod) ? payload.byMethod : [],
@@ -249,6 +250,7 @@ export function SyntheticPage({ notify }) {
       batch_id: filterForm.batch_id || null,
       query_type: filterForm.query_type || null,
       gated: filterForm.gated || null,
+      domain_id: domainId,
       limit: pageSize + 1,
       offset: page * pageSize,
     })
@@ -341,6 +343,7 @@ export function SyntheticPage({ notify }) {
   const buildRunRequestBody = () => {
     const baseBody = {
       methodCode: runForm.methodCode || null,
+      domainId: domainId || null,
       versionName: runForm.versionName || null,
       limitChunks: toNumber(runForm.limitChunks),
       avgQueriesPerChunk: toNumber(runForm.avgQueriesPerChunk),

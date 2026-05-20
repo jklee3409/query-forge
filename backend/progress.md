@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-05-20] Session Summary (Domain Scoped Admin APIs)
+- What was done: Added optional `domain_id` filters to existing AdminConsole and Corpus Admin list endpoints, persisted `domain_id` into synthetic generation batches, quality-gating batches, and RAG test runs, and wrote the selected domain into generated experiment configs.
+- Key decisions: Kept the retrofit additive and backward compatible; unscoped legacy calls still work, while domain workspace calls are filtered by domain-owned rows and method policy.
+- Issues encountered: Targeted backend `compileJava` passed. No DB migration execution was performed.
+- Next steps: Carry domain context into lower-level pipeline import/materialization jobs before making `domain_id` columns non-null in a later enforcement phase.
+
 ## [2026-05-20] Session Summary (Prompt Asset File Fallback)
 - What was done: Updated PromptAdminService so file-backed prompt assets return existing prompt file content when content_body is still null.
 - Key decisions: Kept DB-backed revisions as the editable path while preserving read visibility for current configs/prompts assets.

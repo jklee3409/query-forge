@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-05-20] Session Summary (Domain Scoped Workspace Calls)
+- What was done: Passed the selected domain summary `domainId` from the Admin shell into Pipeline, Synthetic, Gating, and RAG pages. Domain workspace pages now attach `domain_id` to scoped list APIs and include `domainId` in Synthetic/Gating/RAG run payloads.
+- Key decisions: Domain pages wait for the domain summary before mounting operation pages, avoiding an initial unscoped fetch in the workspace route. Legacy global routes remain unscoped.
+- Issues encountered: Targeted ESLint passed with existing hook-dependency warnings. `npm run build` passed and refreshed backend-served React assets.
+- Next steps: Add GUI controls for attaching existing/new corpus sources to a newly created empty domain.
+
 ## [2026-05-20] Session Summary (Domain Workspace and Prompt Studio Shell)
 - What was done: Replaced `/admin` entry with a Domain Atlas page, added domain workspace routes under `/admin/domains/:domainKey/*`, added a selected-domain banner, and implemented `/admin/prompts` Prompt Studio for shared A-G/rewrite prompt bindings.
 - Key decisions: Existing Pipeline/Synthetic/Gating/RAG pages are reused under the domain workspace first; strict domain API filtering remains a separate wiring phase.

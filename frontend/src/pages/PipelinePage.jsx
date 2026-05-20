@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { DetailCard, IdBadge, Modal, StatusBadge } from '../components/Common.jsx'
 import { SelectDropdown } from '../components/SelectDropdown.jsx'
 import { fmtTime, shortId } from '../lib/format.js'
-import { queryString, requestJson } from '../lib/api.js'
+import { appendQuery, queryString, requestJson } from '../lib/api.js'
 
 const ANCHOR_REVIEW_DECISION_LABELS = {
   pending: '검토 대기',
@@ -436,7 +436,7 @@ function AnchorNormalizationReviewBody({ detail, onSaveReviews, onSaveAndApprove
   )
 }
 
-export function PipelinePage({ notify }) {
+export function PipelinePage({ notify, domainId = null }) {
   const runPageSize = 3
   const documentPageSize = 10
   const anchorPageSize = 10
@@ -558,13 +558,14 @@ export function PipelinePage({ notify }) {
   }
 
   const loadSources = async () => {
-    const payload = await requestJson('/api/admin/corpus/sources')
+    const payload = await requestJson(appendQuery('/api/admin/corpus/sources', { domain_id: domainId }))
     setSources(Array.isArray(payload) ? payload : [])
   }
 
   const loadDocuments = async (nextFilters = filters, page = documentPage) => {
     const query = queryString({
       ...nextFilters,
+      domain_id: domainId,
       active_only: true,
       limit: documentPageSize + 1,
       offset: page * documentPageSize,
@@ -594,6 +595,7 @@ export function PipelinePage({ notify }) {
     const query = queryString({
       source_id: sourceId || undefined,
       product_name: productName || undefined,
+      domain_id: domainId,
       active_only: true,
       limit: 500,
       offset: 0,
@@ -620,6 +622,7 @@ export function PipelinePage({ notify }) {
   const loadAnchorFilterDocuments = async () => {
     const query = queryString({
       active_only: true,
+      domain_id: domainId,
       limit: 500,
       offset: 0,
     })
