@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-05-20] Session Summary (RAG Memory-Hint Rewrite and Paired Short-User Eval)
+- What was done: Changed RAG rewrite/memory lookup so synthetic queries are used as bounded retrieval hints instead of final replacement queries by default. Admin RAG defaults now use `rewrite_threshold=0.05`, relaxed `short_user` adoption policy, raw-query preservation, and top memory-anchor hint retrieval. Restored canonical `Spring KR Short User Eval 80 (KR)` to the refined V5 active samples and regenerated/upserted the paired `Spring KR Short User Eval 80 (EN)` dataset with exact KR/EN grounding parity.
+- Key decisions: Kept A/B/C/D/E synthetic raw tables and stored synthetic query text unchanged. Memory hints append only 1-3 probable anchors to the raw query, then merge raw and hint retrieval by `max_score`; direct synthetic-query replacement is now opt-in via `memory_lookup_direct_enabled=true`.
+- Issues encountered: The live KR dataset had been overwritten to V4 active items, so DB active bindings were updated back to refined `test-short-user-*` rows without deleting historical `v4-test-short-user-*` samples. Verification showed 80 KR/EN pairs, 0 grounding mismatches, and 0 missing chunk refs.
+- Next steps: Re-run A/B and A-2/B-2 on the same gating snapshots to measure whether `selective_rewrite` now diverges from `raw_only` and whether multi-source hints contribute once memory-hint retrieval is active.
+
 ## [2026-05-20] Session Summary (Full Anchor Normalization Dry-Run Scope)
 - What was done: Confirmed `anchor-normalize-471d787c` covered only 500 of 6,481 active anchors because the Admin UI sent `limit=500` and the backend defaulted missing create limits to 500. Fixed dry-run creation so missing/zero target limit means all matching active anchors, changed the Admin Pipeline dry-run action to ignore current anchor filters and request the full active-anchor scope, then created `anchor-normalize-7d079b88` against the live DB with 6,481/6,481 candidates and 0 missing anchors.
 - Key decisions: Kept review/approval safety unchanged. The live full-scope run now shows `approved`: 48 `would_update` candidates were approved/applied and 5 `conflict` candidates were skipped, while unchanged candidates remained pending as expected.
