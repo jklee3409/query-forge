@@ -23,6 +23,9 @@ Key experiment docs:
 - `experiments/best_rewrite_cases.md`
 - `experiments/bad_rewrite_cases.md`
 
+Key architecture docs:
+- `architecture/domain_pipeline_integration_design.md`
+
 ## Responsibilities
 - Keep implementation-aligned documentation for backend/frontend/pipeline behavior.
 - Preserve reproducible experiment records and interpretation context.

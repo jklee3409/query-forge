@@ -3,6 +3,18 @@
 ## Overview
 High-level progress tracking for the `docs` directory.
 
+## [2026-05-20] Session Summary (Global Prompt Management Design)
+- What was done: Updated `docs/architecture/domain_pipeline_integration_design.md` to explicitly model shared prompt assets and bindings above technical document domains.
+- Key decisions: Kept A/B/C/D/E/F/G query-generation prompts and RAG rewrite prompts as global assets, added a `prompt_asset_binding` concept, and scoped prompt editing to a domain-independent Admin Prompt Studio.
+- Issues encountered: None. This was a documentation/design-only change.
+- Next steps: When implementation starts, seed prompt bindings before domain workspace migration so Synthetic/RAG pages can show active global prompt versions.
+
+## [2026-05-20] Session Summary (Domain Pipeline Integration Design)
+- What was done: Added `docs/architecture/domain_pipeline_integration_design.md` covering current backend/frontend/pipeline structure, current DB entity relationships, live Spring/Python source distribution, and the proposed domain-first Admin/DB/pipeline integration design.
+- Key decisions: Kept synthetic generation methods global and preserved split raw tables while proposing domain ownership for batches, corpus artifacts, anchors, datasets, memory snapshots, and RAG runs.
+- Issues encountered: None. This was a documentation/design-only change.
+- Next steps: Implement the design in phases: domain schema/backfill, backend validation/filtering, pipeline domain config, Admin domain home/workspace UI, then strict DB enforcement.
+
 ## [2026-05-19] Session Summary (Canonical Anchor Backfill Dry-Run Policy)
 - What was done: Added `docs/experiments/canonical_anchor_backfill_dry_run.md` and linked it from the experiment/docs indexes.
 - Key decisions: Documented dry-run-only report scope, version pins, manual review flow, snapshot/source identity requirements, and no-overwrite/no-DB-write rules without adding a pipeline tool.
