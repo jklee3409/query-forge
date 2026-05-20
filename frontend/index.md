@@ -34,6 +34,7 @@
 ---
 
 ## Recent Update
+- `/admin/domains/:domainKey/pipeline` now passes the selected `domainId` into dashboard/run history queries, source upsert/URL auto-registration, and pipeline execution payloads so pipeline operations stay scoped to the selected domain.
 - `/admin/domains/:domainKey/*` workspace pages now wait for the selected domain summary and pass `domain_id` into Pipeline, Synthetic, Quality Gate, and RAG list/run calls. Legacy global Admin routes remain unscoped.
 - `/admin/pipeline` Anchor 정규화 Dry-run now launches against the full active-anchor scope by default, ignoring the current Anchor table filters and omitting the previous 500-row limit while preserving manual review before approval.
 - `/admin/pipeline` now has a Multi-source Anchor Tracker that auto-loads the latest relation-build run, summarizes status/counts/version/runtime policy/relation-type breakdown, polls only while a build is active, and provides a build/retry action without changing the backend relation-build contract.

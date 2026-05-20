@@ -39,10 +39,11 @@ public class CorpusAdminController {
             @RequestParam(name = "run_id", required = false) UUID runId,
             @RequestParam(name = "run_status", required = false) String runStatus,
             @RequestParam(name = "run_type", required = false) String runType,
+            @RequestParam(name = "domain_id", required = false) UUID domainId,
             @RequestParam(name = "limit", required = false) Integer limit,
             @RequestParam(name = "offset", required = false) Integer offset
     ) {
-        return service.listRuns(runId, runStatus, runType, limit, offset);
+        return service.listRuns(runId, runStatus, runType, domainId, limit, offset);
     }
 
     @GetMapping("/runs/{runId}")

@@ -546,11 +546,11 @@ export function PipelinePage({ notify, domainId = null }) {
   )
 
   const loadSummary = async () => {
-    setSummary(await requestJson('/api/admin/pipeline/dashboard'))
+    setSummary(await requestJson(appendQuery('/api/admin/pipeline/dashboard', { domain_id: domainId })))
   }
 
   const loadRuns = async (page = runPage) => {
-    const query = queryString({ limit: runPageSize + 1, offset: page * runPageSize })
+    const query = queryString({ domain_id: domainId, limit: runPageSize + 1, offset: page * runPageSize })
     const payload = await requestJson(`/api/admin/pipeline/runs?${query}`)
     const normalized = Array.isArray(payload) ? payload : []
     setRunHasNextPage(normalized.length > runPageSize)
@@ -840,7 +840,7 @@ export function PipelinePage({ notify, domainId = null }) {
       await requestJson(endpoint, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sourceIds: selectedSourceIds }),
+        body: JSON.stringify({ domainId, sourceIds: selectedSourceIds }),
       })
       setRunPage(0)
       await Promise.all([loadSummary(), loadRuns(0)])
@@ -867,6 +867,7 @@ export function PipelinePage({ notify, domainId = null }) {
           enabled: sourceForm.enabled,
           requestDelaySeconds: Number(sourceForm.requestDelaySeconds),
           maxDepth: Number(sourceForm.maxDepth),
+          domainId,
         }),
       })
       await Promise.all([loadSources(), loadSummary()])
@@ -895,7 +896,7 @@ export function PipelinePage({ notify, domainId = null }) {
       await requestJson('/api/admin/corpus/sources/auto-register', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url: quickSourceUrl.trim() }),
+        body: JSON.stringify({ url: quickSourceUrl.trim(), domainId }),
       })
       setQuickSourceUrl('')
       await Promise.all([loadSources(), loadSummary()])

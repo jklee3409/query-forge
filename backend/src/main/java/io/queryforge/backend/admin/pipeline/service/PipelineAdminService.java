@@ -56,9 +56,9 @@ public class PipelineAdminService {
     }
 
     @Transactional
-    public PipelineAdminDtos.DashboardStats getDashboardStats() {
+    public PipelineAdminDtos.DashboardStats getDashboardStats(UUID domainId) {
         sourceCatalogService.syncSourcesFromConfig();
-        return repository.fetchDashboardStats();
+        return repository.fetchDashboardStats(domainId);
     }
 
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
@@ -105,6 +105,7 @@ public class PipelineAdminService {
                 }
         );
         PipelineAdminDtos.PipelineRunRequest request = new PipelineAdminDtos.PipelineRunRequest(
+                detail.run().domainId(),
                 toStringList(sourceScope.get("source_ids")),
                 toStringList(sourceScope.get("document_ids")),
                 booleanValue(configSnapshot.get("dry_run")),
@@ -146,10 +147,11 @@ public class PipelineAdminService {
             UUID runId,
             String runStatus,
             String runType,
+            UUID domainId,
             Integer limit,
             Integer offset
     ) {
-        return corpusAdminService.listRuns(runId, runStatus, runType, limit, offset);
+        return corpusAdminService.listRuns(runId, runStatus, runType, domainId, limit, offset);
     }
 
     public CorpusAdminDtos.RunDetail getRun(UUID runId) {
@@ -195,6 +197,7 @@ public class PipelineAdminService {
             repository.createRun(
                     runId,
                     runType,
+                    scope.domainId(),
                     normalizedTriggerType(request.triggerType()),
                     scope.toSourceScope(),
                     scope.toConfigSnapshot(artifacts),
@@ -342,6 +345,9 @@ public class PipelineAdminService {
                 }
 
                 DocumentArtifactStoreService.PersistResult persistResult = applyStepOutputs(step.stepName(), context, scope);
+                if ("import".equals(step.stepName()) && scope.domainId() != null) {
+                    repository.propagateImportedRunDomain(context.runId, scope.domainId());
+                }
                 metrics.put("documents_discovered", persistResult.discoveredDocumentCount());
                 metrics.put("documents_persisted", persistResult.persistedDocumentCount());
                 metrics.put("document_ids", persistResult.documentIds());
@@ -403,8 +409,30 @@ public class PipelineAdminService {
     }
 
     private Scope resolveScope(String runType, PipelineAdminDtos.PipelineRunRequest request) {
+        UUID domainId = request.domainId();
         List<String> explicitSourceIds = normalizeValues(request.sourceIds());
-        if (explicitSourceIds.isEmpty() && ("collect".equals(runType) || "full_ingest".equals(runType))) {
+        List<String> domainSourceIds = List.of();
+        if (domainId != null) {
+            domainSourceIds = corpusAdminService.listSources(domainId).stream()
+                    .map(CorpusAdminDtos.SourceSummary::sourceId)
+                    .toList();
+            if (!explicitSourceIds.isEmpty()) {
+                LinkedHashSet<String> domainSourceSet = new LinkedHashSet<>(domainSourceIds);
+                List<String> outOfDomainSourceIds = explicitSourceIds.stream()
+                        .filter(sourceId -> !domainSourceSet.contains(sourceId))
+                        .toList();
+                if (!outOfDomainSourceIds.isEmpty()) {
+                    throw new IllegalArgumentException("selected source does not belong to domain: " + outOfDomainSourceIds);
+                }
+            }
+            if (explicitSourceIds.isEmpty()) {
+                explicitSourceIds = domainSourceIds;
+            }
+            if (explicitSourceIds.isEmpty() && ("collect".equals(runType) || "full_ingest".equals(runType))) {
+                throw new IllegalArgumentException("domain has no active sources for collection");
+            }
+        }
+        if (domainId == null && explicitSourceIds.isEmpty() && ("collect".equals(runType) || "full_ingest".equals(runType))) {
             explicitSourceIds = corpusAdminService.listSources().stream()
                     .filter(CorpusAdminDtos.SourceSummary::enabled)
                     .map(CorpusAdminDtos.SourceSummary::sourceId)
@@ -421,6 +449,7 @@ public class PipelineAdminService {
         }
 
         return new Scope(
+                domainId,
                 explicitSourceIds,
                 List.copyOf(documentIds),
                 request.dryRun() != null && request.dryRun(),
@@ -931,6 +960,7 @@ public class PipelineAdminService {
     }
 
     private record Scope(
+            UUID domainId,
             List<String> sourceIds,
             List<String> documentIds,
             boolean dryRun,
@@ -940,6 +970,7 @@ public class PipelineAdminService {
     ) {
         Map<String, Object> toSourceScope() {
             Map<String, Object> scope = new LinkedHashMap<>();
+            scope.put("domain_id", domainId == null ? null : domainId.toString());
             scope.put("source_ids", sourceIds);
             scope.put("document_ids", documentIds);
             return scope;
@@ -947,6 +978,7 @@ public class PipelineAdminService {
 
         Map<String, Object> toConfigSnapshot(ArtifactContext artifacts) {
             Map<String, Object> config = new LinkedHashMap<>();
+            config.put("domain_id", domainId == null ? null : domainId.toString());
             config.put("dry_run", dryRun);
             config.put("trigger_type", triggerType);
             config.put("created_by", createdBy);

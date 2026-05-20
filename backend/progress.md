@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-05-20] Session Summary (Domain Scoped Pipeline Execution)
+- What was done: Added `domainId` to pipeline run requests, persisted `corpus_runs.domain_id`, filtered pipeline dashboard/history by domain, attached newly upserted/auto-registered sources to the selected domain, and propagated imported run domains to corpus documents/sections/chunks/relations/glossary rows.
+- Key decisions: Source selection is validated against `tech_doc_domain_source` when a domain is supplied. Empty-domain collect/full-ingest requests now fail fast instead of falling back to all configured sources.
+- Issues encountered: Targeted `.\gradlew.bat compileJava` passed. No DB migration execution was performed.
+- Next steps: Add GUI source membership editing and consider passing `domain_id` into standalone Python import CLI paths if direct CLI imports need first-class domain assignment.
+
 ## [2026-05-20] Session Summary (Domain Scoped Admin APIs)
 - What was done: Added optional `domain_id` filters to existing AdminConsole and Corpus Admin list endpoints, persisted `domain_id` into synthetic generation batches, quality-gating batches, and RAG test runs, and wrote the selected domain into generated experiment configs.
 - Key decisions: Kept the retrofit additive and backward compatible; unscoped legacy calls still work, while domain workspace calls are filtered by domain-owned rows and method policy.

@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-05-20] Session Summary (Domain Scoped Pipeline Calls)
+- What was done: Updated `/admin/domains/:domainKey/pipeline` calls so dashboard, run history, source creation, URL auto-registration, and pipeline execution include the selected `domainId`.
+- Key decisions: Legacy global `/admin/pipeline` remains unscoped by sending `domainId: null`, while domain workspace payloads now stay inside the selected technical-document domain.
+- Issues encountered: Targeted `npm exec eslint -- src/pages/PipelinePage.jsx` passed with the existing hook-dependency warning. `npm run build` passed and refreshed backend-served React assets.
+- Next steps: Add attach/detach controls for existing corpus sources on the domain home/workspace UI.
+
 ## [2026-05-20] Session Summary (Domain Scoped Workspace Calls)
 - What was done: Passed the selected domain summary `domainId` from the Admin shell into Pipeline, Synthetic, Gating, and RAG pages. Domain workspace pages now attach `domain_id` to scoped list APIs and include `domainId` in Synthetic/Gating/RAG run payloads.
 - Key decisions: Domain pages wait for the domain summary before mounting operation pages, avoiding an initial unscoped fetch in the workspace route. Legacy global routes remain unscoped.

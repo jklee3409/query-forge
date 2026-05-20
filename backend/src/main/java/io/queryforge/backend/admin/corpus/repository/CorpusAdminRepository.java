@@ -144,11 +144,13 @@ public class CorpusAdminRepository {
             UUID runId,
             String runStatus,
             String runType,
+            UUID domainId,
             Integer limit,
             Integer offset
     ) {
         StringBuilder sql = new StringBuilder("""
                 SELECT run_id,
+                       domain_id,
                        run_type,
                        run_status,
                        trigger_type,
@@ -179,6 +181,10 @@ public class CorpusAdminRepository {
             sql.append(" AND run_type = :runType");
             params.addValue("runType", runType);
         }
+        if (domainId != null) {
+            sql.append(" AND domain_id = :domainId");
+            params.addValue("domainId", domainId);
+        }
         sql.append(" ORDER BY created_at DESC LIMIT :limit OFFSET :offset");
         params.addValue("limit", normalizeLimit(limit));
         params.addValue("offset", normalizeOffset(offset));
@@ -188,6 +194,7 @@ public class CorpusAdminRepository {
     public CorpusAdminDtos.RunSummary findRun(UUID runId) {
         String sql = """
                 SELECT run_id,
+                       domain_id,
                        run_type,
                        run_status,
                        trigger_type,
@@ -1403,6 +1410,7 @@ public class CorpusAdminRepository {
     private RowMapper<CorpusAdminDtos.RunSummary> runRowMapper() {
         return (rs, rowNum) -> new CorpusAdminDtos.RunSummary(
                 readUuid(rs, "run_id"),
+                readUuid(rs, "domain_id"),
                 rs.getString("run_type"),
                 rs.getString("run_status"),
                 rs.getString("trigger_type"),

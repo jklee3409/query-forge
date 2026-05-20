@@ -49,6 +49,7 @@ public class PipelineAdminRepository {
     public void createRun(
             UUID runId,
             String runType,
+            UUID domainId,
             String triggerType,
             Map<String, Object> sourceScope,
             Map<String, Object> configSnapshot,
@@ -58,6 +59,7 @@ public class PipelineAdminRepository {
                 """
                 INSERT INTO corpus_runs (
                     run_id,
+                    domain_id,
                     run_type,
                     run_status,
                     trigger_type,
@@ -74,6 +76,7 @@ public class PipelineAdminRepository {
                     updated_at
                 ) VALUES (
                     :runId,
+                    :domainId,
                     :runType,
                     'queued',
                     :triggerType,
@@ -92,6 +95,7 @@ public class PipelineAdminRepository {
                 """,
                 params(
                         "runId", runId,
+                        "domainId", domainId,
                         "runType", runType,
                         "triggerType", triggerType,
                         "sourceScope", writeJson(sourceScope),
@@ -160,6 +164,116 @@ public class PipelineAdminRepository {
                         "inputArtifactPath", inputArtifactPath,
                         "outputArtifactPath", outputArtifactPath
                 )
+        );
+    }
+
+    @Transactional
+    public void propagateImportedRunDomain(UUID runId, UUID domainId) {
+        Map<String, Object> parameters = params("runId", runId, "domainId", domainId);
+        executeUpdate(
+                """
+                UPDATE corpus_runs
+                SET domain_id = :domainId,
+                    updated_at = NOW()
+                WHERE run_id = :runId
+                """,
+                parameters
+        );
+        executeUpdate(
+                """
+                UPDATE corpus_documents
+                SET domain_id = :domainId,
+                    updated_at = NOW()
+                WHERE import_run_id = :runId
+                """,
+                parameters
+        );
+        executeUpdate(
+                """
+                UPDATE corpus_sections s
+                SET domain_id = :domainId,
+                    updated_at = NOW()
+                WHERE import_run_id = :runId
+                   OR EXISTS (
+                       SELECT 1
+                       FROM corpus_documents d
+                       WHERE d.document_id = s.document_id
+                         AND d.import_run_id = :runId
+                   )
+                """,
+                parameters
+        );
+        executeUpdate(
+                """
+                UPDATE corpus_chunks c
+                SET domain_id = :domainId,
+                    updated_at = NOW()
+                WHERE import_run_id = :runId
+                   OR EXISTS (
+                       SELECT 1
+                       FROM corpus_documents d
+                       WHERE d.document_id = c.document_id
+                         AND d.import_run_id = :runId
+                   )
+                """,
+                parameters
+        );
+        executeUpdate(
+                """
+                UPDATE corpus_chunk_relations r
+                SET domain_id = :domainId
+                WHERE import_run_id = :runId
+                   OR EXISTS (
+                       SELECT 1
+                       FROM corpus_chunks c
+                       WHERE c.chunk_id IN (r.source_chunk_id, r.target_chunk_id)
+                         AND c.import_run_id = :runId
+                   )
+                """,
+                parameters
+        );
+        executeUpdate(
+                """
+                UPDATE corpus_glossary_terms t
+                SET domain_id = :domainId,
+                    updated_at = NOW()
+                WHERE import_run_id = :runId
+                   OR EXISTS (
+                       SELECT 1
+                       FROM corpus_chunks c
+                       WHERE c.chunk_id = t.first_seen_chunk_id
+                         AND c.import_run_id = :runId
+                   )
+                """,
+                parameters
+        );
+        executeUpdate(
+                """
+                UPDATE corpus_glossary_aliases a
+                SET domain_id = :domainId
+                WHERE import_run_id = :runId
+                   OR EXISTS (
+                       SELECT 1
+                       FROM corpus_glossary_terms t
+                       WHERE t.term_id = a.term_id
+                         AND t.domain_id = :domainId
+                   )
+                """,
+                parameters
+        );
+        executeUpdate(
+                """
+                UPDATE corpus_glossary_evidence e
+                SET domain_id = :domainId
+                WHERE import_run_id = :runId
+                   OR EXISTS (
+                       SELECT 1
+                       FROM corpus_chunks c
+                       WHERE c.chunk_id = e.chunk_id
+                         AND c.import_run_id = :runId
+                   )
+                """,
+                parameters
         );
     }
 
@@ -397,79 +511,39 @@ public class PipelineAdminRepository {
         );
     }
 
-    public PipelineAdminDtos.DashboardStats fetchDashboardStats() {
-        long sourceCount = queryForLong("SELECT COUNT(*) FROM corpus_sources");
-        long activeDocumentCount = queryForLong("SELECT COUNT(*) FROM corpus_documents WHERE is_active = TRUE");
+    public PipelineAdminDtos.DashboardStats fetchDashboardStats(UUID domainId) {
+        long sourceCount = queryForLong(
+                "SELECT COUNT(*) FROM corpus_sources" + domainWhere(domainId, "corpus_sources"),
+                domainId
+        );
+        long activeDocumentCount = queryForLong(
+                "SELECT COUNT(*) FROM corpus_documents WHERE is_active = TRUE" + domainAnd(domainId, "corpus_documents"),
+                domainId
+        );
         long activeChunkCount = queryForLong(
                 """
                 SELECT COUNT(*)
                 FROM corpus_chunks c
                 JOIN corpus_documents d ON d.document_id = c.document_id
                 WHERE d.is_active = TRUE
-                """
+                """ + domainAnd(domainId, "d"),
+                domainId
         );
-        long glossaryTermCount = queryForLong("SELECT COUNT(*) FROM corpus_glossary_terms WHERE is_active = TRUE");
-        long duplicateUrlSkippedCount = queryForLong(
-                """
-                SELECT COALESCE(
-                    SUM(
-                        COALESCE(
-                            NULLIF(metrics_json ->> 'duplicate_url_skipped', '')::BIGINT,
-                            NULLIF(metrics_json -> 'dedupe_summary' ->> 'duplicate_url_skipped', '')::BIGINT,
-                            0
-                        )
-                    ),
-                    0
-                )
-                FROM corpus_run_steps rs
-                JOIN corpus_runs r ON r.run_id = rs.run_id
-                WHERE rs.step_name = 'import_docs'
-                  AND r.created_at >= NOW() - INTERVAL '30 days'
-                """
+        long glossaryTermCount = queryForLong(
+                "SELECT COUNT(*) FROM corpus_glossary_terms WHERE is_active = TRUE" + domainAnd(domainId, "corpus_glossary_terms"),
+                domainId
         );
-        long sameHashSkippedCount = queryForLong(
-                """
-                SELECT COALESCE(
-                    SUM(
-                        COALESCE(
-                            NULLIF(metrics_json ->> 'same_title_hash_skipped', '')::BIGINT,
-                            NULLIF(metrics_json -> 'dedupe_summary' ->> 'same_title_hash_skipped', '')::BIGINT,
-                            0
-                        )
-                    ),
-                    0
-                )
-                FROM corpus_run_steps rs
-                JOIN corpus_runs r ON r.run_id = rs.run_id
-                WHERE rs.step_name = 'import_docs'
-                  AND r.created_at >= NOW() - INTERVAL '30 days'
-                """
-        );
-        long unchangedSkippedCount = queryForLong(
-                """
-                SELECT COALESCE(
-                    SUM(
-                        COALESCE(
-                            NULLIF(metrics_json ->> 'unchanged_content_skipped', '')::BIGINT,
-                            NULLIF(metrics_json -> 'dedupe_summary' ->> 'unchanged_content_skipped', '')::BIGINT,
-                            0
-                        )
-                    ),
-                    0
-                )
-                FROM corpus_run_steps rs
-                JOIN corpus_runs r ON r.run_id = rs.run_id
-                WHERE rs.step_name = 'import_docs'
-                  AND r.created_at >= NOW() - INTERVAL '30 days'
-                """
-        );
+        long duplicateUrlSkippedCount = queryForLong(importMetricSql("duplicate_url_skipped", domainId), domainId);
+        long sameHashSkippedCount = queryForLong(importMetricSql("same_title_hash_skipped", domainId), domainId);
+        long unchangedSkippedCount = queryForLong(importMetricSql("unchanged_content_skipped", domainId), domainId);
         long recentRunSuccessCount = queryForLong(
                 """
                 SELECT COUNT(*)
                 FROM corpus_runs
                 WHERE created_at >= NOW() - INTERVAL '7 days'
                   AND run_status = 'success'
-                """
+                """ + domainAnd(domainId, "corpus_runs"),
+                domainId
         );
         long recentRunFailureCount = queryForLong(
                 """
@@ -477,17 +551,20 @@ public class PipelineAdminRepository {
                 FROM corpus_runs
                 WHERE created_at >= NOW() - INTERVAL '7 days'
                   AND run_status = 'failed'
-                """
+                """ + domainAnd(domainId, "corpus_runs"),
+                domainId
         );
 
         List<Object[]> productRows = queryRows(
                 """
                 SELECT product_name, COUNT(*) AS document_count
-                FROM corpus_documents
+                FROM corpus_documents d
                 WHERE is_active = TRUE
+                """ + domainAnd(domainId, "d") + """
                 GROUP BY product_name
                 ORDER BY COUNT(*) DESC, product_name
-                """
+                """,
+                domainId
         );
         List<PipelineAdminDtos.ProductDocumentStat> productStats = productRows.stream()
                 .map(row -> new PipelineAdminDtos.ProductDocumentStat(
@@ -500,9 +577,11 @@ public class PipelineAdminRepository {
                 """
                 SELECT run_id, run_type, run_status, started_at, finished_at, created_by
                 FROM corpus_runs
+                """ + domainWhere(domainId, "corpus_runs") + """
                 ORDER BY created_at DESC
                 LIMIT 10
-                """
+                """,
+                domainId
         );
         List<PipelineAdminDtos.RecentRunStat> recentRuns = recentRunRows.stream()
                 .map(row -> new PipelineAdminDtos.RecentRunStat(
@@ -521,9 +600,11 @@ public class PipelineAdminRepository {
                 FROM corpus_run_steps rs
                 JOIN corpus_runs r ON r.run_id = rs.run_id
                 WHERE rs.step_status IN ('failed', 'warning')
+                """ + domainAnd(domainId, "r") + """
                 ORDER BY COALESCE(rs.finished_at, r.updated_at) DESC
                 LIMIT 10
-                """
+                """,
+                domainId
         );
         List<PipelineAdminDtos.FailedStepStat> failedSteps = failedStepRows.stream()
                 .map(row -> new PipelineAdminDtos.FailedStepStat(
@@ -565,14 +646,58 @@ public class PipelineAdminRepository {
         return parameters;
     }
 
+    private String importMetricSql(String metricKey, UUID domainId) {
+        return """
+                SELECT COALESCE(
+                    SUM(
+                        COALESCE(
+                            NULLIF(metrics_json ->> '%1$s', '')::BIGINT,
+                            NULLIF(metrics_json -> 'dedupe_summary' ->> '%1$s', '')::BIGINT,
+                            0
+                        )
+                    ),
+                    0
+                )
+                FROM corpus_run_steps rs
+                JOIN corpus_runs r ON r.run_id = rs.run_id
+                WHERE rs.step_name = 'import_docs'
+                  AND r.created_at >= NOW() - INTERVAL '30 days'
+                """.formatted(metricKey) + domainAnd(domainId, "r");
+    }
+
+    private String domainWhere(UUID domainId, String alias) {
+        return domainId == null ? "" : " WHERE " + alias + ".domain_id = :domainId ";
+    }
+
+    private String domainAnd(UUID domainId, String alias) {
+        return domainId == null ? "" : " AND " + alias + ".domain_id = :domainId ";
+    }
+
     private long queryForLong(String sql) {
         Object value = entityManager.createNativeQuery(sql).getSingleResult();
         return longValue(value);
     }
 
+    private long queryForLong(String sql, UUID domainId) {
+        Query query = entityManager.createNativeQuery(sql);
+        if (domainId != null) {
+            query.setParameter("domainId", domainId);
+        }
+        return longValue(query.getSingleResult());
+    }
+
     @SuppressWarnings("unchecked")
     private List<Object[]> queryRows(String sql) {
         return entityManager.createNativeQuery(sql).getResultList();
+    }
+
+    @SuppressWarnings("unchecked")
+    private List<Object[]> queryRows(String sql, UUID domainId) {
+        Query query = entityManager.createNativeQuery(sql);
+        if (domainId != null) {
+            query.setParameter("domainId", domainId);
+        }
+        return query.getResultList();
     }
 
     private String writeJson(Object value) {

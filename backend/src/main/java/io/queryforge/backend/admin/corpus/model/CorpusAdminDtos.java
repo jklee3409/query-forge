@@ -32,6 +32,7 @@ public final class CorpusAdminDtos {
 
     public record RunSummary(
             UUID runId,
+            UUID domainId,
             String runType,
             String runStatus,
             String triggerType,
@@ -528,7 +529,8 @@ public final class CorpusAdminDtos {
             List<String> denyUrlPatterns,
             Boolean enabled,
             Double requestDelaySeconds,
-            Integer maxDepth
+            Integer maxDepth,
+            UUID domainId
     ) {
     }
 
@@ -539,7 +541,8 @@ public final class CorpusAdminDtos {
             String productName,
             Boolean enabled,
             Double requestDelaySeconds,
-            Integer maxDepth
+            Integer maxDepth,
+            UUID domainId
     ) {
     }
 

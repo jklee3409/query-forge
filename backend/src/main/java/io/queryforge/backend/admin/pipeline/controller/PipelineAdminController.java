@@ -23,8 +23,10 @@ public class PipelineAdminController {
     private final PipelineAdminService service;
 
     @GetMapping("/dashboard")
-    public PipelineAdminDtos.DashboardStats dashboard() {
-        return service.getDashboardStats();
+    public PipelineAdminDtos.DashboardStats dashboard(
+            @RequestParam(name = "domain_id", required = false) UUID domainId
+    ) {
+        return service.getDashboardStats(domainId);
     }
 
     @PostMapping("/collect")
@@ -84,10 +86,11 @@ public class PipelineAdminController {
             @RequestParam(name = "run_id", required = false) UUID runId,
             @RequestParam(name = "run_status", required = false) String runStatus,
             @RequestParam(name = "run_type", required = false) String runType,
+            @RequestParam(name = "domain_id", required = false) UUID domainId,
             @RequestParam(name = "limit", required = false) Integer limit,
             @RequestParam(name = "offset", required = false) Integer offset
     ) {
-        return service.listRuns(runId, runStatus, runType, limit, offset);
+        return service.listRuns(runId, runStatus, runType, domainId, limit, offset);
     }
 
     @GetMapping("/runs/{runId}")
@@ -110,6 +113,7 @@ public class PipelineAdminController {
             return request;
         }
         return new PipelineAdminDtos.PipelineRunRequest(
+                null,
                 List.of(),
                 List.of(),
                 false,

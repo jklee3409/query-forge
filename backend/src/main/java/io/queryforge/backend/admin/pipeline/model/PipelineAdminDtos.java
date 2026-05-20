@@ -14,6 +14,7 @@ public final class PipelineAdminDtos {
 
     @Builder
     public record PipelineRunRequest(
+            UUID domainId,
             List<String> sourceIds,
             List<String> documentIds,
             Boolean dryRun,

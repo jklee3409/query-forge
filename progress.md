@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-05-20] Session Summary (Domain Scoped Pipeline Execution)
+- What was done: Carried selected `domainId` through Pipeline source creation, URL auto-registration, pipeline run requests, run history, and dashboard queries. Backend pipeline runs now persist `corpus_runs.domain_id`, validate selected sources against the domain, and propagate the domain to imported corpus rows after import.
+- Key decisions: Kept global pipeline APIs backward compatible by making `domain_id` optional; domain workspaces now avoid accidentally collecting/importing all global sources when a domain has an empty source set.
+- Issues encountered: Backend `compileJava`, targeted frontend ESLint, and frontend `npm run build` passed; ESLint still reports the existing `PipelinePage.jsx` hook dependency warning.
+- Next steps: Add a direct domain source membership editor for attaching/detaching existing corpus sources without opening the pipeline source form.
+
 ## [2026-05-20] Session Summary (Domain Scoped Admin Flow Wiring)
 - What was done: Wired selected technical-document `domain_id` through Admin list/run paths for corpus sources/documents, synthetic generation/history/query stats, quality-gating history/execution, and RAG dataset/run execution. Frontend domain workspaces now wait for the selected domain summary before loading scoped operation pages.
 - Key decisions: Kept global legacy `/admin/*` pages compatible by making `domain_id` optional, while domain workspace routes attach it to API queries and runtime request payloads.

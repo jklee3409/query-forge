@@ -4,6 +4,8 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.queryforge.backend.admin.corpus.model.CorpusAdminDtos;
 import io.queryforge.backend.admin.corpus.repository.CorpusAdminRepository;
+import io.queryforge.backend.admin.domain.model.DomainAdminDtos;
+import io.queryforge.backend.admin.domain.service.DomainAdminService;
 import io.queryforge.backend.admin.pipeline.service.SourceCatalogService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -25,6 +27,7 @@ public class CorpusAdminService {
     private final ObjectMapper objectMapper;
     private final SourceCatalogService sourceCatalogService;
     private final AnchorExtractionService anchorExtractionService;
+    private final DomainAdminService domainAdminService;
 
     @Transactional
     public List<CorpusAdminDtos.SourceSummary> listSources() {
@@ -41,10 +44,11 @@ public class CorpusAdminService {
             UUID runId,
             String runStatus,
             String runType,
+            UUID domainId,
             Integer limit,
             Integer offset
     ) {
-        return repository.findRuns(runId, runStatus, runType, limit, offset);
+        return repository.findRuns(runId, runStatus, runType, domainId, limit, offset);
     }
 
     public CorpusAdminDtos.RunDetail getRunDetail(UUID runId) {
@@ -338,6 +342,7 @@ public class CorpusAdminService {
                 requestDelaySeconds,
                 maxDepth
         );
+        attachSourceToDomainIfRequested(request.domainId(), sourceId);
         return repository.findSourceById(sourceId);
     }
 
@@ -450,7 +455,18 @@ public class CorpusAdminService {
                 request.requestDelaySeconds() == null ? 0.75 : Math.max(0.0, Math.min(15.0, request.requestDelaySeconds())),
                 request.maxDepth() == null ? 4 : Math.max(1, Math.min(20, request.maxDepth()))
         );
+        attachSourceToDomainIfRequested(request.domainId(), sourceId);
         return repository.findSourceById(sourceId);
+    }
+
+    private void attachSourceToDomainIfRequested(UUID domainId, String sourceId) {
+        if (domainId == null) {
+            return;
+        }
+        domainAdminService.attachSource(
+                domainId.toString(),
+                new DomainAdminDtos.DomainSourceAttachRequest(sourceId, "primary", true)
+        );
     }
 
     private String inferSourceId(URI uri) {
