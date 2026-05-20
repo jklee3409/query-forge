@@ -477,6 +477,37 @@ public class PipelineAdminRepository {
     }
 
     @Transactional
+    public void assignConfiguredSourceDomain(String sourceId, String domainKey) {
+        Map<String, Object> parameters = params("sourceId", sourceId, "domainKey", domainKey);
+        executeUpdate(
+                """
+                UPDATE corpus_sources cs
+                SET domain_id = d.domain_id,
+                    updated_at = NOW()
+                FROM tech_doc_domain d
+                WHERE cs.source_id = :sourceId
+                  AND d.domain_key = :domainKey
+                  AND cs.domain_id IS DISTINCT FROM d.domain_id
+                """,
+                parameters
+        );
+        executeUpdate(
+                """
+                INSERT INTO tech_doc_domain_source (domain_id, source_id, source_role, active)
+                SELECT d.domain_id, cs.source_id, 'primary', TRUE
+                FROM tech_doc_domain d
+                JOIN corpus_sources cs ON cs.source_id = :sourceId
+                WHERE d.domain_key = :domainKey
+                ON CONFLICT (source_id) DO UPDATE
+                SET domain_id = EXCLUDED.domain_id,
+                    source_role = EXCLUDED.source_role,
+                    active = EXCLUDED.active
+                """,
+                parameters
+        );
+    }
+
+    @Transactional
     public void markStaleRunsFailed() {
         executeUpdate(
                 """

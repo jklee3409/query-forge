@@ -534,3 +534,11 @@ High-level backend progress tracking.
 ## Notes
 - Keep this file concise.
 - Record only major backend changes.
+
+---
+
+## [2026-05-20] Session Summary (Domain Backfill Verification)
+- What was done: Added `V36` domain repair migration and made source config sync attach canonical Spring/Python source IDs to their domains after `corpus_sources` upsert.
+- Key decisions: Domain repair uses explicit canonical aliases plus expected document/chunk domain evidence for eval samples, then propagates to datasets, RAG runs, LLM jobs, and anchor artifacts.
+- Issues encountered: `V35` handled product aliases but not all reference-style `source_product` values used by existing eval data.
+- Next steps: Run Flyway on the runtime DB and spot-check that Spring/Python domain workspaces show the expected source and eval/RAG histories.

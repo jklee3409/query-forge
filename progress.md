@@ -1010,3 +1010,11 @@ High-level progress tracking for the project.
 ## Notes
 - Keep this file concise
 - Only record important changes
+
+---
+
+## [2026-05-20] Session Summary (Domain Backfill Verification)
+- What was done: Reviewed Spring/Python domain seeding and found a backfill gap where eval samples using `*-reference` source IDs could remain unmapped. Added `V36` to repair canonical source, eval dataset, RAG run, LLM job, and anchor-domain propagation.
+- Key decisions: Kept `arahansa-github-io-docs-spring` outside the Spring domain and treated the five Spring reference sources plus `docs-python-org-ko-3-14` as the canonical domain source set.
+- Issues encountered: Fresh DBs can sync source YAML after Flyway, so backend source config sync now assigns canonical source IDs to Spring/Python domains after upsert.
+- Next steps: Apply Flyway in the runtime DB and verify unmapped domain counts for the canonical source/eval/RAG tables.

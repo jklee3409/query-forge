@@ -21,6 +21,15 @@ import java.util.Map;
 @RequiredArgsConstructor
 public class SourceCatalogService {
 
+    private static final Map<String, String> DEFAULT_DOMAIN_BY_SOURCE_ID = Map.ofEntries(
+            Map.entry("spring-boot-reference", "spring"),
+            Map.entry("spring-data-commons-reference", "spring"),
+            Map.entry("spring-data-jpa-reference", "spring"),
+            Map.entry("spring-framework-reference", "spring"),
+            Map.entry("spring-security-reference", "spring"),
+            Map.entry("docs-python-org-ko-3-14", "python")
+    );
+
     private final AdminPipelineProperties properties;
     private final PipelineAdminRepository repository;
     private volatile Path repoRoot;
@@ -166,6 +175,10 @@ public class SourceCatalogService {
                 null,
                 enabled
         );
+        String defaultDomainKey = DEFAULT_DOMAIN_BY_SOURCE_ID.get(sourceId);
+        if (defaultDomainKey != null) {
+            repository.assignConfiguredSourceDomain(sourceId, defaultDomainKey);
+        }
     }
 
     private List<String> toStringList(Object value) {
