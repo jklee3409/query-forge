@@ -3,6 +3,12 @@
 ## Overview
 High-level progress tracking for the project.
 
+## [2026-05-20] Session Summary (Rewrite Prompt Memory Context Clarification)
+- What was done: Updated Korean/code-mixed and English selective rewrite prompts to describe `top_memory_candidates` as synthetic query examples / compatible retrieval-anchor context only.
+- Key decisions: Added explicit wording that memory queries must not be copied wholesale or used directly as retrieval queries; only compatible anchors/concepts may be borrowed for final rewritten query candidates.
+- Issues encountered: Prompt changes were validated by static inspection only; no live LLM prompt execution was performed.
+- Next steps: Inspect later rewrite traces for copied-memory-query regressions and anchor compatibility.
+
 ## [2026-05-20] Session Summary (Selective Rewrite v3 Retrieval Anchors)
 - What was done: Updated `prompts/rewrite/selective_rewrite_v2.md` to metadata version `v3`, reframing Korean/code-mixed rewrite as an English technical-document search query rather than a natural Korean sentence.
 - Key decisions: Preserved the existing JSON schema and labels while redefining candidate roles as conservative standalone, anchor-expanded, and compact retrieval-phrase strategies.

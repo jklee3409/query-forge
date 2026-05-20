@@ -268,6 +268,8 @@ def _merge_retrieval_results(
     guided_retrieval: list[RetrievalCandidate],
     top_k: int,
 ) -> list[RetrievalCandidate]:
+    # Legacy/ablation-only merge used by explicit memory_only_* modes. The
+    # default rewrite modes never merge raw, memory, or rewritten retrievals.
     normalized = str(strategy or "max_score").strip().lower()
     if normalized == "replace":
         return guided_retrieval[:top_k]
@@ -291,6 +293,21 @@ def _merge_retrieval_results(
             by_chunk[chunk_id] = row
     ranked = sorted(by_chunk.values(), key=lambda item: item.score, reverse=True)
     return ranked[:top_k]
+
+
+def _first_expected_rank(
+    *,
+    sample: EvalSample,
+    retrieval: list[RetrievalCandidate],
+) -> int | None:
+    expected_chunks = {str(chunk_id) for chunk_id in sample.expected_chunk_ids if str(chunk_id).strip()}
+    expected_docs = {str(doc_id) for doc_id in sample.expected_doc_ids if str(doc_id).strip()}
+    for rank, item in enumerate(retrieval, start=1):
+        if expected_chunks and item.chunk_id in expected_chunks:
+            return rank
+        if not expected_chunks and expected_docs and item.document_id in expected_docs:
+            return rank
+    return None
 
 
 def _evaluate_mode(
@@ -322,6 +339,9 @@ def _evaluate_mode(
             "rewrite_reason": "raw_only",
             "memory_top_n": [],
             "candidates": [],
+            "selected_rewrite": None,
+            "memory_hint_query": None,
+            "memory_hint_retrieval_applied": False,
             "rewrite_llm_attempted": False,
             "rewrite_llm_succeeded": False,
             "rewrite_heuristic_fallback_used": False,
@@ -336,6 +356,8 @@ def _evaluate_mode(
         return metrics, rewrite_info, retrieval
 
     if mode in {"memory_only_ungated", "memory_only_rule_only", "memory_only_full_gating", "memory_only_gated"}:
+        # Legacy/ablation path for measuring memory-guided retrieval separately.
+        # It is intentionally isolated from rewrite_always/selective_rewrite.
         preset_by_mode = {
             "memory_only_ungated": "ungated",
             "memory_only_rule_only": "rule_only",
@@ -452,7 +474,6 @@ def _evaluate_mode(
         source_gate_run_id=source_gating_run_id,
         strategy_filters=memory_strategy_filters,
         force_rewrite=force_rewrite,
-        rewrite_retrieval_strategy=str(config.raw.get("rewrite_retrieval_strategy") or "replace"),
         rewrite_anchor_injection_enabled=_is_rewrite_anchor_injection_enabled(config.raw),
         rewrite_terminology_hints_max_count=config.raw.get("rewrite_terminology_hints_max_count", 12),
         multi_source_anchor_expansion_enabled=_is_multi_source_anchor_expansion_enabled(config.raw),
@@ -465,15 +486,6 @@ def _evaluate_mode(
         rewrite_adoption_policy=config.rewrite_adoption_policy,
         retriever_config=config.retriever_config,
         retrieval_adapter=retrieval_adapter,
-        rewrite_memory_hint_retrieval_enabled=str(
-            config.raw.get("rewrite_memory_hint_retrieval_enabled", True)
-        ).strip().lower() in {"1", "true", "yes", "on"},
-        rewrite_memory_hint_token_max=config.raw.get("rewrite_memory_hint_token_max", 3),
-        rewrite_memory_hint_retrieval_strategy=str(
-            config.raw.get("rewrite_memory_hint_retrieval_strategy")
-            or config.raw.get("memory_lookup_retrieval_strategy")
-            or "max_score"
-        ),
     )
     metrics = retrieval_metrics(
         expected_chunk_ids=sample.expected_chunk_ids,
@@ -490,6 +502,7 @@ def _evaluate_mode(
             "rewrite_reason": rewrite_outcome.rewrite_reason,
             "memory_top_n": rewrite_outcome.memory_top_n,
             "candidates": rewrite_outcome.candidates,
+            "selected_rewrite": rewrite_outcome.selected_rewrite,
             "rewrite_llm_attempted": rewrite_outcome.rewrite_llm_attempted,
             "rewrite_llm_succeeded": rewrite_outcome.rewrite_llm_succeeded,
             "rewrite_heuristic_fallback_used": rewrite_outcome.rewrite_heuristic_fallback_used,
@@ -761,6 +774,11 @@ def run_retrieval_eval(
             for row in evaluated
             if row["mode"] == "raw_only"
         }
+        raw_retrieval_by_sample = {
+            row["sample"].sample_id: row["retrieval"]
+            for row in evaluated
+            if row["mode"] == "raw_only"
+        }
 
         for row in evaluated:
             sample = row["sample"]
@@ -768,6 +786,12 @@ def run_retrieval_eval(
             metrics = row["metrics"]
             rewrite_info = row["rewrite_info"]
             retrieval = row["retrieval"]
+            raw_metrics = raw_metrics_by_sample.get(sample.sample_id, {})
+            raw_rank = _first_expected_rank(
+                sample=sample,
+                retrieval=raw_retrieval_by_sample.get(sample.sample_id, []),
+            )
+            final_rank = _first_expected_rank(sample=sample, retrieval=retrieval)
             rewrite_generation_stats = rewrite_generation_stats_by_mode[mode]
             rewrite_generation_stats["rewrite_llm_attempted_count"] += (
                 1 if rewrite_info.get("rewrite_llm_attempted") else 0
@@ -812,6 +836,19 @@ def run_retrieval_eval(
                     "confidence_delta": rewrite_info["best_candidate_confidence"] - rewrite_info["raw_confidence"],
                     "final_query": rewrite_info["final_query"],
                     "rewrite_reason": rewrite_info["rewrite_reason"],
+                    "selected_rewrite": rewrite_info.get("selected_rewrite"),
+                    "raw_rank": raw_rank,
+                    "final_rank": final_rank,
+                    "raw_retrieval_rank": raw_rank,
+                    "final_retrieval_rank": final_rank,
+                    "raw_metrics": raw_metrics,
+                    "final_metrics": metrics,
+                    "rewrite_metrics": (
+                        metrics
+                        if mode in {"rewrite_always", "selective_rewrite", "selective_rewrite_with_session"}
+                        and bool(rewrite_info["rewrite_applied"])
+                        else None
+                    ),
                     "memory_hint_query": rewrite_info.get("memory_hint_query"),
                     "memory_hint_retrieval_applied": bool(
                         rewrite_info.get("memory_hint_retrieval_applied")
@@ -821,11 +858,12 @@ def run_retrieval_eval(
                     "rewrite_heuristic_fallback_used": bool(rewrite_info.get("rewrite_heuristic_fallback_used")),
                     "final_rewrite_latency_ms": rewrite_info.get("final_rewrite_latency_ms"),
                     "pure_rewrite_latency_ms": rewrite_info.get("pure_rewrite_latency_ms"),
-                    "raw_mrr": raw_metrics_by_sample.get(sample.sample_id, {}).get("mrr@10", 0.0),
+                    "raw_mrr": raw_metrics.get("mrr@10", 0.0),
                     "mode_mrr": metrics["mrr@10"],
-                    "raw_ndcg": raw_metrics_by_sample.get(sample.sample_id, {}).get("ndcg@10", 0.0),
+                    "raw_ndcg": raw_metrics.get("ndcg@10", 0.0),
                     "mode_ndcg": metrics["ndcg@10"],
                     "memory_top_n": rewrite_info.get("memory_top_n", []),
+                    "top_memory_candidates": rewrite_info.get("memory_top_n", []),
                     "rewrite_candidates": rewrite_info.get("candidates", []),
                     "multi_source_anchor_hints": rewrite_info.get("multi_source_anchor_hints"),
                     "retrieved_top_k": [

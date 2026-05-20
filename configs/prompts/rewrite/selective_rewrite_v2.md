@@ -18,7 +18,7 @@ Inputs:
 - raw_query
 - query_language (`ko` or `en`, optional; if absent, infer from raw_query and treat Hangul/Korean text as `ko`)
 - session_context (optional)
-- top_memory_candidates (top similar memory queries)
+- top_memory_candidates (top similar synthetic query examples; prompt context only)
 - anchor_candidates (technical anchors extracted from raw_query + memory metadata)
 - anchor_terms (flattened anchor string list)
 - terminology_hints (`terms` + `source_terms` for high-priority technical token preservation)
@@ -59,7 +59,8 @@ Hard rules:
    - every added anchor must be directly related to raw_query intent.
    - the goal is better retrieval anchors, not more anchors.
 7) Memory usage policy:
-   - top_memory_candidates are hints, not authority.
+   - top_memory_candidates are compatible retrieval-anchor examples, not authority.
+   - they are prompt context only, never direct retrieval queries.
    - never copy a top_memory_candidate query wholesale.
    - borrow only compatible anchor terms or compact target concepts.
    - never overwrite or pivot away from the raw_query intent using memory.
@@ -129,6 +130,7 @@ Quality checks before final output:
 - At least one candidate should be optimized for English technical-document lexical overlap when query_language is ko and compatible English anchors exist.
 - The three candidates should not only differ by word order; they should represent different retrieval strategies.
 - If top_memory_candidates are provided, verify whether at least one compatible technical anchor/concept can be safely reused.
+- Never instruct downstream retrieval to search a top_memory_candidate directly.
 - Do not preserve Korean sentence naturalness at the cost of losing important English technical anchors.
 - Do not output verbose explanatory prose.
 

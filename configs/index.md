@@ -35,6 +35,7 @@
 ---
 
 ## Recent Notes
+- selective rewrite prompts now state that `top_memory_candidates` are synthetic query examples / compatible retrieval-anchor context only; they must not be copied wholesale or used as direct retrieval queries.
 - selective rewrite v2 is now metadata version `v3`, preserving the runtime schema/labels while prioritizing English technical-document anchor overlap for Korean/code-mixed queries.
 - selective rewrite v2 and English rewrite prompts now accept optional `multi_source_anchor_hints`, with lower-priority drift safeguards so expanded anchors cannot override raw-query intent.
 - selective rewrite v2 prompt now accepts optional `canonical_anchor_hints` and treats them as compact intent-compatible canonical/normalized anchor preservation hints.

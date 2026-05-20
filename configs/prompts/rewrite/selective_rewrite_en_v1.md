@@ -17,7 +17,7 @@ Inputs:
 - raw_query
 - query_language (`en`)
 - session_context (optional)
-- top_memory_candidates (top similar English synthetic memory queries)
+- top_memory_candidates (top similar English synthetic query examples; prompt context only)
 - anchor_candidates (technical anchors extracted from raw_query + memory metadata)
 - anchor_terms (flattened anchor string list)
 - terminology_hints (`terms` + `source_terms` for high-priority technical token preservation)
@@ -40,10 +40,11 @@ Hard rules:
 3) Keep every exact technical anchor from raw_query verbatim:
    - annotations, class/interface/method names, property keys, config paths, artifact/module names, CLI commands, version strings, and error codes.
    - preserve spelling, case, punctuation, and symbol prefixes exactly.
-4) Use top_memory_candidates only as retrieval hints:
+4) Use top_memory_candidates only as compatible retrieval-anchor examples:
    - borrow only intent-compatible anchors or compact target concepts.
    - never copy a memory query wholesale.
    - ignore memory when it conflicts with raw_query.
+   - never use a memory query itself as the retrieval query.
 5) If terminology_hints or canonical_anchor_hints are intent-compatible, preserve the relevant technical term verbatim.
    Use multi_source_anchor_hints only as optional low-priority related-anchor hints.
 6) Never add unsupported products, versions, modules, APIs, failure symptoms, or configuration keys.

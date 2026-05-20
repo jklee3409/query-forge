@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-05-20] Session Summary (Synthetic Memory Prompt-Only Rewrite)
+- What was done: Simplified RAG rewrite evaluation so synthetic memory is used only as LLM prompt examples/context, final retrieval is either raw-query retrieval or selected rewritten-query retrieval, and rewrite adoption requires retrieval-score improvement over the raw baseline.
+- Key decisions: Removed default rewrite memory-hint retrieval/merge paths, stopped Admin rewrite runs from including memory-only mode by default, and hid rewrite retrieval merge strategy controls from the RAG GUI while leaving memory_only modes as explicit legacy/ablation paths.
+- Issues encountered: Validation was limited to targeted Python syntax compilation and diff/static checks; no full build, full test, full pipeline, or eval run was performed.
+- Next steps: Run a small fixed-snapshot retrieval smoke later to inspect adoption rates and selected rewrite diagnostics.
+
 ## [2026-05-20] Session Summary (Selective Rewrite v3 Prompt)
 - What was done: Updated `configs/prompts/rewrite/selective_rewrite_v2.md` to version `v3` with a retrieval-anchor-first policy for Korean queries over English Spring docs, and added a prompt-catalog migration to bind `rag_rewrite.ko` to v3.
 - Key decisions: Preserved the JSON output schema and existing candidate labels for backend/frontend compatibility while making memory/canonical/terminology anchors more active when intent-compatible.

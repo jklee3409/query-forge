@@ -190,21 +190,6 @@ const KPI_METRIC_KEYS = new Set([
   'avg_pure_rewrite_latency_ms',
 ])
 
-const REWRITE_RETRIEVAL_OPTION_META = {
-  replace: {
-    label: 'replace',
-    description: '재작성 결과로 교체',
-  },
-  interleave: {
-    label: 'interleave',
-    description: '원본/재작성 번갈아 결합',
-  },
-  max_score: {
-    label: 'max_score',
-    description: '두 결과에서 점수 우선 결합',
-  },
-}
-
 const METRIC_TREND_LABEL = {
   higher: '높을수록 좋음',
   lower: '낮을수록 좋음',
@@ -1480,7 +1465,6 @@ export function RagPage({ notify, domainId = null }) {
     rewriteEnabled: true,
     selectiveRewrite: true,
     useSessionContext: false,
-    rewriteRetrievalStrategy: 'replace',
     rewriteAnchorInjectionEnabled: true,
     multiSourceAnchorExpansionEnabled: false,
     rewriteFailurePolicy: 'fail_run',
@@ -2031,7 +2015,6 @@ export function RagPage({ notify, domainId = null }) {
           rewriteEnabled,
           selectiveRewrite,
           useSessionContext,
-          rewriteRetrievalStrategy: form.rewriteRetrievalStrategy,
           rewriteAnchorInjectionEnabled,
           multiSourceAnchorExpansionEnabled,
           rewriteFailurePolicy: form.rewriteFailurePolicy || 'fail_run',
@@ -2790,23 +2773,6 @@ export function RagPage({ notify, domainId = null }) {
             <label><input type="checkbox" checked={form.rewriteAnchorInjectionEnabled} disabled={form.syntheticFreeBaseline || !form.rewriteEnabled} onChange={(event) => setForm((prev) => ({ ...prev, rewriteAnchorInjectionEnabled: event.target.checked }))} />앵커 주입</label>
             <label><input type="checkbox" checked={form.multiSourceAnchorExpansionEnabled} disabled={form.syntheticFreeBaseline || !form.rewriteEnabled || !form.rewriteAnchorInjectionEnabled} onChange={(event) => setForm((prev) => ({ ...prev, multiSourceAnchorExpansionEnabled: event.target.checked }))} />multi-source hints</label>
             <label className="rewrite-strategy-field">
-              <span className="rewrite-strategy-field__label">재작성 검색</span>
-              <div className="rewrite-strategy-field__control">
-                <select
-                  value={form.rewriteRetrievalStrategy}
-                  disabled={form.syntheticFreeBaseline || !form.rewriteEnabled}
-                  onChange={(event) => setForm((prev) => ({ ...prev, rewriteRetrievalStrategy: event.target.value }))}
-                >
-                  <option value="replace">replace</option>
-                  <option value="interleave">interleave</option>
-                  <option value="max_score">max_score</option>
-                </select>
-                <span className="rewrite-strategy-field__chip">
-                  {REWRITE_RETRIEVAL_OPTION_META[form.rewriteRetrievalStrategy]?.description || '전략 선택'}
-                </span>
-              </div>
-            </label>
-            <label className="rewrite-strategy-field">
               <span className="rewrite-strategy-field__label">재작성 실패 정책</span>
               <div className="rewrite-strategy-field__control">
                 <select
@@ -2823,8 +2789,13 @@ export function RagPage({ notify, domainId = null }) {
           </div>
 
           <div className="state-note">
-            <strong>옵션 의미:</strong> 게이팅 반영=검색 후보 제한, 재작성 사용=질의 재작성 활성화,
-            선택 적용=개선 가능성이 있을 때만 적용, 세션 문맥=대화 문맥을 재작성 후보에 투입.
+            <strong>현재 RAG rewrite 파이프라인:</strong> Synthetic memory는 LLM 재작성 예시로만 사용됩니다.
+            Synthetic memory 자체로 별도 검색하거나 raw 검색 결과와 병합하지 않습니다.
+            Rewrite 결과가 raw baseline보다 개선될 때만 최종 쿼리로 채택됩니다.
+            최종 평가는 raw query 또는 채택된 rewritten query 중 하나의 retrieval 결과만 기준으로 계산됩니다.
+          </div>
+          <div className="state-note">
+            <strong>평가 단계:</strong> A. Raw Query Retrieval baseline을 먼저 계산합니다. B. raw query로 유사 synthetic query examples를 찾고 LLM prompt에만 넣습니다. C. LLM Query Rewrite가 final rewritten query 후보를 만듭니다. D. Rewrite Adoption은 raw baseline retrieval과 rewrite retrieval을 비교합니다. E. Final Evaluation은 채택된 final query 하나의 Recall@5, Hit@5, MRR@10, nDCG@10만 계산합니다.
           </div>
 
           {selectedSnapshot && !form.syntheticFreeBaseline && (

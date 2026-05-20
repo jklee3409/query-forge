@@ -581,7 +581,6 @@ public class LlmJobService {
             rewriteConfig.put("selective_rewrite", runConfig.path("selective_rewrite").asBoolean(true));
             rewriteConfig.put("use_session_context", runConfig.path("use_session_context").asBoolean(false));
             rewriteConfig.put("rewrite_threshold", runConfig.path("rewrite_threshold").asDouble(0.10));
-            rewriteConfig.put("rewrite_retrieval_strategy", runConfig.path("rewrite_retrieval_strategy").asText("replace"));
             rewriteConfig.put(
                     "rewrite_anchor_injection_enabled",
                     runConfig.path("rewrite_anchor_injection_enabled").asBoolean(false)
@@ -788,6 +787,16 @@ public class LlmJobService {
                 metricContributionPayload.put("best_candidate_confidence", row.path("best_candidate_confidence").asDouble(0.0));
                 metricContributionPayload.put("confidence_delta", row.path("confidence_delta").asDouble(0.0));
                 metricContributionPayload.put("rewrite_reason", row.path("rewrite_reason").asText(""));
+                metricContributionPayload.put("raw_rank", row.hasNonNull("raw_rank") ? row.path("raw_rank").asInt() : null);
+                metricContributionPayload.put("final_rank", row.hasNonNull("final_rank") ? row.path("final_rank").asInt() : null);
+                metricContributionPayload.put("raw_metrics", nullableJson(row.get("raw_metrics")));
+                metricContributionPayload.put("rewrite_metrics", nullableJson(row.get("rewrite_metrics")));
+                metricContributionPayload.put("selected_rewrite", nullableJson(row.get("selected_rewrite")));
+                metricContributionPayload.put("memory_hint_query", nullableText(row.get("memory_hint_query")));
+                metricContributionPayload.put(
+                        "memory_hint_retrieval_applied",
+                        row.path("memory_hint_retrieval_applied").asBoolean(false)
+                );
                 metricContributionPayload.put(
                         "final_rewrite_latency_ms",
                         nullableDouble(row.get("final_rewrite_latency_ms"))

@@ -34,6 +34,7 @@
 ---
 
 ## Recent Update
+- `/admin/rag-tests` now describes the prompt-only synthetic-memory rewrite flow: raw retrieval baseline, synthetic memory lookup for LLM examples only, LLM final query generation, raw-vs-rewrite adoption, and final evaluation from one retrieval result set. The rewrite retrieval merge strategy control and payload field were removed.
 - Domain Atlas now includes a Source Membership panel: registry rows expose a Sources action, selected domains show linked corpus sources, and operators can attach or detach existing sources through the domain Admin API.
 - `/admin/domains/:domainKey/pipeline` now passes the selected `domainId` into dashboard/run history queries, source upsert/URL auto-registration, and pipeline execution payloads so pipeline operations stay scoped to the selected domain.
 - `/admin/domains/:domainKey/*` workspace pages now wait for the selected domain summary and pass `domain_id` into Pipeline, Synthetic, Quality Gate, and RAG list/run calls. Legacy global Admin routes remain unscoped.

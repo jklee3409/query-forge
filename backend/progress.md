@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-05-20] Session Summary (Admin RAG Prompt-Only Rewrite Config)
+- What was done: Updated Admin-generated RAG configs so default rewrite runs no longer include `memory_only_gated`, no longer expose/store rewrite retrieval merge strategy, and set `rewrite_memory_hint_retrieval_enabled=false`.
+- Key decisions: Kept memory_lookup config only as legacy/ablation support for explicit memory_only modes while default rewrite evaluation compares raw retrieval against rewritten-query retrieval directly.
+- Issues encountered: No backend compile/build was run due the requested low-scope validation limit; static diff checks passed.
+- Next steps: Add an API-level smoke later to confirm generated retrieval_modes are `raw_only` plus rewrite modes only.
+
 ## [2026-05-20] Session Summary (Selective Rewrite Prompt v3 Seed)
 - What was done: Added Flyway migration `V37__seed_selective_rewrite_v2_v3_prompt_asset.sql` to register `selective_rewrite_v2` metadata version `v3` and bind `rag_rewrite.ko` to it while retaining v2/v1 fallbacks.
 - Key decisions: Kept the prompt name/id and candidate labels stable for runtime/frontend compatibility; the migration is catalog metadata only and does not change rewrite execution code.

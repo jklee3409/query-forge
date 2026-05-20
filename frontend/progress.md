@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-05-20] Session Summary (RAG Rewrite Settings Simplification)
+- What was done: Simplified `/admin/rag-tests` advanced rewrite settings by removing the rewrite retrieval merge strategy selector and request payload field.
+- Key decisions: Added operator copy explaining that synthetic memory is only LLM rewrite context, is not searched or merged directly, and final metrics use either raw retrieval or adopted rewritten-query retrieval.
+- Issues encountered: No frontend build/lint was run because the task explicitly disallowed broad build/test work; static grep and diff checks confirmed the removed payload/control references.
+- Next steps: Browser-smoke the RAG form later to verify the simplified explanation fits the current layout.
+
 ## [2026-05-20] Session Summary (Admin Entry Button)
 - What was done: Updated the chat surface Admin console button to navigate to `/admin` instead of `/admin/pipeline`.
 - Key decisions: Kept all Admin workspace routes and page components unchanged; `/admin` remains the Domain Atlas entry page.

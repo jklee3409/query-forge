@@ -41,9 +41,6 @@ public class AdminConsoleService {
     private static final String RUN_DISCIPLINE_EXPLORATORY = "exploratory";
     private static final String COMPARISON_GATING_EFFECT = "gating_effect";
     private static final String COMPARISON_REWRITE_EFFECT = "rewrite_effect";
-    private static final String REWRITE_RETRIEVAL_STRATEGY_REPLACE = "replace";
-    private static final String REWRITE_RETRIEVAL_STRATEGY_INTERLEAVE = "interleave";
-    private static final String REWRITE_RETRIEVAL_STRATEGY_MAX_SCORE = "max_score";
     private static final String REWRITE_FAILURE_POLICY_FAIL_RUN = "fail_run";
     private static final String REWRITE_FAILURE_POLICY_SKIP_TO_RAW = "skip_to_raw";
     private static final String REWRITE_FAILURE_POLICY_HEURISTIC_FALLBACK = "heuristic_fallback";
@@ -814,7 +811,6 @@ public class AdminConsoleService {
                 retrievalBackend + ":" + String.valueOf(retrieverConfig.get("retriever_mode"))
         );
         double threshold = request.threshold() != null ? request.threshold() : 0.05d;
-        String rewriteRetrievalStrategy = normalizeRewriteRetrievalStrategy(request.rewriteRetrievalStrategy());
         String rewriteFailurePolicy = normalizeRewriteFailurePolicy(request.rewriteFailurePolicy());
         validateRewriteFailurePolicySelection(rewriteFailurePolicy, runtimeCatalog);
         String stageCutoffLevel = normalizeStageCutoffLevel(request.stageCutoffLevel(), gatingPreset);
@@ -953,14 +949,13 @@ public class AdminConsoleService {
         config.put("selective_rewrite", selectiveRewrite);
         config.put("use_session_context", useSessionContext);
         config.put("rewrite_threshold", threshold);
-        config.put("rewrite_retrieval_strategy", rewriteRetrievalStrategy);
         config.put("rewrite_anchor_injection_enabled", rewriteAnchorInjectionEnabled);
+        // memory_lookup_* is retained only for explicit memory_only_* ablation modes.
+        // Default rewrite evaluation uses synthetic memory as LLM prompt context only.
         config.put("memory_lookup_intent_preserving_enabled", true);
         config.put("memory_lookup_hint_token_max", 3);
         config.put("memory_lookup_retrieval_strategy", "max_score");
-        config.put("rewrite_memory_hint_retrieval_enabled", true);
-        config.put("rewrite_memory_hint_token_max", 3);
-        config.put("rewrite_memory_hint_retrieval_strategy", "max_score");
+        config.put("rewrite_memory_hint_retrieval_enabled", false);
         config.put("multi_source_anchor_expansion_enabled", multiSourceAnchorExpansionEnabled);
         config.put("multi_source_anchor_relation_version", "multi-source-anchor-v1");
         config.put(
@@ -1036,7 +1031,7 @@ public class AdminConsoleService {
                     gatingPreset,
                     sourceGatingBatchId
             );
-            config.put("retrieval_modes", List.of("raw_only", "memory_only_gated", "rewrite_always", "selective_rewrite"));
+            config.put("retrieval_modes", List.of("raw_only", "rewrite_always", "selective_rewrite"));
             config.put("source_gating_batch_id", sourceGatingBatchId.toString());
             config.put("snapshot_id", sourceGatingBatchId.toString());
             sourceGatingRunId.ifPresent(uuid -> config.put("source_gating_run_id", uuid.toString()));
@@ -1116,14 +1111,11 @@ public class AdminConsoleService {
         initialRewriteConfig.put("selective_rewrite", selectiveRewrite);
         initialRewriteConfig.put("use_session_context", useSessionContext);
         initialRewriteConfig.put("rewrite_threshold", threshold);
-        initialRewriteConfig.put("rewrite_retrieval_strategy", rewriteRetrievalStrategy);
         initialRewriteConfig.put("rewrite_anchor_injection_enabled", rewriteAnchorInjectionEnabled);
         initialRewriteConfig.put("memory_lookup_intent_preserving_enabled", config.get("memory_lookup_intent_preserving_enabled"));
         initialRewriteConfig.put("memory_lookup_hint_token_max", config.get("memory_lookup_hint_token_max"));
         initialRewriteConfig.put("memory_lookup_retrieval_strategy", config.get("memory_lookup_retrieval_strategy"));
         initialRewriteConfig.put("rewrite_memory_hint_retrieval_enabled", config.get("rewrite_memory_hint_retrieval_enabled"));
-        initialRewriteConfig.put("rewrite_memory_hint_token_max", config.get("rewrite_memory_hint_token_max"));
-        initialRewriteConfig.put("rewrite_memory_hint_retrieval_strategy", config.get("rewrite_memory_hint_retrieval_strategy"));
         initialRewriteConfig.put("multi_source_anchor_expansion_enabled", multiSourceAnchorExpansionEnabled);
         initialRewriteConfig.put("multi_source_anchor_relation_version", config.get("multi_source_anchor_relation_version"));
         initialRewriteConfig.put("multi_source_anchor_relation_types", config.get("multi_source_anchor_relation_types"));
@@ -1245,21 +1237,6 @@ public class AdminConsoleService {
                 STAGE_CUTOFF_FULL_GATING
         ).contains(normalized)) {
             throw new IllegalArgumentException("unsupported stage_cutoff_level: " + value);
-        }
-        return normalized;
-    }
-
-    private String normalizeRewriteRetrievalStrategy(String value) {
-        if (value == null || value.isBlank()) {
-            return REWRITE_RETRIEVAL_STRATEGY_REPLACE;
-        }
-        String normalized = value.trim().toLowerCase();
-        if (!List.of(
-                REWRITE_RETRIEVAL_STRATEGY_REPLACE,
-                REWRITE_RETRIEVAL_STRATEGY_INTERLEAVE,
-                REWRITE_RETRIEVAL_STRATEGY_MAX_SCORE
-        ).contains(normalized)) {
-            throw new IllegalArgumentException("unsupported rewrite_retrieval_strategy: " + value);
         }
         return normalized;
     }
@@ -2029,12 +2006,12 @@ public class AdminConsoleService {
             return List.of("raw_only");
         }
         if (!selectiveRewrite) {
-            return List.of("raw_only", "memory_only_gated", "rewrite_always");
+            return List.of("raw_only", "rewrite_always");
         }
         if (useSessionContext) {
-            return List.of("raw_only", "memory_only_gated", "rewrite_always", "selective_rewrite_with_session");
+            return List.of("raw_only", "rewrite_always", "selective_rewrite_with_session");
         }
-        return List.of("raw_only", "memory_only_gated", "rewrite_always", "selective_rewrite");
+        return List.of("raw_only", "rewrite_always", "selective_rewrite");
     }
 
     private Map<String, Object> resolveRetrieverConfig(AdminConsoleDtos.RetrieverConfigRequest request) {
@@ -2993,9 +2970,7 @@ public class AdminConsoleService {
         config.put("memory_lookup_intent_preserving_enabled", true);
         config.put("memory_lookup_hint_token_max", 3);
         config.put("memory_lookup_retrieval_strategy", "max_score");
-        config.put("rewrite_memory_hint_retrieval_enabled", true);
-        config.put("rewrite_memory_hint_token_max", 3);
-        config.put("rewrite_memory_hint_retrieval_strategy", "max_score");
+        config.put("rewrite_memory_hint_retrieval_enabled", false);
         config.put("retrieval_top_k", DEFAULT_RAG_RETRIEVAL_TOP_K);
         config.put("rerank_top_n", 5);
         config.put("use_session_context", false);

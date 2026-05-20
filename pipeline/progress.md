@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-05-20] Session Summary (Prompt-Only Synthetic Memory Rewrite Eval)
+- What was done: Reworked `eval/runtime.py` selective rewrite so raw retrieval is computed first, synthetic memory lookup is passed only to the LLM rewrite prompt, candidate retrieval is run once per rewritten query, and final retrieval is never merged with memory or raw results.
+- Key decisions: Adoption now uses raw-vs-candidate retrieval score delta with existing threshold/min-improvement gates; `missing_memory_target` remains diagnostic/penalty data but no longer hard-blocks prompt-context-only memory rewrites.
+- Issues encountered: `python -m py_compile eval/runtime.py eval/retrieval_eval.py eval/answer_eval.py` passed; no full eval, full test, or pipeline run was performed.
+- Next steps: Inspect a small rewrite_cases JSON from a later fixed-snapshot smoke for selected_rewrite, raw/final ranks, and memory_hint=false fields.
+
 ## [2026-05-20] Session Summary (Import Corpus Domain ID)
 - What was done: Added `--domain-id` support to `import-corpus`, recorded it in import run source/config snapshots, and applied it after import to corpus sources, documents, sections, chunks, relations, glossary terms, aliases, and evidence.
 - Key decisions: Domain assignment is a post-import propagation step rather than a rewrite of every row upsert, preserving existing import idempotency and dedupe behavior.

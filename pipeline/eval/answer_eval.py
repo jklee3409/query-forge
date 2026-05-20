@@ -238,7 +238,6 @@ def _evaluate_answer_sample(
             source_gate_run_id=source_gating_run_id,
             strategy_filters=memory_strategy_filters,
             force_rewrite=not selective_rewrite,
-            rewrite_retrieval_strategy=str(config.raw.get("rewrite_retrieval_strategy") or "replace"),
             rewrite_anchor_injection_enabled=_is_rewrite_anchor_injection_enabled(config.raw),
             rewrite_terminology_hints_max_count=config.raw.get("rewrite_terminology_hints_max_count", 12),
             multi_source_anchor_expansion_enabled=_is_multi_source_anchor_expansion_enabled(config.raw),
@@ -251,15 +250,6 @@ def _evaluate_answer_sample(
             rewrite_adoption_policy=config.rewrite_adoption_policy,
             retriever_config=config.retriever_config,
             retrieval_adapter=retrieval_adapter,
-            rewrite_memory_hint_retrieval_enabled=str(
-                config.raw.get("rewrite_memory_hint_retrieval_enabled", True)
-            ).strip().lower() in {"1", "true", "yes", "on"},
-            rewrite_memory_hint_token_max=config.raw.get("rewrite_memory_hint_token_max", 3),
-            rewrite_memory_hint_retrieval_strategy=str(
-                config.raw.get("rewrite_memory_hint_retrieval_strategy")
-                or config.raw.get("memory_lookup_retrieval_strategy")
-                or "max_score"
-            ),
         )
     else:
         retrieval = retrieve_top_k(
@@ -335,7 +325,13 @@ def _evaluate_answer_sample(
             "sample_id": sample.sample_id,
             "split": sample.split,
             "category": sample.query_category,
+            "raw_query": sample.query_text,
             "final_query": rewrite_outcome.final_query,
+            "rewrite_reason": rewrite_outcome.rewrite_reason,
+            "raw_confidence": rewrite_outcome.raw_confidence,
+            "best_candidate_confidence": rewrite_outcome.best_candidate_confidence,
+            "selected_rewrite": rewrite_outcome.selected_rewrite,
+            "top_memory_candidates": rewrite_outcome.memory_top_n,
             "memory_hint_query": rewrite_outcome.memory_hint_query,
             "memory_hint_retrieval_applied": bool(rewrite_outcome.memory_hint_retrieval_applied),
             "answer_text": answer_text,
@@ -673,7 +669,11 @@ def run_answer_eval(
                 "sample_id",
                 "split",
                 "category",
+                "raw_query",
                 "final_query",
+                "rewrite_reason",
+                "raw_confidence",
+                "best_candidate_confidence",
                 "answer_text",
                 "correctness",
                 "grounding",

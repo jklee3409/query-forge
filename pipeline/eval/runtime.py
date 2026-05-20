@@ -125,6 +125,7 @@ class RewriteOutcome:
     best_candidate_confidence: float
     memory_top_n: list[dict[str, Any]]
     candidates: list[dict[str, Any]]
+    selected_rewrite: dict[str, Any] | None = None
     rewrite_llm_attempted: bool = False
     rewrite_llm_succeeded: bool = False
     rewrite_heuristic_fallback_used: bool = False
@@ -2592,6 +2593,18 @@ def confidence_score(
     return (0.45 * top1) + (0.20 * top3) + (0.35 * memory_affinity)
 
 
+def retrieval_confidence_score(retrieval: list[RetrievalCandidate]) -> float:
+    if not retrieval:
+        return 0.0
+    top1 = max(0.0, min(1.0, (retrieval[0].score + 1.0) / 2.0))
+    top3_items = retrieval[:3]
+    top3 = sum(
+        max(0.0, min(1.0, (item.score + 1.0) / 2.0))
+        for item in top3_items
+    ) / max(1, len(top3_items))
+    return (0.70 * top1) + (0.30 * top3)
+
+
 def _clamp01(value: float) -> float:
     return max(0.0, min(1.0, float(value)))
 
@@ -3116,6 +3129,8 @@ def _merge_raw_and_rewrite_retrieval(
     rewrite_retrieval: list[RetrievalCandidate],
     top_k: int,
 ) -> list[RetrievalCandidate]:
+    # Legacy/ablation-only helper. Default rewrite evaluation selects either
+    # raw retrieval or one rewritten-query retrieval result without merging.
     if strategy == "replace":
         return rewrite_retrieval
     if strategy == "interleave":
@@ -3152,6 +3167,8 @@ def _memory_hint_retrieval(
     query_canonical_anchors: Any | None,
     max_hint_tokens: int,
 ) -> tuple[str | None, list[RetrievalCandidate], bool]:
+    # Legacy/ablation-only helper. The default selective rewrite path must not
+    # call this because synthetic memory is prompt context, not a retrieval query.
     if not memory_items:
         return None, [], False
     hint_query = build_memory_guided_query(
@@ -3190,6 +3207,8 @@ def run_selective_rewrite(
     preset_filter: str | None = None,
     source_gate_run_id: str | None = None,
     strategy_filters: list[str] | None = None,
+    # Legacy name retained for rewrite_always callers. Adoption still requires
+    # retrieval improvement over raw baseline.
     force_rewrite: bool = False,
     rewrite_retrieval_strategy: str = "replace",
     rewrite_anchor_injection_enabled: bool = True,
@@ -3204,6 +3223,8 @@ def run_selective_rewrite(
     rewrite_adoption_policy: dict[str, Any] | None = None,
     retriever_config: RetrieverConfig | None = None,
     retrieval_adapter: DbAnnRuntimeRetrievalAdapter | None = None,
+    # Legacy compatibility knobs. They are intentionally ignored by the default
+    # rewrite evaluator so memory hints cannot enter final retrieval.
     rewrite_memory_hint_retrieval_enabled: bool = False,
     rewrite_memory_hint_token_max: int = 3,
     rewrite_memory_hint_retrieval_strategy: str = "max_score",
@@ -3220,6 +3241,13 @@ def run_selective_rewrite(
     #   final rewrite-query adoption decision, excluding downstream answer scoring.
     config = retriever_config or build_retriever_config({})
     rewrite_started = time.perf_counter()
+    raw_retrieval = retrieve_top_k(
+        raw_query,
+        chunks,
+        top_k=retrieval_top_k,
+        retriever_config=config,
+        retrieval_adapter=retrieval_adapter,
+    )
     memory_items = memory_top_n(
         raw_query,
         memories,
@@ -3230,21 +3258,9 @@ def run_selective_rewrite(
         retriever_config=config,
         retrieval_adapter=retrieval_adapter,
     )
-    memory_canonical_anchor_payloads = [
-        item.get("canonical_anchors")
-        for item in memory_items
-        if item.get("canonical_anchors")
-    ]
-    raw_retrieval = retrieve_top_k(
-        raw_query,
-        chunks,
-        top_k=retrieval_top_k,
-        retriever_config=config,
-        retrieval_adapter=retrieval_adapter,
-        query_canonical_anchors=memory_canonical_anchor_payloads,
-    )
     raw_memory_affinity = memory_items[0]["similarity"] if memory_items else 0.0
-    raw_confidence_base = confidence_score(raw_retrieval, raw_memory_affinity)
+    raw_retrieval_score = retrieval_confidence_score(raw_retrieval)
+    raw_confidence_base = raw_retrieval_score
 
     policy = _resolve_rewrite_adoption_policy(
         rewrite_adoption_policy,
@@ -3258,8 +3274,6 @@ def run_selective_rewrite(
     min_improvement = max(0.0, _float_value(thresholds.get("min_improvement"), 0.0))
     preservation_floor = _clamp01(_float_value(thresholds.get("preservation_floor"), 0.0))
     max_length_ratio = max(1.0, _float_value(thresholds.get("max_length_ratio"), 1.0))
-    low_memory_similarity_cutoff = _clamp01(_float_value(thresholds.get("low_memory_similarity_cutoff"), 0.0))
-    low_memory_extra_threshold = max(0.0, _float_value(thresholds.get("low_memory_extra_threshold"), 0.0))
     min_retrieval_gain_score = _clamp01(_float_value(thresholds.get("min_retrieval_gain_score"), 0.0))
     underspecified_memory_norm_cutoff = _clamp01(
         _float_value(thresholds.get("underspecified_memory_norm_cutoff"), 0.0)
@@ -3283,37 +3297,11 @@ def run_selective_rewrite(
         raw_memory_similarity=raw_memory_affinity,
         candidate_memory_similarity=raw_memory_affinity,
     )
-    raw_reference_score = _weighted_candidate_score(
-        retrieval_gain_score=raw_confidence_base,
-        terminology_preservation_score=1.0,
-        memory_alignment_score=raw_memory["memory_alignment_score"],
-        weights=weights,
-    )
+    raw_reference_score = raw_retrieval_score
     raw_confidence = raw_reference_score
 
-    normalized_strategy = _normalize_rewrite_retrieval_strategy(rewrite_retrieval_strategy)
-    normalized_memory_hint_strategy = _normalize_rewrite_retrieval_strategy(
-        rewrite_memory_hint_retrieval_strategy
-    )
     memory_hint_query: str | None = None
-    memory_hint_retrieval: list[RetrievalCandidate] = []
     memory_hint_retrieval_applied = False
-    if rewrite_memory_hint_retrieval_enabled:
-        (
-            memory_hint_query,
-            memory_hint_retrieval,
-            memory_hint_retrieval_applied,
-        ) = _memory_hint_retrieval(
-            raw_query=raw_query,
-            query_language=query_language,
-            memory_items=memory_items,
-            chunks=chunks,
-            top_k=retrieval_top_k,
-            retriever_config=config,
-            retrieval_adapter=retrieval_adapter,
-            query_canonical_anchors=memory_canonical_anchor_payloads,
-            max_hint_tokens=rewrite_memory_hint_token_max,
-        )
     rewrite_runtime_stats: dict[str, int] = {}
     multi_source_anchor_hints = None
     if rewrite_anchor_injection_enabled and multi_source_anchor_expansion_enabled:
@@ -3364,7 +3352,6 @@ def run_selective_rewrite(
             top_k=retrieval_top_k,
             retriever_config=config,
             retrieval_adapter=retrieval_adapter,
-            query_canonical_anchors=memory_canonical_anchor_payloads,
         )
         candidate_memory_items = memory_top_n(
             template["query"],
@@ -3381,7 +3368,9 @@ def run_selective_rewrite(
             if candidate_memory_items
             else 0.0
         )
-        base_confidence = confidence_score(retrieved, candidate_memory_affinity)
+        candidate_retrieval_score = retrieval_confidence_score(retrieved)
+        retrieval_score_delta = candidate_retrieval_score - raw_retrieval_score
+        base_confidence = candidate_retrieval_score
         retrieval_shift = _retrieval_shift_score(raw_retrieval, retrieved)
         shift_bonus = shift_bonus_weight * retrieval_shift if base_confidence >= raw_confidence_base else 0.0
         retrieval_gain_score = _clamp01(base_confidence + shift_bonus)
@@ -3433,13 +3422,8 @@ def run_selective_rewrite(
             - memory_target_metrics["memory_target_missing_penalty"]
         )
 
-        low_memory_strict_threshold = (
-            low_memory_extra_threshold
-            if raw_memory["raw_memory_norm"] < low_memory_similarity_cutoff
-            else 0.0
-        )
-        effective_threshold = max(float(threshold), min_improvement) + low_memory_strict_threshold
-        adoption_margin = final_candidate_score - raw_reference_score
+        effective_threshold = max(float(threshold), min_improvement)
+        adoption_margin = retrieval_score_delta
         normalized_raw_query = " ".join(raw_query.split()).strip().lower()
         normalized_candidate_query = " ".join(str(template["query"]).split()).strip().lower()
         same_query = normalized_raw_query == normalized_candidate_query
@@ -3453,8 +3437,6 @@ def run_selective_rewrite(
             rejection_reason = "preservation_below_floor"
         elif retrieval_gain_score < min_retrieval_gain_score:
             rejection_reason = "retrieval_gain_below_floor"
-        elif memory_target_metrics["missing_memory_target"]:
-            rejection_reason = "missing_memory_target"
         elif adoption_margin < effective_threshold:
             rejection_reason = "delta_below_threshold"
 
@@ -3463,6 +3445,9 @@ def run_selective_rewrite(
             "label": template["label"],
             "query": template["query"],
             "base_confidence": base_confidence,
+            "raw_retrieval_score": raw_retrieval_score,
+            "candidate_retrieval_score": candidate_retrieval_score,
+            "retrieval_score_delta": retrieval_score_delta,
             "raw_memory_similarity": raw_memory_affinity,
             "candidate_memory_similarity": candidate_memory_affinity,
             "memory_similarity_delta": candidate_memory_affinity - raw_memory_affinity,
@@ -3498,23 +3483,17 @@ def run_selective_rewrite(
             "retrieval": retrieved,
         }
         candidates.append(candidate)
-        if best_candidate is None or final_candidate_score > float(best_candidate.get("confidence", 0.0)):
+        if best_candidate is None or candidate_retrieval_score > float(best_candidate.get("candidate_retrieval_score", 0.0)):
             best_candidate = candidate
-        if eligible and (best_eligible_candidate is None or final_candidate_score > float(best_eligible_candidate.get("confidence", 0.0))):
+        if eligible and (
+            best_eligible_candidate is None
+            or retrieval_score_delta > float(best_eligible_candidate.get("retrieval_score_delta", -1.0))
+        ):
             best_eligible_candidate = candidate
 
     if best_candidate is None:
         rewrite_elapsed_ms = (time.perf_counter() - rewrite_started) * 1000.0
-        final_retrieval = (
-            _merge_raw_and_rewrite_retrieval(
-                strategy=normalized_memory_hint_strategy,
-                raw_retrieval=raw_retrieval,
-                rewrite_retrieval=memory_hint_retrieval,
-                top_k=retrieval_top_k,
-            )
-            if memory_hint_retrieval_applied
-            else raw_retrieval
-        )
+        final_retrieval = raw_retrieval
         return (
             RewriteOutcome(
                 final_query=raw_query,
@@ -3524,6 +3503,7 @@ def run_selective_rewrite(
                 best_candidate_confidence=raw_confidence,
                 memory_top_n=memory_items,
                 candidates=[],
+                selected_rewrite=None,
                 rewrite_llm_attempted=rewrite_llm_attempted,
                 rewrite_llm_succeeded=rewrite_llm_succeeded,
                 rewrite_heuristic_fallback_used=rewrite_heuristic_fallback_used,
@@ -3547,25 +3527,11 @@ def run_selective_rewrite(
     )
     final_query = selected_candidate["query"] if should_apply else raw_query
     if should_apply:
-        final_retrieval = _merge_raw_and_rewrite_retrieval(
-            strategy=normalized_strategy,
-            raw_retrieval=raw_retrieval,
-            rewrite_retrieval=selected_candidate["retrieval"],
-            top_k=retrieval_top_k,
-        )
+        final_retrieval = selected_candidate["retrieval"]
     else:
         final_retrieval = raw_retrieval
-    if memory_hint_retrieval_applied:
-        final_retrieval = _merge_raw_and_rewrite_retrieval(
-            strategy=normalized_memory_hint_strategy,
-            raw_retrieval=final_retrieval,
-            rewrite_retrieval=memory_hint_retrieval,
-            top_k=retrieval_top_k,
-        )
     reason = (
-        "forced"
-        if should_apply and force_rewrite
-        else "delta_above_threshold"
+        "delta_above_threshold"
         if should_apply
         else "candidate_same_as_raw"
         if same_query
@@ -3574,6 +3540,18 @@ def run_selective_rewrite(
         else "delta_below_threshold"
     )
     rewrite_elapsed_ms = (time.perf_counter() - rewrite_started) * 1000.0
+    selected_rewrite_payload = {
+        "label": selected_candidate.get("label"),
+        "query": selected_candidate.get("query"),
+        "confidence": selected_candidate.get("confidence", 0.0),
+        "raw_retrieval_score": selected_candidate.get("raw_retrieval_score", raw_retrieval_score),
+        "candidate_retrieval_score": selected_candidate.get("candidate_retrieval_score", 0.0),
+        "retrieval_score_delta": selected_candidate.get("retrieval_score_delta", 0.0),
+        "adoption_margin": selected_candidate.get("adoption_margin", 0.0),
+        "effective_threshold": selected_candidate.get("effective_threshold", 0.0),
+        "eligible": bool(selected_candidate.get("eligible")),
+        "rejection_reason": selected_candidate.get("rejection_reason", ""),
+    }
 
     return (
         RewriteOutcome(
@@ -3581,13 +3559,16 @@ def run_selective_rewrite(
             rewrite_applied=should_apply,
             rewrite_reason=reason,
             raw_confidence=raw_confidence,
-            best_candidate_confidence=float(selected_candidate.get("confidence", 0.0)),
+            best_candidate_confidence=float(selected_candidate.get("candidate_retrieval_score", 0.0)),
             memory_top_n=memory_items,
             candidates=[
                 {
                     "label": candidate["label"],
                     "query": candidate["query"],
                     "base_confidence": candidate.get("base_confidence", candidate["confidence"]),
+                    "raw_retrieval_score": candidate.get("raw_retrieval_score", raw_retrieval_score),
+                    "candidate_retrieval_score": candidate.get("candidate_retrieval_score", 0.0),
+                    "retrieval_score_delta": candidate.get("retrieval_score_delta", 0.0),
                     "raw_memory_similarity": candidate.get("raw_memory_similarity", 0.0),
                     "candidate_memory_similarity": candidate.get("candidate_memory_similarity", 0.0),
                     "memory_similarity_delta": candidate.get("memory_similarity_delta", 0.0),
@@ -3618,11 +3599,13 @@ def run_selective_rewrite(
                     "max_length_ratio": candidate.get("max_length_ratio", 0.0),
                     "length_ratio": candidate.get("length_ratio", 0.0),
                     "eligible": bool(candidate.get("eligible")),
+                    "selected": candidate is selected_candidate,
                     "rejection_reason": candidate.get("rejection_reason", ""),
                     "confidence": candidate["confidence"],
                 }
                 for candidate in candidates
             ],
+            selected_rewrite=selected_rewrite_payload,
             rewrite_llm_attempted=rewrite_llm_attempted,
             rewrite_llm_succeeded=rewrite_llm_succeeded,
             rewrite_heuristic_fallback_used=rewrite_heuristic_fallback_used,
