@@ -1,7 +1,9 @@
-import { Fragment, startTransition, useDeferredValue, useEffect, useMemo, useState } from 'react'
+import { Fragment, startTransition, useCallback, useDeferredValue, useEffect, useMemo, useState } from 'react'
 import { ChatPage } from './pages/ChatPage.jsx'
+import { DomainHomePage } from './pages/DomainHomePage.jsx'
 import { GatingPage } from './pages/GatingPage.jsx'
 import { PipelinePage } from './pages/PipelinePage.jsx'
+import { PromptStudioPage } from './pages/PromptStudioPage.jsx'
 import { RagPage } from './pages/RagPage.jsx'
 import { SyntheticPage } from './pages/SyntheticPage.jsx'
 
@@ -39,6 +41,12 @@ function withThemeTransition() {
 }
 
 export const ADMIN_PAGE_META = {
+  domains: {
+    title: 'Domain Atlas',
+    subtitle: '기술 문서 도메인을 선택하고 새 도메인 작업 공간을 시작합니다.',
+    path: '/admin',
+    icon: 'DM',
+  },
   pipeline: {
     title: 'Pipeline Monitor',
     subtitle: '수집부터 코퍼스 적재까지 ingest pipeline 상태와 실행 흐름을 관제합니다.',
@@ -63,26 +71,48 @@ export const ADMIN_PAGE_META = {
     path: '/admin/rag-tests',
     icon: 'RG',
   },
+  prompts: {
+    title: 'Prompt Studio',
+    subtitle: '도메인이 공유하는 합성 질의 생성 및 RAG rewrite 프롬프트를 관리합니다.',
+    path: '/admin/prompts',
+    icon: 'PR',
+  },
+}
+
+function parseAdminRoute(path) {
+  const segments = path.split('/').filter(Boolean)
+  if (segments.length === 1 && segments[0] === 'admin') {
+    return { pageKey: 'domains', domainKey: null, domainBase: null }
+  }
+  if (segments[0] === 'admin' && segments[1] === 'domains' && segments[2]) {
+    return {
+      pageKey: segments[3] || 'pipeline',
+      domainKey: segments[2],
+      domainBase: `/admin/domains/${segments[2]}`,
+    }
+  }
+  if (segments[0] === 'admin' && segments[1] === 'prompts') {
+    return { pageKey: 'prompts', domainKey: null, domainBase: null }
+  }
+  if (path.startsWith('/admin/synthetic-queries')) return { pageKey: 'synthetic', domainKey: null, domainBase: null }
+  if (path.startsWith('/admin/quality-gating')) return { pageKey: 'gating', domainKey: null, domainBase: null }
+  if (path.startsWith('/admin/rag-tests')) return { pageKey: 'rag', domainKey: null, domainBase: null }
+  return { pageKey: 'pipeline', domainKey: null, domainBase: null }
 }
 
 function App() {
   const [path, setPath] = useState(() => {
-    const current = window.location.pathname
-    if (current === '/admin') {
-      window.history.replaceState({}, '', ADMIN_PAGE_META.pipeline.path)
-      return ADMIN_PAGE_META.pipeline.path
-    }
-    return current
+    return window.location.pathname
   })
   const deferredPath = useDeferredValue(path)
   const [toasts, setToasts] = useState([])
   const [theme, setTheme] = useState(readInitialTheme)
 
-  const notify = (message, tone = 'success') => {
+  const notify = useCallback((message, tone = 'success') => {
     const id = crypto.randomUUID()
     setToasts((prev) => [...prev, { id, message, tone }])
     window.setTimeout(() => setToasts((prev) => prev.filter((item) => item.id !== id)), 2600)
-  }
+  }, [])
 
   useEffect(() => {
     applyTheme(theme)
@@ -116,13 +146,7 @@ function App() {
 
   useEffect(() => {
     const handlePopState = () => {
-      const current = window.location.pathname
-      if (current === '/admin') {
-        window.history.replaceState({}, '', ADMIN_PAGE_META.pipeline.path)
-        setPath(ADMIN_PAGE_META.pipeline.path)
-        return
-      }
-      setPath(current)
+      setPath(window.location.pathname)
     }
     window.addEventListener('popstate', handlePopState)
     return () => window.removeEventListener('popstate', handlePopState)
@@ -152,19 +176,23 @@ function App() {
 
 function AdminApp({ path, navigate, notify, theme, onToggleTheme }) {
   const [sidebarOpen, setSidebarOpen] = useState(false)
-  const pageKey = useMemo(() => {
-    if (path.startsWith('/admin/synthetic-queries')) return 'synthetic'
-    if (path.startsWith('/admin/quality-gating')) return 'gating'
-    if (path.startsWith('/admin/rag-tests')) return 'rag'
-    return 'pipeline'
-  }, [path])
-  const meta = ADMIN_PAGE_META[pageKey]
-  const navItems = [
-    { key: 'pipeline', label: 'Pipeline Monitor', meta: '코퍼스 ingest', path: ADMIN_PAGE_META.pipeline.path, icon: ADMIN_PAGE_META.pipeline.icon },
-    { key: 'synthetic', label: 'Synthetic Query Studio', meta: 'A~G 전략 배치', path: ADMIN_PAGE_META.synthetic.path, icon: ADMIN_PAGE_META.synthetic.icon },
-    { key: 'gating', label: 'Quality Gate', meta: '스냅샷 제어', path: ADMIN_PAGE_META.gating.path, icon: ADMIN_PAGE_META.gating.icon },
-    { key: 'rag', label: 'Retrieval Eval', meta: '품질/latency', path: ADMIN_PAGE_META.rag.path, icon: ADMIN_PAGE_META.rag.icon },
+  const route = useMemo(() => parseAdminRoute(path), [path])
+  const pageKey = route.pageKey
+  const metaKey = pageKey === 'synthetic-queries' ? 'synthetic'
+    : pageKey === 'quality-gating' ? 'gating'
+      : pageKey === 'rag-tests' ? 'rag'
+        : pageKey
+  const meta = ADMIN_PAGE_META[metaKey] || ADMIN_PAGE_META.pipeline
+  const domainNavItems = [
+    { key: 'pipeline', label: 'Pipeline Monitor', meta: '코퍼스 ingest', path: `${route.domainBase || '/admin'}/pipeline`, icon: ADMIN_PAGE_META.pipeline.icon },
+    { key: 'synthetic-queries', label: 'Synthetic Query Studio', meta: 'A~G 전략 배치', path: `${route.domainBase || '/admin'}/synthetic-queries`, icon: ADMIN_PAGE_META.synthetic.icon },
+    { key: 'quality-gating', label: 'Quality Gate', meta: '스냅샷 제어', path: `${route.domainBase || '/admin'}/quality-gating`, icon: ADMIN_PAGE_META.gating.icon },
+    { key: 'rag-tests', label: 'Retrieval Eval', meta: '품질/latency', path: `${route.domainBase || '/admin'}/rag-tests`, icon: ADMIN_PAGE_META.rag.icon },
   ]
+  const activeNavKey = pageKey === 'synthetic' ? 'synthetic-queries'
+    : pageKey === 'gating' ? 'quality-gating'
+      : pageKey === 'rag' ? 'rag-tests'
+        : pageKey
   const themeLabel = theme === 'dark' ? 'Dark' : 'Light'
 
   return (
@@ -186,11 +214,25 @@ function AdminApp({ path, navigate, notify, theme, onToggleTheme }) {
         </div>
         <div className="admin-sidebar__badge">스냅샷 기반 AI 실험 운영</div>
         <nav className="admin-nav" aria-label="관리자 내비게이션">
-          {navItems.map((item) => (
+          <button
+            type="button"
+            className={`admin-nav__link ${pageKey === 'domains' ? 'is-active' : ''}`}
+            onClick={() => {
+              setSidebarOpen(false)
+              navigate('/admin')
+            }}
+          >
+            <span className="admin-nav__icon" aria-hidden="true">DM</span>
+            <span className="admin-nav__copy">
+              <span>Domain Atlas</span>
+              <small>도메인 선택</small>
+            </span>
+          </button>
+          {route.domainKey && domainNavItems.map((item) => (
             <button
               key={item.key}
               type="button"
-              className={`admin-nav__link ${item.key === pageKey ? 'is-active' : ''}`}
+              className={`admin-nav__link ${item.key === activeNavKey ? 'is-active' : ''}`}
               onClick={() => {
                 setSidebarOpen(false)
                 navigate(item.path)
@@ -205,7 +247,18 @@ function AdminApp({ path, navigate, notify, theme, onToggleTheme }) {
           ))}
         </nav>
         <div className="admin-sidebar__section">
-          <div className="admin-sidebar__section-title">Workspace</div>
+          <div className="admin-sidebar__section-title">Common</div>
+          <button
+            type="button"
+            className={`admin-nav__link ${pageKey === 'prompts' ? 'is-active' : ''}`}
+            onClick={() => navigate('/admin/prompts')}
+          >
+            <span className="admin-nav__icon" aria-hidden="true">PR</span>
+            <span className="admin-nav__copy">
+              <span>Prompt Studio</span>
+              <small>공통 프롬프트</small>
+            </span>
+          </button>
           <button type="button" className="admin-nav__link" onClick={() => navigate('/')}>
             <span className="admin-nav__icon" aria-hidden="true">CH</span>
             <span className="admin-nav__copy">
@@ -233,22 +286,87 @@ function AdminApp({ path, navigate, notify, theme, onToggleTheme }) {
               <span className="theme-toggle__track" aria-hidden="true"><span className="theme-toggle__thumb" /></span>
               <span className="theme-toggle__label">{themeLabel}</span>
             </button>
-            <button type="button" className="button button--success" onClick={() => navigate(ADMIN_PAGE_META.rag.path)}>Run Retrieval Eval</button>
+            <button
+              type="button"
+              className="button button--success"
+              onClick={() => navigate(route.domainBase ? `${route.domainBase}/rag-tests` : '/admin')}
+            >
+              Run Retrieval Eval
+            </button>
           </div>
         </header>
         <main className="admin-content">
+          {pageKey !== 'domains' && route.domainKey && (
+            <DomainWorkspaceBanner domainKey={route.domainKey} notify={notify} />
+          )}
           <section className="page-header">
-            <div className="page-header__eyebrow">AI Operations Console</div>
+            <div className="page-header__eyebrow">
+              {route.domainKey ? `Domain Workspace / ${route.domainKey}` : 'AI Operations Console'}
+            </div>
             <h1 className="page-header__title">{meta.title}</h1>
             <p className="page-header__subtitle">{meta.subtitle}</p>
           </section>
-          {pageKey === 'pipeline' && <PipelinePage notify={notify} />}
+          {pageKey === 'domains' && <DomainHomePage navigate={navigate} notify={notify} />}
+          {pageKey === 'prompts' && <PromptStudioPage path={path} notify={notify} />}
+          {pageKey === 'pipeline' && <PipelinePage notify={notify} domainKey={route.domainKey} />}
+          {pageKey === 'synthetic-queries' && <SyntheticPage notify={notify} domainKey={route.domainKey} />}
+          {pageKey === 'quality-gating' && <GatingPage notify={notify} domainKey={route.domainKey} />}
+          {pageKey === 'rag-tests' && <RagPage notify={notify} domainKey={route.domainKey} />}
           {pageKey === 'synthetic' && <SyntheticPage notify={notify} />}
           {pageKey === 'gating' && <GatingPage notify={notify} />}
           {pageKey === 'rag' && <RagPage notify={notify} />}
         </main>
       </section>
     </div>
+  )
+}
+
+function DomainWorkspaceBanner({ domainKey, notify }) {
+  const [summary, setSummary] = useState(null)
+
+  useEffect(() => {
+    let cancelled = false
+    fetch(`/api/admin/domains/${domainKey}/summary`)
+      .then(async (response) => {
+        const text = await response.text()
+        const payload = text ? JSON.parse(text) : null
+        if (!response.ok) throw new Error(payload?.message || payload?.error || `요청 실패 (${response.status})`)
+        return payload
+      })
+      .then((payload) => {
+        if (!cancelled) setSummary(payload)
+      })
+      .catch((error) => notify(error.message, 'danger'))
+    return () => {
+      cancelled = true
+    }
+  }, [domainKey, notify])
+
+  return (
+    <section className="domain-workspace-banner">
+      <div>
+        <span>Selected Domain</span>
+        <strong>{summary?.displayName || domainKey}</strong>
+      </div>
+      <dl>
+        <div>
+          <dt>Sources</dt>
+          <dd>{summary?.sourceCount ?? 0}</dd>
+        </div>
+        <div>
+          <dt>Docs</dt>
+          <dd>{summary?.activeDocumentCount ?? 0}</dd>
+        </div>
+        <div>
+          <dt>Chunks</dt>
+          <dd>{summary?.activeChunkCount ?? 0}</dd>
+        </div>
+        <div>
+          <dt>RAG</dt>
+          <dd>{summary?.ragTestRunCount ?? 0}</dd>
+        </div>
+      </dl>
+    </section>
   )
 }
 

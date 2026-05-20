@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-05-20] Session Summary (Prompt Asset File Fallback)
+- What was done: Updated PromptAdminService so file-backed prompt assets return existing prompt file content when content_body is still null.
+- Key decisions: Kept DB-backed revisions as the editable path while preserving read visibility for current configs/prompts assets.
+- Issues encountered: Backend compileJava passed before the frontend shell build; no DB migration execution was performed.
+- Next steps: Use Prompt Studio to create DB-backed revisions and switch prompt bindings without editing files directly.
+
 ## [2026-05-20] Session Summary (Domain and Prompt Admin APIs)
 - What was done: Added /api/admin/domains APIs for domain list/detail/create/update/source attach/detach/summary and /api/admin/prompt-assets plus /api/admin/prompt-bindings APIs for global prompt catalog/binding management.
 - Key decisions: Kept the new controllers/services/repositories isolated from existing AdminConsole execution paths so domain runtime filtering can be wired in a later commit.

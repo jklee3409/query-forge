@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-05-20] Session Summary (Domain Workspace and Prompt Studio Shell)
+- What was done: Replaced `/admin` entry with a Domain Atlas page, added domain workspace routes under `/admin/domains/:domainKey/*`, added a selected-domain banner, and implemented `/admin/prompts` Prompt Studio for shared A-G/rewrite prompt bindings.
+- Key decisions: Existing Pipeline/Synthetic/Gating/RAG pages are reused under the domain workspace first; strict domain API filtering remains a separate wiring phase.
+- Issues encountered: Targeted ESLint for changed frontend files passed. `npm run build` passed and refreshed backend-served React assets.
+- Next steps: Inject `domain_id` into existing Admin API calls and backend execution requests.
+
 ## [2026-05-20] Session Summary (RAG Rewrite Threshold Default)
 - What was done: Updated `/admin/rag-tests` form initialization so the rewrite threshold defaults to `0.05`, matching the backend Admin RAG default and relaxed short-user adoption profile.
 - Key decisions: UI request shape and existing rewrite/multi-source toggles were kept unchanged.

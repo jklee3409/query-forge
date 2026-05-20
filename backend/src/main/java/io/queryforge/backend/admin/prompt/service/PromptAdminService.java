@@ -6,6 +6,8 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -21,8 +23,12 @@ public class PromptAdminService {
     }
 
     public PromptAdminDtos.PromptAssetDetail getAsset(UUID promptAssetId) {
-        return repository.findAsset(promptAssetId)
+        PromptAdminDtos.PromptAssetDetail detail = repository.findAsset(promptAssetId)
                 .orElseThrow(() -> new IllegalArgumentException("prompt asset not found: " + promptAssetId));
+        if (detail.contentBody() != null || !"file".equals(detail.asset().storageBackend())) {
+            return detail;
+        }
+        return new PromptAdminDtos.PromptAssetDetail(detail.asset(), readFileBackedPrompt(detail.asset().contentPath()));
     }
 
     @Transactional
@@ -108,5 +114,26 @@ public class PromptAdminService {
         if (request.contentBody() == null || request.contentBody().isBlank()) {
             throw new IllegalArgumentException("contentBody is required");
         }
+    }
+
+    private String readFileBackedPrompt(String contentPath) {
+        if (contentPath == null || contentPath.isBlank()) {
+            return null;
+        }
+        List<Path> candidates = List.of(
+                Path.of(contentPath),
+                Path.of("..").resolve(contentPath),
+                Path.of("..").resolve("..").resolve(contentPath)
+        );
+        for (Path candidate : candidates) {
+            if (Files.isRegularFile(candidate)) {
+                try {
+                    return Files.readString(candidate);
+                } catch (Exception ignored) {
+                    return null;
+                }
+            }
+        }
+        return null;
     }
 }

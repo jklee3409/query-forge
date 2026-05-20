@@ -3,6 +3,12 @@
 ## Overview
 High-level progress tracking for the `docs` directory.
 
+## [2026-05-20] Session Summary (Domain Workspace and Prompt Studio UI)
+- What was done: Added frontend Domain Atlas, domain workspace routing, selected-domain banner, and Prompt Studio UI for global prompt bindings.
+- Key decisions: Reused existing operation pages inside the new domain route first, leaving strict domain-scoped API calls for the next implementation phase.
+- Issues encountered: Targeted frontend ESLint and `npm run build` passed. Backend-served React assets were regenerated.
+- Next steps: Wire domain IDs through existing Pipeline/Synthetic/Gating/RAG API calls and backend runtime requests.
+
 ## [2026-05-20] Session Summary (Domain and Prompt Admin APIs)
 - What was done: Implemented backend Admin APIs for technical document domains and global prompt asset/binding management.
 - Key decisions: Kept API implementation separate from existing Synthetic/Gating/RAG runtime wiring to preserve small reviewable phases.
