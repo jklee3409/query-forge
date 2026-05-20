@@ -26,9 +26,9 @@
 
 ## [2026-05-20] Session Summary (Domain Workspace and Prompt Studio UI)
 - What was done: Added the frontend Domain Atlas entry page, domain workspace routing, selected-domain summary banner, and Prompt Studio UI for shared A-G/rewrite prompt bindings. Prompt asset detail now falls back to file-backed prompt content so existing prompts can be viewed before DB-backed revisions exist.
-- Key decisions: Reuse existing Pipeline/Synthetic/Gating/RAG pages under /admin/domains/:domainKey/* first, then wire strict domain-scoped API execution in the next phase.
-- Issues encountered: Targeted frontend ESLint passed and npm run build regenerated backend-served React assets.
-- Next steps: Add domain_id propagation and backend validation to existing Admin execution/list endpoints.
+- Key decisions: Reuse existing Pipeline/Synthetic/Gating/RAG pages under `/admin/domains/:domainKey/*` first, then wire strict domain-scoped API execution in the next phase.
+- Issues encountered: Targeted frontend ESLint passed and `npm run build` regenerated backend-served React assets.
+- Next steps: Add `domain_id` propagation and backend validation to existing Admin execution/list endpoints.
 
 ## [2026-05-20] Session Summary (Domain and Prompt Admin APIs)
 - What was done: Added backend Admin APIs for domain catalog/workspace summary/source membership and global prompt asset/binding management.
@@ -37,10 +37,28 @@
 - Next steps: Implement frontend Domain Home/Workspace and Prompt Studio using these APIs.
 
 ## [2026-05-20] Session Summary (Domain and Prompt Schema)
-- What was done: Added additive Flyway schema for tech_doc_domain, source/method policy mapping, global prompt asset binding, seed data for Spring/Python and A-G/RAG rewrite prompts, plus nullable domain_id backfill columns across major runtime tables.
-- Key decisions: Keep strict domain enforcement for a later phase; this migration establishes catalog and backfill shape without forcing NOT NULL while existing services are being retrofitted.
+- What was done: Added additive Flyway schema for `tech_doc_domain`, source/method policy mapping, global prompt asset binding, seed data for Spring/Python and A-G/RAG rewrite prompts, plus nullable `domain_id` backfill columns across major runtime tables.
+- Key decisions: Keep strict domain enforcement for a later phase; this migration establishes catalog and backfill shape without forcing `NOT NULL` while existing services are being retrofitted.
 - Issues encountered: No local DB migration was executed because the current instruction is to avoid unnecessary broad DB work on a low-spec laptop.
 - Next steps: Implement backend Domain/Prompt APIs and wire the Admin GUI to the new domain/prompt catalogs.
+
+## [2026-05-20] Session Summary (Global Prompt Management Design)
+- What was done: Extended the domain pipeline integration design to explicitly cover shared prompt assets for A/B/C/D/E/F/G synthetic generation and RAG query rewrite.
+- Key decisions: Keep prompt assets and prompt bindings above domains, add a global Admin Prompt Studio for viewing/editing/versioning/activating prompts, and have domain workspaces display active prompt versions read-only during Synthetic/RAG execution.
+- Issues encountered: No implementation or runtime behavior was changed. This was a documentation/design-only update.
+- Next steps: Implement prompt asset binding seed/API/UI before replacing file-name based prompt resolution in generation and rewrite runtimes.
+
+## [2026-05-20] Session Summary (Domain Pipeline Integration Design)
+- What was done: Reviewed `.codex/AGENTS.md`, root/backend/frontend/pipeline docs, backend controllers/services/migrations, frontend admin routes/pages, Python pipeline entrypoints, source configs, and the local PostgreSQL schema/data distribution. Added a design doc for domain-first pipeline integration at `docs/architecture/domain_pipeline_integration_design.md`.
+- Key decisions: Treat `tech_doc_domain` as the new first-class boundary, keep A/B/C/D/E/F/G generation methods global, preserve strategy-separated raw tables, and attach corpus/source/generation/gating/memory/eval/RAG artifacts to a domain with strict same-domain validation.
+- Issues encountered: No implementation or runtime behavior was changed. The current system still uses hardcoded Spring/Python method/source scopes in backend/frontend until the proposed phased migration is implemented.
+- Next steps: Start with domain schema/backfill and Domain API, then retrofit backend/pipeline filters before replacing the Admin entry page with the domain home/workspace shell.
+
+## [2026-05-20] Session Summary (Short-User Eval Dataset Version Restore)
+- What was done: Restored eval dataset `b2d47254-8655-4c9c-81ac-7615677ec5bd` (`Spring KR Short User Eval 80 (KR)`) to `v4-2026-04-19` by relinking its active items to the preserved `v4-test-short-user-*` sample rows. Restored eval dataset `8f0d6e0f-6f9e-4d64-9b07-f4e8ce5ebec0` (`Spring KR Short User Eval 80 (EN)`) to `v1-2026-04-28` by upserting the committed v1 JSONL rows from `efe0b00:data/eval/human_eval_short_user_test_80_en.jsonl`.
+- Key decisions: Kept the operation scoped to the two requested dataset IDs, avoided broad DB scans, and left current V5/V2 sample rows/files otherwise untouched. Verified both restored datasets have 80 active items and KR/EN expected doc/chunk grounding parity has 0 mismatches.
+- Issues encountered: The first restore command failed before execution due to PowerShell/Python quoting; the corrected transaction completed successfully.
+- Next steps: Use these restored versions for any follow-up RAG comparisons that need the V4 KR / V1 EN short-user baseline.
 
 ## [2026-05-20] Session Summary (Method-Compressed Stress Eval Datasets)
 - What was done: Built separate Spring method-compressed stress eval datasets from existing accepted synthetic queries in gating batches A/B/C/D/E, 80 items each, and upserted them into `eval_dataset`, `eval_samples`, and `eval_dataset_item`.

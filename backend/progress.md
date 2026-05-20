@@ -25,22 +25,28 @@
 - Next steps: Carry domain context into lower-level pipeline import/materialization jobs before making `domain_id` columns non-null in a later enforcement phase.
 
 ## [2026-05-20] Session Summary (Prompt Asset File Fallback)
-- What was done: Updated PromptAdminService so file-backed prompt assets return existing prompt file content when content_body is still null.
-- Key decisions: Kept DB-backed revisions as the editable path while preserving read visibility for current configs/prompts assets.
-- Issues encountered: Backend compileJava passed before the frontend shell build; no DB migration execution was performed.
+- What was done: Updated `PromptAdminService` so file-backed prompt assets return existing prompt file content when `content_body` is still null.
+- Key decisions: Kept DB-backed revisions as the editable path while preserving read visibility for current `configs/prompts` assets.
+- Issues encountered: Backend `compileJava` passed before the frontend shell build; no DB migration execution was performed.
 - Next steps: Use Prompt Studio to create DB-backed revisions and switch prompt bindings without editing files directly.
 
 ## [2026-05-20] Session Summary (Domain and Prompt Admin APIs)
-- What was done: Added /api/admin/domains APIs for domain list/detail/create/update/source attach/detach/summary and /api/admin/prompt-assets plus /api/admin/prompt-bindings APIs for global prompt catalog/binding management.
+- What was done: Added `/api/admin/domains` APIs for domain list/detail/create/update/source attach/detach/summary and `/api/admin/prompt-assets` plus `/api/admin/prompt-bindings` APIs for global prompt catalog/binding management.
 - Key decisions: Kept the new controllers/services/repositories isolated from existing AdminConsole execution paths so domain runtime filtering can be wired in a later commit.
-- Issues encountered: No DB migration execution was performed. Targeted backend compileJava passed.
+- Issues encountered: No DB migration execution was performed. Targeted backend `compileJava` passed.
 - Next steps: Add frontend Domain Home/Workspace and Prompt Studio surfaces against these APIs.
 
 ## [2026-05-20] Session Summary (Domain and Prompt Schema)
-- What was done: Added Flyway migration V35__add_domain_and_prompt_management.sql for first-class technical document domains, domain-source/method policy seed data, global prompt asset bindings, and nullable domain_id columns across corpus/synthetic/gating/memory/eval/RAG/anchor/job tables.
-- Key decisions: Kept prompt assets above domains, kept A-G raw strategy tables split, seeded Spring/Python domains without strict NOT NULL enforcement, and backfilled only deterministic same-domain mappings.
+- What was done: Added Flyway migration `V35__add_domain_and_prompt_management.sql` for first-class technical document domains, domain-source/method policy seed data, global prompt asset bindings, and nullable `domain_id` columns across corpus/synthetic/gating/memory/eval/RAG/anchor/job tables.
+- Key decisions: Kept prompt assets above domains, kept A-G raw strategy tables split, seeded Spring/Python domains without strict `NOT NULL` enforcement, and backfilled only deterministic same-domain mappings.
 - Issues encountered: No DB migration was executed yet to avoid broad local DB work on the low-spec environment.
 - Next steps: Add backend read APIs for domains and prompt bindings, then wire domain filters into Admin flows incrementally.
+
+## [2026-05-20] Session Summary (Short-User Eval Dataset Restore)
+- What was done: Restored the requested eval dataset rows in the local PostgreSQL DB: KR dataset `b2d47254-8655-4c9c-81ac-7615677ec5bd` now points to `v4-test-short-user-*` active samples with version `v4-2026-04-19`, and EN dataset `8f0d6e0f-6f9e-4d64-9b07-f4e8ce5ebec0` now uses committed v1 EN rows with version `v1-2026-04-28`.
+- Key decisions: Limited DB reads/writes to the two dataset IDs, the preserved KR v4 sample prefix, and the Git-stored EN v1 JSONL source. No backend Java/API/schema changes were made.
+- Issues encountered: Initial Python command quoting failed before any DB transaction; rerun completed and verification showed 80 active items per dataset with 0 KR/EN grounding mismatches.
+- Next steps: Run only targeted RAG comparisons if these restored baselines need metric validation.
 
 ## [2026-05-20] Session Summary (Admin RAG Hint Defaults)
 - What was done: Updated Admin RAG config generation so `rewrite_threshold` defaults to `0.05`, generated configs include intent-preserving memory lookup and rewrite memory-hint retrieval, and `short_user` rewrite adoption is relaxed through explicit config metadata.
