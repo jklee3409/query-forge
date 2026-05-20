@@ -1,0 +1,116 @@
+experiment_key: admin_eval_8e5769bae371
+category: admin
+description: Admin console generated config
+generation_strategy: A
+enable_code_mixed: false
+query_language: ko
+query_language_profile: ko
+enable_rule_filter: true
+enable_llm_self_eval: true
+enable_retrieval_utility: true
+enable_diversity: true
+enable_anti_copy: true
+gating_preset: full_gating
+llm_provider: gemini
+llm_model: gemini-2.5-flash-lite
+llm_summary_model: gemini-2.5-flash-lite
+llm_query_model: gemini-2.5-flash-lite
+llm_self_eval_model: gemini-2.5-flash-lite
+llm_rewrite_model: gemini-2.5-flash-lite
+llm_fallback_models: gemini-2.5-flash-lite
+llm_rpm: 1000
+llm_tpm: 1000000
+llm_rpd: 10000
+llm_batch_size: 20
+memory_top_n: 5
+rewrite_candidate_count: 3
+rewrite_threshold: 0.05
+rewrite_failure_policy: fail_run
+rewrite_adoption_policy:
+  category_overrides:
+    short_user:
+      thresholds: {min_improvement: 0.02, preservation_floor: 0.68, max_length_ratio: 2.1,
+        underspecified_memory_norm_cutoff: 0.66}
+      penalties: {verbosity_per_extra_ratio: 0.035, memory_target_missing: 0.06}
+      bonuses: {memory_target_presence: 0.1}
+memory_lookup_intent_preserving_enabled: true
+memory_lookup_hint_token_max: 3
+memory_lookup_retrieval_strategy: max_score
+rewrite_memory_hint_retrieval_enabled: true
+rewrite_memory_hint_token_max: 3
+rewrite_memory_hint_retrieval_strategy: max_score
+retrieval_top_k: 10
+rerank_top_n: 5
+use_session_context: false
+avg_queries_per_chunk: 2.0
+max_total_queries: 40
+rule_min_len_short: 4
+rule_max_len_short: 60
+rule_min_len_long: 8
+rule_max_len_long: 100
+rule_min_tokens: 2
+rule_max_tokens: 30
+rule_min_korean_ratio: 0.2
+rule_min_korean_ratio_code_mixed: 0.2
+retrieval_utility_weights: {outside_top5: 0.0, target_top10: 0.6, target_top5: 0.7,
+  target_top3: 0.85, multi_partial_bonus: 0.05, target_top1: 1.0, multi_full_bonus: 0.12,
+  same_doc_top5: 0.4, same_doc_top3: 0.55}
+gating_weights: {utility: 0.5, novelty: 0.15, llm: 0.35}
+utility_threshold: 0.7
+diversity_threshold_same_chunk: 0.93
+diversity_threshold_same_doc: 0.96
+final_score_threshold: 0.75
+random_seed: 31
+anchor_mapping_version: anchor-map-v1
+anchor_normalization_version: anchor-normalize-v1
+canonical_anchor_runtime_schema_version: canonical-anchor-runtime-v1
+run_name: Hybrid-A-Full-Anchor-V11
+dataset_id: feb18f16-d082-5306-bf3d-720cda8555bd
+eval_query_language: ko
+memory_generation_strategies: &id019 [A]
+source_generation_strategies: *id019
+synthetic_free_baseline: false
+gating_applied: true
+rewrite_enabled: true
+selective_rewrite: true
+rewrite_retrieval_strategy: max_score
+rewrite_anchor_injection_enabled: true
+multi_source_anchor_expansion_enabled: true
+multi_source_anchor_relation_version: multi-source-anchor-v1
+multi_source_anchor_relation_types: [canonical_alias, synthetic_query_cooccurrence,
+  chunk_cooccurrence]
+multi_source_anchor_min_score: 0.72
+multi_source_anchor_max_total: 8
+multi_source_anchor_max_per_seed: 2
+rewrite_prompt_profile: ko
+retriever_config:
+  retriever_mode: hybrid
+  dense_embedding_model: intfloat/multilingual-e5-small
+  dense_embedding_required: true
+  dense_fallback_enabled: false
+  dense_embedding_device: cpu
+  dense_embedding_batch_size: 32
+  rerank_enabled: false
+  retriever_candidate_pool_k: 50
+  candidate_pool_k: 50
+  retriever_fusion_weights: &id020 {dense: 0.6000000000000001, bm25: 0.32000000000000006,
+    technical: 0.08000000000000002}
+retriever_mode: hybrid
+dense_embedding_model: intfloat/multilingual-e5-small
+dense_embedding_required: true
+dense_fallback_enabled: false
+dense_embedding_device: cpu
+dense_embedding_batch_size: 32
+rerank_enabled: false
+retriever_candidate_pool_k: 50
+retriever_fusion_weights: *id020
+retrieval_backend: db_ann
+chunk_embedding_model: intfloat/multilingual-e5-small
+vector_store: postgresql-pgvector
+fallback_used: false
+run_discipline: exploratory
+stage_cutoff_enabled: false
+retrieval_modes: [raw_only, memory_only_gated, rewrite_always, selective_rewrite]
+source_gating_batch_id: b45a1b9e-c135-4252-9aa2-ecb130c496cd
+snapshot_id: b45a1b9e-c135-4252-9aa2-ecb130c496cd
+source_gating_run_id: 60761faf-d7ea-48da-bbd5-e2a88c370b0e
