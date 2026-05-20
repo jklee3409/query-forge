@@ -44,8 +44,8 @@ public class PromptAdminRepository {
                        created_at,
                        updated_at
                 FROM prompt_assets
-                WHERE (:family IS NULL OR prompt_family = :family)
-                  AND (:activeOnly IS FALSE OR is_active IS TRUE)
+                WHERE (CAST(:family AS text) IS NULL OR prompt_family = CAST(:family AS text))
+                  AND (CAST(:activeOnly AS boolean) IS FALSE OR is_active IS TRUE)
                 ORDER BY prompt_family, prompt_name, version DESC, created_at DESC
                 """;
         MapSqlParameterSource params = new MapSqlParameterSource()
@@ -101,7 +101,7 @@ public class PromptAdminRepository {
                        b.updated_at
                 FROM prompt_asset_binding b
                 JOIN prompt_assets p ON p.prompt_asset_id = b.active_prompt_asset_id
-                WHERE (:family IS NULL OR b.prompt_family = :family)
+                WHERE (CAST(:family AS text) IS NULL OR b.prompt_family = CAST(:family AS text))
                 ORDER BY b.binding_key
                 """;
         return jdbcTemplate.query(

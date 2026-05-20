@@ -1032,3 +1032,11 @@ High-level progress tracking for the project.
 - Key decisions: Preserved the existing single-domain `COUNT(DISTINCT domain_id) = 1` guard, so the repair changes only SQL compatibility and does not broaden data updates.
 - Issues encountered: The first backend restart failed at V35 and rolled back cleanly; after the fix, non-web backend startup validated all 36 migrations and reported schema version 36.
 - Next steps: Use normal backend restart; no manual DB repair was required.
+
+---
+
+## [2026-05-20] Session Summary (Prompt Admin API 500 Fix)
+- What was done: Fixed `/api/admin/prompt-bindings` and `/api/admin/prompt-assets` 500 responses caused by PostgreSQL being unable to infer nullable named parameter types.
+- Key decisions: Kept repository behavior unchanged and added explicit SQL casts only around optional `family` and `activeOnly` filters.
+- Issues encountered: Browser devtools only showed generic 500; backend logs showed `could not determine data type of parameter $1`.
+- Next steps: Restart the active backend instance so the corrected query predicates are loaded.

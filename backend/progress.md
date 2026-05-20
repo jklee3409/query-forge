@@ -556,3 +556,11 @@ High-level backend progress tracking.
 - Key decisions: Kept the one-domain-only grouping checks unchanged to avoid changing backfill semantics or touching ambiguous rows.
 - Issues encountered: PostgreSQL 16 rejects `MIN(uuid)`, causing V35 rollback at backend startup.
 - Next steps: Restart backend normally; Flyway validation now reports schema version 36.
+
+---
+
+## [2026-05-20] Session Summary (Prompt Admin API 500 Fix)
+- What was done: Added explicit SQL parameter casts to Prompt Admin list queries so null `family` filters no longer fail `/prompt-bindings` or `/prompt-assets`.
+- Key decisions: Limited the fix to the two failing SELECT predicates and did not alter DTOs, controllers, or response shape.
+- Issues encountered: PostgreSQL rejected `? IS NULL` for an untyped nullable bind parameter in prepared statements.
+- Next steps: Reload the running backend and verify Prompt Studio loads both asset and binding lists.
