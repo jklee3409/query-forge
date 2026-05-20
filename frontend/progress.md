@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-05-20] Session Summary (Domain Source Membership UI)
+- What was done: Added a Domain Atlas Source Membership panel that loads domain details, lists linked corpus sources, and supports attaching/detaching sources through the domain Admin API.
+- Key decisions: Kept the map node click as workspace navigation, and added a separate Sources action in the domain registry list to avoid accidental navigation while editing memberships.
+- Issues encountered: `npm exec eslint -- src/pages/DomainHomePage.jsx` passed. `npm run build` passed and refreshed backend-served React assets.
+- Next steps: Browser-smoke the membership panel with migrated domain/source data.
+
 ## [2026-05-20] Session Summary (Domain Scoped Pipeline Calls)
 - What was done: Updated `/admin/domains/:domainKey/pipeline` calls so dashboard, run history, source creation, URL auto-registration, and pipeline execution include the selected `domainId`.
 - Key decisions: Legacy global `/admin/pipeline` remains unscoped by sending `domainId: null`, while domain workspace payloads now stay inside the selected technical-document domain.

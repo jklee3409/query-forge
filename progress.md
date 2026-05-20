@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-05-20] Session Summary (Domain Source Membership UI)
+- What was done: Added a Source Membership panel to the Domain Atlas so operators can select a domain, inspect linked corpus sources, attach an available source, or detach an existing source without leaving the domain entry page.
+- Key decisions: Kept source creation in the domain Pipeline page and used the existing `/api/admin/domains/{domainRef}/sources` attach/detach APIs for existing-source membership edits.
+- Issues encountered: Targeted `DomainHomePage.jsx` ESLint and frontend `npm run build` passed, refreshing the backend-served React bundle.
+- Next steps: Browser-smoke attach/detach on a development DB after applying the domain migration.
+
 ## [2026-05-20] Session Summary (Domain Scoped Pipeline Execution)
 - What was done: Carried selected `domainId` through Pipeline source creation, URL auto-registration, pipeline run requests, run history, and dashboard queries. Backend pipeline runs now persist `corpus_runs.domain_id`, validate selected sources against the domain, and propagate the domain to imported corpus rows after import.
 - Key decisions: Kept global pipeline APIs backward compatible by making `domain_id` optional; domain workspaces now avoid accidentally collecting/importing all global sources when a domain has an empty source set.

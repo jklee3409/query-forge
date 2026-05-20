@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-05-20] Session Summary (Domain Source Membership Bundle)
+- What was done: Refreshed the backend-served React static bundle after adding Domain Atlas source membership controls.
+- Key decisions: No backend Java/API/schema behavior changed in this UI-only slice; the bundle consumes the existing domain source attach/detach endpoints.
+- Issues encountered: Frontend build passed and regenerated static asset hashes under `src/main/resources/static/react`.
+- Next steps: Browser-smoke the bundle against a migrated backend.
+
 ## [2026-05-20] Session Summary (Domain Scoped Pipeline Execution)
 - What was done: Added `domainId` to pipeline run requests, persisted `corpus_runs.domain_id`, filtered pipeline dashboard/history by domain, attached newly upserted/auto-registered sources to the selected domain, and propagated imported run domains to corpus documents/sections/chunks/relations/glossary rows.
 - Key decisions: Source selection is validated against `tech_doc_domain_source` when a domain is supplied. Empty-domain collect/full-ingest requests now fail fast instead of falling back to all configured sources.

@@ -34,6 +34,7 @@
 ---
 
 ## Recent Update
+- Domain Atlas now includes a Source Membership panel: registry rows expose a Sources action, selected domains show linked corpus sources, and operators can attach or detach existing sources through the domain Admin API.
 - `/admin/domains/:domainKey/pipeline` now passes the selected `domainId` into dashboard/run history queries, source upsert/URL auto-registration, and pipeline execution payloads so pipeline operations stay scoped to the selected domain.
 - `/admin/domains/:domainKey/*` workspace pages now wait for the selected domain summary and pass `domain_id` into Pipeline, Synthetic, Quality Gate, and RAG list/run calls. Legacy global Admin routes remain unscoped.
 - `/admin/pipeline` Anchor 정규화 Dry-run now launches against the full active-anchor scope by default, ignoring the current Anchor table filters and omitting the previous 500-row limit while preserving manual review before approval.

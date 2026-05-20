@@ -29,6 +29,13 @@ export function DomainHomePage({ navigate, notify }) {
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
   const [form, setForm] = useState(DEFAULT_DOMAIN_FORM)
+  const [selectedDomainKey, setSelectedDomainKey] = useState('')
+  const [domainDetail, setDomainDetail] = useState(null)
+  const [sourceCatalog, setSourceCatalog] = useState([])
+  const [sourcePanelLoading, setSourcePanelLoading] = useState(false)
+  const [sourceMutation, setSourceMutation] = useState(false)
+  const [attachSourceId, setAttachSourceId] = useState('')
+  const [attachRole, setAttachRole] = useState('primary')
 
   const activeDomains = useMemo(
     () => domains.filter((domain) => domain.status !== 'archived'),
@@ -49,6 +56,49 @@ export function DomainHomePage({ navigate, notify }) {
   useEffect(() => {
     loadDomains()
   }, [loadDomains])
+
+  const loadSourceCatalog = useCallback(async () => {
+    const payload = await requestJson('/api/admin/corpus/sources')
+    const rows = Array.isArray(payload) ? payload : []
+    setSourceCatalog(rows)
+    return rows
+  }, [])
+
+  const loadDomainDetail = useCallback(
+    async (domainKey) => {
+      if (!domainKey) {
+        setDomainDetail(null)
+        setAttachSourceId('')
+        return
+      }
+      setSourcePanelLoading(true)
+      try {
+        const [detail, sources] = await Promise.all([
+          requestJson(`/api/admin/domains/${domainKey}`),
+          loadSourceCatalog(),
+        ])
+        setDomainDetail(detail)
+        const attachedSourceIds = new Set((detail.sources || []).map((source) => source.sourceId))
+        const firstAvailableSource = sources.find((source) => !attachedSourceIds.has(source.sourceId))
+        setAttachSourceId((prev) => {
+          if (prev && sources.some((source) => source.sourceId === prev && !attachedSourceIds.has(source.sourceId))) {
+            return prev
+          }
+          return firstAvailableSource?.sourceId || ''
+        })
+      } catch (error) {
+        notify(error.message, 'danger')
+      } finally {
+        setSourcePanelLoading(false)
+      }
+    },
+    [loadSourceCatalog, notify],
+  )
+
+  const selectDomainForSources = (domain) => {
+    setSelectedDomainKey(domain.domainKey)
+    loadDomainDetail(domain.domainKey)
+  }
 
   const updateForm = (key, value) => {
     setForm((prev) => ({ ...prev, [key]: value }))
@@ -75,6 +125,65 @@ export function DomainHomePage({ navigate, notify }) {
       notify(error.message, 'danger')
     } finally {
       setSaving(false)
+    }
+  }
+
+  const attachedSourceIds = useMemo(
+    () => new Set((domainDetail?.sources || []).map((source) => source.sourceId)),
+    [domainDetail],
+  )
+
+  const attachableSources = useMemo(
+    () => sourceCatalog.filter((source) => !attachedSourceIds.has(source.sourceId)),
+    [attachedSourceIds, sourceCatalog],
+  )
+
+  const attachSource = async (event) => {
+    event.preventDefault()
+    if (!selectedDomainKey || !attachSourceId) {
+      notify('연결할 도메인과 source를 선택하세요.', 'warning')
+      return
+    }
+    setSourceMutation(true)
+    try {
+      const detail = await requestJson(`/api/admin/domains/${selectedDomainKey}/sources`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          sourceId: attachSourceId,
+          sourceRole: attachRole || 'primary',
+          active: true,
+        }),
+      })
+      setDomainDetail(detail)
+      const [, refreshedSources] = await Promise.all([loadDomains(), loadSourceCatalog()])
+      const refreshedAttachedIds = new Set((detail.sources || []).map((source) => source.sourceId))
+      const nextSource = refreshedSources.find((source) => !refreshedAttachedIds.has(source.sourceId))
+      setAttachSourceId(nextSource?.sourceId || '')
+      notify('Source를 도메인에 연결했습니다.')
+    } catch (error) {
+      notify(error.message, 'danger')
+    } finally {
+      setSourceMutation(false)
+    }
+  }
+
+  const detachSource = async (sourceId) => {
+    if (!selectedDomainKey) return
+    const confirmed = window.confirm(`${sourceId} source를 현재 도메인에서 분리할까요?`)
+    if (!confirmed) return
+    setSourceMutation(true)
+    try {
+      const detail = await requestJson(`/api/admin/domains/${selectedDomainKey}/sources/${sourceId}`, {
+        method: 'DELETE',
+      })
+      setDomainDetail(detail)
+      await Promise.all([loadDomains(), loadSourceCatalog()])
+      notify('Source 연결을 해제했습니다.')
+    } catch (error) {
+      notify(error.message, 'danger')
+    } finally {
+      setSourceMutation(false)
     }
   }
 
@@ -121,20 +230,114 @@ export function DomainHomePage({ navigate, notify }) {
           </div>
           <div className="domain-list">
             {domains.map((domain) => (
-              <button
+              <div
                 key={domain.domainId}
-                type="button"
-                className="domain-list__item"
-                onClick={() => navigate(`/admin/domains/${domain.domainKey}/pipeline`)}
+                className={`domain-list__item ${selectedDomainKey === domain.domainKey ? 'is-selected' : ''}`}
               >
-                <span>
-                  <strong>{domain.displayName}</strong>
-                  <small>{domain.domainKey}</small>
-                </span>
-                <span>{formatNumber(domain.activeDocumentCount)} docs</span>
-              </button>
+                <button
+                  type="button"
+                  className="domain-list__main"
+                  onClick={() => navigate(`/admin/domains/${domain.domainKey}/pipeline`)}
+                >
+                  <span>
+                    <strong>{domain.displayName}</strong>
+                    <small>{domain.domainKey}</small>
+                  </span>
+                  <span>{formatNumber(domain.activeDocumentCount)} docs</span>
+                </button>
+                <button
+                  type="button"
+                  className="button button--ghost button--compact"
+                  onClick={() => selectDomainForSources(domain)}
+                >
+                  Sources
+                </button>
+              </div>
             ))}
           </div>
+        </div>
+
+        <div className="admin-card domain-source-manager">
+          <div className="section-heading">
+            <div className="section-heading__copy">
+              <div className="section-heading__eyebrow">Source Membership</div>
+              <h2 className="section-heading__title">도메인 Source</h2>
+              <p className="section-heading__description">
+                기존 corpus source를 선택한 도메인에 연결하거나 분리합니다.
+              </p>
+            </div>
+          </div>
+          {!selectedDomainKey && (
+            <div className="empty-state empty-state--compact">
+              <h3>도메인을 선택하세요</h3>
+              <p>위 목록에서 Sources를 눌러 source 연결 상태를 관리합니다.</p>
+            </div>
+          )}
+          {selectedDomainKey && sourcePanelLoading && (
+            <div className="domain-source-manager__loading">Loading sources</div>
+          )}
+          {selectedDomainKey && !sourcePanelLoading && domainDetail && (
+            <>
+              <div className="domain-source-manager__summary">
+                <strong>{domainDetail.domain?.displayName || selectedDomainKey}</strong>
+                <span>{formatNumber(domainDetail.sources?.length)} linked sources</span>
+              </div>
+              <form className="domain-source-manager__form" onSubmit={attachSource}>
+                <label>
+                  <span>Available Source</span>
+                  <select
+                    value={attachSourceId}
+                    onChange={(event) => setAttachSourceId(event.target.value)}
+                    disabled={sourceMutation || attachableSources.length === 0}
+                  >
+                    <option value="">선택</option>
+                    {attachableSources.map((source) => (
+                      <option key={source.sourceId} value={source.sourceId}>
+                        {source.productName || source.sourceId} · {source.sourceId}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  <span>Role</span>
+                  <input
+                    value={attachRole}
+                    onChange={(event) => setAttachRole(event.target.value)}
+                    placeholder="primary"
+                  />
+                </label>
+                <button
+                  type="submit"
+                  className="button button--primary"
+                  disabled={sourceMutation || !attachSourceId}
+                >
+                  Attach
+                </button>
+              </form>
+              <div className="domain-source-list">
+                {(domainDetail.sources || []).length === 0 && (
+                  <div className="domain-source-list__empty">연결된 source가 없습니다.</div>
+                )}
+                {(domainDetail.sources || []).map((source) => (
+                  <div key={source.sourceId} className="domain-source-list__row">
+                    <span>
+                      <strong>{source.productName || source.sourceId}</strong>
+                      <small>{source.sourceId}</small>
+                    </span>
+                    <span>{formatNumber(source.activeDocumentCount)} docs</span>
+                    <button
+                      type="button"
+                      className="button button--ghost button--compact"
+                      disabled={sourceMutation}
+                      onClick={() => detachSource(source.sourceId)}
+                    >
+                      Detach
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
         </div>
 
         <form className="admin-card domain-create-form" onSubmit={createDomain}>
