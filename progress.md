@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-05-20] Session Summary (Domain and Prompt Schema)
+- What was done: Added additive Flyway schema for tech_doc_domain, source/method policy mapping, global prompt asset binding, seed data for Spring/Python and A-G/RAG rewrite prompts, plus nullable domain_id backfill columns across major runtime tables.
+- Key decisions: Keep strict domain enforcement for a later phase; this migration establishes catalog and backfill shape without forcing NOT NULL while existing services are being retrofitted.
+- Issues encountered: No local DB migration was executed because the current instruction is to avoid unnecessary broad DB work on a low-spec laptop.
+- Next steps: Implement backend Domain/Prompt APIs and wire the Admin GUI to the new domain/prompt catalogs.
+
 ## [2026-05-20] Session Summary (Method-Compressed Stress Eval Datasets)
 - What was done: Built separate Spring method-compressed stress eval datasets from existing accepted synthetic queries in gating batches A/B/C/D/E, 80 items each, and upserted them into `eval_dataset`, `eval_samples`, and `eval_dataset_item`.
 - Key decisions: Kept canonical V5 short-user datasets unchanged. The new datasets use actual DB synthetic queries as source text, compress them into short-user anchor queries, preserve expected doc/chunk grounding, and prioritize `far`/`near` multi-chunk rows to make retrieval deliberately challenging without fabricating metrics.

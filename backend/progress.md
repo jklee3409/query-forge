@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-05-20] Session Summary (Domain and Prompt Schema)
+- What was done: Added Flyway migration V35__add_domain_and_prompt_management.sql for first-class technical document domains, domain-source/method policy seed data, global prompt asset bindings, and nullable domain_id columns across corpus/synthetic/gating/memory/eval/RAG/anchor/job tables.
+- Key decisions: Kept prompt assets above domains, kept A-G raw strategy tables split, seeded Spring/Python domains without strict NOT NULL enforcement, and backfilled only deterministic same-domain mappings.
+- Issues encountered: No DB migration was executed yet to avoid broad local DB work on the low-spec environment.
+- Next steps: Add backend read APIs for domains and prompt bindings, then wire domain filters into Admin flows incrementally.
+
 ## [2026-05-20] Session Summary (Admin RAG Hint Defaults)
 - What was done: Updated Admin RAG config generation so `rewrite_threshold` defaults to `0.05`, generated configs include intent-preserving memory lookup and rewrite memory-hint retrieval, and `short_user` rewrite adoption is relaxed through explicit config metadata.
 - Key decisions: Kept multi-source anchor expansion behind the existing toggle and kept direct synthetic-query replacement out of the default path.

@@ -3,6 +3,12 @@
 ## Overview
 High-level progress tracking for the `docs` directory.
 
+## [2026-05-20] Session Summary (Domain and Prompt Schema Implementation)
+- What was done: Added the first implementation migration for the domain pipeline integration design: domain tables, prompt bindings, seed mappings, nullable `domain_id` columns, and deterministic backfill SQL.
+- Key decisions: Kept this phase additive and nullable so backend/API/frontend migration can proceed before strict enforcement.
+- Issues encountered: No DB migration was executed in this step to avoid unnecessary local DB load.
+- Next steps: Implement backend Domain and Prompt admin APIs against the new schema.
+
 ## [2026-05-20] Session Summary (Global Prompt Management Design)
 - What was done: Updated `docs/architecture/domain_pipeline_integration_design.md` to explicitly model shared prompt assets and bindings above technical document domains.
 - Key decisions: Kept A/B/C/D/E/F/G query-generation prompts and RAG rewrite prompts as global assets, added a `prompt_asset_binding` concept, and scoped prompt editing to a domain-independent Admin Prompt Studio.
