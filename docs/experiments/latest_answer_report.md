@@ -1,16 +1,16 @@
 # Latest Answer Report
 
-- experiment_key: `admin_eval_bfcbd02325f7`
+- experiment_key: `admin_eval_b8fe7829c0c8`
 - sample_count: `80`
 
 | metric | value |
 | --- | ---: |
-| correctness | 0.4616 |
-| grounding | 1.0000 |
-| hallucination_rate | 0.0000 |
+| correctness | 0.5327 |
+| grounding | 0.9625 |
+| hallucination_rate | 0.0375 |
 | keyword_overlap | 0.0000 |
-| answer_relevance | 0.1890 |
-| faithfulness | 0.0409 |
-| context_precision | 0.1025 |
-| context_recall | 0.4500 |
-| rewrite_adoption_rate | 0.0000 |
+| answer_relevance | 0.2133 |
+| faithfulness | 0.0737 |
+| context_precision | 0.1119 |
+| context_recall | 0.4562 |
+| rewrite_adoption_rate | 0.1000 |
