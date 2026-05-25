@@ -3,6 +3,30 @@
 ## Overview
 High-level progress tracking for the project.
 
+## [2026-05-25] Session Summary (Domain-Neutral Query Generation Prompts)
+- What was done: Updated `prompts/query_generation/gen_a_v1.md`, `gen_b_v1.md`, `gen_c_v1.md`, and `gen_d_v1.md` to replace Spring-specific anchor guidance with generic source-grounded technical-document anchors.
+- Key decisions: Removed C's domain-specific `SAP flow` wording, preserved all output schemas and prompt versions, and left E/F/G unchanged because no Spring/Python-dependent wording was present.
+- Issues encountered: Prompt validation was static only; no LLM generation or pipeline run was executed.
+- Next steps: Inspect the next cross-domain synthetic generation samples for anchor fidelity without Spring/Python bias.
+
+## [2026-05-25] Session Summary (RAG Runtime Defaults Catalog)
+- What was done: Added `rewrite_memory_candidate_pool_n` and `retriever_mode_defaults` to `app/model_catalog.yml` so Admin RAG default threshold/top-K/rerank/candidate-pool/mode-weight values are served from one catalog.
+- Key decisions: The catalog is now the source for frontend form hydration and backend omitted-field defaults; fallback constants remain only for catalog-missing safety.
+- Issues encountered: Static config and targeted backend/frontend validation only; no live Admin API smoke was run.
+- Next steps: Add future RAG GUI runtime defaults to this catalog before wiring UI controls.
+
+## [2026-05-25] Session Summary (Rewrite Prompts Retrieval Context)
+- What was done: Updated Korean/code-mixed `selective_rewrite_v2` and English `selective_rewrite_en_v1` prompts to consume `retrieval_context`, including backend/vector store/retriever mode/embedding model/fusion weights.
+- Key decisions: The rewrite output schema did not change; LLM now receives retriever-aware guidance while synthetic queries remain examples and anchor evidence only.
+- Issues encountered: No live LLM prompt execution was run.
+- Next steps: Inspect real rewrite payloads from a fixed-snapshot rerun to verify candidate structures differ between BM25, dense, and hybrid modes.
+
+## [2026-05-25] Session Summary (Selective Rewrite v4 Global Few-Shot)
+- What was done: Updated `prompts/rewrite/selective_rewrite_v2.md` to version `v4`, making the rewrite prompt global across technical-doc domains and expanding the examples to five few-shots with explicit synthetic-example and anchor-injection roles.
+- Key decisions: Synthetic queries remain search-friendly examples only, never raw-query replacements. The prompt now requires at least one retriever-specific candidate when compatible anchors exist and rejects shorter/vaguer rewrites as a prompt-level behavior.
+- Issues encountered: Static prompt inspection only; no live LLM or DB run was executed.
+- Next steps: Compare fixed-snapshot rewrite traces to confirm candidates preserve raw intent while adding compatible anchors from A/C memory.
+
 ## [2026-05-25] Session Summary (RAG Rewrite Threshold Catalog Default)
 - What was done: Updated `app/model_catalog.yml` so `default_parameter_ranges.rewrite_threshold.default` is `0.02`.
 - Key decisions: Kept min/max unchanged and aligned the catalog default with Admin backend/frontend runtime defaults.

@@ -1,5 +1,17 @@
 # progress.md
 
+## [2026-05-25] Session Summary (RAG Runtime Catalog Defaults)
+- What was done: Extended runtime options to expose `defaultRetrieverMode` and `retrieverModeDefaults` from `configs/app/model_catalog.yml`, and made RAG run creation use catalog defaults for omitted threshold/top-K/rerank/retriever values.
+- Key decisions: Kept constants only as fallback when the catalog is unavailable or incomplete; final RAG experiment records now copy actual run config values instead of hardcoded fallback numbers.
+- Issues encountered: No DB migration execution was performed.
+- Next steps: Keep new Admin RAG parameters in `model_catalog.yml` first, then expose them through runtime options instead of adding frontend/backend defaults.
+
+## [2026-05-25] Session Summary (Selective Rewrite Prompt Seed)
+- What was done: Added Flyway migration `V38__seed_selective_rewrite_v2_v4_prompt_asset.sql` to register Korean/code-mixed `selective_rewrite_v2` metadata version `v4`, English `selective_rewrite_en_v1` metadata version `v2`, and bind `rag_rewrite.ko` / `rag_rewrite.en` to those active file-backed assets.
+- Key decisions: Migration is catalog metadata only; it does not alter rewrite runtime code, retrieval scoring, synthetic memory tables, or stored synthetic query text.
+- Issues encountered: No DB migration execution was performed in this low-scope prompt edit.
+- Next steps: Apply Flyway in the runtime DB when Prompt Studio/catalog metadata should show v4 as active.
+
 ## [2026-05-25] Session Summary (Admin Rewrite Threshold Alignment)
 - What was done: Changed Admin RAG rewrite threshold fallback/base defaults to `0.02`, added `rewrite_memory_candidate_pool_n=20` to generated configs, and refreshed the backend-served React bundle from the frontend build.
 - Key decisions: Reused one backend constant for request fallback, runtime option fallback, and generated experiment config to prevent GUI/backend/catalog drift.

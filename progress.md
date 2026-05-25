@@ -1,5 +1,29 @@
 # progress.md
 
+## [2026-05-25] Session Summary (Domain-Neutral A-D Query Prompts)
+- What was done: Generalized Spring-leaning anchor instructions in A/B/C/D synthetic query prompts to source-grounded technical-document anchors and removed the C prompt's domain-specific flow wording.
+- Key decisions: Left E/F/G unchanged because their query-generation prompts already avoid Spring/Python-specific wording; prompt versions and schemas were preserved.
+- Issues encountered: Validation was limited to targeted prompt grep/diff inspection; no live LLM generation run was executed.
+- Next steps: Re-register prompt assets during the next synthetic generation run and spot-check A-D outputs across non-Spring domains.
+
+## [2026-05-25] Session Summary (Rewrite Retrieval Context and Catalog Defaults)
+- What was done: Added actual retrieval runtime context (`retrieval_backend`, vector store, retriever mode, dense embedding model, fusion weights, top-K/candidate pool) to the selective rewrite LLM payload and prompt instructions. Centralized Admin RAG default parameters and retriever mode presets through `configs/app/model_catalog.yml` and runtime options.
+- Key decisions: Frontend RAG form now hydrates defaults from backend runtime options instead of hardcoded GUI values; backend RAG run creation uses catalog defaults when request fields are omitted. Existing rewrite candidate JSON schema remains unchanged.
+- Issues encountered: Frontend lint initially flagged a helper named `useServerDefault` as a hook; renamed it before validation.
+- Next steps: Rerun the same fixed snapshot/dataset conditions to confirm rewrite adoption and bad-rewrite rate improve under retrieval-context-aware prompting.
+
+## [2026-05-25] Session Summary (AGENTS Rewrite Semantics + Resource Safety)
+- What was done: Updated `.codex/AGENTS.md` to align RAG rewrite rules with the current Admin GUI flow where synthetic memory is used only as LLM few-shot examples/context, not as direct synthetic-query replacement. Added a mandatory low-spec laptop resource-safety rule.
+- Key decisions: Preserved legacy memory-only retrieval as explicit ablation behavior, required final rewrite evaluation to use raw query or one selected LLM-generated rewritten query, and prohibited whole-project scans plus indiscriminate DB queries.
+- Issues encountered: Validation was limited to targeted AGENTS/progress review and scoped backend/frontend/runtime inspection; no DB queries, full project scans, builds, or tests were run.
+- Next steps: Keep AGENTS, Admin GUI copy, and RAG runtime comments synchronized if rewrite semantics change again.
+
+## [2026-05-25] Session Summary (Global Rewrite Prompt v4)
+- What was done: Strengthened `selective_rewrite_v2` into v4 with a global technical-document domain contract, explicit "synthetic examples are not replacements" policy, minimum rewrite-value rule, and five domain-diverse few-shot examples preserving anchor injection.
+- Key decisions: Kept the existing JSON schema, candidate labels, anchor injection inputs, and prompt-only synthetic memory flow; added a catalog migration to bind `rag_rewrite.ko` to v4 without applying DB changes locally.
+- Issues encountered: Validation was limited to static prompt/migration inspection to avoid broad DB or pipeline work on the low-spec environment.
+- Next steps: Rerun the same snapshot/dataset RAG comparisons for the two referenced runs and inspect rewrite adoption plus bad-rewrite traces.
+
 ## [2026-05-25] Session Summary (Admin Rewrite Threshold Default)
 - What was done: Aligned Admin RAG rewrite threshold defaults across backend fallback/base config, frontend form, and model catalog to `0.02`, added the rewrite memory candidate pool default, and refreshed the backend-served React bundle.
 - Key decisions: Kept the slider range unchanged, but removed the conflicting `0.05`/`0.10` defaults that made selective rewrite adoption stricter than the short-user policy.

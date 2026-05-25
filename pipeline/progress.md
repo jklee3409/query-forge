@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-05-25] Session Summary (Rewrite Payload Retrieval Context)
+- What was done: Added `retrieval_context` to selective rewrite LLM payloads, including runtime retrieval backend, vector store, retriever name/mode, dense embedding model, fusion weights, top-K, and memory candidate pool sizes.
+- Key decisions: The context is metadata-only and does not change candidate schema, memory selection, retrieval scoring, or adoption policy; LLM uses it only to choose query structure.
+- Issues encountered: Targeted py_compile and rewrite payload unit test passed.
+- Next steps: Compare rewrite traces across BM25/dense/hybrid modes after a fixed-snapshot rerun.
+
 ## [2026-05-25] Session Summary (Rewrite Memory Rerank and Anchor Coverage)
 - What was done: Added rewrite-memory candidate pool reranking from raw top-K overlap, target chunk/doc metadata, canonical anchors, utility score, and product match. Extended rewrite candidate diagnostics with source memory target hits and LLM-declared anchor coverage validation.
 - Key decisions: Prompt memory rows are now sanitized and indexed; downstream code uses `source_memory_index` to validate target-hit evidence without exposing memory/document/chunk IDs to the LLM.

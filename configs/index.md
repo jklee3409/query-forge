@@ -35,6 +35,10 @@
 ---
 
 ## Recent Notes
+- `app/model_catalog.yml` now owns Admin RAG retriever mode defaults (`retriever_mode_defaults`) and rewrite memory candidate pool defaults, so frontend controls and backend omitted-field behavior are both hydrated from runtime options.
+- Rewrite prompts now accept `retrieval_context` so the LLM sees actual retrieval backend, vector store, retriever mode, embedding model, fusion weights, top-K, and candidate-pool values before generating candidates.
+- `prompts/rewrite/selective_rewrite_en_v1.md` is now version `v2`, with retrieval-context guidance and five few-shot examples aligned with the Korean/code-mixed rewrite prompt.
+- `prompts/rewrite/selective_rewrite_v2.md` is now version `v4`, with a global technical-document rewrite contract, five domain-diverse few-shot examples, and explicit policy that synthetic queries are retrieval-anchor examples rather than replacements for the raw user query.
 - `app/model_catalog.yml` now defaults `rewrite_threshold` to `0.02`, matching Admin backend/frontend RAG defaults.
 - selective rewrite prompts now use sanitized memory rows (`synthetic_query`, target title/section, glossary/canonical anchors, evidence summary) and require candidate metadata fields `preserved_raw_terms`, `added_anchors`, `source_memory_index`, and `intent_risk`.
 - selective rewrite prompts now state that `top_memory_candidates` are synthetic query examples / compatible retrieval-anchor context only; they must not be copied wholesale or used as direct retrieval queries.

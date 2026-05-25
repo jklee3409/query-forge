@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-05-25] Session Summary (RAG Runtime Defaults Hydration)
+- What was done: Changed `/admin/rag-tests` form hydration so threshold, retrieval Top-K, rerank Top-N, retriever mode defaults, candidate pool, and fusion weights come from backend runtime options instead of local hardcoded defaults.
+- Key decisions: The form starts with empty values until runtime options load; omitted request values are handled by backend catalog defaults, keeping GUI and server behavior aligned.
+- Issues encountered: ESLint initially treated `useServerDefault` as a React hook; helper was renamed and targeted lint passed with existing hook dependency warnings.
+- Next steps: Browser-smoke the RAG form to confirm the catalog defaults display correctly after load.
+
 ## [2026-05-25] Session Summary (RAG Rewrite Threshold Default)
 - What was done: Changed `/admin/rag-tests` form initialization so the selective rewrite threshold displays `0.02` by default and rebuilt the production React bundle served by the backend.
 - Key decisions: Kept the existing slider/input range and request payload field unchanged; the default now matches backend/catalog policy.

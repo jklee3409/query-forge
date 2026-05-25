@@ -34,6 +34,7 @@
 ---
 
 ## Recent Update
+- `/admin/rag-tests` now hydrates RAG runtime defaults from backend runtime options (`model_catalog.yml`), including threshold, retrieval/rerank Top-N, retriever mode defaults, candidate pool, and fusion weights instead of keeping separate frontend constants.
 - `/admin/rag-tests` now initializes the selective rewrite threshold at `0.02`, aligned with backend/catalog defaults.
 - `/admin/rag-tests` now describes the prompt-only synthetic-memory rewrite flow: raw retrieval baseline, synthetic memory lookup for LLM examples only, LLM final query generation, raw-vs-rewrite adoption, and final evaluation from one retrieval result set. The rewrite retrieval merge strategy control and payload field were removed.
 - Domain Atlas now includes a Source Membership panel: registry rows expose a Sources action, selected domains show linked corpus sources, and operators can attach or detach existing sources through the domain Admin API.
