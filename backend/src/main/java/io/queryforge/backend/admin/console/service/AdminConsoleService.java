@@ -77,6 +77,8 @@ public class AdminConsoleService {
     private static final double DEFAULT_HYBRID_BM25_WEIGHT = 0.34d;
     private static final double DEFAULT_HYBRID_TECHNICAL_WEIGHT = 0.08d;
     private static final int DEFAULT_RAG_RETRIEVAL_TOP_K = 10;
+    private static final double DEFAULT_REWRITE_THRESHOLD = 0.02d;
+    private static final int DEFAULT_REWRITE_MEMORY_CANDIDATE_POOL_N = 20;
     private static final int DEFAULT_RETRIEVER_CANDIDATE_POOL_K = 50;
     private static final double DEFAULT_RAG_HYBRID_DENSE_WEIGHT = 0.60d;
     private static final double DEFAULT_RAG_HYBRID_BM25_WEIGHT = 0.32d;
@@ -810,7 +812,7 @@ public class AdminConsoleService {
                 request.runName(),
                 retrievalBackend + ":" + String.valueOf(retrieverConfig.get("retriever_mode"))
         );
-        double threshold = request.threshold() != null ? request.threshold() : 0.05d;
+        double threshold = request.threshold() != null ? request.threshold() : DEFAULT_REWRITE_THRESHOLD;
         String rewriteFailurePolicy = normalizeRewriteFailurePolicy(request.rewriteFailurePolicy());
         validateRewriteFailurePolicySelection(rewriteFailurePolicy, runtimeCatalog);
         String stageCutoffLevel = normalizeStageCutoffLevel(request.stageCutoffLevel(), gatingPreset);
@@ -1604,7 +1606,7 @@ public class AdminConsoleService {
         LinkedHashMap<String, AdminConsoleDtos.RuntimeParameterRange> ranges = new LinkedHashMap<>();
         ranges.put("retrieval_top_k", new AdminConsoleDtos.RuntimeParameterRange(1.0d, 100.0d, (double) DEFAULT_RAG_RETRIEVAL_TOP_K));
         ranges.put("rerank_top_n", new AdminConsoleDtos.RuntimeParameterRange(1.0d, 100.0d, 5.0d));
-        ranges.put("rewrite_threshold", new AdminConsoleDtos.RuntimeParameterRange(0.0d, 1.0d, 0.05d));
+        ranges.put("rewrite_threshold", new AdminConsoleDtos.RuntimeParameterRange(0.0d, 1.0d, DEFAULT_REWRITE_THRESHOLD));
         ranges.put("retriever_candidate_pool_k", new AdminConsoleDtos.RuntimeParameterRange(1.0d, 500.0d, (double) DEFAULT_RETRIEVER_CANDIDATE_POOL_K));
         return Map.copyOf(ranges);
     }
@@ -2922,6 +2924,7 @@ public class AdminConsoleService {
 
         Map<String, Object> shortUserBonuses = new LinkedHashMap<>();
         shortUserBonuses.put("memory_target_presence", 0.10d);
+        shortUserBonuses.put("source_memory_target_hit_margin", DEFAULT_REWRITE_THRESHOLD);
 
         Map<String, Object> shortUserPolicy = new LinkedHashMap<>();
         shortUserPolicy.put("thresholds", shortUserThresholds);
@@ -2965,7 +2968,8 @@ public class AdminConsoleService {
         config.put("llm_batch_size", 20);
         config.put("memory_top_n", 5);
         config.put("rewrite_candidate_count", 3);
-        config.put("rewrite_threshold", 0.05);
+        config.put("rewrite_threshold", DEFAULT_REWRITE_THRESHOLD);
+        config.put("rewrite_memory_candidate_pool_n", DEFAULT_REWRITE_MEMORY_CANDIDATE_POOL_N);
         config.put("rewrite_failure_policy", REWRITE_FAILURE_POLICY_FAIL_RUN);
         config.put("rewrite_adoption_policy", relaxedShortUserRewriteAdoptionPolicy());
         config.put("memory_lookup_intent_preserving_enabled", true);

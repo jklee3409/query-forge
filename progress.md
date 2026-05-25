@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-05-25] Session Summary (Admin Rewrite Threshold Default)
+- What was done: Aligned Admin RAG rewrite threshold defaults across backend fallback/base config, frontend form, and model catalog to `0.02`, added the rewrite memory candidate pool default, and refreshed the backend-served React bundle.
+- Key decisions: Kept the slider range unchanged, but removed the conflicting `0.05`/`0.10` defaults that made selective rewrite adoption stricter than the short-user policy.
+- Issues encountered: Targeted frontend ESLint passed with existing `RagPage.jsx` hook dependency warnings. `npm run build` and backend `compileJava` passed.
+- Next steps: Run the fixed-snapshot Admin RAG comparison only after DB/runtime credentials are ready.
+
 ## [2026-05-25] Session Summary (RAG Rewrite Memory Rerank and Schema)
 - What was done: Reranked synthetic memory candidates with raw top-K chunk/doc overlap, memory target metadata, canonical-anchor overlap, utility score, and product/domain match. Sanitized rewrite prompt memory rows to hide internal IDs and extended LLM output metadata with preserved terms, added anchors, source memory index, and intent risk, then validated anchor coverage after generation.
 - Key decisions: The prompt now receives only synthetic query, target title/section, glossary/canonical anchors, and a short evidence summary. Post-processing rejects high intent-risk, invalid source index, missing preserved terms, or declared anchors absent from the query.

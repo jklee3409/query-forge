@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-05-25] Session Summary (Admin Rewrite Threshold Alignment)
+- What was done: Changed Admin RAG rewrite threshold fallback/base defaults to `0.02`, added `rewrite_memory_candidate_pool_n=20` to generated configs, and refreshed the backend-served React bundle from the frontend build.
+- Key decisions: Reused one backend constant for request fallback, runtime option fallback, and generated experiment config to prevent GUI/backend/catalog drift.
+- Issues encountered: `.\gradlew.bat compileJava` passed. Frontend `npm run build` passed and replaced the hashed React JS asset.
+- Next steps: Use a fixed snapshot rerun to verify adoption rate and bad rewrite rate with the new threshold.
+
 ## [2026-05-25] Session Summary (Admin React Bundle Refresh - RAG History UI)
 - What was done: Refreshed the backend-served React bundle after the RAG history UI change that puts method codes first and shows completed-run KST start time plus elapsed duration.
 - Key decisions: No backend Java/API/schema behavior changed; the existing RAG run list already exposes `startedAt` and `finishedAt`.

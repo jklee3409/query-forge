@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-05-25] Session Summary (RAG Rewrite Threshold Default)
+- What was done: Changed `/admin/rag-tests` form initialization so the selective rewrite threshold displays `0.02` by default and rebuilt the production React bundle served by the backend.
+- Key decisions: Kept the existing slider/input range and request payload field unchanged; the default now matches backend/catalog policy.
+- Issues encountered: Targeted ESLint passed with existing `RagPage.jsx` hook dependency warnings. `npm run build` passed.
+- Next steps: Browser-smoke a fresh RAG form load to confirm the default threshold is visible.
+
 ## [2026-05-25] Session Summary (RAG History Method and Duration Display)
 - What was done: Changed `/admin/rag-tests` history generation tags to show the method code first (`A method`, `C method`) and added a completed-run elapsed display mode to `RemainingEta` that renders KST start time above actual duration.
 - Key decisions: Scoped the elapsed display to RAG history by opt-in props so Synthetic/Gating/LLM job ETA rendering keeps existing behavior.

@@ -3,6 +3,12 @@
 ## Overview
 High-level progress tracking for the project.
 
+## [2026-05-25] Session Summary (RAG Rewrite Threshold Catalog Default)
+- What was done: Updated `app/model_catalog.yml` so `default_parameter_ranges.rewrite_threshold.default` is `0.02`.
+- Key decisions: Kept min/max unchanged and aligned the catalog default with Admin backend/frontend runtime defaults.
+- Issues encountered: Catalog edit was validated through backend compile and frontend runtime build in the same stage.
+- Next steps: Keep future GUI defaults sourced from the catalog where practical to avoid another split-brain threshold.
+
 ## [2026-05-25] Session Summary (Rewrite Prompt Structured Metadata)
 - What was done: Updated Korean/code-mixed and English selective rewrite prompts to consume sanitized memory rows and emit `query`, `preserved_raw_terms`, `added_anchors`, `source_memory_index`, and `intent_risk` for every candidate.
 - Key decisions: Internal memory/document/chunk IDs are explicitly forbidden; `source_memory_index` is only a prompt-local index used by post-processing.

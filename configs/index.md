@@ -35,6 +35,7 @@
 ---
 
 ## Recent Notes
+- `app/model_catalog.yml` now defaults `rewrite_threshold` to `0.02`, matching Admin backend/frontend RAG defaults.
 - selective rewrite prompts now use sanitized memory rows (`synthetic_query`, target title/section, glossary/canonical anchors, evidence summary) and require candidate metadata fields `preserved_raw_terms`, `added_anchors`, `source_memory_index`, and `intent_risk`.
 - selective rewrite prompts now state that `top_memory_candidates` are synthetic query examples / compatible retrieval-anchor context only; they must not be copied wholesale or used as direct retrieval queries.
 - selective rewrite v2 is now metadata version `v3`, preserving the runtime schema/labels while prioritizing English technical-document anchor overlap for Korean/code-mixed queries.
