@@ -2212,6 +2212,14 @@ textarea:focus-visible,
   line-height: 1.2;
 }
 
+.remaining-eta__timestamp {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  color: #6a7890;
+  line-height: 1.25;
+}
+
 .remaining-eta__meta {
   display: flex;
   flex-wrap: wrap;
@@ -5269,6 +5277,7 @@ textarea {
 .run-history-exec__meta,
 .remaining-eta__meta,
 .remaining-eta__label,
+.remaining-eta__timestamp,
 .compare-run-card__meta,
 .compare-overview-card__label,
 .compare-overview-card__meta,

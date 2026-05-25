@@ -1239,7 +1239,7 @@ function toHistoryTag(kind, icon, text, title = null) {
 function buildGenerationMethodTags(methodCodes) {
   const codes = listGenerationMethodCodes(methodCodes)
   if (!codes.length) return [toHistoryTag('method', 'SF', 'synthetic-free')]
-  return codes.map((code) => toHistoryTag('method', 'M', `Method ${code}`))
+  return codes.map((code) => toHistoryTag('method', 'M', `${code} method`, `Method ${code}`))
 }
 
 function buildGatingTags(run) {
@@ -3130,6 +3130,9 @@ export function RagPage({ notify, domainId = null }) {
                         unitLabel="단계"
                         status={run.status}
                         compact
+                        startedAt={run.startedAt}
+                        finishedAt={run.finishedAt}
+                        showCompletedElapsed
                       />
                     </td>
                     <td>

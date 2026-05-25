@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-05-25] Session Summary (RAG History Method and Completed Duration UI)
+- What was done: Updated the Admin RAG test history so generation method tags start with the actual method code (for example `A method`, `C method`) and completed RAG runs show KST start time plus elapsed duration instead of a remaining ETA of `00:00`.
+- Key decisions: Kept backend RAG run DTO/API shape unchanged because `startedAt` and `finishedAt` are already returned; the change is frontend display-only plus a refreshed backend-served React bundle.
+- Issues encountered: Targeted frontend ESLint passed with the existing `RagPage.jsx` hook dependency warnings. `npm run build` passed.
+- Next steps: Browser-smoke `/admin/domains/spring/rag-tests` on a narrow viewport to confirm method codes and completed-duration cards remain readable.
+
 ## [2026-05-25] Session Summary (Short-Query Rewrite Adoption Analysis)
 - What was done: Analyzed RAG run `ea464740-6143-424f-9a9a-dac9112289e8` and confirmed low rewrite adoption is mainly from strict delta and verbosity gates on short-user queries, not missing expected chunks. Added a compact-query absolute length allowance to selective rewrite adoption and aligned the Korean rewrite prompt with that gate.
 - Key decisions: Kept the prompt-only synthetic-memory rewrite architecture unchanged; only short-user adoption policy/prompt wording was adjusted.

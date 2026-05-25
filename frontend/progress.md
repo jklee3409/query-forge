@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-05-25] Session Summary (RAG History Method and Duration Display)
+- What was done: Changed `/admin/rag-tests` history generation tags to show the method code first (`A method`, `C method`) and added a completed-run elapsed display mode to `RemainingEta` that renders KST start time above actual duration.
+- Key decisions: Scoped the elapsed display to RAG history by opt-in props so Synthetic/Gating/LLM job ETA rendering keeps existing behavior.
+- Issues encountered: Targeted ESLint passed with the existing `RagPage.jsx` hook dependency warnings. `npm run build` passed.
+- Next steps: Visual-smoke completed and running RAG rows in the Spring domain workspace at smaller widths.
+
 ## [2026-05-20] Session Summary (RAG Rewrite Settings Simplification)
 - What was done: Simplified `/admin/rag-tests` advanced rewrite settings by removing the rewrite retrieval merge strategy selector and request payload field.
 - Key decisions: Added operator copy explaining that synthetic memory is only LLM rewrite context, is not searched or merged directly, and final metrics use either raw retrieval or adopted rewritten-query retrieval.

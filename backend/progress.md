@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-05-25] Session Summary (Admin React Bundle Refresh - RAG History UI)
+- What was done: Refreshed the backend-served React bundle after the RAG history UI change that puts method codes first and shows completed-run KST start time plus elapsed duration.
+- Key decisions: No backend Java/API/schema behavior changed; the existing RAG run list already exposes `startedAt` and `finishedAt`.
+- Issues encountered: Frontend `npm run build` passed and replaced the hashed React JS/CSS assets under `src/main/resources/static/react`.
+- Next steps: Serve the refreshed bundle only if testing through the Spring Boot static route instead of the Vite dev server.
+
 ## [2026-05-25] Session Summary (Short-User Rewrite Policy Cap)
 - What was done: Added `max_compact_query_chars=56` to the Admin-generated short-user rewrite adoption policy so very short compressed queries can accept compact anchor-expanded candidates without tripping the ratio-only verbosity gate.
 - Key decisions: Left `rewrite_threshold`, snapshot validation, prompt-only memory usage, and retrieval mode generation unchanged.
