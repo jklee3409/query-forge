@@ -140,6 +140,44 @@ RETRIEVAL_BACKEND_LOCAL = "local"
 RETRIEVAL_BACKEND_DB_ANN = "db_ann"
 
 
+def retrieval_candidates_to_payload(retrieval: list[RetrievalCandidate]) -> list[dict[str, Any]]:
+    return [
+        {
+            "chunk_id": candidate.chunk_id,
+            "document_id": candidate.document_id,
+            "score": candidate.score,
+            "text": candidate.text,
+        }
+        for candidate in retrieval
+    ]
+
+
+def retrieval_candidates_from_payload(payload: Any) -> list[RetrievalCandidate]:
+    if not isinstance(payload, list):
+        return []
+    candidates: list[RetrievalCandidate] = []
+    for row in payload:
+        if not isinstance(row, Mapping):
+            continue
+        chunk_id = str(row.get("chunk_id") or "").strip()
+        document_id = str(row.get("document_id") or "").strip()
+        if not chunk_id or not document_id:
+            continue
+        try:
+            score = float(row.get("score") or 0.0)
+        except (TypeError, ValueError):
+            score = 0.0
+        candidates.append(
+            RetrievalCandidate(
+                chunk_id=chunk_id,
+                document_id=document_id,
+                score=score,
+                text=str(row.get("text") or ""),
+            )
+        )
+    return candidates
+
+
 def normalize_retrieval_backend(value: str | None) -> str:
     normalized = str(value or RETRIEVAL_BACKEND_LOCAL).strip().lower().replace("-", "_")
     return RETRIEVAL_BACKEND_DB_ANN if normalized == RETRIEVAL_BACKEND_DB_ANN else RETRIEVAL_BACKEND_LOCAL
@@ -475,7 +513,7 @@ class DbAnnRuntimeRetrievalAdapter:
                 JOIN corpus_chunks c ON c.chunk_id = ce.chunk_id
                 JOIN corpus_documents d ON d.document_id = c.document_id
                 WHERE {' AND '.join(where_clauses)}
-                ORDER BY ce.embedding <=> CAST(%s AS halfvec)
+                ORDER BY ce.embedding <=> CAST(%s AS halfvec), c.chunk_id
                 LIMIT %s
                 """,
                 sql_parameters,
@@ -634,7 +672,7 @@ class DbAnnRuntimeRetrievalAdapter:
                 FROM memory_entries m
                 LEFT JOIN synthetic_queries_gated g ON g.gated_query_id = m.source_gated_query_id
                 WHERE {' AND '.join(where_clauses)}
-                ORDER BY m.query_embedding <=> CAST(%s AS halfvec)
+                ORDER BY m.query_embedding <=> CAST(%s AS halfvec), m.memory_id
                 LIMIT %s
                 """,
                 [embedding_literal, *parameters],
@@ -3223,6 +3261,8 @@ def run_selective_rewrite(
     rewrite_adoption_policy: dict[str, Any] | None = None,
     retriever_config: RetrieverConfig | None = None,
     retrieval_adapter: DbAnnRuntimeRetrievalAdapter | None = None,
+    raw_retrieval: list[RetrievalCandidate] | None = None,
+    source_product: str | None = None,
     # Legacy compatibility knobs. They are intentionally ignored by the default
     # rewrite evaluator so memory hints cannot enter final retrieval.
     rewrite_memory_hint_retrieval_enabled: bool = False,
@@ -3241,12 +3281,16 @@ def run_selective_rewrite(
     #   final rewrite-query adoption decision, excluding downstream answer scoring.
     config = retriever_config or build_retriever_config({})
     rewrite_started = time.perf_counter()
-    raw_retrieval = retrieve_top_k(
-        raw_query,
-        chunks,
-        top_k=retrieval_top_k,
-        retriever_config=config,
-        retrieval_adapter=retrieval_adapter,
+    raw_retrieval = (
+        list(raw_retrieval)
+        if raw_retrieval is not None
+        else retrieve_top_k(
+            raw_query,
+            chunks,
+            top_k=retrieval_top_k,
+            retriever_config=config,
+            retrieval_adapter=retrieval_adapter,
+        )
     )
     memory_items = memory_top_n(
         raw_query,
@@ -3442,7 +3486,9 @@ def run_selective_rewrite(
             rejection_reason = "preservation_below_floor"
         elif retrieval_gain_score < min_retrieval_gain_score:
             rejection_reason = "retrieval_gain_below_floor"
-        elif adoption_margin < effective_threshold:
+        elif memory_target_metrics["missing_memory_target"]:
+            rejection_reason = "missing_memory_target"
+        elif not force_rewrite and adoption_margin < effective_threshold:
             rejection_reason = "delta_below_threshold"
 
         eligible = not rejection_reason
@@ -3538,7 +3584,9 @@ def run_selective_rewrite(
     else:
         final_retrieval = raw_retrieval
     reason = (
-        "delta_above_threshold"
+        "forced"
+        if should_apply and force_rewrite
+        else "delta_above_threshold"
         if should_apply
         else "candidate_same_as_raw"
         if same_query
@@ -3557,6 +3605,7 @@ def run_selective_rewrite(
         "adoption_margin": selected_candidate.get("adoption_margin", 0.0),
         "effective_threshold": selected_candidate.get("effective_threshold", 0.0),
         "eligible": bool(selected_candidate.get("eligible")),
+        "force_rewrite": force_rewrite,
         "rejection_reason": selected_candidate.get("rejection_reason", ""),
     }
 

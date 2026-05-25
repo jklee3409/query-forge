@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-05-25] Session Summary (RAG Raw Retrieval Reproducibility)
+- What was done: Made retrieval/answer eval compute raw retrieval once per sample, persist `raw_retrieval_cache_{experiment}.json`, and pass that same raw top-K into `raw_only`, rewrite modes, and answer evaluation. Added stable tie-breakers to local/db-ann ranking and restored `rewrite_always` force semantics while still rejecting unsafe candidates.
+- Key decisions: Raw cache generation is sequential and fail-fast on empty raw results when a candidate scope exists, matching the low-spec laptop constraint and preventing silent metric drift.
+- Issues encountered: Targeted `python -m py_compile pipeline/eval/runtime.py pipeline/eval/retrieval_eval.py pipeline/eval/answer_eval.py pipeline/common/local_retriever.py` passed. `python -m unittest pipeline.tests.test_eval_runtime pipeline.tests.test_db_ann_runtime -q` passed after hard-blocking underspecified rewrites that miss the memory target.
+- Next steps: Re-rerun the pinned Admin RAG comparison after the remaining rewrite-memory rerank/prompt/threshold stages land.
+
 ## [2026-05-25] Session Summary (RAG History Method and Completed Duration UI)
 - What was done: Updated the Admin RAG test history so generation method tags start with the actual method code (for example `A method`, `C method`) and completed RAG runs show KST start time plus elapsed duration instead of a remaining ETA of `00:00`.
 - Key decisions: Kept backend RAG run DTO/API shape unchanged because `startedAt` and `finishedAt` are already returned; the change is frontend display-only plus a refreshed backend-served React bundle.

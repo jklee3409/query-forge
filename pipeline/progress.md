@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-05-25] Session Summary (Raw Retrieval Cache and Stable Ranking)
+- What was done: Added per-sample raw retrieval precomputation for retrieval eval, shared raw cache loading for answer eval, `raw_query` rewrite-case observability, and deterministic tie-break ordering for local and DB-ANN ranking paths.
+- Key decisions: The cache is keyed by experiment output (`raw_retrieval_cache_{experiment}.json`) and reused in-process by rewrite modes; answer eval loads the persisted cache when retrieval eval already produced it, otherwise computes missing samples once.
+- Issues encountered: Targeted runtime and DB-ANN unit tests passed. Empty raw retrieval now fails the run by default when a candidate scope exists, avoiding silent raw-only row loss.
+- Next steps: Add memory-candidate reranking and sanitized rewrite prompt schema on top of the shared raw top-K context.
+
 ## [2026-05-25] Session Summary (Compact Rewrite Verbosity Gate)
 - What was done: Updated selective rewrite adoption so the verbosity rejection uses the existing length ratio plus an optional absolute compact-query cap (`max_compact_query_chars`) for short-user queries.
 - Key decisions: Kept retrieval-score improvement, terminology preservation, memory alignment, and prompt-only synthetic memory behavior unchanged.

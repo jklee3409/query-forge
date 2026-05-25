@@ -177,7 +177,7 @@ class LocalTextRetriever:
                     technical_score=technical_scores[index],
                 )
             )
-        ranked.sort(key=lambda item: item.score, reverse=True)
+        ranked.sort(key=lambda item: (-item.score, self.item_ids[item.index]))
         return ranked[: min(top_k, len(ranked))]
 
     def _build_bm25_index(self) -> None:
@@ -433,7 +433,7 @@ def rank_with_precomputed_embeddings(
                 technical_score=technical_scores[index],
             )
         )
-    ranked.sort(key=lambda item: item.score, reverse=True)
+    ranked.sort(key=lambda item: (-item.score, ids[item.index]))
     return ranked[: min(top_k, len(ranked))]
 
 

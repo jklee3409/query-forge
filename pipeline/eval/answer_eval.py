@@ -23,6 +23,7 @@ try:
     from loaders.common import connect, default_database_args
     from eval.runtime import (
         DbAnnRuntimeRetrievalAdapter,
+        RetrievalCandidate,
         RewriteOutcome,
         derive_eval_corpus_scope,
         load_chunk_items,
@@ -30,6 +31,8 @@ try:
         load_memory_items,
         load_multi_source_anchor_index,
         normalize_retrieval_backend,
+        retrieval_candidates_from_payload,
+        retrieval_candidates_to_payload,
         rerank_retrieval_candidates,
         retrieve_top_k,
         run_selective_rewrite,
@@ -44,6 +47,7 @@ except ModuleNotFoundError:  # pragma: no cover
     from pipeline.loaders.common import connect, default_database_args
     from pipeline.eval.runtime import (
         DbAnnRuntimeRetrievalAdapter,
+        RetrievalCandidate,
         RewriteOutcome,
         derive_eval_corpus_scope,
         load_chunk_items,
@@ -51,6 +55,8 @@ except ModuleNotFoundError:  # pragma: no cover
         load_memory_items,
         load_multi_source_anchor_index,
         normalize_retrieval_backend,
+        retrieval_candidates_from_payload,
+        retrieval_candidates_to_payload,
         rerank_retrieval_candidates,
         retrieve_top_k,
         run_selective_rewrite,
@@ -204,6 +210,121 @@ def _multi_source_anchor_diagnostics(payload: Any) -> dict[str, Any]:
     return diagnostics if isinstance(diagnostics, dict) else {}
 
 
+def _raw_retrieval_cache_path(output_root: Path, experiment_key: str) -> Path:
+    return output_root / f"raw_retrieval_cache_{experiment_key}.json"
+
+
+def _is_raw_retrieval_required(raw_config: dict[str, Any]) -> bool:
+    value = raw_config.get("raw_retrieval_required", True)
+    if isinstance(value, bool):
+        return value
+    return str(value or "").strip().lower() not in {"0", "false", "no", "off"}
+
+
+def _load_raw_retrieval_cache(path: Path) -> dict[str, list[RetrievalCandidate]]:
+    if not path.exists():
+        return {}
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        LOGGER.warning("raw retrieval cache could not be loaded: %s", path)
+        return {}
+    samples = payload.get("samples") if isinstance(payload, dict) else None
+    if not isinstance(samples, list):
+        return {}
+    cache: dict[str, list[RetrievalCandidate]] = {}
+    for row in samples:
+        if not isinstance(row, dict):
+            continue
+        sample_id = str(row.get("sample_id") or "").strip()
+        if not sample_id:
+            continue
+        cache[sample_id] = retrieval_candidates_from_payload(row.get("retrieval"))
+    return cache
+
+
+def _write_raw_retrieval_cache(
+    *,
+    path: Path,
+    experiment_key: str,
+    samples: list[Any],
+    raw_retrieval_by_sample: dict[str, list[RetrievalCandidate]],
+    retriever_metadata: dict[str, Any],
+    empty_sample_ids: list[str],
+) -> None:
+    sample_lookup = {sample.sample_id: sample for sample in samples}
+    rows = []
+    for sample_id in sorted(raw_retrieval_by_sample.keys()):
+        sample = sample_lookup.get(sample_id)
+        rows.append(
+            {
+                "sample_id": sample_id,
+                "raw_query": sample.query_text if sample else "",
+                "query_language": sample.query_language if sample else "",
+                "retrieval": retrieval_candidates_to_payload(raw_retrieval_by_sample[sample_id]),
+            }
+        )
+    payload = {
+        "experiment_key": experiment_key,
+        "retriever_metadata": retriever_metadata,
+        "empty_sample_ids": empty_sample_ids,
+        "samples": rows,
+    }
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def _resolve_raw_retrieval_cache(
+    *,
+    samples: list[Any],
+    chunks: Any,
+    config: Any,
+    output_root: Path,
+    retrieval_adapter: DbAnnRuntimeRetrievalAdapter | None,
+    retrieval_backend: str,
+    retriever_metadata: dict[str, Any],
+) -> tuple[dict[str, list[RetrievalCandidate]], list[str], bool]:
+    path = _raw_retrieval_cache_path(output_root, config.experiment_key)
+    raw_retrieval_by_sample = _load_raw_retrieval_cache(path)
+    missing_samples = [
+        sample
+        for sample in samples
+        if sample.sample_id not in raw_retrieval_by_sample
+    ]
+    cache_loaded = not missing_samples and bool(raw_retrieval_by_sample)
+    for sample in missing_samples:
+        raw_retrieval_by_sample[sample.sample_id] = retrieve_top_k(
+            sample.query_text,
+            chunks,
+            top_k=config.retrieval_top_k,
+            retriever_config=config.retriever_config,
+            retrieval_adapter=retrieval_adapter,
+        )
+    empty_sample_ids = [
+        sample.sample_id
+        for sample in samples
+        if not raw_retrieval_by_sample.get(sample.sample_id)
+    ]
+    candidate_scope_available = retrieval_backend == "db_ann" or bool(chunks)
+    if candidate_scope_available and empty_sample_ids and _is_raw_retrieval_required(config.raw):
+        preview = ", ".join(empty_sample_ids[:10])
+        suffix = "..." if len(empty_sample_ids) > 10 else ""
+        raise RuntimeError(
+            "raw retrieval returned no candidates for "
+            f"{len(empty_sample_ids)} sample(s): {preview}{suffix}"
+        )
+    if missing_samples or not path.exists():
+        _write_raw_retrieval_cache(
+            path=path,
+            experiment_key=config.experiment_key,
+            samples=samples,
+            raw_retrieval_by_sample=raw_retrieval_by_sample,
+            retriever_metadata=retriever_metadata,
+            empty_sample_ids=empty_sample_ids,
+        )
+    return raw_retrieval_by_sample, empty_sample_ids, cache_loaded
+
+
 def _evaluate_answer_sample(
     *,
     sample: Any,
@@ -217,6 +338,7 @@ def _evaluate_answer_sample(
     memory_strategy_filters: list[str],
     retrieval_adapter: DbAnnRuntimeRetrievalAdapter | None,
     multi_source_anchor_index: Any | None,
+    raw_retrieval: list[RetrievalCandidate],
 ) -> dict[str, Any]:
     # query_eval_total_latency_ms:
     #   measured from per-sample evaluation entry through answer text/metric/sample-row
@@ -250,15 +372,11 @@ def _evaluate_answer_sample(
             rewrite_adoption_policy=config.rewrite_adoption_policy,
             retriever_config=config.retriever_config,
             retrieval_adapter=retrieval_adapter,
+            raw_retrieval=raw_retrieval,
+            source_product=sample.source_product,
         )
     else:
-        retrieval = retrieve_top_k(
-            sample.query_text,
-            chunks,
-            top_k=config.retrieval_top_k,
-            retriever_config=config.retriever_config,
-            retrieval_adapter=retrieval_adapter,
-        )
+        retrieval = raw_retrieval
         rewrite_outcome = RewriteOutcome(
             final_query=sample.query_text,
             rewrite_applied=False,
@@ -470,6 +588,15 @@ def run_answer_eval(
             retriever_config=config.retriever_config,
             retrieval_adapter=retrieval_adapter,
         )
+        raw_retrieval_by_sample, empty_raw_sample_ids, raw_cache_loaded = _resolve_raw_retrieval_cache(
+            samples=samples,
+            chunks=chunks,
+            config=config,
+            output_root=output_root,
+            retrieval_adapter=retrieval_adapter,
+            retrieval_backend=retrieval_backend,
+            retriever_metadata=retriever_metadata,
+        )
         multi_source_anchor_index = None
         if _is_multi_source_anchor_expansion_enabled(config.raw):
             multi_source_anchor_index = load_multi_source_anchor_index(
@@ -506,6 +633,7 @@ def run_answer_eval(
                         memory_strategy_filters=memory_strategy_filters,
                         retrieval_adapter=retrieval_adapter,
                         multi_source_anchor_index=multi_source_anchor_index,
+                        raw_retrieval=raw_retrieval_by_sample.get(sample.sample_id, []),
                     )
                 )
         else:
@@ -524,6 +652,7 @@ def run_answer_eval(
                         memory_strategy_filters=memory_strategy_filters,
                         retrieval_adapter=retrieval_adapter,
                         multi_source_anchor_index=multi_source_anchor_index,
+                        raw_retrieval=raw_retrieval_by_sample.get(sample.sample_id, []),
                     )
                     for sample in samples
                 ]
@@ -638,6 +767,9 @@ def run_answer_eval(
             "memory_experiment_key": config.experiment_key if rewrite_enabled else None,
             "memory_entry_count_loaded": None if retrieval_backend == "db_ann" else len(memories),
             **retriever_metadata,
+            "raw_retrieval_cache_path": str(_raw_retrieval_cache_path(output_root, config.experiment_key)),
+            "raw_retrieval_cache_loaded": raw_cache_loaded,
+            "raw_retrieval_empty_sample_ids": empty_raw_sample_ids,
             "rewrite_llm_attempted_count": int(rewrite_generation_stats["rewrite_llm_attempted_count"]),
             "rewrite_llm_success_count": int(rewrite_generation_stats["rewrite_llm_success_count"]),
             "rewrite_llm_failure_count": int(rewrite_generation_stats["rewrite_llm_failure_count"]),
