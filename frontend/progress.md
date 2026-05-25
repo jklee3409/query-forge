@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-05-26] Session Summary (RAG Anchor Quality UI)
+- What was done: Added structured Anchor Evaluation sections to RAG run detail, including per-detail anchor tables and run-level anchor quality cards, and added Anchor Quality as a separate comparison metric group.
+- Key decisions: UI reads normalized backend anchor rows/summaries and renders guarded empty states for legacy runs instead of dumping JSON.
+- Issues encountered: Targeted `npm exec eslint -- src/pages/RagPage.jsx` passed with the existing two hook dependency warnings.
+- Next steps: Browser-smoke a completed RAG run with anchor rows and an old run without rows in light/dark mode.
+
 ## [2026-05-25] Session Summary (RAG Runtime Defaults Hydration)
 - What was done: Changed `/admin/rag-tests` form hydration so threshold, retrieval Top-K, rerank Top-N, retriever mode defaults, candidate pool, and fusion weights come from backend runtime options instead of local hardcoded defaults.
 - Key decisions: The form starts with empty values until runtime options load; omitted request values are handled by backend catalog defaults, keeping GUI and server behavior aligned.

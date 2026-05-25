@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-05-26] Session Summary (RAG Rewrite Anchor Eval Persistence)
+- What was done: Added Flyway V40 for `rag_rewrite_anchor_eval`, created internal anchor evaluation row generation during RAG test finalization, added detail/run anchor lookup APIs, and enriched RAG run metrics with DB-derived anchor summaries.
+- Key decisions: Anchor evaluation is normalized in its own table and calculated from rewrite artifacts, expected/retrieved chunk/doc evidence, memory, glossary, and canonical hints; `metric_contribution` is not the source of truth.
+- Issues encountered: Initial compile exposed a repository patch placement error; after correction, `.\gradlew.bat compileJava` passed.
+- Next steps: Run a narrow migrated-DB Admin RAG smoke to verify rows for `rewrite_applied=true` details and empty-state compatibility for old runs.
+
 ## [2026-05-26] Session Summary (Flyway History Verification)
 - What was done: Queried `flyway_schema_history` for the latest applied migrations and V38/V39 specifically, confirmed no failed Flyway entries, checked active `rag_rewrite.ko`/`rag_rewrite.en` prompt bindings, and validated startup through non-web Spring Boot bootRun.
 - Key decisions: Kept verification read-only and bounded to Flyway/prompt catalog state.

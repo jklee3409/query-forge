@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-05-26] Session Summary (RAG Rewrite Anchor Eval Table)
+- What was done: Added normalized DB persistence for Admin RAG rewrite-anchor evaluations, wired internal-only anchor scoring from rewrite artifacts/detail rows, and surfaced anchor quality in RAG detail and compare UI without changing eval-retrieval -> eval-answer order.
+- Key decisions: LLM-based anchor judging was excluded; only `rewrite_applied=true` details generate anchor rows, and legacy runs with no rows render guarded empty states.
+- Issues encountered: Targeted backend compile passed; targeted frontend ESLint passed with the existing `RagPage.jsx` hook dependency warnings.
+- Next steps: Apply Flyway V40 in a dev DB and run a small Admin RAG test to inspect generated `rag_rewrite_anchor_eval` rows.
+
 ## [2026-05-26] Session Summary (Flyway History Verification)
 - What was done: Checked local PostgreSQL Flyway history for V38/V39, confirmed no failed Flyway rows, verified `rag_rewrite.ko` and `rag_rewrite.en` prompt bindings, and ran non-web Spring Boot startup to exercise Flyway validation.
 - Key decisions: Used bounded Flyway/prompt catalog queries only and did not run broad DB inspection or pipeline workloads.

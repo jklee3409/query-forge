@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-05-26] Session Summary (Rewrite Anchor Artifact Fields)
+- What was done: Persisted prompt-side rewrite anchor candidates, terminology hints, canonical hints, and multi-source hints into retrieval-eval rewrite case artifacts so backend anchor evaluation can use the exact rewrite inputs.
+- Key decisions: The eval-retrieval -> eval-answer order and retrieval scoring behavior are unchanged; this is artifact observability only.
+- Issues encountered: `python -m py_compile pipeline/eval/runtime.py pipeline/eval/retrieval_eval.py` passed.
+- Next steps: Inspect a new `rewrite_cases_*.json` from a small Admin run to confirm the added fields are present for rewrite modes.
+
 ## [2026-05-25] Session Summary (Rewrite Payload Retrieval Context)
 - What was done: Added `retrieval_context` to selective rewrite LLM payloads, including runtime retrieval backend, vector store, retriever name/mode, dense embedding model, fusion weights, top-K, and memory candidate pool sizes.
 - Key decisions: The context is metadata-only and does not change candidate schema, memory selection, retrieval scoring, or adoption policy; LLM uses it only to choose query structure.

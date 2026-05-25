@@ -83,6 +83,7 @@
 - `/admin/rag-tests` now supports explicit retrieval backend selection (`local` / `db-ann`), shows chunk-embedding readiness for the selected dense model, and can trigger chunk-embedding materialization before a `db-ann` run.
 - RAG run form now distinguishes `official` vs `exploratory` discipline, with official bundled comparison controls (`gating_effect` / `rewrite_effect`) and explicit snapshot identity payloads.
 - RAG run detail now renders the redesigned Performance section from run-level latency metrics only: `avg_query_eval_total_latency_ms`, `avg_final_rewrite_latency_ms`, `avg_pure_rewrite_latency_ms`, with per-metric sample-count basis.
+- RAG run detail now renders DB-backed Rewrite Anchor Analysis rows and run-level Anchor Quality cards; comparison tables include an Anchor Quality metric group with precision, grounded/risky rates, supported rewrite rate, and useful/risky/unsupported counts.
 - Legacy RAG results that do not contain the new latency payload are rendered with a guarded fallback message (`Legacy result (new latency metrics unavailable)`) instead of `NaN`/`undefined` values.
 - RAG page now includes option-meaning helper text, snapshot-method deduplication lock, and two-run visual comparison charts for quality/performance test review.
 - RAG compare area now uses the same three latency metrics in both overview cards and the integrated quality/performance comparison table.
