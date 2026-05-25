@@ -177,6 +177,16 @@ public class AdminConsoleController {
         return service.getRagTestRunDetail(runId, detailLimit);
     }
 
+    @GetMapping("/rag/tests/{runId}/anchors/summary")
+    public Object ragTestAnchorSummary(@PathVariable UUID runId) {
+        return service.getRagAnchorSummary(runId);
+    }
+
+    @GetMapping("/rag/tests/details/{detailId}/anchors")
+    public List<AdminConsoleDtos.RagRewriteAnchorEvalRow> ragTestDetailAnchors(@PathVariable UUID detailId) {
+        return service.listRagDetailAnchorEvaluations(detailId);
+    }
+
     @DeleteMapping("/rag/tests/{runId}")
     public void deleteRagTest(@PathVariable UUID runId) {
         service.deleteRagTestRun(runId);

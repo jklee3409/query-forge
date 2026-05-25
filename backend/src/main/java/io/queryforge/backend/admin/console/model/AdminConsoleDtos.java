@@ -459,11 +459,41 @@ public final class AdminConsoleDtos {
             Instant finishedAt,
             JsonNode metricsJson
     ) {
+        public RagTestRunRow withMetricsJson(JsonNode nextMetricsJson) {
+            return new RagTestRunRow(
+                    ragTestRunId,
+                    runLabel,
+                    status,
+                    datasetId,
+                    datasetName,
+                    generationMethodCodes,
+                    generationBatchIds,
+                    gatingApplied,
+                    gatingPreset,
+                    stageCutoffEnabled,
+                    stageCutoffLevel,
+                    rewriteEnabled,
+                    selectiveRewrite,
+                    useSessionContext,
+                    rewriteAnchorInjectionEnabled,
+                    multiSourceAnchorExpansionEnabled,
+                    retrievalTopK,
+                    threshold,
+                    totalStageCount,
+                    completedStageCount,
+                    estimatedSecondsPerStage,
+                    estimatedRemainingSeconds,
+                    startedAt,
+                    finishedAt,
+                    nextMetricsJson
+            );
+        }
     }
 
     public record RagTestRunDetail(
             RagTestRunRow run,
             JsonNode summary,
+            JsonNode anchorSummary,
             List<RagTestResultDetailRow> details
     ) {
     }
@@ -480,7 +510,66 @@ public final class AdminConsoleDtos {
             JsonNode rewriteCandidates,
             JsonNode retrievedChunks,
             JsonNode metricContribution,
-            Boolean hitTarget
+            Boolean hitTarget,
+            List<RagRewriteAnchorEvalRow> anchorEvaluations
+    ) {
+        public RagTestResultDetailRow withAnchorEvaluations(List<RagRewriteAnchorEvalRow> nextAnchorEvaluations) {
+            return new RagTestResultDetailRow(
+                    detailId,
+                    ragTestRunId,
+                    sampleId,
+                    queryCategory,
+                    rawQuery,
+                    rewriteQuery,
+                    rewriteApplied,
+                    memoryCandidates,
+                    rewriteCandidates,
+                    retrievedChunks,
+                    metricContribution,
+                    hitTarget,
+                    nextAnchorEvaluations
+            );
+        }
+    }
+
+    public record RagRewriteAnchorEvalRow(
+            UUID id,
+            UUID ragTestRunId,
+            UUID ragTestResultDetailId,
+            String sampleId,
+            UUID datasetItemId,
+            String mode,
+            String originalQuery,
+            String finalRewriteQuery,
+            Boolean rewriteApplied,
+            Integer sourceMemoryIndex,
+            String anchorText,
+            String normalizedAnchorText,
+            String canonicalAnchorText,
+            String anchorSource,
+            JsonNode sourceTags,
+            Boolean appearsInRawQuery,
+            Boolean appearsInFinalRewrite,
+            Boolean appearsInExpectedChunk,
+            Boolean appearsInExpectedDoc,
+            Boolean appearsInRetrievedChunk,
+            Boolean groundedByExpectedChunk,
+            Boolean groundedByExpectedDoc,
+            Boolean groundedByRetrievedChunk,
+            Boolean groundedByMemory,
+            Boolean groundedByGlossary,
+            Double groundingScore,
+            Double intentRelevanceScore,
+            Double driftRiskScore,
+            Double overallAnchorScore,
+            String label,
+            String evidenceSummary,
+            JsonNode expectedChunkIds,
+            JsonNode expectedDocIds,
+            JsonNode retrievedChunkIds,
+            UUID sourceMemoryEntryId,
+            String sourceMemoryQueryId,
+            Instant createdAt
     ) {
     }
 

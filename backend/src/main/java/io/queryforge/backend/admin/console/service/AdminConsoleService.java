@@ -2,6 +2,7 @@ package io.queryforge.backend.admin.console.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import io.queryforge.backend.admin.console.model.AdminConsoleDtos;
 import io.queryforge.backend.admin.console.repository.AdminConsoleRepository;
 import io.queryforge.backend.admin.pipeline.config.AdminPipelineProperties;
@@ -671,15 +672,18 @@ public class AdminConsoleService {
     }
 
     public List<AdminConsoleDtos.RagTestRunRow> listRagTestRuns(Integer limit, UUID domainId) {
-        return repository.findRagTestRuns(limit, domainId);
+        return enrichRagRunRows(repository.findRagTestRuns(limit, domainId));
     }
 
     public AdminConsoleDtos.RagTestRunDetail getRagTestRunDetail(UUID runId, Integer detailLimit) {
         AdminConsoleDtos.RagTestRunRow run = repository.findRagTestRun(runId)
                 .orElseThrow(() -> new IllegalArgumentException("rag test run not found: " + runId));
         JsonNode summary = repository.findRagSummaryMetrics(runId).orElseGet(objectMapper::createObjectNode);
+        JsonNode anchorSummary = repository.findRagAnchorSummary(runId);
+        AdminConsoleDtos.RagTestRunRow enrichedRun = enrichRagRunRow(run, anchorSummary);
+        JsonNode enrichedSummary = enrichRagSummary(summary, anchorSummary);
         List<AdminConsoleDtos.RagTestResultDetailRow> details = repository.findRagTestDetails(runId, detailLimit);
-        return new AdminConsoleDtos.RagTestRunDetail(run, summary, details);
+        return new AdminConsoleDtos.RagTestRunDetail(enrichedRun, enrichedSummary, anchorSummary, details);
     }
 
     @Transactional
@@ -691,7 +695,56 @@ public class AdminConsoleService {
     }
 
     public AdminConsoleDtos.RagCompareResponse compareRagRuns(UUID datasetId) {
-        return new AdminConsoleDtos.RagCompareResponse(datasetId, repository.findRagTestRunsByDataset(datasetId));
+        return new AdminConsoleDtos.RagCompareResponse(datasetId, enrichRagRunRows(repository.findRagTestRunsByDataset(datasetId)));
+    }
+
+    public List<AdminConsoleDtos.RagRewriteAnchorEvalRow> listRagDetailAnchorEvaluations(UUID detailId) {
+        return repository.findRagRewriteAnchorEvalByDetailId(detailId);
+    }
+
+    public JsonNode getRagAnchorSummary(UUID runId) {
+        return repository.findRagAnchorSummary(runId);
+    }
+
+    private List<AdminConsoleDtos.RagTestRunRow> enrichRagRunRows(List<AdminConsoleDtos.RagTestRunRow> rows) {
+        if (rows == null || rows.isEmpty()) {
+            return List.of();
+        }
+        List<UUID> runIds = rows.stream()
+                .map(AdminConsoleDtos.RagTestRunRow::ragTestRunId)
+                .filter(id -> id != null)
+                .toList();
+        Map<UUID, JsonNode> summaries = repository.findRagAnchorSummaries(runIds);
+        return rows.stream()
+                .map(row -> enrichRagRunRow(row, summaries.get(row.ragTestRunId())))
+                .toList();
+    }
+
+    private AdminConsoleDtos.RagTestRunRow enrichRagRunRow(
+            AdminConsoleDtos.RagTestRunRow row,
+            JsonNode anchorSummary
+    ) {
+        if (row == null) {
+            return null;
+        }
+        return row.withMetricsJson(attachAnchorSummary(row.metricsJson(), anchorSummary));
+    }
+
+    private JsonNode enrichRagSummary(JsonNode summary, JsonNode anchorSummary) {
+        ObjectNode copy = summary != null && summary.isObject()
+                ? summary.deepCopy()
+                : objectMapper.createObjectNode();
+        copy.set("anchor_evaluation", anchorSummary == null ? objectMapper.createObjectNode() : anchorSummary);
+        copy.set("metrics_json", attachAnchorSummary(copy.get("metrics_json"), anchorSummary));
+        return copy;
+    }
+
+    private JsonNode attachAnchorSummary(JsonNode metricsJson, JsonNode anchorSummary) {
+        ObjectNode copy = metricsJson != null && metricsJson.isObject()
+                ? metricsJson.deepCopy()
+                : objectMapper.createObjectNode();
+        copy.set("anchor_evaluation", anchorSummary == null ? objectMapper.createObjectNode() : anchorSummary);
+        return copy;
     }
 
     public List<AdminConsoleDtos.RewriteDebugRow> listRewriteDebugRows(Integer limit, Integer offset) {

@@ -61,6 +61,7 @@ public class LlmJobService {
     private final ExperimentPipelineService experimentPipelineService;
     private final AdminPipelineProperties pipelineProperties;
     private final ObjectMapper objectMapper;
+    private final RagRewriteAnchorEvalService ragRewriteAnchorEvalService;
     @Autowired
     @Qualifier("llmJobExecutor")
     private ExecutorService llmJobExecutor;
@@ -618,6 +619,9 @@ public class LlmJobService {
             );
             List<AdminConsoleDtos.RagTestResultDetailRow> details = loadRewriteCasesForRun(job.ragTestRunId(), job.experimentName());
             adminConsoleRepository.replaceRagDetailRows(job.ragTestRunId(), details);
+            List<AdminConsoleDtos.RagRewriteAnchorEvalRow> anchorEvalRows =
+                    ragRewriteAnchorEvalService.buildRowsForRun(job.ragTestRunId(), job.experimentName(), details);
+            adminConsoleRepository.replaceRagRewriteAnchorEvalRows(job.ragTestRunId(), anchorEvalRows);
             adminConsoleRepository.completeRagTestRun(job.ragTestRunId(), metricsJson, sourceExperimentRunId);
         }
     }
@@ -797,6 +801,12 @@ public class LlmJobService {
                         "memory_hint_retrieval_applied",
                         row.path("memory_hint_retrieval_applied").asBoolean(false)
                 );
+                metricContributionPayload.put("rewrite_llm_attempted", row.path("rewrite_llm_attempted").asBoolean(false));
+                metricContributionPayload.put("rewrite_llm_succeeded", row.path("rewrite_llm_succeeded").asBoolean(false));
+                metricContributionPayload.put(
+                        "rewrite_heuristic_fallback_used",
+                        row.path("rewrite_heuristic_fallback_used").asBoolean(false)
+                );
                 metricContributionPayload.put(
                         "final_rewrite_latency_ms",
                         nullableDouble(row.get("final_rewrite_latency_ms"))
@@ -819,7 +829,8 @@ public class LlmJobService {
                         nullableJson(row.get("rewrite_candidates")),
                         nullableJson(row.get("retrieved_top_k")),
                         metricContribution,
-                        hitTarget
+                        hitTarget,
+                        List.of()
                 ));
             }
             return details;
