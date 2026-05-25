@@ -487,12 +487,21 @@ Agents MUST treat missing required source identity fields as validation errors, 
 
 This project may run on a low-spec laptop environment.
 
+Agents MUST read and apply this section before starting work, just like the root `progress.md` tracking rules.
+
+Explicit low-spec laptop rules:
+- 작업 환경이 저사양 노트북이므로 반드시 다음의 사항을 준수하라.
+- 프로젝트 전체 스캔 금지
+- 무분별한 DB 조회 금지
+- 메모리를 과도하게 사용하는 작업 금지 (Intellij Heap Size: 4GB)
+
 Agents MUST:
 
 - scope file searches, reads, builds, tests, and scripts to the smallest relevant files or directories
 - use targeted `rg` queries instead of whole-project scans unless the user explicitly requests a broad scan
 - keep database queries bounded by clear filters, target identifiers, or limits
 - avoid full pipeline runs, full corpus scans, full DB dumps, or broad migration/application checks unless explicitly required for the task
+- avoid memory-intensive local workloads and keep IntelliJ's 4GB heap limit in mind when choosing commands
 
 Agents MUST NOT:
 
@@ -500,6 +509,7 @@ Agents MUST NOT:
 - run unbounded recursive file enumeration across the repository
 - perform indiscriminate DB queries or inspect broad tables without a precise task-driven scope
 - use broad local workload as a substitute for targeted reasoning
+- run memory-heavy jobs when a targeted inspection or smaller validation is sufficient
 
 ### 4.1 Root Progress Tracking
 
@@ -556,6 +566,7 @@ At the beginning of each implementation turn, agents must include a short checkl
 
 Minimum checklist items:
 - AGENTS rules re-checked (`.codex/AGENTS.md`)
+- low-spec laptop rules reviewed (no whole-project scan, no indiscriminate DB query, no memory-heavy work; IntelliJ Heap Size: 4GB)
 - root `progress.md` read
 - target directory `progress.md` / `index.md` read
 - planned `progress.md` update after code changes

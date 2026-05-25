@@ -3,6 +3,12 @@
 ## Overview
 High-level progress tracking for the project.
 
+## [2026-05-26] Session Summary (Low-Spec Laptop Rule Explicitness)
+- What was done: Updated `.codex/AGENTS.md` Section `4.0 Local Resource Safety` to explicitly include the Korean low-spec laptop rules: no whole-project scans, no indiscriminate DB queries, and no memory-heavy work under the IntelliJ 4GB heap constraint. Added the low-spec rule review to the mandatory session-start checklist in Section `4.5`.
+- Key decisions: Kept the existing resource-safety section and made the missing memory limit plus pre-work review requirement explicit instead of creating a separate policy location.
+- Issues encountered: None.
+- Next steps: Apply this checklist before future implementation turns and keep resource-safety wording synchronized with local hardware constraints.
+
 ## [2026-05-25] Session Summary (AGENTS Rewrite Semantics + Resource Safety)
 - What was done: Updated `.codex/AGENTS.md` Section `3.6.5 Query Rewrite Evaluation` to state that current Admin GUI RAG rewrite uses synthetic memory only as LLM few-shot examples/context, not as direct query replacement. Added Section `4.0 Local Resource Safety (MANDATORY)`.
 - Key decisions: Marked memory-only retrieval as explicit legacy/ablation behavior, required final evaluation to use either the raw query or one selected LLM-generated rewritten query, and prohibited whole-project scans plus indiscriminate DB queries on the low-spec laptop environment.
