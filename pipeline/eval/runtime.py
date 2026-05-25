@@ -131,6 +131,9 @@ class RewriteOutcome:
     memory_top_n: list[dict[str, Any]]
     candidates: list[dict[str, Any]]
     selected_rewrite: dict[str, Any] | None = None
+    anchor_candidates: list[dict[str, Any]] = field(default_factory=list)
+    terminology_hints: dict[str, Any] | None = None
+    canonical_anchor_hints: dict[str, Any] | None = None
     rewrite_llm_attempted: bool = False
     rewrite_llm_succeeded: bool = False
     rewrite_heuristic_fallback_used: bool = False
@@ -3876,6 +3879,28 @@ def run_selective_rewrite(
             max_per_seed=multi_source_anchor_max_per_seed,
             max_total=multi_source_anchor_max_total,
         )
+    prompt_anchor_context: dict[str, Any] = {"anchors": [], "anchor_terms": []}
+    prompt_terminology_hints: dict[str, Any] | None = None
+    prompt_canonical_anchor_hints: dict[str, Any] | None = None
+    if rewrite_anchor_injection_enabled:
+        prompt_anchor_context = _build_rewrite_anchor_candidates(
+            raw_query=raw_query,
+            query_language=query_language,
+            memory_items=memory_items,
+        )
+        prompt_terminology_hints = _build_rewrite_terminology_hints(
+            raw_query=raw_query,
+            query_language=query_language,
+            memory_items=memory_items,
+            max_terms=rewrite_terminology_hints_max_count,
+        )
+        prompt_canonical_anchor_hints = _build_rewrite_canonical_anchor_hints(
+            memory_items=memory_items,
+            query_language=query_language,
+            max_terms=rewrite_terminology_hints_max_count,
+        )
+        if not prompt_canonical_anchor_hints.get("terms"):
+            prompt_canonical_anchor_hints = None
     candidate_templates = build_rewrite_candidates_v2(
         raw_query,
         memory_items,
@@ -4130,6 +4155,9 @@ def run_selective_rewrite(
                 memory_top_n=memory_items,
                 candidates=[],
                 selected_rewrite=None,
+                anchor_candidates=list(prompt_anchor_context.get("anchors") or []),
+                terminology_hints=prompt_terminology_hints,
+                canonical_anchor_hints=prompt_canonical_anchor_hints,
                 rewrite_llm_attempted=rewrite_llm_attempted,
                 rewrite_llm_succeeded=rewrite_llm_succeeded,
                 rewrite_heuristic_fallback_used=rewrite_heuristic_fallback_used,
@@ -4255,6 +4283,9 @@ def run_selective_rewrite(
                 for candidate in candidates
             ],
             selected_rewrite=selected_rewrite_payload,
+            anchor_candidates=list(prompt_anchor_context.get("anchors") or []),
+            terminology_hints=prompt_terminology_hints,
+            canonical_anchor_hints=prompt_canonical_anchor_hints,
             rewrite_llm_attempted=rewrite_llm_attempted,
             rewrite_llm_succeeded=rewrite_llm_succeeded,
             rewrite_heuristic_fallback_used=rewrite_heuristic_fallback_used,
