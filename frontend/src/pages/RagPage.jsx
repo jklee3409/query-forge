@@ -204,10 +204,24 @@ const PERFORMANCE_METRIC_DEFS = [
   },
 ]
 
+const ANCHOR_METRIC_DEFS = [
+  { key: 'anchor_precision', label: 'Anchor Precision', max: 1, precision: 3, trend: 'higher', priority: 'core', sampleCountKey: 'anchor_evaluated_sample_count', sampleCountLabel: 'evaluated samples' },
+  { key: 'grounded_anchor_rate', label: 'Grounded Anchor Rate', max: 1, precision: 3, trend: 'higher', priority: 'core', sampleCountKey: 'anchor_evaluated_sample_count', sampleCountLabel: 'evaluated samples' },
+  { key: 'added_anchor_grounded_rate', label: 'Added Anchor Grounded Rate', max: 1, precision: 3, trend: 'higher', sampleCountKey: 'anchor_evaluated_sample_count', sampleCountLabel: 'evaluated samples' },
+  { key: 'risky_anchor_rate', label: 'Risky Anchor Rate', max: 1, precision: 3, trend: 'lower', priority: 'core', sampleCountKey: 'anchor_evaluated_sample_count', sampleCountLabel: 'evaluated samples' },
+  { key: 'avg_anchor_relevance_score', label: 'Avg Anchor Relevance Score', max: 1, precision: 3, trend: 'higher', sampleCountKey: 'anchor_evaluated_sample_count', sampleCountLabel: 'evaluated samples' },
+  { key: 'anchor_supported_rewrite_rate', label: 'Anchor Supported Rewrite Rate', max: 1, precision: 3, trend: 'higher', sampleCountKey: 'rewrite_applied_sample_count', sampleCountLabel: 'rewrite applied samples' },
+  { key: 'anchor_evaluated_sample_count', label: 'Evaluated Samples', precision: 0, trend: 'higher' },
+  { key: 'useful_anchor_count', label: 'Useful Anchor Count', precision: 0, trend: 'higher' },
+  { key: 'risky_anchor_count', label: 'Risky Anchor Count', precision: 0, trend: 'lower' },
+  { key: 'unsupported_anchor_count', label: 'Unsupported Anchor Count', precision: 0, trend: 'lower' },
+]
+
 const METRIC_GROUP_DEFS = [
   { key: 'retrieval', label: '검색 품질', description: '검색 품질 지표', metrics: RETRIEVAL_METRIC_DEFS },
   { key: 'answer', label: '답변 품질', description: '답변 품질 지표', metrics: ANSWER_METRIC_DEFS },
   { key: 'performance', label: '성능', description: '지연 시간 요약', metrics: PERFORMANCE_METRIC_DEFS },
+  { key: 'anchor', label: 'Anchor Quality', description: 'Rewrite anchor grounding and drift risk', metrics: ANCHOR_METRIC_DEFS },
 ]
 const METRIC_META_MAP = METRIC_GROUP_DEFS.reduce((acc, group) => {
   for (const metric of group.metrics) {
@@ -234,6 +248,9 @@ const KPI_METRIC_KEYS = new Set([
   'avg_query_eval_total_latency_ms',
   'avg_final_rewrite_latency_ms',
   'avg_pure_rewrite_latency_ms',
+  'anchor_precision',
+  'grounded_anchor_rate',
+  'risky_anchor_rate',
 ])
 
 const METRIC_TREND_LABEL = {
@@ -301,6 +318,12 @@ function extractRunMetrics(metricsJson) {
   const retrievalPayload = parseMetricsNode(payload.retrieval || payload.metrics_json?.retrieval || payload)
   const answerPayload = parseMetricsNode(payload.answer || payload.metrics_json?.answer)
   const performancePayload = parseMetricsNode(payload.performance || payload.metrics_json?.performance)
+  const anchorPayload = parseMetricsNode(
+    payload.anchor_evaluation
+      || payload.anchorEvaluation
+      || payload.metrics_json?.anchor_evaluation
+      || payload.metrics_json?.anchorEvaluation,
+  )
   const answerSummary = parseMetricsNode(answerPayload.summary || answerPayload)
   const summaryRaw = Array.isArray(retrievalPayload.summary) ? retrievalPayload.summary : []
   const byMode = summaryRaw.reduce((acc, row) => {
@@ -332,6 +355,17 @@ function extractRunMetrics(metricsJson) {
     rewrite_sample_count: firstMetricNumber([performancePayload.rewrite_sample_count]),
     pure_rewrite_sample_count: firstMetricNumber([performancePayload.pure_rewrite_sample_count]),
     excluded_sample_count: firstMetricNumber([performancePayload.excluded_sample_count]),
+    anchor_precision: firstMetricNumber([anchorPayload.anchor_precision, anchorPayload.anchorPrecision]),
+    grounded_anchor_rate: firstMetricNumber([anchorPayload.grounded_anchor_rate, anchorPayload.groundedAnchorRate]),
+    added_anchor_grounded_rate: firstMetricNumber([anchorPayload.added_anchor_grounded_rate, anchorPayload.addedAnchorGroundedRate]),
+    risky_anchor_rate: firstMetricNumber([anchorPayload.risky_anchor_rate, anchorPayload.riskyAnchorRate]),
+    avg_anchor_relevance_score: firstMetricNumber([anchorPayload.avg_anchor_relevance_score, anchorPayload.avgAnchorRelevanceScore]),
+    anchor_supported_rewrite_rate: firstMetricNumber([anchorPayload.anchor_supported_rewrite_rate, anchorPayload.anchorSupportedRewriteRate]),
+    rewrite_applied_sample_count: firstMetricNumber([anchorPayload.rewrite_applied_sample_count, anchorPayload.rewriteAppliedSampleCount]),
+    anchor_evaluated_sample_count: firstMetricNumber([anchorPayload.anchor_evaluated_sample_count, anchorPayload.anchorEvaluatedSampleCount]),
+    useful_anchor_count: firstMetricNumber([anchorPayload.useful_anchor_count, anchorPayload.usefulAnchorCount]),
+    risky_anchor_count: firstMetricNumber([anchorPayload.risky_anchor_count, anchorPayload.riskyAnchorCount]),
+    unsupported_anchor_count: firstMetricNumber([anchorPayload.unsupported_anchor_count, anchorPayload.unsupportedAnchorCount]),
     legacy_performance: legacyPerformance,
     legacy_performance_message: legacyPerformance ? LEGACY_PERFORMANCE_MESSAGE : '',
   }
@@ -826,6 +860,122 @@ function renderRetrievedChunkDetail(value) {
   )
 }
 
+function anchorLabelTone(label) {
+  const normalized = String(label || 'unknown').toLowerCase()
+  if (['useful', 'neutral', 'risky', 'unsupported', 'unknown'].includes(normalized)) return normalized
+  return 'unknown'
+}
+
+function anchorSourceTags(row) {
+  const parsed = parseDetailPayload(row?.sourceTags)
+  const tags = Array.isArray(parsed) ? parsed : []
+  const merged = [row?.anchorSource, ...tags].filter((value) => value != null && value !== '')
+  return Array.from(new Set(merged.map((value) => String(value))))
+}
+
+function renderAnchorBoolFlag(active, label) {
+  return <span className={`rag-anchor-flag ${active ? 'is-on' : 'is-off'}`}>{label}</span>
+}
+
+function renderAnchorEvaluationRows(value) {
+  const rows = Array.isArray(value) ? value : []
+  if (!rows.length) {
+    return <div className="rag-anchor-empty">Anchor evaluation unavailable</div>
+  }
+  return (
+    <section className="rag-anchor-panel">
+      <div className="rag-anchor-panel__header">
+        <strong>Rewrite Anchor Analysis</strong>
+        <span>{rows.length} anchors</span>
+      </div>
+      <div className="rag-anchor-table-wrap">
+        <table className="rag-anchor-table">
+          <thead>
+            <tr>
+              <th>Anchor</th>
+              <th>Source</th>
+              <th>Label</th>
+              <th>Grounding</th>
+              <th>Risk</th>
+              <th>Score</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row, index) => {
+              const label = anchorLabelTone(row?.label)
+              const tags = anchorSourceTags(row)
+              return (
+                <tr key={row?.id || `${row?.normalizedAnchorText || row?.anchorText}-${index}`} className={`rag-anchor-row rag-anchor-row--${label}`}>
+                  <td>
+                    <div className="rag-anchor-name">
+                      <strong>{row?.anchorText || '-'}</strong>
+                      {row?.canonicalAnchorText && <small>canonical {row.canonicalAnchorText}</small>}
+                      {row?.sourceMemoryIndex != null && <small>memory index {row.sourceMemoryIndex}</small>}
+                    </div>
+                  </td>
+                  <td>
+                    <div className="rag-anchor-tags">
+                      {tags.map((tag) => <span key={tag}>{tag}</span>)}
+                    </div>
+                  </td>
+                  <td><span className={`rag-anchor-label rag-anchor-label--${label}`}>{label}</span></td>
+                  <td>
+                    <div className="rag-anchor-flags">
+                      {renderAnchorBoolFlag(row?.appearsInFinalRewrite, 'final')}
+                      {renderAnchorBoolFlag(row?.appearsInExpectedChunk, 'expected chunk')}
+                      {renderAnchorBoolFlag(row?.appearsInExpectedDoc, 'expected doc')}
+                      {renderAnchorBoolFlag(row?.appearsInRetrievedChunk, 'retrieved')}
+                    </div>
+                    <small className="rag-anchor-evidence">{row?.evidenceSummary || 'no evidence'}</small>
+                  </td>
+                  <td>{formatDetailNumber(row?.driftRiskScore, 3)}</td>
+                  <td>{formatDetailNumber(row?.overallAnchorScore, 3)}</td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  )
+}
+
+function renderAnchorEvaluationSummary(value) {
+  const summary = parseMetricsNode(value)
+  const totalAnchors = toMetricNumber(summary.total_anchor_count ?? summary.totalAnchorCount)
+  const evaluatedSamples = toMetricNumber(summary.anchor_evaluated_sample_count ?? summary.anchorEvaluatedSampleCount)
+  if (!totalAnchors && !evaluatedSamples) {
+    return <div className="rag-anchor-empty">Anchor evaluation unavailable</div>
+  }
+  const cards = [
+    { label: 'Anchor Precision', value: summary.anchor_precision ?? summary.anchorPrecision },
+    { label: 'Grounded Anchor Rate', value: summary.grounded_anchor_rate ?? summary.groundedAnchorRate },
+    { label: 'Added Anchor Grounded Rate', value: summary.added_anchor_grounded_rate ?? summary.addedAnchorGroundedRate },
+    { label: 'Risky Anchor Rate', value: summary.risky_anchor_rate ?? summary.riskyAnchorRate },
+    { label: 'Avg Anchor Relevance', value: summary.avg_anchor_relevance_score ?? summary.avgAnchorRelevanceScore },
+    { label: 'Supported Rewrite Rate', value: summary.anchor_supported_rewrite_rate ?? summary.anchorSupportedRewriteRate },
+  ]
+  return (
+    <section className="rag-anchor-summary">
+      <div className="rag-anchor-summary__cards">
+        {cards.map((card) => (
+          <div className="rag-anchor-summary-card" key={card.label}>
+            <span>{card.label}</span>
+            <strong>{formatDetailNumber(card.value, 3)}</strong>
+          </div>
+        ))}
+      </div>
+      <div className="rag-anchor-summary__counts">
+        <span>Evaluated Samples <strong>{evaluatedSamples ?? 0}</strong></span>
+        <span>Rewrite Applied Samples <strong>{summary.rewrite_applied_sample_count ?? summary.rewriteAppliedSampleCount ?? 0}</strong></span>
+        <span>Useful <strong>{summary.useful_anchor_count ?? summary.usefulAnchorCount ?? 0}</strong></span>
+        <span>Risky <strong>{summary.risky_anchor_count ?? summary.riskyAnchorCount ?? 0}</strong></span>
+        <span>Unsupported <strong>{summary.unsupported_anchor_count ?? summary.unsupportedAnchorCount ?? 0}</strong></span>
+      </div>
+    </section>
+  )
+}
+
 function renderRagDetailJsonDisclosure(label, value, renderer = renderGenericDetailValue) {
   const parsed = parseDetailPayload(value)
   const isEmpty = !hasDetailPayload(parsed)
@@ -874,6 +1024,8 @@ function renderRagQueryDetailRows(details) {
                 <p className="rag-query-focus__text">{finalRewriteQuery}</p>
               </section>
             </div>
+
+            {renderAnchorEvaluationRows(row?.anchorEvaluations)}
 
             <details className="rag-detail-disclosure rag-detail-disclosure--group">
               <summary>세부 데이터 보기</summary>
@@ -2197,6 +2349,7 @@ export function RagPage({ notify, domainId = null }) {
       const payload = await requestJson(`/api/admin/console/rag/tests/${runId}?detail_limit=100`)
       const runRow = payload.run || {}
       const summary = payload.summary || {}
+      const anchorSummary = payload.anchorSummary || summary.anchor_evaluation || summary.anchorEvaluation || {}
       const metricsJson = parseMetricsNode(summary.metrics_json)
       const runMetrics = extractRunMetrics(metricsJson)
       const performance = parseMetricsNode(metricsJson.performance)
@@ -2217,6 +2370,7 @@ export function RagPage({ notify, domainId = null }) {
               <summary>실행 요약 지표 보기</summary>
               <div className="rag-detail-disclosure__content rag-detail-disclosure__content--group">
                 {renderPerformanceCards(runMetrics)}
+                {renderAnchorEvaluationSummary(anchorSummary)}
                 {renderRunDetailModeSummary(retrievalSummaryRows)}
                 {renderRunDetailModeComparison(retrievalSummaryRows)}
                 {renderRagDetailJsonDisclosure('실행 프로필', {
