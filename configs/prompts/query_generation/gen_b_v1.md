@@ -25,7 +25,7 @@ Rules:
 4. `query_ko` must sound like a natural Korean developer search/chat query, not a translation artifact.
 5. Preserve critical technical entities in English where needed: class names, annotations, properties, API names, commands, module/artifact names.
 6. Prefer troubleshooting, configuration-cause, procedure, and comparison intent when compatible with `query_type`.
-7. Use concrete Spring anchors when relevant: annotation, configuration property, bean lifecycle, auto-configuration, transaction, security, testing, web, data access, actuator, configuration binding.
+7. Use concrete source-grounded anchors when relevant: language/framework marker, configuration key/property, lifecycle or callback hook, API or command name, module/package/artifact name, runtime behavior, error message/code, version, file path, protocol, option, or feature area stated in the evidence.
 8. Keep query short but not vague.
 
 Quality targets:

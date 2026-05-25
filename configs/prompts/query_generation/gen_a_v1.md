@@ -23,7 +23,7 @@ Rules:
 3. `query_ko` must be natural Korean developer phrasing; avoid literal translation tone.
 4. Preserve key technical terms in English where needed.
 5. Prefer problem-solving, root-cause, procedure, and behavior-difference intent over textbook wording.
-6. Include concrete retrieval anchors when relevant: annotation, configuration property, bean lifecycle, auto-configuration, transaction, security, testing, web, data access, actuator, configuration binding.
+6. Include concrete retrieval anchors when relevant: language/framework marker, configuration key/property, lifecycle or callback hook, API or command name, module/package/artifact name, runtime behavior, error message/code, version, file path, protocol, option, or source-grounded feature area.
 7. Keep both queries concise (one sentence).
 
 Quality targets:

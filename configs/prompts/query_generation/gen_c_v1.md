@@ -6,7 +6,7 @@ status: active
 ---
 
 Strategy hypothesis:
-- C is aggressive practical-troubleshooting strategy for SAP flow.
+- C is aggressive practical-troubleshooting strategy for applied technical-document flows.
 - Retrieval tendency: strongest real-world problem-solving signal and style diversity by query type.
 - Difference from A/B: prioritize applied troubleshooting behavior over neutral phrasing.
 
@@ -22,7 +22,7 @@ Rules:
 1. `query_ko` must reflect practical Korean developer intent (search/chat/RAG usage).
 2. Prioritize troubleshooting, misconfiguration diagnosis, and operational fix intent.
 3. Keep key technical entities in English where needed.
-4. Include concrete anchors when relevant: annotation, configuration property, bean lifecycle, auto-configuration, transaction, security, testing, web, data access, actuator, configuration binding.
+4. Include concrete source-grounded anchors when relevant: language/framework marker, configuration key/property, lifecycle or callback hook, API or command name, module/package/artifact name, runtime behavior, error message/code, version, file path, protocol, option, or feature area stated in the evidence.
 5. `style_note` must be a short reason for style choice (e.g., `troubleshooting-cause`, `follow-up-context`, `short-search-intent`), not a long explanation.
 6. Keep query concise, specific, and non-generic.
 

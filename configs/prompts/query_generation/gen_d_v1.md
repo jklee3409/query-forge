@@ -24,7 +24,7 @@ Rules:
 3. Keep technical entities in English in both variants.
 4. `query_code_mixed` must be natural for Korean developers; unnatural Konglish is forbidden.
 5. Keep both variants concise and retrieval-anchor rich.
-6. Use anchors when relevant: annotation, configuration property, bean lifecycle, auto-configuration, transaction, security, testing, web, data access, actuator, configuration binding.
+6. Use concrete source-grounded anchors when relevant: language/framework marker, configuration key/property, lifecycle or callback hook, API or command name, module/package/artifact name, runtime behavior, error message/code, version, file path, protocol, option, or feature area stated in the evidence.
 
 Quality targets:
 1. Difference between variants should be style only, not content.
