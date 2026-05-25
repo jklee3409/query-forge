@@ -303,18 +303,29 @@ When running RAG evaluation, agents MUST:
 
 ### 3.6.5 Query Rewrite Evaluation
 
-For each snapshot, agents MUST evaluate:
+For each snapshot, agents MUST evaluate the current Admin GUI rewrite behavior as:
 
 - raw query retrieval
-- snapshot-based memory retrieval
-- snapshot + rewrite
-- snapshot + selective rewrite
+- snapshot-backed synthetic memory lookup used as LLM few-shot examples/context only
+- LLM-generated rewrite candidates
+- snapshot + selective rewrite final decision
+
+Agents MAY evaluate the following legacy/ablation conditions only when explicitly intended:
+
+- snapshot-based memory retrieval (`memory_only_*` modes)
+- snapshot + rewrite (`rewrite_always`, still using LLM-generated candidates)
 
 Agents MUST:
 
 - compare rewrite vs non-rewrite
 - verify improvement through metrics
 - NOT assume rewrite is always beneficial
+- treat synthetic queries as few-shot examples/context for the LLM in the current Admin GUI RAG test flow
+- NOT replace the original user query directly with a retrieved synthetic query
+- NOT select a related synthetic query as the final query merely because its retrieval score exceeds the raw query
+- NOT merge synthetic-memory retrieval with raw or rewritten retrieval in the default rewrite evaluation path
+
+The final evaluation query MUST be either the raw query or one selected LLM-generated rewritten query.
 
 Selective rewrite MUST be treated as the final strategy.
 
@@ -471,6 +482,24 @@ Agents MUST treat missing required source identity fields as validation errors, 
 ---
 
 ## 4. Execution and Documentation Rules
+
+### 4.0 Local Resource Safety (MANDATORY)
+
+This project may run on a low-spec laptop environment.
+
+Agents MUST:
+
+- scope file searches, reads, builds, tests, and scripts to the smallest relevant files or directories
+- use targeted `rg` queries instead of whole-project scans unless the user explicitly requests a broad scan
+- keep database queries bounded by clear filters, target identifiers, or limits
+- avoid full pipeline runs, full corpus scans, full DB dumps, or broad migration/application checks unless explicitly required for the task
+
+Agents MUST NOT:
+
+- run whole-project scans for convenience
+- run unbounded recursive file enumeration across the repository
+- perform indiscriminate DB queries or inspect broad tables without a precise task-driven scope
+- use broad local workload as a substitute for targeted reasoning
 
 ### 4.1 Root Progress Tracking
 

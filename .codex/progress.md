@@ -3,6 +3,12 @@
 ## Overview
 High-level progress tracking for the project.
 
+## [2026-05-25] Session Summary (AGENTS Rewrite Semantics + Resource Safety)
+- What was done: Updated `.codex/AGENTS.md` Section `3.6.5 Query Rewrite Evaluation` to state that current Admin GUI RAG rewrite uses synthetic memory only as LLM few-shot examples/context, not as direct query replacement. Added Section `4.0 Local Resource Safety (MANDATORY)`.
+- Key decisions: Marked memory-only retrieval as explicit legacy/ablation behavior, required final evaluation to use either the raw query or one selected LLM-generated rewritten query, and prohibited whole-project scans plus indiscriminate DB queries on the low-spec laptop environment.
+- Issues encountered: None.
+- Next steps: Keep AGENTS rewrite rules synchronized with Admin GUI/RAG runtime wording whenever rewrite evaluation semantics change.
+
 ## [2026-05-08] Session Summary (AGENTS Rule Added: Runtime Catalog + Source Identity Governance)
 - What was done: Updated `.codex/AGENTS.md` with new Section `3.8 Admin Runtime Catalog + Source Identity Governance (CRITICAL)`.
 - Key decisions: Declared `configs/app/model_catalog.yml` as mandatory allowlist source for Admin runtime-selectable options and formalized strict validation behavior (out-of-catalog selections => 400, no auto-latest snapshot/source inference for required identity fields).
