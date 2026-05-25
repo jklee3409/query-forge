@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-05-25] Session Summary (Rewrite Memory Rerank and Anchor Coverage)
+- What was done: Added rewrite-memory candidate pool reranking from raw top-K overlap, target chunk/doc metadata, canonical anchors, utility score, and product match. Extended rewrite candidate diagnostics with source memory target hits and LLM-declared anchor coverage validation.
+- Key decisions: Prompt memory rows are now sanitized and indexed; downstream code uses `source_memory_index` to validate target-hit evidence without exposing memory/document/chunk IDs to the LLM.
+- Issues encountered: Targeted runtime/DB-ANN tests passed. Existing tests were updated to assert sanitized memory prompt rows hide internal IDs while retaining canonical anchor terms.
+- Next steps: Adjust Admin threshold defaults and runtime config knobs to take advantage of the new lower-risk candidate selection.
+
 ## [2026-05-25] Session Summary (Raw Retrieval Cache and Stable Ranking)
 - What was done: Added per-sample raw retrieval precomputation for retrieval eval, shared raw cache loading for answer eval, `raw_query` rewrite-case observability, and deterministic tie-break ordering for local and DB-ANN ranking paths.
 - Key decisions: The cache is keyed by experiment output (`raw_retrieval_cache_{experiment}.json`) and reused in-process by rewrite modes; answer eval loads the persisted cache when retrieval eval already produced it, otherwise computes missing samples once.

@@ -18,7 +18,9 @@ Inputs:
 - raw_query
 - query_language (`ko` or `en`, optional; if absent, infer from raw_query and treat Hangul/Korean text as `ko`)
 - session_context (optional)
-- top_memory_candidates (top similar synthetic query examples; prompt context only)
+- top_memory_candidates (sanitized synthetic query examples; prompt context only)
+  - each candidate has source_memory_index, synthetic_query, target_title, section_path, glossary_terms, canonical_anchors, short_evidence_summary
+  - internal memory IDs, document IDs, chunk IDs, and target IDs are intentionally hidden
 - anchor_candidates (technical anchors extracted from raw_query + memory metadata)
 - anchor_terms (flattened anchor string list)
 - terminology_hints (`terms` + `source_terms` for high-priority technical token preservation)
@@ -29,9 +31,22 @@ Inputs:
 Output (JSON only):
 {
   "candidates": [
-    {"label": "explicit_standalone", "query": "..."},
-    {"label": "product_version_anchored", "query": "..."},
-    {"label": "error_or_task_focused", "query": "..."}
+    {
+      "label": "explicit_standalone",
+      "query": "...",
+      "preserved_raw_terms": ["..."],
+      "added_anchors": ["..."],
+      "source_memory_index": 1,
+      "intent_risk": "low"
+    },
+    {
+      "label": "product_version_anchored",
+      "query": "...",
+      "preserved_raw_terms": ["..."],
+      "added_anchors": ["..."],
+      "source_memory_index": 2,
+      "intent_risk": "medium"
+    }
   ]
 }
 
@@ -89,6 +104,7 @@ Hard rules:
    - variation is allowed only in retrieval framing, not in task objective.
 14) Never include internal identifiers in candidate query text:
    - no memory_id, target_doc_id, target_chunk_ids, chunk IDs, document IDs, or other internal IDs.
+   - source_memory_index is only a 1-based index from top_memory_candidates and is allowed only in JSON metadata, never in query text.
 15) Conservative fallback:
    - use conservative fallback only when no safe rewrite exists.
    - if any compatible terminology_hints, canonical_anchor_hints, anchor_terms, anchor_candidates, or top_memory_candidates exist, add at least one retrieval-improving anchor.
@@ -100,6 +116,12 @@ Hard rules:
    - do not preserve Korean sentence naturalness at the cost of losing important English technical anchors.
    - keep candidates compact enough for the adoption gate: target 56 non-space characters or fewer when possible.
    - prefer 2~4 decisive anchors over sentence-like Korean filler or broad explanation.
+17) Output metadata is mandatory:
+   - preserved_raw_terms: exact raw_query terms that the candidate preserved. Include technical anchors and core raw intent words.
+   - added_anchors: anchors added from terminology_hints, canonical_anchor_hints, anchor_candidates, top_memory_candidates, or multi_source_anchor_hints and actually present in query.
+   - source_memory_index: 1-based top_memory_candidates index that most influenced the candidate. Use 0 only when no memory candidate influenced the query.
+   - intent_risk: low, medium, or high. Use high if the candidate may drift from raw_query; high-risk candidates will be rejected downstream.
+   - Do not claim a preserved_raw_term or added_anchor unless it appears in the query text.
 
 Candidate roles:
 1) explicit_standalone
@@ -129,6 +151,8 @@ Quality checks before final output:
 - candidate_count respected (max 3)
 - each candidate retains core intent verbs/nouns from raw_query
 - each candidate improves retrieval anchors without changing user goal
+- preserved_raw_terms and added_anchors are covered by the final query string
+- source_memory_index points to the sanitized memory candidate that supplied the added anchors, or 0 if none
 - At least one candidate should be optimized for English technical-document lexical overlap when query_language is ko and compatible English anchors exist.
 - The three candidates should not only differ by word order; they should represent different retrieval strategies.
 - If top_memory_candidates are provided, verify whether at least one compatible technical anchor/concept can be safely reused.

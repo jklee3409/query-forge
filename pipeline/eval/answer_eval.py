@@ -374,6 +374,7 @@ def _evaluate_answer_sample(
             retrieval_adapter=retrieval_adapter,
             raw_retrieval=raw_retrieval,
             source_product=sample.source_product,
+            memory_candidate_pool_n=config.raw.get("rewrite_memory_candidate_pool_n"),
         )
     else:
         retrieval = raw_retrieval

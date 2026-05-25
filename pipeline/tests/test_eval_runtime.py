@@ -509,7 +509,59 @@ class EvalRuntimeRewriteTests(unittest.TestCase):
         self.assertNotIn("anchors", canonical_anchor_hints)
         self.assertTrue(all(item.get("source") == "canonical_anchor" for item in canonical_source_terms))
         self.assertTrue(all("canonical_term_id" not in item for item in canonical_source_terms))
-        self.assertNotIn("canonical_anchors", payload["top_memory_candidates"][0])
+        memory_prompt_row = payload["top_memory_candidates"][0]
+        self.assertEqual(memory_prompt_row["source_memory_index"], 1)
+        self.assertIn("synthetic_query", memory_prompt_row)
+        self.assertIn("canonical_anchors", memory_prompt_row)
+        self.assertNotIn("memory_id", memory_prompt_row)
+        self.assertNotIn("target_doc_id", memory_prompt_row)
+        self.assertNotIn("target_chunk_ids", memory_prompt_row)
+
+    def test_memory_rerank_prefers_raw_overlap_and_domain_match(self) -> None:
+        raw_retrieval = [
+            runtime.RetrievalCandidate(
+                chunk_id="target-chunk",
+                document_id="doc-target",
+                score=0.60,
+                text="SecurityFilterChain filter order",
+            )
+        ]
+        memory_rows = [
+            {
+                "memory_id": "m-similar",
+                "query_text": "generic Spring overview",
+                "target_doc_id": "doc-other",
+                "target_chunk_ids": ["other-chunk"],
+                "product": "spring-framework",
+                "glossary_terms": [],
+                "similarity": 0.99,
+                "utility_score": 0.20,
+            },
+            {
+                "memory_id": "m-target",
+                "query_text": "Spring Security SecurityFilterChain filter order",
+                "target_doc_id": "doc-target",
+                "target_chunk_ids": ["target-chunk"],
+                "product": "spring-security-reference",
+                "glossary_terms": ["SecurityFilterChain"],
+                "similarity": 0.20,
+                "utility_score": 0.90,
+            },
+        ]
+
+        reranked = runtime._rerank_rewrite_memory_candidates(
+            raw_query="filter order",
+            memory_items=memory_rows,
+            raw_retrieval=raw_retrieval,
+            query_language="en",
+            source_product="spring-security",
+            top_n=2,
+        )
+
+        self.assertEqual(reranked[0]["memory_id"], "m-target")
+        self.assertGreater(reranked[0]["memory_rerank_score"], reranked[1]["memory_rerank_score"])
+        self.assertEqual(reranked[0]["memory_rank_before"], 2)
+        self.assertEqual(reranked[0]["memory_rank_after"], 1)
 
     def test_rewrite_payload_skips_anchor_when_disabled(self) -> None:
         class _FakeRewriteClient:

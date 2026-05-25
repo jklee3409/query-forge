@@ -553,6 +553,7 @@ def _evaluate_mode(
         retrieval_adapter=retrieval_adapter,
         raw_retrieval=raw_retrieval,
         source_product=sample.source_product,
+        memory_candidate_pool_n=config.raw.get("rewrite_memory_candidate_pool_n"),
     )
     metrics = retrieval_metrics(
         expected_chunk_ids=sample.expected_chunk_ids,

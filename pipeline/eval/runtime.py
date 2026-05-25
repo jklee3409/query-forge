@@ -98,6 +98,11 @@ class MemoryItem:
     product: str | None = None
     glossary_terms: list[str] = field(default_factory=list)
     canonical_anchors: dict[str, Any] | None = None
+    target_title: str | None = None
+    target_section_path: str | None = None
+    target_chunk_preview: str | None = None
+    utility_score: float | None = None
+    final_score: float | None = None
 
 
 @dataclass(slots=True)
@@ -380,6 +385,11 @@ class DbAnnRuntimeRetrievalAdapter:
                     "product": row["product"],
                     "glossary_terms": row["glossary_terms"],
                     "canonical_anchors": row.get("canonical_anchors"),
+                    "target_title": row.get("target_title"),
+                    "target_section_path": row.get("target_section_path"),
+                    "target_chunk_preview": row.get("target_chunk_preview"),
+                    "utility_score": row.get("utility_score"),
+                    "final_score": row.get("final_score"),
                     "similarity": item.score,
                     "dense_similarity": item.dense_score,
                     "bm25_score": item.bm25_score,
@@ -441,6 +451,11 @@ class DbAnnRuntimeRetrievalAdapter:
             "product": str(row["product"]) if row.get("product") else None,
             "glossary_terms": [str(item) for item in (row["glossary_terms"] or []) if str(item).strip()],
             "canonical_anchors": _json_mapping_or_none(row.get("canonical_anchors")),
+            "target_title": str(row.get("target_title") or "") or None,
+            "target_section_path": str(row.get("target_section_path_text") or "") or None,
+            "target_chunk_preview": str(row.get("target_chunk_preview") or "") or None,
+            "utility_score": float(row["utility_score"]) if row.get("utility_score") is not None else None,
+            "final_score": float(row["final_score"]) if row.get("final_score") is not None else None,
             "embedding": _parse_halfvec_literal(str(row["embedding_literal"] or "")),
             "ann_score": float(row.get("ann_score") or 0.0),
         }
@@ -667,6 +682,27 @@ class DbAnnRuntimeRetrievalAdapter:
                        m.product,
                        m.glossary_terms,
                        m.metadata -> 'canonical_anchors' AS canonical_anchors,
+                       m.utility_score,
+                       m.final_score,
+                       (
+                           SELECT d.title
+                           FROM corpus_chunks c
+                           JOIN corpus_documents d ON d.document_id = c.document_id
+                           WHERE c.chunk_id = COALESCE(m.target_chunk_ids ->> 0, '')
+                           LIMIT 1
+                       ) AS target_title,
+                       (
+                           SELECT c.section_path_text
+                           FROM corpus_chunks c
+                           WHERE c.chunk_id = COALESCE(m.target_chunk_ids ->> 0, '')
+                           LIMIT 1
+                       ) AS target_section_path_text,
+                       (
+                           SELECT LEFT(c.chunk_text, 700)
+                           FROM corpus_chunks c
+                           WHERE c.chunk_id = COALESCE(m.target_chunk_ids ->> 0, '')
+                           LIMIT 1
+                       ) AS target_chunk_preview,
                        m.query_embedding::text AS embedding_literal,
                        1 - (m.query_embedding <=> CAST(%s AS halfvec)) AS ann_score
                 FROM memory_entries m
@@ -719,6 +755,27 @@ class DbAnnRuntimeRetrievalAdapter:
                        m.product,
                        m.glossary_terms,
                        m.metadata -> 'canonical_anchors' AS canonical_anchors,
+                       m.utility_score,
+                       m.final_score,
+                       (
+                           SELECT d.title
+                           FROM corpus_chunks c
+                           JOIN corpus_documents d ON d.document_id = c.document_id
+                           WHERE c.chunk_id = COALESCE(m.target_chunk_ids ->> 0, '')
+                           LIMIT 1
+                       ) AS target_title,
+                       (
+                           SELECT c.section_path_text
+                           FROM corpus_chunks c
+                           WHERE c.chunk_id = COALESCE(m.target_chunk_ids ->> 0, '')
+                           LIMIT 1
+                       ) AS target_section_path_text,
+                       (
+                           SELECT LEFT(c.chunk_text, 700)
+                           FROM corpus_chunks c
+                           WHERE c.chunk_id = COALESCE(m.target_chunk_ids ->> 0, '')
+                           LIMIT 1
+                       ) AS target_chunk_preview,
                        m.query_embedding::text AS embedding_literal,
                        GREATEST(
                            similarity(m.query_text, %s),
@@ -775,6 +832,27 @@ class DbAnnRuntimeRetrievalAdapter:
                        m.product,
                        m.glossary_terms,
                        m.metadata -> 'canonical_anchors' AS canonical_anchors,
+                       m.utility_score,
+                       m.final_score,
+                       (
+                           SELECT d.title
+                           FROM corpus_chunks c
+                           JOIN corpus_documents d ON d.document_id = c.document_id
+                           WHERE c.chunk_id = COALESCE(m.target_chunk_ids ->> 0, '')
+                           LIMIT 1
+                       ) AS target_title,
+                       (
+                           SELECT c.section_path_text
+                           FROM corpus_chunks c
+                           WHERE c.chunk_id = COALESCE(m.target_chunk_ids ->> 0, '')
+                           LIMIT 1
+                       ) AS target_section_path_text,
+                       (
+                           SELECT LEFT(c.chunk_text, 700)
+                           FROM corpus_chunks c
+                           WHERE c.chunk_id = COALESCE(m.target_chunk_ids ->> 0, '')
+                           LIMIT 1
+                       ) AS target_chunk_preview,
                        m.query_embedding::text AS embedding_literal,
                        (
                            SELECT COUNT(*)
@@ -903,10 +981,30 @@ REWRITE_RESPONSE_SCHEMA: dict[str, Any] = {
             "minItems": 1,
             "items": {
                 "type": "object",
-                "required": ["label", "query"],
+                "required": [
+                    "label",
+                    "query",
+                    "preserved_raw_terms",
+                    "added_anchors",
+                    "source_memory_index",
+                    "intent_risk",
+                ],
                 "properties": {
                     "label": {"type": "string"},
                     "query": {"type": "string"},
+                    "preserved_raw_terms": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                    },
+                    "added_anchors": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                    },
+                    "source_memory_index": {"type": "integer"},
+                    "intent_risk": {
+                        "type": "string",
+                        "enum": ["low", "medium", "high"],
+                    },
                 },
                 "additionalProperties": True,
             },
@@ -1748,7 +1846,28 @@ def load_memory_items(
                    m.metadata ->> 'source_gate_run_id' AS source_gate_run_id,
                    m.product,
                    m.glossary_terms,
-                   m.metadata -> 'canonical_anchors' AS canonical_anchors
+                   m.metadata -> 'canonical_anchors' AS canonical_anchors,
+                   m.utility_score,
+                   m.final_score,
+                   (
+                       SELECT d.title
+                       FROM corpus_chunks c
+                       JOIN corpus_documents d ON d.document_id = c.document_id
+                       WHERE c.chunk_id = COALESCE(m.target_chunk_ids ->> 0, '')
+                       LIMIT 1
+                   ) AS target_title,
+                   (
+                       SELECT c.section_path_text
+                       FROM corpus_chunks c
+                       WHERE c.chunk_id = COALESCE(m.target_chunk_ids ->> 0, '')
+                       LIMIT 1
+                   ) AS target_section_path_text,
+                   (
+                       SELECT LEFT(c.chunk_text, 700)
+                       FROM corpus_chunks c
+                       WHERE c.chunk_id = COALESCE(m.target_chunk_ids ->> 0, '')
+                       LIMIT 1
+                   ) AS target_chunk_preview
             FROM memory_entries m
             LEFT JOIN synthetic_queries_gated g ON g.gated_query_id = m.source_gated_query_id
             {where_clause}
@@ -1770,6 +1889,15 @@ def load_memory_items(
             product=str(row["product"]) if row["product"] else None,
             glossary_terms=[str(item) for item in (row["glossary_terms"] or []) if str(item).strip()],
             canonical_anchors=_json_mapping_or_none(row["canonical_anchors"]),
+            target_title=str(row["target_title"]).strip() if row["target_title"] else None,
+            target_section_path=(
+                str(row["target_section_path_text"]).strip()
+                if row["target_section_path_text"]
+                else None
+            ),
+            target_chunk_preview=str(row["target_chunk_preview"]).strip() if row["target_chunk_preview"] else None,
+            utility_score=float(row["utility_score"]) if row["utility_score"] is not None else None,
+            final_score=float(row["final_score"]) if row["final_score"] is not None else None,
         )
         for row in rows
     ]
@@ -2303,6 +2431,11 @@ def memory_top_n(
                 "product": memory.product,
                 "glossary_terms": memory.glossary_terms,
                 "canonical_anchors": memory.canonical_anchors,
+                "target_title": memory.target_title,
+                "target_section_path": memory.target_section_path,
+                "target_chunk_preview": memory.target_chunk_preview,
+                "utility_score": memory.utility_score,
+                "final_score": memory.final_score,
                 "similarity": ranked.score,
                 "dense_similarity": ranked.dense_score,
                 "bm25_score": ranked.bm25_score,
@@ -2375,7 +2508,7 @@ def _heuristic_rewrite_candidates(
     *,
     session_context: dict[str, Any],
     candidate_count: int,
-) -> list[dict[str, str]]:
+) -> list[dict[str, Any]]:
     top_memory_query = memory_items[0]["query_text"] if memory_items else raw_query
     previous_entity = str(session_context.get("previous_assistant_summary") or "").strip()
     previous_question = str(session_context.get("previous_user_question") or "").strip()
@@ -2406,7 +2539,7 @@ def build_rewrite_candidates(
     session_context: dict[str, Any],
     candidate_count: int,
     rewrite_anchor_injection_enabled: bool = True,
-) -> list[dict[str, str]]:
+) -> list[dict[str, Any]]:
     trace_id = f"rewrite:{hashlib.sha1(raw_query.encode('utf-8')).hexdigest()[:12]}"
     payload: dict[str, Any] = {
         "raw_query": raw_query,
@@ -2452,7 +2585,23 @@ def build_rewrite_candidates(
         if not query:
             continue
         label = str(item.get("label") or f"candidate_{len(normalized) + 1}").strip()
-        normalized.append({"label": label, "query": query})
+        try:
+            source_memory_index = int(item.get("source_memory_index") or 0)
+        except (TypeError, ValueError):
+            source_memory_index = 0
+        intent_risk = str(item.get("intent_risk") or "medium").strip().lower()
+        if intent_risk not in {"low", "medium", "high"}:
+            intent_risk = "medium"
+        normalized.append(
+            {
+                "label": label,
+                "query": query,
+                "preserved_raw_terms": _bounded_string_list(item.get("preserved_raw_terms"), max_items=12),
+                "added_anchors": _bounded_string_list(item.get("added_anchors"), max_items=12),
+                "source_memory_index": max(0, source_memory_index),
+                "intent_risk": intent_risk,
+            }
+        )
         if len(normalized) >= candidate_count:
             break
     if normalized:
@@ -2606,7 +2755,23 @@ def build_rewrite_candidates_v2(
         if not query:
             continue
         label = str(item.get("label") or f"candidate_{len(normalized) + 1}").strip()
-        normalized.append({"label": label, "query": query})
+        try:
+            source_memory_index = int(item.get("source_memory_index") or 0)
+        except (TypeError, ValueError):
+            source_memory_index = 0
+        intent_risk = str(item.get("intent_risk") or "medium").strip().lower()
+        if intent_risk not in {"low", "medium", "high"}:
+            intent_risk = "medium"
+        normalized.append(
+            {
+                "label": label,
+                "query": query,
+                "preserved_raw_terms": _bounded_string_list(item.get("preserved_raw_terms"), max_items=12),
+                "added_anchors": _bounded_string_list(item.get("added_anchors"), max_items=12),
+                "source_memory_index": max(0, source_memory_index),
+                "intent_risk": intent_risk,
+            }
+        )
         if len(normalized) >= candidate_count:
             break
     if normalized:
@@ -2914,12 +3079,195 @@ def _canonical_memory_target_texts(memory_row: dict[str, Any]) -> list[str]:
     return texts
 
 
+def _bounded_string_list(value: Any, *, max_items: int = 12, max_chars: int = 80) -> list[str]:
+    if not isinstance(value, list):
+        return []
+    rows: list[str] = []
+    seen: set[str] = set()
+    for item in value:
+        text = " ".join(str(item or "").split())
+        if not text:
+            continue
+        text = text[:max_chars].strip()
+        key = text.casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        rows.append(text)
+        if len(rows) >= max_items:
+            break
+    return rows
+
+
+def _memory_utility_score(memory_row: dict[str, Any]) -> float:
+    for key in ("utility_score", "final_score", "gating_utility_score"):
+        value = memory_row.get(key)
+        if value is None:
+            continue
+        try:
+            return _clamp01(float(value))
+        except (TypeError, ValueError):
+            continue
+    return 0.0
+
+
+def _product_match_score(memory_product: Any, source_product: str | None) -> float:
+    memory_value = _normalize_product_scope_key(str(memory_product or ""))
+    source_value = _normalize_product_scope_key(str(source_product or ""))
+    if not memory_value or not source_value:
+        return 0.0
+    memory_aliases = _expand_source_product_aliases(memory_value)
+    source_aliases = _expand_source_product_aliases(source_value)
+    if memory_aliases & source_aliases:
+        return 1.0
+    if any(left in right or right in left for left in memory_aliases for right in source_aliases):
+        return 0.5
+    return 0.0
+
+
+def _memory_anchor_tokens(memory_row: dict[str, Any], *, query_language: str) -> set[str]:
+    tokens = _content_token_set(str(memory_row.get("query_text") or ""), max_items=18)
+    tokens |= _technical_token_set(
+        str(memory_row.get("query_text") or ""),
+        query_language=query_language,
+        max_items=12,
+    )
+    for term in memory_row.get("glossary_terms") or []:
+        tokens |= _content_token_set(str(term), max_items=8)
+        tokens |= _technical_token_set(str(term), query_language=query_language, max_items=4)
+        if len(tokens) >= 32:
+            break
+    for canonical_text in _canonical_memory_target_texts(memory_row):
+        tokens |= _content_token_set(str(canonical_text), max_items=8)
+        tokens |= _technical_token_set(str(canonical_text), query_language=query_language, max_items=4)
+        if len(tokens) >= 40:
+            break
+    for key in ("target_title", "target_section_path"):
+        tokens |= _content_token_set(str(memory_row.get(key) or ""), max_items=10)
+        if len(tokens) >= 48:
+            break
+    return tokens
+
+
+def _raw_anchor_tokens(raw_query: str, *, query_language: str) -> set[str]:
+    return _content_token_set(raw_query, max_items=18) | _technical_token_set(
+        raw_query,
+        query_language=query_language,
+        max_items=18,
+    )
+
+
+def _memory_rerank_features(
+    *,
+    memory_row: dict[str, Any],
+    raw_query: str,
+    raw_retrieval: list[RetrievalCandidate],
+    query_language: str,
+    source_product: str | None,
+) -> dict[str, Any]:
+    target_chunk_ids = {
+        str(item).strip()
+        for item in (memory_row.get("target_chunk_ids") or [])
+        if str(item).strip()
+    }
+    raw_chunk_ids = [item.chunk_id for item in raw_retrieval[:10] if item.chunk_id]
+    raw_doc_ids = [item.document_id for item in raw_retrieval[:10] if item.document_id]
+    raw_chunk_set = set(raw_chunk_ids)
+    raw_doc_set = set(raw_doc_ids)
+    target_doc_id = str(memory_row.get("target_doc_id") or "").strip()
+    chunk_overlap_count = len(target_chunk_ids & raw_chunk_set)
+    chunk_overlap_score = _safe_ratio(chunk_overlap_count, max(1, min(len(target_chunk_ids), len(raw_chunk_set))))
+    doc_overlap_score = 1.0 if target_doc_id and target_doc_id in raw_doc_set else 0.0
+    raw_tokens = _raw_anchor_tokens(raw_query, query_language=query_language)
+    memory_tokens = _memory_anchor_tokens(memory_row, query_language=query_language)
+    anchor_overlap_score = _safe_ratio(len(raw_tokens & memory_tokens), len(raw_tokens), default=0.0)
+    utility_score = _memory_utility_score(memory_row)
+    product_match_score = _product_match_score(memory_row.get("product"), source_product)
+    raw_similarity = _clamp01((float(memory_row.get("similarity") or 0.0) + 1.0) / 2.0)
+    rerank_score = _clamp01(
+        (0.34 * raw_similarity)
+        + (0.20 * chunk_overlap_score)
+        + (0.12 * doc_overlap_score)
+        + (0.18 * anchor_overlap_score)
+        + (0.10 * utility_score)
+        + (0.06 * product_match_score)
+    )
+    return {
+        "raw_similarity_norm": round(raw_similarity, 6),
+        "raw_topk_chunk_overlap_count": chunk_overlap_count,
+        "raw_topk_chunk_overlap_score": round(chunk_overlap_score, 6),
+        "raw_topk_doc_overlap_score": round(doc_overlap_score, 6),
+        "canonical_anchor_overlap_score": round(anchor_overlap_score, 6),
+        "gating_utility_score": round(utility_score, 6),
+        "product_domain_match_score": round(product_match_score, 6),
+        "rerank_score": round(rerank_score, 6),
+    }
+
+
+def _rerank_rewrite_memory_candidates(
+    *,
+    raw_query: str,
+    memory_items: list[dict[str, Any]],
+    raw_retrieval: list[RetrievalCandidate],
+    query_language: str,
+    source_product: str | None,
+    top_n: int,
+) -> list[dict[str, Any]]:
+    if top_n <= 0 or not memory_items:
+        return []
+    scored: list[dict[str, Any]] = []
+    for index, memory_row in enumerate(memory_items, start=1):
+        row = dict(memory_row)
+        features = _memory_rerank_features(
+            memory_row=row,
+            raw_query=raw_query,
+            raw_retrieval=raw_retrieval,
+            query_language=query_language,
+            source_product=source_product,
+        )
+        row["memory_rank_before"] = index
+        row["memory_rerank_features"] = features
+        row["memory_rerank_score"] = features["rerank_score"]
+        scored.append(row)
+    scored.sort(
+        key=lambda row: (
+            -float(row.get("memory_rerank_score") or 0.0),
+            -float((row.get("memory_rerank_features") or {}).get("raw_topk_chunk_overlap_score") or 0.0),
+            -float((row.get("memory_rerank_features") or {}).get("raw_topk_doc_overlap_score") or 0.0),
+            int(row.get("memory_rank_before") or 9999),
+            str(row.get("memory_id") or ""),
+        )
+    )
+    for index, row in enumerate(scored, start=1):
+        row["memory_rank_after"] = index
+    return scored[:top_n]
+
+
+def _short_evidence_summary(memory_row: dict[str, Any]) -> str:
+    for key in ("target_chunk_preview", "target_section_path", "target_title"):
+        text = " ".join(str(memory_row.get(key) or "").split())
+        if text:
+            return text[:260].strip()
+    return " ".join(str(memory_row.get("query_text") or "").split())[:180].strip()
+
+
 def _memory_prompt_candidates(memory_items: list[dict[str, Any]]) -> list[dict[str, Any]]:
     prompt_rows: list[dict[str, Any]] = []
-    for memory_row in memory_items[:5]:
-        prompt_row = dict(memory_row)
-        prompt_row.pop("canonical_anchors", None)
-        prompt_rows.append(prompt_row)
+    for index, memory_row in enumerate(memory_items[:5], start=1):
+        prompt_rows.append(
+            {
+                "source_memory_index": index,
+                "synthetic_query": str(memory_row.get("query_text") or ""),
+                "target_title": str(memory_row.get("target_title") or ""),
+                "section_path": str(memory_row.get("target_section_path") or ""),
+                "glossary_terms": _bounded_string_list(memory_row.get("glossary_terms"), max_items=8),
+                "canonical_anchors": _bounded_string_list(
+                    _canonical_memory_target_texts(memory_row),
+                    max_items=8,
+                ),
+                "short_evidence_summary": _short_evidence_summary(memory_row),
+            }
+        )
     return prompt_rows
 
 
@@ -2994,6 +3342,105 @@ def _memory_target_metrics(
             memory_target_missing_penalty_weight
             if missing_memory_target
             else 0.0
+        ),
+    }
+
+
+def _term_present_in_text(term: str, text: str) -> bool:
+    normalized_term = normalize_anchor_text(term)
+    if not normalized_term:
+        return False
+    normalized_text = unicodedata.normalize("NFKC", str(text or "")).casefold()
+    if normalized_term.casefold() in normalized_text:
+        return True
+    term_spaced, term_compact = _canonical_match_indexes(normalized_term)
+    text_spaced, text_compact = _canonical_match_indexes(text)
+    return bool(
+        (term_spaced and term_spaced in text_spaced)
+        or (term_compact and term_compact in text_compact)
+    )
+
+
+def _llm_anchor_coverage_metrics(
+    *,
+    raw_query: str,
+    candidate_query: str,
+    preserved_raw_terms: Any,
+    added_anchors: Any,
+) -> dict[str, Any]:
+    preserved_terms = _bounded_string_list(preserved_raw_terms, max_items=12)
+    added_terms = _bounded_string_list(added_anchors, max_items=12)
+    preserved_terms_from_raw = [
+        term for term in preserved_terms if _term_present_in_text(term, raw_query)
+    ]
+    preserved_terms_in_candidate = [
+        term for term in preserved_terms_from_raw if _term_present_in_text(term, candidate_query)
+    ]
+    added_terms_in_candidate = [
+        term for term in added_terms if _term_present_in_text(term, candidate_query)
+    ]
+    return {
+        "preserved_raw_terms": preserved_terms,
+        "added_anchors": added_terms,
+        "preserved_raw_terms_from_raw_count": len(preserved_terms_from_raw),
+        "preserved_raw_terms_in_candidate_count": len(preserved_terms_in_candidate),
+        "preserved_raw_term_coverage_ratio": _safe_ratio(
+            len(preserved_terms_in_candidate),
+            len(preserved_terms_from_raw),
+            default=1.0,
+        ),
+        "added_anchor_coverage_count": len(added_terms_in_candidate),
+        "added_anchor_coverage_ratio": _safe_ratio(
+            len(added_terms_in_candidate),
+            len(added_terms),
+            default=1.0,
+        ),
+    }
+
+
+def _source_memory_target_retrieval_metrics(
+    *,
+    source_memory_index: int,
+    memory_items: list[dict[str, Any]],
+    raw_retrieval: list[RetrievalCandidate],
+    candidate_retrieval: list[RetrievalCandidate],
+) -> dict[str, Any]:
+    if source_memory_index <= 0:
+        return {
+            "source_memory_index_valid": True,
+            "source_memory_target_chunk_hit": False,
+            "source_memory_target_doc_hit": False,
+            "source_memory_target_improved": False,
+        }
+    if source_memory_index > len(memory_items):
+        return {
+            "source_memory_index_valid": False,
+            "source_memory_target_chunk_hit": False,
+            "source_memory_target_doc_hit": False,
+            "source_memory_target_improved": False,
+        }
+    memory_row = memory_items[source_memory_index - 1]
+    target_chunks = {
+        str(item).strip()
+        for item in (memory_row.get("target_chunk_ids") or [])
+        if str(item).strip()
+    }
+    target_doc = str(memory_row.get("target_doc_id") or "").strip()
+    raw_chunks = {item.chunk_id for item in raw_retrieval[:10]}
+    raw_docs = {item.document_id for item in raw_retrieval[:10]}
+    candidate_chunks = {item.chunk_id for item in candidate_retrieval[:10]}
+    candidate_docs = {item.document_id for item in candidate_retrieval[:10]}
+    raw_chunk_hit = bool(target_chunks & raw_chunks)
+    candidate_chunk_hit = bool(target_chunks & candidate_chunks)
+    raw_doc_hit = bool(target_doc and target_doc in raw_docs)
+    candidate_doc_hit = bool(target_doc and target_doc in candidate_docs)
+    return {
+        "source_memory_index_valid": True,
+        "source_memory_target_chunk_hit": candidate_chunk_hit,
+        "source_memory_target_doc_hit": candidate_doc_hit,
+        "source_memory_target_improved": bool(
+            (candidate_chunk_hit and not raw_chunk_hit)
+            or (candidate_doc_hit and not raw_doc_hit)
         ),
     }
 
@@ -3263,6 +3710,7 @@ def run_selective_rewrite(
     retrieval_adapter: DbAnnRuntimeRetrievalAdapter | None = None,
     raw_retrieval: list[RetrievalCandidate] | None = None,
     source_product: str | None = None,
+    memory_candidate_pool_n: int | None = None,
     # Legacy compatibility knobs. They are intentionally ignored by the default
     # rewrite evaluator so memory hints cannot enter final retrieval.
     rewrite_memory_hint_retrieval_enabled: bool = False,
@@ -3292,15 +3740,27 @@ def run_selective_rewrite(
             retrieval_adapter=retrieval_adapter,
         )
     )
-    memory_items = memory_top_n(
+    memory_pool_n = max(
+        memory_top_n_value,
+        int(_float_value(memory_candidate_pool_n, max(memory_top_n_value * 4, 20))),
+    )
+    memory_pool_items = memory_top_n(
         raw_query,
         memories,
-        top_n=memory_top_n_value,
+        top_n=memory_pool_n,
         preset_filter=preset_filter,
         source_gate_run_id=source_gate_run_id,
         strategy_filters=strategy_filters,
         retriever_config=config,
         retrieval_adapter=retrieval_adapter,
+    )
+    memory_items = _rerank_rewrite_memory_candidates(
+        raw_query=raw_query,
+        memory_items=memory_pool_items,
+        raw_retrieval=raw_retrieval,
+        query_language=query_language,
+        source_product=source_product,
+        top_n=memory_top_n_value,
     )
     raw_memory_affinity = memory_items[0]["similarity"] if memory_items else 0.0
     raw_retrieval_score = retrieval_confidence_score(raw_retrieval)
@@ -3320,6 +3780,12 @@ def run_selective_rewrite(
     max_length_ratio = max(1.0, _float_value(thresholds.get("max_length_ratio"), 1.0))
     max_compact_query_chars = max(0, int(_float_value(thresholds.get("max_compact_query_chars"), 0.0)))
     min_retrieval_gain_score = _clamp01(_float_value(thresholds.get("min_retrieval_gain_score"), 0.0))
+    preserved_raw_term_coverage_floor = _clamp01(
+        _float_value(thresholds.get("preserved_raw_term_coverage_floor"), 1.0)
+    )
+    added_anchor_coverage_floor = _clamp01(
+        _float_value(thresholds.get("added_anchor_coverage_floor"), 0.67)
+    )
     underspecified_memory_norm_cutoff = _clamp01(
         _float_value(thresholds.get("underspecified_memory_norm_cutoff"), 0.0)
     )
@@ -3335,6 +3801,10 @@ def run_selective_rewrite(
     memory_target_presence_bonus_weight = max(
         0.0,
         _float_value(bonuses.get("memory_target_presence"), 0.0),
+    )
+    source_memory_target_hit_margin_bonus = max(
+        0.0,
+        _float_value(bonuses.get("source_memory_target_hit_margin"), 0.0),
     )
     query_profile = str(policy.get("query_profile") or "").strip().lower()
 
@@ -3436,16 +3906,51 @@ def run_selective_rewrite(
             candidate_memory_similarity=candidate_memory_affinity,
         )
         memory_alignment_score = memory_metrics["memory_alignment_score"]
+        try:
+            source_memory_index = int(template.get("source_memory_index") or 0)
+        except (TypeError, ValueError):
+            source_memory_index = 0
+        memory_target_context = memory_items
+        if 0 < source_memory_index <= len(memory_items):
+            source_memory_row = memory_items[source_memory_index - 1]
+            memory_target_context = [
+                source_memory_row,
+                *[
+                    item
+                    for index, item in enumerate(memory_items, start=1)
+                    if index != source_memory_index
+                ],
+            ]
         memory_target_metrics = _memory_target_metrics(
             raw_query=raw_query,
             candidate_query=template["query"],
-            memory_items=memory_items,
+            memory_items=memory_target_context,
             query_profile=query_profile,
             raw_memory_norm=raw_memory["raw_memory_norm"],
             underspecified_memory_norm_cutoff=underspecified_memory_norm_cutoff,
             memory_target_presence_bonus_weight=memory_target_presence_bonus_weight,
             memory_target_missing_penalty_weight=memory_target_missing_penalty_weight,
         )
+        source_memory_metrics = _source_memory_target_retrieval_metrics(
+            source_memory_index=source_memory_index,
+            memory_items=memory_items,
+            raw_retrieval=raw_retrieval,
+            candidate_retrieval=retrieved,
+        )
+        llm_anchor_metrics = _llm_anchor_coverage_metrics(
+            raw_query=raw_query,
+            candidate_query=template["query"],
+            preserved_raw_terms=template.get("preserved_raw_terms") or [],
+            added_anchors=template.get("added_anchors") or [],
+        )
+        source_memory_target_margin_bonus = (
+            source_memory_target_hit_margin_bonus
+            if source_memory_metrics["source_memory_target_improved"]
+            else 0.0
+        )
+        intent_risk = str(template.get("intent_risk") or "medium").strip().lower()
+        if intent_risk not in {"low", "medium", "high"}:
+            intent_risk = "medium"
 
         length_ratio = _length_ratio_without_spaces(raw_query, template["query"])
         candidate_compact_chars = len("".join(str(template["query"] or "").split()))
@@ -3472,7 +3977,7 @@ def run_selective_rewrite(
         )
 
         effective_threshold = max(float(threshold), min_improvement)
-        adoption_margin = retrieval_score_delta
+        adoption_margin = retrieval_score_delta + source_memory_target_margin_bonus
         normalized_raw_query = " ".join(raw_query.split()).strip().lower()
         normalized_candidate_query = " ".join(str(template["query"]).split()).strip().lower()
         same_query = normalized_raw_query == normalized_candidate_query
@@ -3480,6 +3985,14 @@ def run_selective_rewrite(
         rejection_reason = ""
         if same_query:
             rejection_reason = "candidate_same_as_raw"
+        elif intent_risk == "high":
+            rejection_reason = "intent_risk_high"
+        elif not source_memory_metrics["source_memory_index_valid"]:
+            rejection_reason = "invalid_source_memory_index"
+        elif llm_anchor_metrics["preserved_raw_term_coverage_ratio"] < preserved_raw_term_coverage_floor:
+            rejection_reason = "preserved_raw_terms_missing"
+        elif llm_anchor_metrics["added_anchor_coverage_ratio"] < added_anchor_coverage_floor:
+            rejection_reason = "added_anchor_coverage_below_floor"
         elif verbosity_exceeds_limit:
             rejection_reason = "verbosity_exceeds_limit"
         elif terminology_preservation_score < preservation_floor:
@@ -3495,6 +4008,10 @@ def run_selective_rewrite(
         candidate = {
             "label": template["label"],
             "query": template["query"],
+            "preserved_raw_terms": llm_anchor_metrics["preserved_raw_terms"],
+            "added_anchors": llm_anchor_metrics["added_anchors"],
+            "source_memory_index": source_memory_index,
+            "intent_risk": intent_risk,
             "base_confidence": base_confidence,
             "raw_retrieval_score": raw_retrieval_score,
             "candidate_retrieval_score": candidate_retrieval_score,
@@ -3518,6 +4035,9 @@ def run_selective_rewrite(
             "preservation_penalty": preservation_penalty,
             "memory_target_presence_bonus": memory_target_metrics["memory_target_presence_bonus"],
             "memory_target_missing_penalty": memory_target_metrics["memory_target_missing_penalty"],
+            "source_memory_target_hit_margin_bonus": source_memory_target_margin_bonus,
+            **source_memory_metrics,
+            **llm_anchor_metrics,
             "memory_target_tokens": memory_target_metrics["memory_target_tokens"],
             "raw_target_overlap_count": memory_target_metrics["raw_target_overlap_count"],
             "candidate_target_overlap_count": memory_target_metrics["candidate_target_overlap_count"],
@@ -3598,6 +4118,10 @@ def run_selective_rewrite(
     selected_rewrite_payload = {
         "label": selected_candidate.get("label"),
         "query": selected_candidate.get("query"),
+        "preserved_raw_terms": selected_candidate.get("preserved_raw_terms", []),
+        "added_anchors": selected_candidate.get("added_anchors", []),
+        "source_memory_index": selected_candidate.get("source_memory_index", 0),
+        "intent_risk": selected_candidate.get("intent_risk", "medium"),
         "confidence": selected_candidate.get("confidence", 0.0),
         "raw_retrieval_score": selected_candidate.get("raw_retrieval_score", raw_retrieval_score),
         "candidate_retrieval_score": selected_candidate.get("candidate_retrieval_score", 0.0),
@@ -3621,6 +4145,10 @@ def run_selective_rewrite(
                 {
                     "label": candidate["label"],
                     "query": candidate["query"],
+                    "preserved_raw_terms": candidate.get("preserved_raw_terms", []),
+                    "added_anchors": candidate.get("added_anchors", []),
+                    "source_memory_index": candidate.get("source_memory_index", 0),
+                    "intent_risk": candidate.get("intent_risk", "medium"),
                     "base_confidence": candidate.get("base_confidence", candidate["confidence"]),
                     "raw_retrieval_score": candidate.get("raw_retrieval_score", raw_retrieval_score),
                     "candidate_retrieval_score": candidate.get("candidate_retrieval_score", 0.0),
@@ -3644,6 +4172,16 @@ def run_selective_rewrite(
                     "preservation_penalty": candidate.get("preservation_penalty", 0.0),
                     "memory_target_presence_bonus": candidate.get("memory_target_presence_bonus", 0.0),
                     "memory_target_missing_penalty": candidate.get("memory_target_missing_penalty", 0.0),
+                    "source_memory_target_hit_margin_bonus": candidate.get("source_memory_target_hit_margin_bonus", 0.0),
+                    "source_memory_index_valid": candidate.get("source_memory_index_valid", True),
+                    "source_memory_target_chunk_hit": candidate.get("source_memory_target_chunk_hit", False),
+                    "source_memory_target_doc_hit": candidate.get("source_memory_target_doc_hit", False),
+                    "source_memory_target_improved": candidate.get("source_memory_target_improved", False),
+                    "preserved_raw_terms_from_raw_count": candidate.get("preserved_raw_terms_from_raw_count", 0),
+                    "preserved_raw_terms_in_candidate_count": candidate.get("preserved_raw_terms_in_candidate_count", 0),
+                    "preserved_raw_term_coverage_ratio": candidate.get("preserved_raw_term_coverage_ratio", 1.0),
+                    "added_anchor_coverage_count": candidate.get("added_anchor_coverage_count", 0),
+                    "added_anchor_coverage_ratio": candidate.get("added_anchor_coverage_ratio", 1.0),
                     "memory_target_tokens": candidate.get("memory_target_tokens", []),
                     "raw_target_overlap_count": candidate.get("raw_target_overlap_count", 0),
                     "candidate_target_overlap_count": candidate.get("candidate_target_overlap_count", 0),

@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-05-25] Session Summary (RAG Rewrite Memory Rerank and Schema)
+- What was done: Reranked synthetic memory candidates with raw top-K chunk/doc overlap, memory target metadata, canonical-anchor overlap, utility score, and product/domain match. Sanitized rewrite prompt memory rows to hide internal IDs and extended LLM output metadata with preserved terms, added anchors, source memory index, and intent risk, then validated anchor coverage after generation.
+- Key decisions: The prompt now receives only synthetic query, target title/section, glossary/canonical anchors, and a short evidence summary. Post-processing rejects high intent-risk, invalid source index, missing preserved terms, or declared anchors absent from the query.
+- Issues encountered: Targeted Python compile and `python -m unittest pipeline.tests.test_eval_runtime pipeline.tests.test_db_ann_runtime -q` passed.
+- Next steps: Lower Admin rewrite threshold defaults and wire runtime defaults so the improved rewrite candidate path is actually adopted in GUI runs.
+
 ## [2026-05-25] Session Summary (RAG Raw Retrieval Reproducibility)
 - What was done: Made retrieval/answer eval compute raw retrieval once per sample, persist `raw_retrieval_cache_{experiment}.json`, and pass that same raw top-K into `raw_only`, rewrite modes, and answer evaluation. Added stable tie-breakers to local/db-ann ranking and restored `rewrite_always` force semantics while still rejecting unsafe candidates.
 - Key decisions: Raw cache generation is sequential and fail-fast on empty raw results when a candidate scope exists, matching the low-spec laptop constraint and preventing silent metric drift.

@@ -3,6 +3,12 @@
 ## Overview
 High-level progress tracking for the project.
 
+## [2026-05-25] Session Summary (Rewrite Prompt Structured Metadata)
+- What was done: Updated Korean/code-mixed and English selective rewrite prompts to consume sanitized memory rows and emit `query`, `preserved_raw_terms`, `added_anchors`, `source_memory_index`, and `intent_risk` for every candidate.
+- Key decisions: Internal memory/document/chunk IDs are explicitly forbidden; `source_memory_index` is only a prompt-local index used by post-processing.
+- Issues encountered: Prompt changes were validated through targeted runtime unit tests, not a live LLM run.
+- Next steps: Inspect rewrite traces after a fixed-snapshot rerun to verify declared anchors are compact and covered by query text.
+
 ## [2026-05-25] Session Summary (Short-User Rewrite Prompt Compactness)
 - What was done: Updated `prompts/rewrite/selective_rewrite_v2.md` to tell the LLM to keep short-user Korean rewrite candidates within the compact adoption gate when possible and prefer decisive anchors over filler.
 - Key decisions: Preserved the existing prompt id, schema, labels, and prompt-only memory policy.
