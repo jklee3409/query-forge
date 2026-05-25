@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-05-25] Session Summary (Compact Rewrite Verbosity Gate)
+- What was done: Updated selective rewrite adoption so the verbosity rejection uses the existing length ratio plus an optional absolute compact-query cap (`max_compact_query_chars`) for short-user queries.
+- Key decisions: Kept retrieval-score improvement, terminology preservation, memory alignment, and prompt-only synthetic memory behavior unchanged.
+- Issues encountered: Targeted `python -m py_compile pipeline/eval/runtime.py` passed.
+- Next steps: Inspect a rerun's rewrite cases for `candidate_compact_chars` and `verbosity_exceeds_limit` reduction.
+
 ## [2026-05-20] Session Summary (Prompt-Only Synthetic Memory Rewrite Eval)
 - What was done: Reworked `eval/runtime.py` selective rewrite so raw retrieval is computed first, synthetic memory lookup is passed only to the LLM rewrite prompt, candidate retrieval is run once per rewritten query, and final retrieval is never merged with memory or raw results.
 - Key decisions: Adoption now uses raw-vs-candidate retrieval score delta with existing threshold/min-improvement gates; `missing_memory_target` remains diagnostic/penalty data but no longer hard-blocks prompt-context-only memory rewrites.

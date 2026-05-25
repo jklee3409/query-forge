@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-05-25] Session Summary (Short-User Rewrite Policy Cap)
+- What was done: Added `max_compact_query_chars=56` to the Admin-generated short-user rewrite adoption policy so very short compressed queries can accept compact anchor-expanded candidates without tripping the ratio-only verbosity gate.
+- Key decisions: Left `rewrite_threshold`, snapshot validation, prompt-only memory usage, and retrieval mode generation unchanged.
+- Issues encountered: Targeted `compileJava` passed.
+- Next steps: Re-run the same RAG condition to confirm adoption improves without increasing bad rewrite rate.
+
 ## [2026-05-20] Session Summary (Admin RAG Prompt-Only Rewrite Config)
 - What was done: Updated Admin-generated RAG configs so default rewrite runs no longer include `memory_only_gated`, no longer expose/store rewrite retrieval merge strategy, and set `rewrite_memory_hint_retrieval_enabled=false`.
 - Key decisions: Kept memory_lookup config only as legacy/ablation support for explicit memory_only modes while default rewrite evaluation compares raw retrieval against rewritten-query retrieval directly.

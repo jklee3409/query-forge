@@ -3,6 +3,12 @@
 ## Overview
 High-level progress tracking for the project.
 
+## [2026-05-25] Session Summary (Short-User Rewrite Prompt Compactness)
+- What was done: Updated `prompts/rewrite/selective_rewrite_v2.md` to tell the LLM to keep short-user Korean rewrite candidates within the compact adoption gate when possible and prefer decisive anchors over filler.
+- Key decisions: Preserved the existing prompt id, schema, labels, and prompt-only memory policy.
+- Issues encountered: Prompt validation was static only; no live LLM run was performed.
+- Next steps: Compare fixed-snapshot rewrite traces after rerun to verify compact anchor phrases replace verbosity rejections.
+
 ## [2026-05-20] Session Summary (Rewrite Prompt Memory Context Clarification)
 - What was done: Updated Korean/code-mixed and English selective rewrite prompts to describe `top_memory_candidates` as synthetic query examples / compatible retrieval-anchor context only.
 - Key decisions: Added explicit wording that memory queries must not be copied wholesale or used directly as retrieval queries; only compatible anchors/concepts may be borrowed for final rewritten query candidates.

@@ -1,5 +1,23 @@
 # progress.md
 
+## [2026-05-25] Session Summary (Short-Query Rewrite Adoption Analysis)
+- What was done: Analyzed RAG run `ea464740-6143-424f-9a9a-dac9112289e8` and confirmed low rewrite adoption is mainly from strict delta and verbosity gates on short-user queries, not missing expected chunks. Added a compact-query absolute length allowance to selective rewrite adoption and aligned the Korean rewrite prompt with that gate.
+- Key decisions: Kept the prompt-only synthetic-memory rewrite architecture unchanged; only short-user adoption policy/prompt wording was adjusted.
+- Issues encountered: Validation was limited to targeted Python syntax compilation and backend `compileJava`; no full RAG rerun was executed.
+- Next steps: Rerun the same snapshot/dataset condition to compare adoption rate and retrieval metrics before broader tuning.
+
+## [2026-05-20] Session Summary (C Gating Batch Visibility Restore)
+- What was done: Restored Spring-domain visibility for C/full-gating snapshot `73b5bfc1-73b5-4cfe-ab64-daf94729578b` by setting its `quality_gating_batch.domain_id` to the Spring domain. Changed generation batch `9861d4df-9b73-4d7c-88a7-0116c1ef83e7` from `cancelled` to `completed`.
+- Key decisions: Set the recovered generation batch source run to dominant completed run `09397a85-ef0c-4a30-9744-a2497c671c51`, preserved existing timestamps, and set `total_generated_count=1066` to match currently linked C raw rows.
+- Issues encountered: The recovered batch still contains mixed raw provenance: 1000 rows from `09397a85-ef0c-4a30-9744-a2497c671c51` and 66 rows from `90b73679-0502-43b1-8709-b30aa431c397`; this was recorded in `metrics_json.operational_recovery`.
+- Next steps: If stricter lineage is required later, repair raw C `generation_batch_id` provenance instead of relying on the recovered batch alias.
+
+## [2026-05-20] Session Summary (C Gating Batch Visibility Investigation)
+- What was done: Investigated RAG test run `a670cbc1-b136-4701-a4e0-fdaaf8683a3c` and confirmed it uses C/full-gating snapshot `73b5bfc1-73b5-4cfe-ab64-daf94729578b` with source gating run `135d3403-7db5-4643-a31b-19eab9933e67`.
+- Key decisions: No DB or code changes were made. The snapshot rows still exist, but `quality_gating_batch.domain_id` is `NULL` while related gated/memory/eval/RAG rows are Spring-scoped, so domain-filtered Admin views hide the C gating batch.
+- Issues encountered: Historical C raw-query provenance is inconsistent: the original generation batch `ce7fbf2e-9ec8-4bff-bb25-dbbcd804dd0e` remains on the gating batch, but raw C rows are currently tagged to cancelled batch `9861d4df-9b73-4d7c-88a7-0116c1ef83e7`.
+- Next steps: Add a targeted domain/provenance repair if the C snapshot must be visible and selectable from the Spring domain workspace.
+
 ## [2026-05-20] Session Summary (Synthetic Memory Prompt-Only Rewrite)
 - What was done: Simplified RAG rewrite evaluation so synthetic memory is used only as LLM prompt examples/context, final retrieval is either raw-query retrieval or selected rewritten-query retrieval, and rewrite adoption requires retrieval-score improvement over the raw baseline.
 - Key decisions: Removed default rewrite memory-hint retrieval/merge paths, stopped Admin rewrite runs from including memory-only mode by default, and hid rewrite retrieval merge strategy controls from the RAG GUI while leaving memory_only modes as explicit legacy/ablation paths.
