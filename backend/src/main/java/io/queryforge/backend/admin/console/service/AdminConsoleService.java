@@ -2913,6 +2913,7 @@ public class AdminConsoleService {
         shortUserThresholds.put("min_improvement", 0.02d);
         shortUserThresholds.put("preservation_floor", 0.68d);
         shortUserThresholds.put("max_length_ratio", 2.10d);
+        shortUserThresholds.put("max_compact_query_chars", 56);
         shortUserThresholds.put("underspecified_memory_norm_cutoff", 0.66d);
 
         Map<String, Object> shortUserPenalties = new LinkedHashMap<>();

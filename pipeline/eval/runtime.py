@@ -3274,6 +3274,7 @@ def run_selective_rewrite(
     min_improvement = max(0.0, _float_value(thresholds.get("min_improvement"), 0.0))
     preservation_floor = _clamp01(_float_value(thresholds.get("preservation_floor"), 0.0))
     max_length_ratio = max(1.0, _float_value(thresholds.get("max_length_ratio"), 1.0))
+    max_compact_query_chars = max(0, int(_float_value(thresholds.get("max_compact_query_chars"), 0.0)))
     min_retrieval_gain_score = _clamp01(_float_value(thresholds.get("min_retrieval_gain_score"), 0.0))
     underspecified_memory_norm_cutoff = _clamp01(
         _float_value(thresholds.get("underspecified_memory_norm_cutoff"), 0.0)
@@ -3403,6 +3404,10 @@ def run_selective_rewrite(
         )
 
         length_ratio = _length_ratio_without_spaces(raw_query, template["query"])
+        candidate_compact_chars = len("".join(str(template["query"] or "").split()))
+        verbosity_exceeds_limit = length_ratio > max_length_ratio
+        if max_compact_query_chars > 0 and candidate_compact_chars <= max_compact_query_chars:
+            verbosity_exceeds_limit = False
         verbosity_penalty = max(0.0, length_ratio - 1.0) * verbosity_per_extra_ratio
         critical_token_drop_penalty = max(0.0, 1.0 - technical_preservation_ratio) * critical_token_drop_weight
         anchor_overlap_penalty = max(0.0, 1.0 - anchor_overlap_ratio) * anchor_overlap_drop_weight
@@ -3431,7 +3436,7 @@ def run_selective_rewrite(
         rejection_reason = ""
         if same_query:
             rejection_reason = "candidate_same_as_raw"
-        elif length_ratio > max_length_ratio:
+        elif verbosity_exceeds_limit:
             rejection_reason = "verbosity_exceeds_limit"
         elif terminology_preservation_score < preservation_floor:
             rejection_reason = "preservation_below_floor"
@@ -3476,6 +3481,8 @@ def run_selective_rewrite(
             "effective_threshold": effective_threshold,
             "preservation_floor": preservation_floor,
             "max_length_ratio": max_length_ratio,
+            "max_compact_query_chars": max_compact_query_chars,
+            "candidate_compact_chars": candidate_compact_chars,
             "length_ratio": length_ratio,
             "eligible": eligible,
             "rejection_reason": rejection_reason,
@@ -3597,6 +3604,8 @@ def run_selective_rewrite(
                     "effective_threshold": candidate.get("effective_threshold", 0.0),
                     "preservation_floor": candidate.get("preservation_floor", 0.0),
                     "max_length_ratio": candidate.get("max_length_ratio", 0.0),
+                    "max_compact_query_chars": candidate.get("max_compact_query_chars", 0),
+                    "candidate_compact_chars": candidate.get("candidate_compact_chars", 0),
                     "length_ratio": candidate.get("length_ratio", 0.0),
                     "eligible": bool(candidate.get("eligible")),
                     "selected": candidate is selected_candidate,

@@ -98,6 +98,8 @@ Hard rules:
    - use memory only to recover compatible product/module/API/config anchors.
    - prefer compact Korean intent + exact English anchor phrase form.
    - do not preserve Korean sentence naturalness at the cost of losing important English technical anchors.
+   - keep candidates compact enough for the adoption gate: target 56 non-space characters or fewer when possible.
+   - prefer 2~4 decisive anchors over sentence-like Korean filler or broad explanation.
 
 Candidate roles:
 1) explicit_standalone
