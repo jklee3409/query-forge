@@ -483,6 +483,13 @@ class EvalRuntimeRewriteTests(unittest.TestCase):
                 candidate_count=1,
                 query_language="ko",
                 rewrite_terminology_hints_max_count=3,
+                retrieval_context={
+                    "retrieval_backend": "db_ann",
+                    "vector_store": "postgresql-pgvector",
+                    "retriever_mode": "hybrid",
+                    "dense_embedding_model": "intfloat/multilingual-e5-small",
+                    "fusion_weights": {"dense": 0.6, "bm25": 0.32, "technical": 0.08},
+                },
             )
 
         self.assertEqual(len(candidates), 1)
@@ -509,6 +516,11 @@ class EvalRuntimeRewriteTests(unittest.TestCase):
         self.assertNotIn("anchors", canonical_anchor_hints)
         self.assertTrue(all(item.get("source") == "canonical_anchor" for item in canonical_source_terms))
         self.assertTrue(all("canonical_term_id" not in item for item in canonical_source_terms))
+        retrieval_context = payload.get("retrieval_context") or {}
+        self.assertEqual(retrieval_context.get("retrieval_backend"), "db_ann")
+        self.assertEqual(retrieval_context.get("vector_store"), "postgresql-pgvector")
+        self.assertEqual(retrieval_context.get("retriever_mode"), "hybrid")
+        self.assertEqual(retrieval_context.get("dense_embedding_model"), "intfloat/multilingual-e5-small")
         memory_prompt_row = payload["top_memory_candidates"][0]
         self.assertEqual(memory_prompt_row["source_memory_index"], 1)
         self.assertIn("synthetic_query", memory_prompt_row)

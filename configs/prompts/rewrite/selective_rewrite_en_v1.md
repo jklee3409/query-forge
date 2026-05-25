@@ -1,7 +1,7 @@
 ---
 id: selective_rewrite_en_v1
 family: rewrite
-version: v1
+version: v2
 status: active
 ---
 
@@ -25,6 +25,14 @@ Inputs:
 - terminology_hints (`terms` + `source_terms` for high-priority technical token preservation)
 - canonical_anchor_hints (`terms` + compact `source_terms` for approved scoring-only canonical/normalized anchor preservation; optional)
 - multi_source_anchor_hints (`terms` + related anchors from canonical/memory/synthetic/chunk relation lookup; optional, lower priority)
+- retrieval_context (actual RAG test retrieval runtime context)
+  - retrieval_backend: `local` or `db_ann`
+  - vector_store: for example `in_memory_local` or `postgresql-pgvector`
+  - retriever_mode: `bm25_only`, `dense_only`, or `hybrid`
+  - dense_embedding_model, dense_embedding_required, dense_fallback_enabled
+  - fusion_weights: dense / bm25 / technical weights used by the retriever
+  - candidate_pool_k, retrieval_top_k, memory_candidate_pool_n, top_memory_candidates_count
+  - rewrite_guidance: concise runtime guidance derived from the retriever configuration
 - candidate_count (1~3)
 
 Output (JSON only):
@@ -66,6 +74,11 @@ Hard rules:
 7) Keep candidates short and search-oriented:
    - prefer compact noun/verb technical phrases.
    - avoid explanatory prose, assistant-style wording, and pseudo-document passages.
+   - inspect retrieval_context before writing candidates.
+   - for bm25_only or high bm25/technical weight, favor exact API/config/class/property tokens and canonical anchors.
+   - for dense_only or high dense weight, keep semantic intent complete while adding only decisive anchors.
+   - for hybrid, combine exact anchors with a semantically complete developer task phrase.
+   - for db_ann/pgvector, preserve wording that will embed well under dense_embedding_model while still retaining exact anchors.
 8) Output English only except for exact non-English literals that already appear in the input.
 9) If the raw query is underspecified, add at most 1-2 supported English technical anchors from inputs.
    Expanded multi-source anchors must never override raw_query anchors or change the task intent.
@@ -92,3 +105,52 @@ Quality checks before final output:
 - candidate_count is respected (max 3).
 - preserved_raw_terms and added_anchors are covered by the final query string.
 - source_memory_index points to a sanitized memory candidate or 0.
+
+Few-shot examples:
+
+These five examples define the intended behavior. The synthetic example is search-friendly evidence only; never treat it as the user's query replacement.
+
+Example 1:
+- raw_query: "filter order"
+- synthetic example: "How does Spring Security determine the order of filters in a SecurityFilterChain?"
+- anchor injection: Spring Security, SecurityFilterChain, FilterChainProxy, filter order
+- expected candidates:
+  - explicit_standalone: "Spring Security filter order SecurityFilterChain"
+  - product_version_anchored: "Spring Security SecurityFilterChain filter order FilterChainProxy"
+  - error_or_task_focused: "security filters ordering SecurityFilterChain FilterChainProxy"
+
+Example 2:
+- raw_query: "task cancellation exception"
+- synthetic example: "What exception is raised when an asyncio Task is cancelled and how should cancellation be handled?"
+- anchor injection: Python, asyncio, Task.cancel, CancelledError, cancellation
+- expected candidates:
+  - explicit_standalone: "Python asyncio task cancellation CancelledError"
+  - product_version_anchored: "asyncio Task.cancel CancelledError cancellation handling"
+  - error_or_task_focused: "Python asyncio cancelled task CancelledError"
+
+Example 3:
+- raw_query: "probe difference"
+- synthetic example: "When should Kubernetes liveness, readiness, and startup probes be used?"
+- anchor injection: Kubernetes, livenessProbe, readinessProbe, startupProbe, container health
+- expected candidates:
+  - explicit_standalone: "Kubernetes probe difference livenessProbe readinessProbe"
+  - product_version_anchored: "Kubernetes livenessProbe readinessProbe startupProbe differences"
+  - error_or_task_focused: "container health probes liveness readiness startup"
+
+Example 4:
+- raw_query: "cleanup timing"
+- synthetic example: "When does a React useEffect cleanup function run during re-rendering and unmount?"
+- anchor injection: React, useEffect, cleanup function, dependency array, unmount
+- expected candidates:
+  - explicit_standalone: "React useEffect cleanup timing"
+  - product_version_anchored: "React useEffect cleanup function dependency array unmount"
+  - error_or_task_focused: "useEffect cleanup re-render unmount timing"
+
+Example 5:
+- raw_query: "env precedence"
+- synthetic example: "How does Docker Compose resolve environment variables from environment, env_file, and interpolation?"
+- anchor injection: Docker Compose, environment, env_file, variable interpolation, precedence
+- expected candidates:
+  - explicit_standalone: "Docker Compose env precedence environment env_file"
+  - product_version_anchored: "Docker Compose environment env_file variable interpolation precedence"
+  - error_or_task_focused: "Compose environment variable precedence env_file interpolation"

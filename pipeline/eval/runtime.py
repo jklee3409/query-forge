@@ -2672,6 +2672,7 @@ def build_rewrite_candidates_v2(
     rewrite_anchor_injection_enabled: bool = True,
     rewrite_terminology_hints_max_count: int = DEFAULT_REWRITE_TERMINOLOGY_HINTS_MAX,
     multi_source_anchor_hints: dict[str, Any] | None = None,
+    retrieval_context: dict[str, Any] | None = None,
     rewrite_failure_policy: str | None = None,
     rewrite_runtime_stats: dict[str, int] | None = None,
 ) -> list[dict[str, str]]:
@@ -2702,6 +2703,8 @@ def build_rewrite_candidates_v2(
         "top_memory_candidates": _memory_prompt_candidates(memory_items),
         "candidate_count": candidate_count,
     }
+    if retrieval_context:
+        payload["retrieval_context"] = retrieval_context
     if rewrite_anchor_injection_enabled:
         anchor_context = _build_rewrite_anchor_candidates(
             raw_query=raw_query,
@@ -3269,6 +3272,49 @@ def _memory_prompt_candidates(memory_items: list[dict[str, Any]]) -> list[dict[s
             }
         )
     return prompt_rows
+
+
+def _rewrite_retrieval_context(
+    *,
+    retriever_config: RetrieverConfig,
+    retrieval_adapter: DbAnnRuntimeRetrievalAdapter | None,
+    retrieval_top_k: int,
+    memory_candidate_pool_n: int,
+    memory_top_n_value: int,
+) -> dict[str, Any]:
+    adapter_metadata = retrieval_adapter.metadata() if retrieval_adapter is not None else {}
+    backend = str(adapter_metadata.get("retrieval_backend") or RETRIEVAL_BACKEND_LOCAL)
+    vector_store = adapter_metadata.get("vector_store")
+    if not vector_store and backend == RETRIEVAL_BACKEND_LOCAL:
+        vector_store = "in_memory_local"
+    weights = retriever_config.fusion_weights()
+    return {
+        "retrieval_backend": backend,
+        "vector_store": vector_store,
+        "retriever_name": adapter_metadata.get("retriever_name")
+        or local_retriever_name(retriever_config),
+        "retriever_mode": retriever_config.mode,
+        "dense_embedding_model": str(retriever_config.dense_embedding_model),
+        "dense_embedding_required": bool(retriever_config.dense_embedding_required),
+        "dense_fallback_enabled": bool(retriever_config.dense_fallback_enabled),
+        "dense_embedding_device": str(retriever_config.dense_embedding_device),
+        "candidate_pool_k": int(retriever_config.candidate_pool_k),
+        "retrieval_top_k": int(retrieval_top_k),
+        "memory_candidate_pool_n": int(memory_candidate_pool_n),
+        "top_memory_candidates_count": int(memory_top_n_value),
+        "rerank_enabled": bool(retriever_config.rerank_enabled),
+        "fusion_weights": {
+            "dense": float(weights[0]),
+            "bm25": float(weights[1]),
+            "technical": float(weights[2]),
+        },
+        "rewrite_guidance": (
+            "Choose a compact query form that matches this retriever configuration. "
+            "Dense-heavy retrieval benefits from intent-complete semantic phrases; "
+            "BM25/technical-heavy retrieval benefits from exact anchors and canonical terms; "
+            "hybrid retrieval needs both."
+        ),
+    }
 
 
 def _memory_target_metrics(
@@ -3839,6 +3885,13 @@ def run_selective_rewrite(
         rewrite_anchor_injection_enabled=rewrite_anchor_injection_enabled,
         rewrite_terminology_hints_max_count=rewrite_terminology_hints_max_count,
         multi_source_anchor_hints=multi_source_anchor_hints,
+        retrieval_context=_rewrite_retrieval_context(
+            retriever_config=config,
+            retrieval_adapter=retrieval_adapter,
+            retrieval_top_k=retrieval_top_k,
+            memory_candidate_pool_n=memory_pool_n,
+            memory_top_n_value=memory_top_n_value,
+        ),
         rewrite_failure_policy=rewrite_failure_policy,
         rewrite_runtime_stats=rewrite_runtime_stats,
     )
