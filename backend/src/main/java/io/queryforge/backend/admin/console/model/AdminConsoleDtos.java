@@ -391,7 +391,9 @@ public final class AdminConsoleDtos {
             List<RuntimeOption> retrievalBackendOptions,
             List<RuntimeOption> retrieverModeOptions,
             List<RuntimeOption> rewriteFailurePolicyOptions,
-            Map<String, RuntimeParameterRange> defaultParameterRanges
+            Map<String, RuntimeParameterRange> defaultParameterRanges,
+            String defaultRetrieverMode,
+            JsonNode retrieverModeDefaults
     ) {
     }
 

@@ -568,8 +568,8 @@ public class LlmJobService {
             );
             retrievalConfig.put("vector_store", nullableText(runConfig.path("vector_store")));
             retrievalConfig.put("fallback_used", runConfig.path("fallback_used").asBoolean(false));
-            retrievalConfig.put("retrieval_top_k", runConfig.path("retrieval_top_k").asInt(20));
-            retrievalConfig.put("rerank_top_n", runConfig.path("rerank_top_n").asInt(5));
+            retrievalConfig.put("retrieval_top_k", nullableInteger(runConfig.path("retrieval_top_k")));
+            retrievalConfig.put("rerank_top_n", nullableInteger(runConfig.path("rerank_top_n")));
             retrievalConfig.put("retrieval_modes", nullableJson(runConfig.get("retrieval_modes")));
             retrievalConfig.put("active_modes", nullableJson(retrievalSummary.get("active_modes")));
             retrievalConfig.put("synthetic_free_baseline", runConfig.path("synthetic_free_baseline").asBoolean(false));
@@ -580,7 +580,7 @@ public class LlmJobService {
             rewriteConfig.put("rewrite_enabled", runConfig.path("rewrite_enabled").asBoolean(true));
             rewriteConfig.put("selective_rewrite", runConfig.path("selective_rewrite").asBoolean(true));
             rewriteConfig.put("use_session_context", runConfig.path("use_session_context").asBoolean(false));
-            rewriteConfig.put("rewrite_threshold", runConfig.path("rewrite_threshold").asDouble(0.10));
+            rewriteConfig.put("rewrite_threshold", nullableDouble(runConfig.path("rewrite_threshold")));
             rewriteConfig.put(
                     "rewrite_anchor_injection_enabled",
                     runConfig.path("rewrite_anchor_injection_enabled").asBoolean(false)

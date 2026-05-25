@@ -16,37 +16,83 @@ const RETRIEVER_MODE_PRESETS = {
     denseEmbeddingRequired: false,
     denseFallbackEnabled: false,
     retrieverRerankEnabled: false,
-    retrieverCandidatePoolK: '50',
-    retrieverDenseWeight: '0.00',
-    retrieverBm25Weight: '1.00',
-    retrieverTechnicalWeight: '0.00',
+    retrieverCandidatePoolK: '',
+    retrieverDenseWeight: '',
+    retrieverBm25Weight: '',
+    retrieverTechnicalWeight: '',
   },
   dense_only: {
     denseEmbeddingRequired: true,
     denseFallbackEnabled: false,
     retrieverRerankEnabled: false,
-    retrieverCandidatePoolK: '50',
-    retrieverDenseWeight: '1.00',
-    retrieverBm25Weight: '0.00',
-    retrieverTechnicalWeight: '0.00',
+    retrieverCandidatePoolK: '',
+    retrieverDenseWeight: '',
+    retrieverBm25Weight: '',
+    retrieverTechnicalWeight: '',
   },
   hybrid: {
     denseEmbeddingRequired: true,
     denseFallbackEnabled: false,
     retrieverRerankEnabled: false,
-    retrieverCandidatePoolK: '50',
-    retrieverDenseWeight: '0.60',
-    retrieverBm25Weight: '0.32',
-    retrieverTechnicalWeight: '0.08',
+    retrieverCandidatePoolK: '',
+    retrieverDenseWeight: '',
+    retrieverBm25Weight: '',
+    retrieverTechnicalWeight: '',
   },
 }
 
-function retrieverPresetForMode(mode, denseEmbeddingModel = '') {
-  const normalizedMode = RETRIEVER_MODE_PRESETS[mode] ? mode : 'bm25_only'
+function numberString(value, fallback = '') {
+  const parsed = Number(value)
+  return Number.isFinite(parsed) ? parsed.toFixed(2) : fallback
+}
+
+function integerString(value, fallback = '') {
+  const parsed = Number(value)
+  return Number.isFinite(parsed) ? String(Math.round(parsed)) : fallback
+}
+
+function parameterDefault(ranges, key, fallback) {
+  const value = ranges?.[key]?.defaultValue ?? ranges?.[key]?.default ?? fallback
+  return value == null ? fallback : value
+}
+
+function serverDefaultValue(current, fallbackValue, nextValue) {
+  return current == null || current === '' || String(current) === String(fallbackValue)
+    ? String(nextValue)
+    : current
+}
+
+function retrieverPresetForMode(mode, denseEmbeddingModel = '', modeDefaults = {}) {
+  if (!mode) {
+    return {
+      retrieverMode: '',
+      denseEmbeddingModel,
+      denseEmbeddingRequired: null,
+      denseFallbackEnabled: null,
+      retrieverRerankEnabled: null,
+      retrieverCandidatePoolK: '',
+      retrieverDenseWeight: '',
+      retrieverBm25Weight: '',
+      retrieverTechnicalWeight: '',
+    }
+  }
+  const normalizedMode = (modeDefaults?.[mode] || RETRIEVER_MODE_PRESETS[mode]) ? mode : 'bm25_only'
+  const fallback = RETRIEVER_MODE_PRESETS[normalizedMode] || RETRIEVER_MODE_PRESETS.bm25_only
+  const serverPreset = modeDefaults?.[normalizedMode] || {}
+  const weights = serverPreset.retriever_fusion_weights || serverPreset.retrieverFusionWeights || {}
   return {
     retrieverMode: normalizedMode,
     denseEmbeddingModel,
-    ...RETRIEVER_MODE_PRESETS[normalizedMode],
+    denseEmbeddingRequired: serverPreset.dense_embedding_required ?? serverPreset.denseEmbeddingRequired ?? fallback.denseEmbeddingRequired,
+    denseFallbackEnabled: serverPreset.dense_fallback_enabled ?? serverPreset.denseFallbackEnabled ?? fallback.denseFallbackEnabled,
+    retrieverRerankEnabled: serverPreset.rerank_enabled ?? serverPreset.rerankEnabled ?? fallback.retrieverRerankEnabled,
+    retrieverCandidatePoolK: integerString(
+      serverPreset.retriever_candidate_pool_k ?? serverPreset.retrieverCandidatePoolK,
+      fallback.retrieverCandidatePoolK,
+    ),
+    retrieverDenseWeight: numberString(weights.dense, fallback.retrieverDenseWeight),
+    retrieverBm25Weight: numberString(weights.bm25, fallback.retrieverBm25Weight),
+    retrieverTechnicalWeight: numberString(weights.technical, fallback.retrieverTechnicalWeight),
   }
 }
 
@@ -1429,7 +1475,10 @@ export function RagPage({ notify, domainId = null }) {
     retrievalBackends: [],
     defaultRetrievalBackend: 'local',
     retrieverModes: [],
+    defaultRetrieverMode: '',
+    retrieverModeDefaults: {},
     rewriteFailurePolicies: [],
+    defaultParameterRanges: {},
   })
   const [historyPage, setHistoryPage] = useState(0)
   const [modal, setModal] = useState(null)
@@ -1453,11 +1502,11 @@ export function RagPage({ notify, domainId = null }) {
     officialGatingRuleOnlyBatchId: '',
     officialGatingFullGatingBatchId: '',
     llmModel: '',
-    threshold: '0.02',
-    retrievalTopK: '10',
-    rerankTopN: '5',
-    retrievalBackend: 'local',
-    ...retrieverPresetForMode('bm25_only', ''),
+    threshold: '',
+    retrievalTopK: '',
+    rerankTopN: '',
+    retrievalBackend: '',
+    ...retrieverPresetForMode('', ''),
     syntheticFreeBaseline: false,
     gatingApplied: true,
     stageCutoffEnabled: false,
@@ -1494,12 +1543,22 @@ export function RagPage({ notify, domainId = null }) {
     const rewriteFailurePolicies = Array.isArray(payload.rewriteFailurePolicies)
       ? payload.rewriteFailurePolicies.filter(Boolean)
       : []
+    const defaultParameterRanges = payload.defaultParameterRanges && typeof payload.defaultParameterRanges === 'object'
+      ? payload.defaultParameterRanges
+      : {}
+    const retrieverModeDefaults = payload.retrieverModeDefaults && typeof payload.retrieverModeDefaults === 'object'
+      ? payload.retrieverModeDefaults
+      : {}
     const defaultLlmModel = payload.defaultLlmModel || llmModels[0] || ''
     const defaultDenseEmbeddingModel = payload.defaultDenseEmbeddingModel || denseEmbeddingModels[0] || ''
     const defaultRetrievalBackend = payload.defaultRetrievalBackend || retrievalBackends[0] || 'local'
+    const defaultRetrieverMode = payload.defaultRetrieverMode || retrieverModes[0] || ''
     const resolvedRetrieverMode = retrieverModes.includes(form.retrieverMode)
       ? form.retrieverMode
-      : (retrieverModes[0] || form.retrieverMode || '')
+      : (defaultRetrieverMode || form.retrieverMode || '')
+    const defaultThreshold = parameterDefault(defaultParameterRanges, 'rewrite_threshold', '')
+    const defaultRetrievalTopK = parameterDefault(defaultParameterRanges, 'retrieval_top_k', '')
+    const defaultRerankTopN = parameterDefault(defaultParameterRanges, 'rerank_top_n', '')
     setRuntimeOptions({
       llmModels,
       defaultLlmModel,
@@ -1508,23 +1567,36 @@ export function RagPage({ notify, domainId = null }) {
       retrievalBackends,
       defaultRetrievalBackend,
       retrieverModes,
+      defaultRetrieverMode,
+      retrieverModeDefaults,
       rewriteFailurePolicies,
+      defaultParameterRanges,
     })
-    setForm((prev) => ({
-      ...prev,
-      llmModel: prev.llmModel || defaultLlmModel,
-      retrievalBackend: retrievalBackends.includes(prev.retrievalBackend)
-        ? prev.retrievalBackend
-        : defaultRetrievalBackend,
-      denseEmbeddingModel: prev.denseEmbeddingModel || defaultDenseEmbeddingModel,
-      ...retrieverPresetForMode(
-        retrieverModes.includes(prev.retrieverMode) ? prev.retrieverMode : resolvedRetrieverMode,
-        prev.denseEmbeddingModel || defaultDenseEmbeddingModel,
-      ),
-      rewriteFailurePolicy: rewriteFailurePolicies.includes(prev.rewriteFailurePolicy)
-        ? prev.rewriteFailurePolicy
-        : (rewriteFailurePolicies[0] || ''),
-    }))
+    setForm((prev) => {
+      const nextRetrieverModeRaw = serverDefaultValue(prev.retrieverMode, '', resolvedRetrieverMode)
+      const nextRetrieverMode = retrieverModes.includes(nextRetrieverModeRaw)
+        ? nextRetrieverModeRaw
+        : resolvedRetrieverMode
+      return {
+        ...prev,
+        llmModel: prev.llmModel || defaultLlmModel,
+        threshold: serverDefaultValue(prev.threshold, '', defaultThreshold),
+        retrievalTopK: serverDefaultValue(prev.retrievalTopK, '', defaultRetrievalTopK),
+        rerankTopN: serverDefaultValue(prev.rerankTopN, '', defaultRerankTopN),
+        retrievalBackend: retrievalBackends.includes(prev.retrievalBackend)
+          ? prev.retrievalBackend
+          : defaultRetrievalBackend,
+        denseEmbeddingModel: prev.denseEmbeddingModel || defaultDenseEmbeddingModel,
+        ...retrieverPresetForMode(
+          nextRetrieverMode,
+          prev.denseEmbeddingModel || defaultDenseEmbeddingModel,
+          retrieverModeDefaults,
+        ),
+        rewriteFailurePolicy: rewriteFailurePolicies.includes(prev.rewriteFailurePolicy)
+          ? prev.rewriteFailurePolicy
+          : (rewriteFailurePolicies[0] || ''),
+      }
+    })
   }
 
   const loadDatasets = async () => {
@@ -2026,9 +2098,9 @@ export function RagPage({ notify, domainId = null }) {
           retrieverConfig: {
             retrieverMode: form.retrieverMode,
             denseEmbeddingModel: form.denseEmbeddingModel,
-            denseEmbeddingRequired: Boolean(form.denseEmbeddingRequired),
-            denseFallbackEnabled: Boolean(form.denseFallbackEnabled),
-            rerankEnabled: Boolean(form.retrieverRerankEnabled),
+            denseEmbeddingRequired: form.denseEmbeddingRequired == null ? null : Boolean(form.denseEmbeddingRequired),
+            denseFallbackEnabled: form.denseFallbackEnabled == null ? null : Boolean(form.denseFallbackEnabled),
+            rerankEnabled: form.retrieverRerankEnabled == null ? null : Boolean(form.retrieverRerankEnabled),
             candidatePoolK: toNumber(form.retrieverCandidatePoolK),
             denseWeight: toNumber(form.retrieverDenseWeight),
             bm25Weight: toNumber(form.retrieverBm25Weight),
@@ -2684,6 +2756,7 @@ export function RagPage({ notify, domainId = null }) {
                 ...retrieverPresetForMode(
                   event.target.value,
                   prev.denseEmbeddingModel || runtimeOptions.defaultDenseEmbeddingModel,
+                  runtimeOptions.retrieverModeDefaults,
                 ),
               }))}>
                 {(runtimeOptions.retrieverModes.length > 0 ? runtimeOptions.retrieverModes : [form.retrieverMode]).filter(Boolean).map((mode) => (

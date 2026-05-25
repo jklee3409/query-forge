@@ -258,6 +258,11 @@ public class AdminConsoleService {
                 catalog.availableRetrieverModes(),
                 List.of(RETRIEVER_MODE_BM25_ONLY, RETRIEVER_MODE_DENSE_ONLY, RETRIEVER_MODE_HYBRID)
         );
+        String defaultRetrieverMode = firstNonBlank(
+                retrieverModes.contains(catalog.defaultRetrieverMode()) ? catalog.defaultRetrieverMode() : null,
+                retrieverModes.contains(RETRIEVER_MODE_HYBRID) ? RETRIEVER_MODE_HYBRID : null,
+                retrieverModes.isEmpty() ? null : retrieverModes.getFirst()
+        );
         List<String> rewriteFailurePolicies = fallbackIfEmpty(
                 catalog.availableRewriteFailurePolicies(),
                 List.of(
@@ -281,7 +286,9 @@ public class AdminConsoleService {
                 catalog.retrievalBackendOptions().stream().map(this::toRuntimeOptionDto).toList(),
                 catalog.retrieverModeOptions().stream().map(this::toRuntimeOptionDto).toList(),
                 catalog.rewriteFailurePolicyOptions().stream().map(this::toRuntimeOptionDto).toList(),
-                catalog.defaultParameterRanges()
+                catalog.defaultParameterRanges(),
+                defaultRetrieverMode,
+                objectMapper.valueToTree(catalog.retrieverModeDefaults())
         );
     }
 
@@ -793,14 +800,16 @@ public class AdminConsoleService {
         boolean rewriteAnchorInjectionEnabled =
                 request.rewriteAnchorInjectionEnabled() == null || request.rewriteAnchorInjectionEnabled();
         boolean multiSourceAnchorExpansionEnabled = Boolean.TRUE.equals(request.multiSourceAnchorExpansionEnabled());
+        RuntimeCatalog runtimeCatalog = loadRuntimeCatalog();
         int retrievalTopK = request.retrievalTopK() != null && request.retrievalTopK() > 0
                 ? request.retrievalTopK()
-                : DEFAULT_RAG_RETRIEVAL_TOP_K;
-        int rerankTopN = request.rerankTopN() != null && request.rerankTopN() > 0 ? request.rerankTopN() : 5;
-        Map<String, Object> retrieverConfig = resolveRetrieverConfig(request.retrieverConfig(), false);
-        RuntimeCatalog runtimeCatalog = loadRuntimeCatalog();
+                : runtimeDefaultInt(runtimeCatalog, "retrieval_top_k", DEFAULT_RAG_RETRIEVAL_TOP_K);
+        int rerankTopN = request.rerankTopN() != null && request.rerankTopN() > 0
+                ? request.rerankTopN()
+                : runtimeDefaultInt(runtimeCatalog, "rerank_top_n", 5);
+        Map<String, Object> retrieverConfig = resolveRetrieverConfig(request.retrieverConfig(), false, runtimeCatalog);
         validateLlmModelSelection(blankToNull(request.llmModel()), runtimeCatalog);
-        String retrievalBackend = normalizeRetrievalBackend(request.retrievalBackend());
+        String retrievalBackend = normalizeRetrievalBackend(request.retrievalBackend(), runtimeCatalog);
         validateRetrievalBackendSelection(retrievalBackend, runtimeCatalog);
         validateRetrieverSelection(retrieverConfig, runtimeCatalog);
         validateDbAnnConfigurationIfNeeded(retrievalBackend, retrieverConfig);
@@ -812,7 +821,9 @@ public class AdminConsoleService {
                 request.runName(),
                 retrievalBackend + ":" + String.valueOf(retrieverConfig.get("retriever_mode"))
         );
-        double threshold = request.threshold() != null ? request.threshold() : DEFAULT_REWRITE_THRESHOLD;
+        double threshold = request.threshold() != null
+                ? request.threshold()
+                : runtimeDefaultDouble(runtimeCatalog, "rewrite_threshold", DEFAULT_REWRITE_THRESHOLD);
         String rewriteFailurePolicy = normalizeRewriteFailurePolicy(request.rewriteFailurePolicy());
         validateRewriteFailurePolicySelection(rewriteFailurePolicy, runtimeCatalog);
         String stageCutoffLevel = normalizeStageCutoffLevel(request.stageCutoffLevel(), gatingPreset);
@@ -1454,6 +1465,9 @@ public class AdminConsoleService {
             Map<String, AdminConsoleDtos.RuntimeParameterRange> parameterRanges = parseDefaultParameterRanges(
                     rootMap.get("default_parameter_ranges")
             );
+            Map<String, Map<String, Object>> retrieverModeDefaults = parseRetrieverModeDefaults(
+                    rootMap.get("retriever_mode_defaults")
+            );
             return new RuntimeCatalog(
                     llmProviders,
                     llmModels,
@@ -1461,7 +1475,8 @@ public class AdminConsoleService {
                     retrievalBackends,
                     retrieverModes,
                     rewritePolicies,
-                    parameterRanges
+                    parameterRanges,
+                    retrieverModeDefaults
             );
         } catch (IOException | RuntimeException exception) {
             throw new IllegalStateException("failed to load model catalog: " + catalogPath, exception);
@@ -1527,7 +1542,8 @@ public class AdminConsoleService {
                 retrievalBackends,
                 retrieverModes,
                 rewritePolicies,
-                ranges
+                ranges,
+                fallbackRetrieverModeDefaults()
         );
     }
 
@@ -1602,11 +1618,104 @@ public class AdminConsoleService {
         return Map.copyOf(ranges);
     }
 
+    @SuppressWarnings("unchecked")
+    private Map<String, Map<String, Object>> parseRetrieverModeDefaults(Object raw) {
+        if (!(raw instanceof Map<?, ?> map)) {
+            return fallbackRetrieverModeDefaults();
+        }
+        LinkedHashMap<String, Map<String, Object>> defaults = new LinkedHashMap<>();
+        Map<String, Object> source = (Map<String, Object>) map;
+        for (Map.Entry<String, Object> entry : source.entrySet()) {
+            String mode = normalizeRetrieverMode(String.valueOf(entry.getKey()));
+            if (!(entry.getValue() instanceof Map<?, ?> rawValue)) {
+                continue;
+            }
+            defaults.put(mode, sanitizeRetrieverModeDefault((Map<String, Object>) rawValue));
+        }
+        if (defaults.isEmpty()) {
+            return fallbackRetrieverModeDefaults();
+        }
+        return Map.copyOf(defaults);
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String, Object> sanitizeRetrieverModeDefault(Map<String, Object> raw) {
+        LinkedHashMap<String, Object> sanitized = new LinkedHashMap<>();
+        sanitized.put(
+                "dense_embedding_required",
+                parseBooleanOrDefault(raw.get("dense_embedding_required"), true)
+        );
+        sanitized.put(
+                "dense_fallback_enabled",
+                parseBooleanOrDefault(raw.get("dense_fallback_enabled"), false)
+        );
+        sanitized.put(
+                "rerank_enabled",
+                parseBooleanOrDefault(raw.get("rerank_enabled"), false)
+        );
+        int candidatePoolK = intDefault(
+                raw.get("retriever_candidate_pool_k"),
+                DEFAULT_RETRIEVER_CANDIDATE_POOL_K
+        );
+        sanitized.put("retriever_candidate_pool_k", clampRange(candidatePoolK, 1, 500, "retriever_candidate_pool_k"));
+        Object weightsNode = raw.get("retriever_fusion_weights");
+        Map<String, Object> rawWeights = weightsNode instanceof Map<?, ?> weights
+                ? (Map<String, Object>) weights
+                : Map.of();
+        LinkedHashMap<String, Double> weights = new LinkedHashMap<>();
+        weights.put("dense", doubleDefault(rawWeights.get("dense"), DEFAULT_RAG_HYBRID_DENSE_WEIGHT));
+        weights.put("bm25", doubleDefault(rawWeights.get("bm25"), DEFAULT_RAG_HYBRID_BM25_WEIGHT));
+        weights.put("technical", doubleDefault(rawWeights.get("technical"), DEFAULT_RAG_HYBRID_TECHNICAL_WEIGHT));
+        sanitized.put("retriever_fusion_weights", weights);
+        return Map.copyOf(sanitized);
+    }
+
+    private Map<String, Map<String, Object>> fallbackRetrieverModeDefaults() {
+        LinkedHashMap<String, Map<String, Object>> defaults = new LinkedHashMap<>();
+        defaults.put(
+                RETRIEVER_MODE_BM25_ONLY,
+                Map.of(
+                        "dense_embedding_required", false,
+                        "dense_fallback_enabled", false,
+                        "rerank_enabled", false,
+                        "retriever_candidate_pool_k", DEFAULT_RETRIEVER_CANDIDATE_POOL_K,
+                        "retriever_fusion_weights", Map.of("dense", 0.0d, "bm25", 1.0d, "technical", 0.0d)
+                )
+        );
+        defaults.put(
+                RETRIEVER_MODE_DENSE_ONLY,
+                Map.of(
+                        "dense_embedding_required", true,
+                        "dense_fallback_enabled", false,
+                        "rerank_enabled", false,
+                        "retriever_candidate_pool_k", DEFAULT_RETRIEVER_CANDIDATE_POOL_K,
+                        "retriever_fusion_weights", Map.of("dense", 1.0d, "bm25", 0.0d, "technical", 0.0d)
+                )
+        );
+        defaults.put(
+                RETRIEVER_MODE_HYBRID,
+                Map.of(
+                        "dense_embedding_required", true,
+                        "dense_fallback_enabled", false,
+                        "rerank_enabled", false,
+                        "retriever_candidate_pool_k", DEFAULT_RETRIEVER_CANDIDATE_POOL_K,
+                        "retriever_fusion_weights",
+                        Map.of(
+                                "dense", DEFAULT_RAG_HYBRID_DENSE_WEIGHT,
+                                "bm25", DEFAULT_RAG_HYBRID_BM25_WEIGHT,
+                                "technical", DEFAULT_RAG_HYBRID_TECHNICAL_WEIGHT
+                        )
+                )
+        );
+        return Map.copyOf(defaults);
+    }
+
     private Map<String, AdminConsoleDtos.RuntimeParameterRange> defaultRuntimeParameterRanges() {
         LinkedHashMap<String, AdminConsoleDtos.RuntimeParameterRange> ranges = new LinkedHashMap<>();
         ranges.put("retrieval_top_k", new AdminConsoleDtos.RuntimeParameterRange(1.0d, 100.0d, (double) DEFAULT_RAG_RETRIEVAL_TOP_K));
         ranges.put("rerank_top_n", new AdminConsoleDtos.RuntimeParameterRange(1.0d, 100.0d, 5.0d));
         ranges.put("rewrite_threshold", new AdminConsoleDtos.RuntimeParameterRange(0.0d, 1.0d, DEFAULT_REWRITE_THRESHOLD));
+        ranges.put("rewrite_memory_candidate_pool_n", new AdminConsoleDtos.RuntimeParameterRange(1.0d, 100.0d, (double) DEFAULT_REWRITE_MEMORY_CANDIDATE_POOL_N));
         ranges.put("retriever_candidate_pool_k", new AdminConsoleDtos.RuntimeParameterRange(1.0d, 500.0d, (double) DEFAULT_RETRIEVER_CANDIDATE_POOL_K));
         return Map.copyOf(ranges);
     }
@@ -1633,6 +1742,42 @@ public class AdminConsoleService {
         } catch (RuntimeException exception) {
             return null;
         }
+    }
+
+    private boolean parseBooleanOrDefault(Object value, boolean fallback) {
+        if (value == null) {
+            return fallback;
+        }
+        if (value instanceof Boolean bool) {
+            return bool;
+        }
+        String normalized = String.valueOf(value).trim();
+        if (normalized.isBlank()) {
+            return fallback;
+        }
+        return "true".equalsIgnoreCase(normalized);
+    }
+
+    private int intDefault(Object value, int fallback) {
+        Double parsed = parseNumber(value);
+        return parsed == null ? fallback : parsed.intValue();
+    }
+
+    private double doubleDefault(Object value, double fallback) {
+        Double parsed = parseNumber(value);
+        return parsed == null ? fallback : parsed;
+    }
+
+    private double runtimeDefaultDouble(RuntimeCatalog catalog, String key, double fallback) {
+        if (catalog == null || key == null || key.isBlank()) {
+            return fallback;
+        }
+        AdminConsoleDtos.RuntimeParameterRange range = catalog.defaultParameterRanges().get(key);
+        return range == null || range.defaultValue() == null ? fallback : range.defaultValue();
+    }
+
+    private int runtimeDefaultInt(RuntimeCatalog catalog, String key, int fallback) {
+        return (int) Math.round(runtimeDefaultDouble(catalog, key, fallback));
     }
 
     private AdminConsoleDtos.RuntimeOption toRuntimeOptionDto(RuntimeOptionMetadata option) {
@@ -1861,7 +2006,8 @@ public class AdminConsoleService {
             List<RuntimeOptionMetadata> retrievalBackendOptions,
             List<RuntimeOptionMetadata> retrieverModeOptions,
             List<RuntimeOptionMetadata> rewriteFailurePolicyOptions,
-            Map<String, AdminConsoleDtos.RuntimeParameterRange> defaultParameterRanges
+            Map<String, AdminConsoleDtos.RuntimeParameterRange> defaultParameterRanges,
+            Map<String, Map<String, Object>> retrieverModeDefaults
     ) {
         List<String> availableLlmModels() {
             return llmModelOptions.stream()
@@ -1908,6 +2054,18 @@ public class AdminConsoleService {
 
         String defaultRetrievalBackend() {
             return defaultCode(retrievalBackendOptions);
+        }
+
+        String defaultRetrieverMode() {
+            return defaultCode(retrieverModeOptions);
+        }
+
+        Map<String, Object> retrieverModeDefault(String mode) {
+            if (mode == null || mode.isBlank()) {
+                return Map.of();
+            }
+            String normalized = mode.trim().toLowerCase().replace("-", "_");
+            return retrieverModeDefaults.getOrDefault(normalized, Map.of());
         }
 
         RuntimeOptionMetadata findLlmProvider(String provider) {
@@ -2017,23 +2175,36 @@ public class AdminConsoleService {
     }
 
     private Map<String, Object> resolveRetrieverConfig(AdminConsoleDtos.RetrieverConfigRequest request) {
-        return resolveRetrieverConfig(request, false);
+        return resolveRetrieverConfig(request, false, loadRuntimeCatalog());
     }
 
     private Map<String, Object> resolveRetrieverConfig(
             AdminConsoleDtos.RetrieverConfigRequest request,
             boolean fixedModePreset
     ) {
-        String mode = normalizeRetrieverMode(request == null ? null : request.retrieverMode());
+        return resolveRetrieverConfig(request, fixedModePreset, loadRuntimeCatalog());
+    }
+
+    private Map<String, Object> resolveRetrieverConfig(
+            AdminConsoleDtos.RetrieverConfigRequest request,
+            boolean fixedModePreset,
+            RuntimeCatalog runtimeCatalog
+    ) {
+        String defaultMode = firstNonBlank(runtimeCatalog.defaultRetrieverMode(), RETRIEVER_MODE_HYBRID);
+        String mode = normalizeRetrieverMode(request == null ? defaultMode : firstNonBlank(request.retrieverMode(), defaultMode));
+        Map<String, Object> modeDefaults = runtimeCatalog.retrieverModeDefault(mode);
         String denseModel;
         if (fixedModePreset || request == null || request.denseEmbeddingModel() == null || request.denseEmbeddingModel().isBlank()) {
-            denseModel = DEFAULT_DENSE_EMBEDDING_MODEL;
+            denseModel = firstNonBlank(runtimeCatalog.defaultDenseEmbeddingModel(), DEFAULT_DENSE_EMBEDDING_MODEL);
         } else {
             denseModel = request.denseEmbeddingModel().trim();
         }
         boolean denseRequired;
         if (fixedModePreset || request == null || request.denseEmbeddingRequired() == null) {
-            denseRequired = !RETRIEVER_MODE_BM25_ONLY.equals(mode);
+            denseRequired = parseBooleanOrDefault(
+                    modeDefaults.get("dense_embedding_required"),
+                    !RETRIEVER_MODE_BM25_ONLY.equals(mode)
+            );
         } else {
             denseRequired = request.denseEmbeddingRequired();
         }
@@ -2042,17 +2213,27 @@ public class AdminConsoleService {
         }
         boolean denseFallbackEnabled = fixedModePreset
                 ? false
-                : request == null || request.denseFallbackEnabled() == null || request.denseFallbackEnabled();
+                : request == null || request.denseFallbackEnabled() == null
+                ? parseBooleanOrDefault(modeDefaults.get("dense_fallback_enabled"), false)
+                : request.denseFallbackEnabled();
         boolean rerankEnabled = fixedModePreset
                 ? false
-                : request == null || request.rerankEnabled() == null || request.rerankEnabled();
+                : request == null || request.rerankEnabled() == null
+                ? parseBooleanOrDefault(modeDefaults.get("rerank_enabled"), false)
+                : request.rerankEnabled();
         int candidatePoolK = fixedModePreset || request == null || request.candidatePoolK() == null
-                ? DEFAULT_RETRIEVER_CANDIDATE_POOL_K
+                ? intDefault(
+                modeDefaults.get("retriever_candidate_pool_k"),
+                runtimeDefaultInt(runtimeCatalog, "retriever_candidate_pool_k", DEFAULT_RETRIEVER_CANDIDATE_POOL_K)
+        )
                 : clampRange(request.candidatePoolK(), 1, 500, "retriever_candidate_pool_k");
 
-        double defaultDenseWeight = fixedModePreset ? DEFAULT_RAG_HYBRID_DENSE_WEIGHT : DEFAULT_HYBRID_DENSE_WEIGHT;
-        double defaultBm25Weight = fixedModePreset ? DEFAULT_RAG_HYBRID_BM25_WEIGHT : DEFAULT_HYBRID_BM25_WEIGHT;
-        double defaultTechnicalWeight = fixedModePreset ? DEFAULT_RAG_HYBRID_TECHNICAL_WEIGHT : DEFAULT_HYBRID_TECHNICAL_WEIGHT;
+        Map<?, ?> defaultWeights = modeDefaults.get("retriever_fusion_weights") instanceof Map<?, ?> weights
+                ? weights
+                : Map.of();
+        double defaultDenseWeight = doubleDefault(defaultWeights.get("dense"), DEFAULT_RAG_HYBRID_DENSE_WEIGHT);
+        double defaultBm25Weight = doubleDefault(defaultWeights.get("bm25"), DEFAULT_RAG_HYBRID_BM25_WEIGHT);
+        double defaultTechnicalWeight = doubleDefault(defaultWeights.get("technical"), DEFAULT_RAG_HYBRID_TECHNICAL_WEIGHT);
         double denseWeight = fixedModePreset || request == null || request.denseWeight() == null
                 ? defaultDenseWeight
                 : clampRange(request.denseWeight(), 0.0d, 1.0d, "retriever_dense_weight");
@@ -2120,8 +2301,12 @@ public class AdminConsoleService {
     }
 
     private String normalizeRetrievalBackend(String value) {
+        return normalizeRetrievalBackend(value, loadRuntimeCatalog());
+    }
+
+    private String normalizeRetrievalBackend(String value, RuntimeCatalog runtimeCatalog) {
         if (value == null || value.isBlank()) {
-            return RETRIEVAL_BACKEND_LOCAL;
+            return firstNonBlank(runtimeCatalog.defaultRetrievalBackend(), RETRIEVAL_BACKEND_LOCAL);
         }
         String normalized = value.trim().toLowerCase().replace("-", "_");
         if (!List.of(RETRIEVAL_BACKEND_LOCAL, RETRIEVAL_BACKEND_DB_ANN).contains(normalized)) {
@@ -2911,6 +3096,7 @@ public class AdminConsoleService {
     }
 
     private Map<String, Object> relaxedShortUserRewriteAdoptionPolicy() {
+        RuntimeCatalog runtimeCatalog = loadRuntimeCatalog();
         Map<String, Object> shortUserThresholds = new LinkedHashMap<>();
         shortUserThresholds.put("min_improvement", 0.02d);
         shortUserThresholds.put("preservation_floor", 0.68d);
@@ -2924,7 +3110,10 @@ public class AdminConsoleService {
 
         Map<String, Object> shortUserBonuses = new LinkedHashMap<>();
         shortUserBonuses.put("memory_target_presence", 0.10d);
-        shortUserBonuses.put("source_memory_target_hit_margin", DEFAULT_REWRITE_THRESHOLD);
+        shortUserBonuses.put(
+                "source_memory_target_hit_margin",
+                runtimeDefaultDouble(runtimeCatalog, "rewrite_threshold", DEFAULT_REWRITE_THRESHOLD)
+        );
 
         Map<String, Object> shortUserPolicy = new LinkedHashMap<>();
         shortUserPolicy.put("thresholds", shortUserThresholds);
@@ -2941,6 +3130,7 @@ public class AdminConsoleService {
 
     private Map<String, Object> baseExperimentConfig(String experimentKey, String methodCode) {
         boolean englishOnly = isEnglishOnlyMethod(methodCode);
+        RuntimeCatalog runtimeCatalog = loadRuntimeCatalog();
         Map<String, Object> config = new LinkedHashMap<>();
         config.put("experiment_key", experimentKey);
         config.put("category", "admin");
@@ -2968,16 +3158,19 @@ public class AdminConsoleService {
         config.put("llm_batch_size", 20);
         config.put("memory_top_n", 5);
         config.put("rewrite_candidate_count", 3);
-        config.put("rewrite_threshold", DEFAULT_REWRITE_THRESHOLD);
-        config.put("rewrite_memory_candidate_pool_n", DEFAULT_REWRITE_MEMORY_CANDIDATE_POOL_N);
+        config.put("rewrite_threshold", runtimeDefaultDouble(runtimeCatalog, "rewrite_threshold", DEFAULT_REWRITE_THRESHOLD));
+        config.put(
+                "rewrite_memory_candidate_pool_n",
+                runtimeDefaultInt(runtimeCatalog, "rewrite_memory_candidate_pool_n", DEFAULT_REWRITE_MEMORY_CANDIDATE_POOL_N)
+        );
         config.put("rewrite_failure_policy", REWRITE_FAILURE_POLICY_FAIL_RUN);
         config.put("rewrite_adoption_policy", relaxedShortUserRewriteAdoptionPolicy());
         config.put("memory_lookup_intent_preserving_enabled", true);
         config.put("memory_lookup_hint_token_max", 3);
         config.put("memory_lookup_retrieval_strategy", "max_score");
         config.put("rewrite_memory_hint_retrieval_enabled", false);
-        config.put("retrieval_top_k", DEFAULT_RAG_RETRIEVAL_TOP_K);
-        config.put("rerank_top_n", 5);
+        config.put("retrieval_top_k", runtimeDefaultInt(runtimeCatalog, "retrieval_top_k", DEFAULT_RAG_RETRIEVAL_TOP_K));
+        config.put("rerank_top_n", runtimeDefaultInt(runtimeCatalog, "rerank_top_n", 5));
         config.put("use_session_context", false);
         config.put("avg_queries_per_chunk", 2.0);
         config.put("max_total_queries", 40);

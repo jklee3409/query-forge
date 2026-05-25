@@ -96,7 +96,40 @@ default_parameter_ranges:
     min: 0.0
     max: 1.0
     default: 0.02
+  rewrite_memory_candidate_pool_n:
+    min: 1
+    max: 100
+    default: 20
   retriever_candidate_pool_k:
     min: 1
     max: 500
     default: 50
+
+retriever_mode_defaults:
+  bm25_only:
+    dense_embedding_required: false
+    dense_fallback_enabled: false
+    rerank_enabled: false
+    retriever_candidate_pool_k: 50
+    retriever_fusion_weights:
+      dense: 0.0
+      bm25: 1.0
+      technical: 0.0
+  dense_only:
+    dense_embedding_required: true
+    dense_fallback_enabled: false
+    rerank_enabled: false
+    retriever_candidate_pool_k: 50
+    retriever_fusion_weights:
+      dense: 1.0
+      bm25: 0.0
+      technical: 0.0
+  hybrid:
+    dense_embedding_required: true
+    dense_fallback_enabled: false
+    rerank_enabled: false
+    retriever_candidate_pool_k: 50
+    retriever_fusion_weights:
+      dense: 0.60
+      bm25: 0.32
+      technical: 0.08
