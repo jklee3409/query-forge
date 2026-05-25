@@ -1,5 +1,17 @@
 # progress.md
 
+## [2026-05-26] Session Summary (Flyway History Verification)
+- What was done: Queried `flyway_schema_history` for the latest applied migrations and V38/V39 specifically, confirmed no failed Flyway entries, checked active `rag_rewrite.ko`/`rag_rewrite.en` prompt bindings, and validated startup through non-web Spring Boot bootRun.
+- Key decisions: Kept verification read-only and bounded to Flyway/prompt catalog state.
+- Issues encountered: None; the local DB is at Flyway version 39 with V38 and V39 successful.
+- Next steps: Commit the V38 immutability repair, V39 English prompt seed, and documentation updates.
+
+## [2026-05-26] Session Summary (Flyway V38 Checksum Repair)
+- What was done: Restored `V38__seed_selective_rewrite_v2_v4_prompt_asset.sql` to its already-applied checksum (`9452379`), added `V39__seed_selective_rewrite_en_v1_v2_prompt_asset.sql` for the English rewrite prompt v2 catalog seed and `rag_rewrite.en` binding, and verified backend startup.
+- Key decisions: Kept Flyway validation enabled and did not add automatic repair. The local DB mismatch was resolved by making V38 immutable again and expressing the later catalog change as the next migration.
+- Issues encountered: V38 had been applied before the English prompt seed was added to the same file; the original V38 content was recovered from Codex session history and verified with the Flyway CRC32 algorithm.
+- Next steps: Use normal Flyway startup to apply V39 in other environments; no automatic repair path was added.
+
 ## [2026-05-25] Session Summary (RAG Runtime Catalog Defaults)
 - What was done: Extended runtime options to expose `defaultRetrieverMode` and `retrieverModeDefaults` from `configs/app/model_catalog.yml`, and made RAG run creation use catalog defaults for omitted threshold/top-K/rerank/retriever values.
 - Key decisions: Kept constants only as fallback when the catalog is unavailable or incomplete; final RAG experiment records now copy actual run config values instead of hardcoded fallback numbers.
@@ -7,7 +19,7 @@
 - Next steps: Keep new Admin RAG parameters in `model_catalog.yml` first, then expose them through runtime options instead of adding frontend/backend defaults.
 
 ## [2026-05-25] Session Summary (Selective Rewrite Prompt Seed)
-- What was done: Added Flyway migration `V38__seed_selective_rewrite_v2_v4_prompt_asset.sql` to register Korean/code-mixed `selective_rewrite_v2` metadata version `v4`, English `selective_rewrite_en_v1` metadata version `v2`, and bind `rag_rewrite.ko` / `rag_rewrite.en` to those active file-backed assets.
+- What was done: Added Flyway migration `V38__seed_selective_rewrite_v2_v4_prompt_asset.sql` to register Korean/code-mixed `selective_rewrite_v2` metadata version `v4` and bind `rag_rewrite.ko`; the later English `selective_rewrite_en_v1` v2 seed was split into V39 after checksum repair.
 - Key decisions: Migration is catalog metadata only; it does not alter rewrite runtime code, retrieval scoring, synthetic memory tables, or stored synthetic query text.
 - Issues encountered: No DB migration execution was performed in this low-scope prompt edit.
 - Next steps: Apply Flyway in the runtime DB when Prompt Studio/catalog metadata should show v4 as active.

@@ -1,5 +1,23 @@
 # progress.md
 
+## [2026-05-26] Session Summary (Flyway History Verification)
+- What was done: Checked local PostgreSQL Flyway history for V38/V39, confirmed no failed Flyway rows, verified `rag_rewrite.ko` and `rag_rewrite.en` prompt bindings, and ran non-web Spring Boot startup to exercise Flyway validation.
+- Key decisions: Used bounded Flyway/prompt catalog queries only and did not run broad DB inspection or pipeline workloads.
+- Issues encountered: None; V38 and V39 are both applied successfully.
+- Next steps: Commit the restored V38/V39 migration split and related documentation updates as a coherent change set.
+
+## [2026-05-26] Session Summary (Low-Spec Laptop Rule Explicitness)
+- What was done: Confirmed `.codex/AGENTS.md` already contained a low-spec laptop resource-safety section, then made the required Korean rules explicit: no whole-project scans, no indiscriminate DB queries, and no memory-heavy work with IntelliJ Heap Size capped at 4GB. Added low-spec rule review to the mandatory session-start checklist.
+- Key decisions: Strengthened the existing `4.0 Local Resource Safety` and `4.5 Session Start Checklist` sections rather than adding a duplicate policy section elsewhere.
+- Issues encountered: None.
+- Next steps: Treat the low-spec laptop rule review as mandatory before future work, together with root `progress.md` tracking.
+
+## [2026-05-26] Session Summary (Flyway V38 Checksum Repair)
+- What was done: Restored `backend/src/main/resources/db/migration/V38__seed_selective_rewrite_v2_v4_prompt_asset.sql` to the exact SQL applied in the local DB (`checksum=9452379`), moved the later English rewrite prompt v2 seed/binding into new migration `V39__seed_selective_rewrite_en_v1_v2_prompt_asset.sql`, and verified backend startup.
+- Key decisions: Did not disable Flyway validation or add automatic `repair`; preserved applied migration immutability and made the post-apply catalog change reproducible as a new migration.
+- Issues encountered: The V38 source file had been modified after local Flyway applied it; the original content was recovered from the Codex session patch log and verified by recomputing the Flyway checksum.
+- Next steps: Use normal Flyway startup to apply V39 in other environments; no automatic repair path was added.
+
 ## [2026-05-25] Session Summary (Domain-Neutral A-D Query Prompts)
 - What was done: Generalized Spring-leaning anchor instructions in A/B/C/D synthetic query prompts to source-grounded technical-document anchors and removed the C prompt's domain-specific flow wording.
 - Key decisions: Left E/F/G unchanged because their query-generation prompts already avoid Spring/Python-specific wording; prompt versions and schemas were preserved.
@@ -7,7 +25,7 @@
 - Next steps: Re-register prompt assets during the next synthetic generation run and spot-check A-D outputs across non-Spring domains.
 
 ## [2026-05-25] Session Summary (Rewrite Retrieval Context and Catalog Defaults)
-- What was done: Added actual retrieval runtime context (`retrieval_backend`, vector store, retriever mode, dense embedding model, fusion weights, top-K/candidate pool) to the selective rewrite LLM payload and prompt instructions. Centralized Admin RAG default parameters and retriever mode presets through `configs/app/model_catalog.yml` and runtime options.
+- What was done: Added actual retrieval runtime context (`retrieval_backend`, vector store, retriever mode, dense embedding model, fusion weights, top-K/candidate pool) to the selective rewrite LLM payload and prompt instructions. Centralized Admin RAG default parameters and retriever mode presets through `configs/app/model_catalog.yml` and runtime options. The English prompt catalog seed was later split from V38 into V39 to preserve Flyway checksum immutability.
 - Key decisions: Frontend RAG form now hydrates defaults from backend runtime options instead of hardcoded GUI values; backend RAG run creation uses catalog defaults when request fields are omitted. Existing rewrite candidate JSON schema remains unchanged.
 - Issues encountered: Frontend lint initially flagged a helper named `useServerDefault` as a hook; renamed it before validation.
 - Next steps: Rerun the same fixed snapshot/dataset conditions to confirm rewrite adoption and bad-rewrite rate improve under retrieval-context-aware prompting.
@@ -20,7 +38,7 @@
 
 ## [2026-05-25] Session Summary (Global Rewrite Prompt v4)
 - What was done: Strengthened `selective_rewrite_v2` into v4 with a global technical-document domain contract, explicit "synthetic examples are not replacements" policy, minimum rewrite-value rule, and five domain-diverse few-shot examples preserving anchor injection.
-- Key decisions: Kept the existing JSON schema, candidate labels, anchor injection inputs, and prompt-only synthetic memory flow; added a catalog migration to bind `rag_rewrite.ko` to v4 without applying DB changes locally.
+- Key decisions: Kept the existing JSON schema, candidate labels, anchor injection inputs, and prompt-only synthetic memory flow; added a catalog migration to bind `rag_rewrite.ko` to v4.
 - Issues encountered: Validation was limited to static prompt/migration inspection to avoid broad DB or pipeline work on the low-spec environment.
 - Next steps: Rerun the same snapshot/dataset RAG comparisons for the two referenced runs and inspect rewrite adoption plus bad-rewrite traces.
 
