@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-05-26] Session Summary (PostgreSQL E Admin Pipeline Run)
+- What was done: Used the Admin Console API path to run PostgreSQL Method E synthetic generation batch `9b0264e1-d615-4d6b-b015-f7731c433318` and `full_gating` batch `4d6b5c9f-b499-4666-9d3c-bb9eeb7f7c66` with `retrieverMode=bm25_only`.
+- Key decisions: Preserved Admin GUI defaults for gating other than Retriever Mode; verified the persisted stage config kept `retriever_config.retriever_mode=bm25_only`, BM25 fusion weight `1.0`, dense weight `0.0`, dense required/fallback disabled, and rerank disabled.
+- Issues encountered: Method E existed globally but was not enabled for the PostgreSQL domain, so the domain method policy was enabled before using the Admin API. The generation job had one Gemini 503 retry and completed; gating completed with zero retries.
+- Next steps: Use source generation run `cc4f312a-c2bd-4e5c-ae55-2b5b2388cba4` and source gating run `070319a2-1242-4a2f-8ec2-65577c01e01d` for snapshot-pinned E evaluations.
+
 ## [2026-05-26] Session Summary (Domain-Scoped RAG Dataset Method Validation)
 - What was done: Updated Admin RAG test validation so domain-owned technical-document datasets with unknown legacy Spring/Python scope can use generation methods enabled by the selected domain policy.
 - Key decisions: Preserved strict legacy behavior when no `domain_id` is provided; PostgreSQL-domain datasets now validate against `tech_doc_domain_method_policy` instead of being rejected as unknown scope.

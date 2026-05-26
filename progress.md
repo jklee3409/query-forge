@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-05-26] Session Summary (PostgreSQL E Generation, BM25 Gating, EN Eval)
+- What was done: Enabled PostgreSQL domain policy for Method E, ran Admin Console synthetic generation batch `9b0264e1-d615-4d6b-b015-f7731c433318` for 1,000 E queries at 1.5 queries/chunk, ran Admin Console `full_gating` batch `4d6b5c9f-b499-4666-9d3c-bb9eeb7f7c66` with BM25-only retrieval, and created EN eval dataset `020a93c4-0465-5655-b681-a5799a98fd15`.
+- Key decisions: Used the existing running backend/Admin API path and existing Docker Postgres container only; no Docker rebuild, Docker Engine restart, or container rebuild was performed. E generation targeted `postgresql-docs-current` under the PostgreSQL domain for consistency with A/C runs.
+- Issues encountered: Synthetic generation resumed through one Gemini 503 retry and completed with 1,000 raw EN Method E rows; full gating completed with 1,000 processed, 645 accepted, 355 rejected. The source KR eval dataset stores degraded English fragments in `user_query_ko`, so the EN companion maps the active query surface directly to `user_query_en`.
+- Next steps: Use generation run `cc4f312a-c2bd-4e5c-ae55-2b5b2388cba4`, gating run `070319a2-1242-4a2f-8ec2-65577c01e01d`, and dataset key `postgresql_en_short_user_80` as explicit snapshots for any later E-method RAG evaluation.
+
 ## [2026-05-26] Session Summary (PostgreSQL Eval Query Degradation)
 - What was done: Degraded the PostgreSQL KR short-user eval dataset queries in `data/eval/postgresql_kr_short_user_test_80.jsonl` and the active DB dataset `862642e6-10bd-538d-9ba8-5de7f1f26d3c` using only token fragments extracted from each item's expected PostgreSQL chunks.
 - Key decisions: Preserved the Spring-compatible eval structure and all expected doc/chunk IDs while lowering raw BM25 retrieval from `Recall@5=0.9000` / `Hit@5=0.9750` to `Recall@5=0.4562` / `Hit@5=0.5125`, close to Spring KR short-user `Recall@5=0.4625` / `Hit@5=0.5250`.

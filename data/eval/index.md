@@ -11,6 +11,7 @@
 - `python_kr_short_user_test_80_ko.jsonl`: Python KR 도메인 한글 short-user 80문항
 - `python_kr_short_user_test_80_en.jsonl`: Python KR 도메인 영어 short-user 80문항
 - `postgresql_kr_short_user_test_80.jsonl`: PostgreSQL 도메인 영어 기술문서 청크 기반 한국어 short-user 80문항
+- `postgresql_en_short_user_test_80.jsonl`: PostgreSQL English companion short-user 80 items paired to `postgresql_kr_short_user_test_80.jsonl`
 - `spring_method_a_compressed_eval_80_ko.jsonl`: Method A compressed Spring stress eval 80문항
 - `spring_method_b_compressed_eval_80_ko.jsonl`: Method B compressed Spring stress eval 80문항
 - `spring_method_c_compressed_eval_80_ko.jsonl`: Method C compressed Spring stress eval 80문항
