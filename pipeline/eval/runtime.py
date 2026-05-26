@@ -3633,6 +3633,42 @@ def _retrieval_shift_score(
     return (0.7 * jaccard_distance) + (0.3 * top1_changed)
 
 
+def _raw_retrieval_loss_metrics(
+    raw_retrieval: list[RetrievalCandidate],
+    candidate_retrieval: list[RetrievalCandidate],
+    *,
+    raw_retrieval_score: float,
+    confidence_floor: float,
+    min_overlap_ratio: float,
+    top_n: int = 5,
+) -> dict[str, Any]:
+    raw_ids = _top_chunk_ids(raw_retrieval, top_n=top_n)
+    candidate_ids = _top_chunk_ids(candidate_retrieval, top_n=top_n)
+    raw_set = set(raw_ids)
+    candidate_set = set(candidate_ids)
+    raw_top1 = raw_ids[0] if raw_ids else ""
+    top1_preserved = bool(raw_top1 and raw_top1 in candidate_set)
+    overlap_ratio = (
+        _safe_ratio(len(raw_set & candidate_set), len(raw_set), default=1.0)
+        if raw_set
+        else 1.0
+    )
+    triggered = bool(
+        raw_set
+        and raw_retrieval_score >= confidence_floor
+        and not top1_preserved
+        and overlap_ratio < min_overlap_ratio
+    )
+    return {
+        "raw_loss_guard_triggered": triggered,
+        "raw_loss_guard_reason": "raw_loss_guard_top1_lost" if triggered else "",
+        "raw_loss_guard_raw_top1_preserved": top1_preserved,
+        "raw_loss_guard_topk_overlap_ratio": overlap_ratio,
+        "raw_loss_guard_confidence_floor": confidence_floor,
+        "raw_loss_guard_min_overlap_ratio": min_overlap_ratio,
+    }
+
+
 def _normalize_rewrite_retrieval_strategy(value: str | None) -> str:
     normalized = str(value or "").strip().lower()
     return normalized if normalized in REWRITE_RETRIEVAL_STRATEGIES else "replace"
@@ -3741,8 +3777,8 @@ def run_selective_rewrite(
     preset_filter: str | None = None,
     source_gate_run_id: str | None = None,
     strategy_filters: list[str] | None = None,
-    # Legacy name retained for rewrite_always callers. Adoption still requires
-    # retrieval improvement over raw baseline.
+    # Legacy name retained for rewrite_always callers. Selective adoption uses
+    # final candidate score plus raw-loss guards over the raw baseline.
     force_rewrite: bool = False,
     rewrite_retrieval_strategy: str = "replace",
     rewrite_anchor_injection_enabled: bool = True,
@@ -3771,7 +3807,8 @@ def run_selective_rewrite(
     # 2) terminology preservation / anchor overlap
     # 3) memory alignment
     # 4) verbosity + preservation penalties
-    # Final adoption is gated by configurable thresholds/floors (category-aware).
+    # Final adoption compares final_candidate_score against the raw baseline and
+    # blocks confident raw-result loss unless memory-target evidence improves.
     #
     # final_rewrite_latency_ms:
     #   measured from rewrite-stage entry through candidate validation/scoring and
@@ -3838,6 +3875,12 @@ def run_selective_rewrite(
     underspecified_memory_norm_cutoff = _clamp01(
         _float_value(thresholds.get("underspecified_memory_norm_cutoff"), 0.0)
     )
+    raw_loss_guard_confidence_floor = _clamp01(
+        _float_value(thresholds.get("raw_loss_guard_confidence_floor"), 0.78)
+    )
+    raw_loss_guard_min_overlap_ratio = _clamp01(
+        _float_value(thresholds.get("raw_loss_guard_min_overlap_ratio"), 0.20)
+    )
 
     verbosity_per_extra_ratio = max(0.0, _float_value(penalties.get("verbosity_per_extra_ratio"), 0.0))
     critical_token_drop_weight = max(0.0, _float_value(penalties.get("critical_token_drop"), 0.0))
@@ -3861,7 +3904,12 @@ def run_selective_rewrite(
         raw_memory_similarity=raw_memory_affinity,
         candidate_memory_similarity=raw_memory_affinity,
     )
-    raw_reference_score = raw_retrieval_score
+    raw_reference_score = _weighted_candidate_score(
+        retrieval_gain_score=raw_retrieval_score,
+        terminology_preservation_score=1.0,
+        memory_alignment_score=raw_memory["memory_alignment_score"],
+        weights=weights,
+    )
     raw_confidence = raw_reference_score
 
     memory_hint_query: str | None = None
@@ -4015,6 +4063,13 @@ def run_selective_rewrite(
             raw_retrieval=raw_retrieval,
             candidate_retrieval=retrieved,
         )
+        raw_loss_metrics = _raw_retrieval_loss_metrics(
+            raw_retrieval,
+            retrieved,
+            raw_retrieval_score=raw_retrieval_score,
+            confidence_floor=raw_loss_guard_confidence_floor,
+            min_overlap_ratio=raw_loss_guard_min_overlap_ratio,
+        )
         llm_anchor_metrics = _llm_anchor_coverage_metrics(
             raw_query=raw_query,
             candidate_query=template["query"],
@@ -4055,7 +4110,8 @@ def run_selective_rewrite(
         )
 
         effective_threshold = max(float(threshold), min_improvement)
-        adoption_margin = retrieval_score_delta + source_memory_target_margin_bonus
+        final_score_delta = final_candidate_score - raw_reference_score
+        adoption_margin = final_score_delta + source_memory_target_margin_bonus
         normalized_raw_query = " ".join(raw_query.split()).strip().lower()
         normalized_candidate_query = " ".join(str(template["query"]).split()).strip().lower()
         same_query = normalized_raw_query == normalized_candidate_query
@@ -4079,6 +4135,12 @@ def run_selective_rewrite(
             rejection_reason = "retrieval_gain_below_floor"
         elif memory_target_metrics["missing_memory_target"]:
             rejection_reason = "missing_memory_target"
+        elif (
+            not force_rewrite
+            and raw_loss_metrics["raw_loss_guard_triggered"]
+            and not source_memory_metrics["source_memory_target_improved"]
+        ):
+            rejection_reason = raw_loss_metrics["raw_loss_guard_reason"]
         elif not force_rewrite and adoption_margin < effective_threshold:
             rejection_reason = "delta_below_threshold"
 
@@ -4091,6 +4153,7 @@ def run_selective_rewrite(
             "source_memory_index": source_memory_index,
             "intent_risk": intent_risk,
             "base_confidence": base_confidence,
+            "raw_final_score": raw_reference_score,
             "raw_retrieval_score": raw_retrieval_score,
             "candidate_retrieval_score": candidate_retrieval_score,
             "retrieval_score_delta": retrieval_score_delta,
@@ -4121,6 +4184,7 @@ def run_selective_rewrite(
             "candidate_target_overlap_count": memory_target_metrics["candidate_target_overlap_count"],
             "raw_is_underspecified": memory_target_metrics["raw_is_underspecified"],
             "final_candidate_score": final_candidate_score,
+            "final_score_delta": final_score_delta,
             "adoption_margin": adoption_margin,
             "effective_threshold": effective_threshold,
             "preservation_floor": preservation_floor,
@@ -4132,13 +4196,14 @@ def run_selective_rewrite(
             "rejection_reason": rejection_reason,
             "confidence": final_candidate_score,
             "retrieval": retrieved,
+            **raw_loss_metrics,
         }
         candidates.append(candidate)
-        if best_candidate is None or candidate_retrieval_score > float(best_candidate.get("candidate_retrieval_score", 0.0)):
+        if best_candidate is None or final_candidate_score > float(best_candidate.get("final_candidate_score", 0.0)):
             best_candidate = candidate
         if eligible and (
             best_eligible_candidate is None
-            or retrieval_score_delta > float(best_eligible_candidate.get("retrieval_score_delta", -1.0))
+            or final_candidate_score > float(best_eligible_candidate.get("final_candidate_score", -1.0))
         ):
             best_eligible_candidate = candidate
 
@@ -4204,10 +4269,17 @@ def run_selective_rewrite(
         "source_memory_index": selected_candidate.get("source_memory_index", 0),
         "intent_risk": selected_candidate.get("intent_risk", "medium"),
         "confidence": selected_candidate.get("confidence", 0.0),
+        "final_candidate_score": selected_candidate.get("final_candidate_score", 0.0),
+        "raw_final_score": selected_candidate.get("raw_final_score", raw_reference_score),
         "raw_retrieval_score": selected_candidate.get("raw_retrieval_score", raw_retrieval_score),
         "candidate_retrieval_score": selected_candidate.get("candidate_retrieval_score", 0.0),
         "retrieval_score_delta": selected_candidate.get("retrieval_score_delta", 0.0),
+        "final_score_delta": selected_candidate.get("final_score_delta", 0.0),
         "adoption_margin": selected_candidate.get("adoption_margin", 0.0),
+        "raw_loss_guard_triggered": selected_candidate.get("raw_loss_guard_triggered", False),
+        "raw_loss_guard_reason": selected_candidate.get("raw_loss_guard_reason", ""),
+        "raw_loss_guard_raw_top1_preserved": selected_candidate.get("raw_loss_guard_raw_top1_preserved", False),
+        "raw_loss_guard_topk_overlap_ratio": selected_candidate.get("raw_loss_guard_topk_overlap_ratio", 1.0),
         "effective_threshold": selected_candidate.get("effective_threshold", 0.0),
         "eligible": bool(selected_candidate.get("eligible")),
         "force_rewrite": force_rewrite,
@@ -4220,7 +4292,7 @@ def run_selective_rewrite(
             rewrite_applied=should_apply,
             rewrite_reason=reason,
             raw_confidence=raw_confidence,
-            best_candidate_confidence=float(selected_candidate.get("candidate_retrieval_score", 0.0)),
+            best_candidate_confidence=float(selected_candidate.get("final_candidate_score", 0.0)),
             memory_top_n=memory_items,
             candidates=[
                 {
@@ -4231,6 +4303,7 @@ def run_selective_rewrite(
                     "source_memory_index": candidate.get("source_memory_index", 0),
                     "intent_risk": candidate.get("intent_risk", "medium"),
                     "base_confidence": candidate.get("base_confidence", candidate["confidence"]),
+                    "raw_final_score": candidate.get("raw_final_score", raw_reference_score),
                     "raw_retrieval_score": candidate.get("raw_retrieval_score", raw_retrieval_score),
                     "candidate_retrieval_score": candidate.get("candidate_retrieval_score", 0.0),
                     "retrieval_score_delta": candidate.get("retrieval_score_delta", 0.0),
@@ -4268,7 +4341,14 @@ def run_selective_rewrite(
                     "candidate_target_overlap_count": candidate.get("candidate_target_overlap_count", 0),
                     "raw_is_underspecified": candidate.get("raw_is_underspecified", False),
                     "final_candidate_score": candidate.get("final_candidate_score", candidate["confidence"]),
+                    "final_score_delta": candidate.get("final_score_delta", 0.0),
                     "adoption_margin": candidate.get("adoption_margin", 0.0),
+                    "raw_loss_guard_triggered": candidate.get("raw_loss_guard_triggered", False),
+                    "raw_loss_guard_reason": candidate.get("raw_loss_guard_reason", ""),
+                    "raw_loss_guard_raw_top1_preserved": candidate.get("raw_loss_guard_raw_top1_preserved", False),
+                    "raw_loss_guard_topk_overlap_ratio": candidate.get("raw_loss_guard_topk_overlap_ratio", 1.0),
+                    "raw_loss_guard_confidence_floor": candidate.get("raw_loss_guard_confidence_floor", 0.0),
+                    "raw_loss_guard_min_overlap_ratio": candidate.get("raw_loss_guard_min_overlap_ratio", 0.0),
                     "effective_threshold": candidate.get("effective_threshold", 0.0),
                     "preservation_floor": candidate.get("preservation_floor", 0.0),
                     "max_length_ratio": candidate.get("max_length_ratio", 0.0),

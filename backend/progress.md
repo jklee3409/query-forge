@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-05-26] Session Summary (Selective Rewrite Final-Score Guard)
+- What was done: Raised the Admin fallback/catalog rewrite threshold to `0.05`, changed new RAG run defaults so anchor injection is opt-in, removed `rewrite_always` from Admin-generated operational/final retrieval mode sets, added Flyway `V41` for cautious rewrite prompt versions, and refreshed the backend-served React bundle.
+- Key decisions: Kept Gemini model defaults pinned to `gemini-2.5-flash-lite`; `rewrite_always` remains only as a legacy runtime/ablation mode outside Admin-generated final evaluation configs.
+- Issues encountered: `.\gradlew.bat compileJava` passed.
+- Next steps: Restart backend so V41 prompt bindings and the new Admin defaults are active.
+
 ## [2026-05-26] Session Summary (RAG Dataset Language Enforcement)
 - What was done: Added `queryLanguage` / `metadataStrategyProfile` to Admin RAG dataset rows and made RAG run creation reject `eval_query_language` values that conflict with the selected dataset language.
 - Key decisions: Dataset language now comes from dataset metadata or active sample rows, so PostgreSQL EN datasets are no longer treated as KO when the dataset key does not end with `_en`.

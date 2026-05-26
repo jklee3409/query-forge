@@ -1500,14 +1500,14 @@ function buildStageCutoffTags(run) {
 
 function resolveRewriteMode(run) {
   if (!run?.rewriteEnabled) return { kind: 'rewrite-off', icon: 'RW', label: 'off' }
-  if (!run?.selectiveRewrite) return { kind: 'rewrite-always', icon: 'RA', label: 'always' }
+  if (!run?.selectiveRewrite) return { kind: 'rewrite-off', icon: 'RW', label: 'raw-only' }
   if (run?.useSessionContext) return { kind: 'rewrite-session', icon: 'RS', label: 'selective + session' }
   return { kind: 'rewrite-selective', icon: 'SL', label: 'selective' }
 }
 
 function resolveRewriteAnchorEnabled(run) {
   if (!run?.rewriteEnabled) return false
-  if (run?.rewriteAnchorInjectionEnabled == null) return true
+  if (run?.rewriteAnchorInjectionEnabled == null) return false
   return Boolean(run.rewriteAnchorInjectionEnabled)
 }
 
@@ -1690,7 +1690,7 @@ export function RagPage({ notify, domainId = null }) {
     rewriteEnabled: true,
     selectiveRewrite: true,
     useSessionContext: false,
-    rewriteAnchorInjectionEnabled: true,
+    rewriteAnchorInjectionEnabled: false,
     multiSourceAnchorExpansionEnabled: false,
     rewriteFailurePolicy: 'fail_run',
   })

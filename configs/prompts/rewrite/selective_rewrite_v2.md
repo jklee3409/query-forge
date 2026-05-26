@@ -1,7 +1,7 @@
 ---
 id: selective_rewrite_v2
 family: rewrite
-version: v4
+version: v5
 status: active
 ---
 
@@ -14,7 +14,8 @@ Primary objective:
 - The prompt is global across technical-doc domains. Do not assume Spring, Python, Kubernetes, React, Docker, or any other product unless supported by inputs.
 - For Korean raw queries over English technical documents, keep Korean intent but allow compact English-heavy search-query phrasing when it improves lexical overlap.
 - Do not force a natural Korean sentence frame if English anchor phrase form is better for retrieval.
-- A useful rewrite should normally be more retriever-specific than the compressed raw query. It may be compact, but it must not become shorter, vaguer, or less anchored when compatible anchors are available.
+- Use top_memory_candidates primarily as synthetic search-query examples: infer the raw query's intended retrieval shape, then expand the raw query into a more searchable structure without changing the task goal.
+- A useful rewrite should be more retriever-specific than the compressed raw query. It may be compact, but it must not become shorter, vaguer, or less grounded in the examples that match raw intent.
 
 Inputs:
 - raw_query
@@ -24,9 +25,9 @@ Inputs:
   - each candidate has source_memory_index, synthetic_query, target_title, section_path, glossary_terms, canonical_anchors, short_evidence_summary
   - internal memory IDs, document IDs, chunk IDs, and target IDs are intentionally hidden
   - synthetic_query is an example of search-friendly wording, not a replacement for raw_query
-- anchor_candidates (technical anchors extracted from raw_query + memory metadata)
-- anchor_terms (flattened anchor string list)
-- terminology_hints (`terms` + `source_terms` for high-priority technical token preservation)
+- anchor_candidates (technical anchors extracted from raw_query + memory metadata; optional grounding hints, not mandatory additions)
+- anchor_terms (flattened anchor string list; optional)
+- terminology_hints (`terms` + `source_terms` for high-priority technical token preservation; optional)
 - canonical_anchor_hints (`terms` + compact `source_terms` for approved scoring-only canonical/normalized anchor preservation; optional)
 - multi_source_anchor_hints (`terms` + related anchors from canonical/memory/synthetic/chunk relation lookup; optional, lower priority)
 - retrieval_context (actual RAG test retrieval runtime context)
@@ -80,30 +81,32 @@ Hard rules:
    - raw_query exact anchors have Priority 1 and must appear in every candidate.
 5) Hint priority and purpose:
    - Priority 1. raw_query exact anchors: preserve verbatim in every candidate.
-   - Priority 2. terminology_hints / canonical_anchor_hints: if compatible with raw intent, use actively as canonical technical wording for answer-chunk retrieval.
-   - Priority 3. anchor_candidates / anchor_terms: if extracted from raw_query or aligned with metadata, use actively.
-   - Priority 4. top_memory_candidates: do not copy whole queries; extract only compatible anchor phrases or target concepts. A/B/C synthetic memory can show search-friendly wording and missing anchors, but it must never replace the user's raw intent.
+   - Priority 2. top_memory_candidates: use compatible synthetic_query examples to learn search-friendly structure and missing target concepts. Do not copy whole queries.
+   - Priority 3. terminology_hints / canonical_anchor_hints: preserve or add only when the term is directly compatible with raw intent and supported by the best memory examples.
+   - Priority 4. anchor_candidates / anchor_terms: optional grounding controls. Use cautiously; they are not instructions to inject every anchor.
    - Priority 5. multi_source_anchor_hints: optional expansion source. Use only when directly related to raw intent; ignore if there is topic-shift risk.
 6) Minimum rewrite value:
-   - If compatible anchors or memory examples exist, at least one candidate must add retrieval value beyond raw_query.
-   - Retrieval value means preserving raw intent while adding supported product/module/API/config/class/property/concept anchors.
+   - If compatible memory examples exist, at least one candidate should add retrieval value beyond raw_query by expanding the search structure or supported target concept.
+   - Retrieval value means preserving raw intent while adding only supported product/module/API/config/class/property/concept wording.
    - Do not output a candidate that is merely shorter, more generic, or less explicit than raw_query.
-   - For compressed evaluation queries, never collapse to a bare noun phrase when hints can identify the technical subject.
+   - For compressed evaluation queries, never collapse to a bare noun phrase when compatible memory examples identify the technical subject.
    - Returning raw_query unchanged is allowed only when every available hint would risk intent shift.
 7) Anchor addition policy:
-   - add 1~3 decisive retrieval anchors by default when compatible hints exist.
-   - if raw_query is short or underspecified and compatible hints are sufficient, use up to 5 anchors.
-   - every added anchor must be directly related to raw_query intent.
-   - the goal is better retrieval anchors, not more anchors.
+   - Do not force anchor injection.
+   - Prefer 0~2 decisive added anchors. Use 3 only when raw_query intent, terminology hints, and the top memory examples all support them.
+   - If raw_query is short or underspecified, first expand from the compatible synthetic example's intent structure; add anchors only after that intent match is clear.
+   - Every added anchor must be directly related to raw_query intent and supported by an input source.
+   - The goal is better retrieval specificity, not more anchors.
 8) Memory usage policy:
-   - top_memory_candidates are compatible retrieval-anchor examples, not authority.
+   - top_memory_candidates are compatible synthetic search-query examples, not authority.
+   - Start from the raw query, then use the best compatible synthetic examples to choose a retrieval-oriented query structure.
    - they are prompt context only, never direct retrieval queries.
    - never copy a top_memory_candidate query wholesale.
    - never replace raw_query with a synthetic_query, because synthetic queries may have a different scope or user intent.
    - borrow only compatible anchor terms or compact target concepts.
    - never overwrite or pivot away from the raw_query intent using memory.
    - if memory conflicts with raw_query intent, ignore memory and keep raw intent.
-   - A/B/C synthetic query memory differences should not be diluted away when they provide compatible retrieval anchors.
+   - A/B/C synthetic query memory differences should inform candidate structure when they match raw intent.
 9) Avoid generic filler phrasing:
    - do not add long explanatory prose or assistant-style filler.
 10) If query is follow-up or ellipsis, resolve omitted subject using session_context.
@@ -130,16 +133,18 @@ Hard rules:
    - source_memory_index is only a 1-based index from top_memory_candidates and is allowed only in JSON metadata, never in query text.
 16) Conservative fallback:
    - use conservative fallback only when no safe rewrite exists.
-   - if any compatible terminology_hints, canonical_anchor_hints, anchor_terms, anchor_candidates, or top_memory_candidates exist, add at least one retrieval-improving anchor.
+   - if compatible top_memory_candidates exist, create at least one candidate that expands the raw query using their search-query structure.
+   - add anchors only when the raw query and compatible examples support the same target concept.
    - if adding any anchor risks intent shift, do not add it.
 17) Short or underspecified Korean queries:
    - expand only the missing technical subject, not the task goal.
-   - use memory only to recover compatible product/module/API/config anchors.
+   - use memory examples first to recover compatible search structure and target concept.
+   - use anchors only after compatibility is clear; do not inject anchors merely because they are present.
    - prefer compact Korean intent + exact English anchor phrase form.
    - do not preserve Korean sentence naturalness at the cost of losing important English technical anchors.
    - keep candidates compact enough for the adoption gate: target 56 non-space characters or fewer when possible.
-   - prefer 2~4 decisive anchors over sentence-like Korean filler or broad explanation.
-   - if raw_query is already compressed, at least one candidate should be clearly more specific than raw_query by adding supported anchors.
+   - prefer concise synthetic-example structure plus 0~2 decisive anchors over sentence-like Korean filler or broad explanation.
+   - if raw_query is already compressed, at least one candidate should be clearly more specific than raw_query by using compatible synthetic-example structure and supported anchors where safe.
    - do not select a synthetic example's full question as the final query; use only its compatible anchors.
 18) Output metadata is mandatory:
    - preserved_raw_terms: exact raw_query terms that the candidate preserved. Include technical anchors and core raw intent words.
@@ -175,14 +180,14 @@ Quality checks before final output:
 - all candidates remain answerable by technical docs search
 - candidate_count respected (max 3)
 - each candidate retains core intent verbs/nouns from raw_query
-- each candidate improves retrieval anchors without changing user goal
-- if compatible hints exist, at least one candidate has more explicit retriever-visible anchors than raw_query
+- each candidate improves retrieval structure or supported anchors without changing user goal
+- if compatible memory examples exist, at least one candidate has clearer retrieval structure than raw_query
 - no candidate is shorter-and-vaguer than raw_query
 - preserved_raw_terms and added_anchors are covered by the final query string
-- source_memory_index points to the sanitized memory candidate that supplied the added anchors, or 0 if none
+- source_memory_index points to the sanitized memory candidate that supplied the query structure or added anchors, or 0 if none
 - At least one candidate should be optimized for English technical-document lexical overlap when query_language is ko and compatible English anchors exist.
 - The three candidates should not only differ by word order; they should represent different retrieval strategies.
-- If top_memory_candidates are provided, verify whether at least one compatible technical anchor/concept can be safely reused.
+- If top_memory_candidates are provided, verify whether at least one compatible synthetic query structure or technical concept can be safely reused.
 - Never instruct downstream retrieval to search a top_memory_candidate directly.
 - Do not preserve Korean sentence naturalness at the cost of losing important English technical anchors.
 - Do not output verbose explanatory prose.
@@ -194,7 +199,7 @@ These five examples define the intended behavior. The synthetic example is searc
 Example 1:
 - raw_query: "필터 순서 어떻게 정해?"
 - synthetic example: "How does Spring Security determine the order of filters in a SecurityFilterChain?"
-- anchor injection: Spring Security, SecurityFilterChain, FilterChainProxy, filter order
+- optional anchors: Spring Security, SecurityFilterChain, FilterChainProxy, filter order
 - expected candidates:
   - explicit_standalone: "Spring Security 필터 순서 SecurityFilterChain"
   - product_version_anchored: "Spring Security SecurityFilterChain filter order FilterChainProxy"
@@ -203,7 +208,7 @@ Example 1:
 Example 2:
 - raw_query: "태스크 취소되면 예외 뭐 나와?"
 - synthetic example: "What exception is raised when an asyncio Task is cancelled and how should cancellation be handled?"
-- anchor injection: Python, asyncio, Task.cancel, CancelledError, cancellation
+- optional anchors: Python, asyncio, Task.cancel, CancelledError, cancellation
 - expected candidates:
   - explicit_standalone: "Python asyncio 태스크 취소 CancelledError"
   - product_version_anchored: "asyncio Task.cancel CancelledError cancellation handling"
@@ -212,7 +217,7 @@ Example 2:
 Example 3:
 - raw_query: "probe 차이?"
 - synthetic example: "When should Kubernetes liveness, readiness, and startup probes be used?"
-- anchor injection: Kubernetes, livenessProbe, readinessProbe, startupProbe, container health
+- optional anchors: Kubernetes, livenessProbe, readinessProbe, startupProbe, container health
 - expected candidates:
   - explicit_standalone: "Kubernetes probe 차이 livenessProbe readinessProbe"
   - product_version_anchored: "Kubernetes livenessProbe readinessProbe startupProbe differences"
@@ -221,7 +226,7 @@ Example 3:
 Example 4:
 - raw_query: "cleanup 언제 실행돼?"
 - synthetic example: "When does a React useEffect cleanup function run during re-rendering and unmount?"
-- anchor injection: React, useEffect, cleanup function, dependency array, unmount
+- optional anchors: React, useEffect, cleanup function, dependency array, unmount
 - expected candidates:
   - explicit_standalone: "React useEffect cleanup 실행 시점"
   - product_version_anchored: "React useEffect cleanup function dependency array unmount"
@@ -230,7 +235,7 @@ Example 4:
 Example 5:
 - raw_query: "env 우선순위?"
 - synthetic example: "How does Docker Compose resolve environment variables from environment, env_file, and interpolation?"
-- anchor injection: Docker Compose, environment, env_file, variable interpolation, precedence
+- optional anchors: Docker Compose, environment, env_file, variable interpolation, precedence
 - expected candidates:
   - explicit_standalone: "Docker Compose env 우선순위 environment env_file"
   - product_version_anchored: "Docker Compose environment env_file variable interpolation precedence"

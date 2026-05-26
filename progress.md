@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-05-26] Session Summary (Selective Rewrite Threshold and Guard)
+- What was done: Raised Admin `rewrite_threshold` default to `0.05`, made rewrite anchor injection opt-in, changed Admin RAG mode generation to exclude `rewrite_always`, revised rewrite prompts to synthetic-example-first cautious-anchor versions, and changed runtime adoption to final-score delta plus raw-loss guard.
+- Key decisions: Kept current LLM model defaults (`gemini-2.5-flash-lite`) and treated `rewrite_always` as legacy/ablation only, not an Admin operational/final evaluation mode.
+- Issues encountered: Targeted validation passed: Python py_compile, `EvalRuntimeRewriteTests`, backend `compileJava`, `RagPage.jsx` ESLint, and frontend production build.
+- Next steps: Use same snapshot/dataset RAG reruns to compare accepted rewrite rate, bad-rewrite rate, and `raw_loss_guard_*` diagnostics.
+
 ## [2026-05-26] Session Summary (Spring/PostgreSQL RAG Result Analysis)
 - What was done: Analyzed recent Admin GUI RAG quality-test results from DB for Spring and PostgreSQL domains, comparing raw, rewrite-always, and selective rewrite metrics plus answer/performance payloads.
 - Key decisions: Treated PostgreSQL as having only three completed result runs because the fourth latest run (`EN Baseline`) is still running; found current completed runs all use `gemini-2.5-flash-lite` for `llm_rewrite_model`.

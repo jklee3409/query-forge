@@ -81,7 +81,7 @@ public class AdminConsoleService {
     private static final double DEFAULT_HYBRID_BM25_WEIGHT = 0.34d;
     private static final double DEFAULT_HYBRID_TECHNICAL_WEIGHT = 0.08d;
     private static final int DEFAULT_RAG_RETRIEVAL_TOP_K = 10;
-    private static final double DEFAULT_REWRITE_THRESHOLD = 0.02d;
+    private static final double DEFAULT_REWRITE_THRESHOLD = 0.05d;
     private static final int DEFAULT_REWRITE_MEMORY_CANDIDATE_POOL_N = 20;
     private static final int DEFAULT_RETRIEVER_CANDIDATE_POOL_K = 50;
     private static final double DEFAULT_RAG_HYBRID_DENSE_WEIGHT = 0.60d;
@@ -853,8 +853,7 @@ public class AdminConsoleService {
         boolean rewriteEnabled = request.rewriteEnabled() == null || request.rewriteEnabled();
         boolean selectiveRewrite = request.selectiveRewrite() == null || request.selectiveRewrite();
         boolean useSessionContext = request.useSessionContext() != null && request.useSessionContext();
-        boolean rewriteAnchorInjectionEnabled =
-                request.rewriteAnchorInjectionEnabled() == null || request.rewriteAnchorInjectionEnabled();
+        boolean rewriteAnchorInjectionEnabled = Boolean.TRUE.equals(request.rewriteAnchorInjectionEnabled());
         boolean multiSourceAnchorExpansionEnabled = Boolean.TRUE.equals(request.multiSourceAnchorExpansionEnabled());
         RuntimeCatalog runtimeCatalog = loadRuntimeCatalog();
         int retrievalTopK = request.retrievalTopK() != null && request.retrievalTopK() > 0
@@ -1100,7 +1099,7 @@ public class AdminConsoleService {
                     gatingPreset,
                     sourceGatingBatchId
             );
-            config.put("retrieval_modes", List.of("raw_only", "rewrite_always", "selective_rewrite"));
+            config.put("retrieval_modes", List.of("raw_only", "selective_rewrite"));
             config.put("source_gating_batch_id", sourceGatingBatchId.toString());
             config.put("snapshot_id", sourceGatingBatchId.toString());
             sourceGatingRunId.ifPresent(uuid -> config.put("source_gating_run_id", uuid.toString()));
@@ -2222,12 +2221,12 @@ public class AdminConsoleService {
             return List.of("raw_only");
         }
         if (!selectiveRewrite) {
-            return List.of("raw_only", "rewrite_always");
+            return List.of("raw_only");
         }
         if (useSessionContext) {
-            return List.of("raw_only", "rewrite_always", "selective_rewrite_with_session");
+            return List.of("raw_only", "selective_rewrite_with_session");
         }
-        return List.of("raw_only", "rewrite_always", "selective_rewrite");
+        return List.of("raw_only", "selective_rewrite");
     }
 
     private Map<String, Object> resolveRetrieverConfig(AdminConsoleDtos.RetrieverConfigRequest request) {
@@ -3202,12 +3201,15 @@ public class AdminConsoleService {
 
     private Map<String, Object> relaxedShortUserRewriteAdoptionPolicy() {
         RuntimeCatalog runtimeCatalog = loadRuntimeCatalog();
+        double rewriteDefault = runtimeDefaultDouble(runtimeCatalog, "rewrite_threshold", DEFAULT_REWRITE_THRESHOLD);
         Map<String, Object> shortUserThresholds = new LinkedHashMap<>();
-        shortUserThresholds.put("min_improvement", 0.02d);
+        shortUserThresholds.put("min_improvement", rewriteDefault);
         shortUserThresholds.put("preservation_floor", 0.68d);
         shortUserThresholds.put("max_length_ratio", 2.10d);
         shortUserThresholds.put("max_compact_query_chars", 56);
         shortUserThresholds.put("underspecified_memory_norm_cutoff", 0.66d);
+        shortUserThresholds.put("raw_loss_guard_confidence_floor", 0.78d);
+        shortUserThresholds.put("raw_loss_guard_min_overlap_ratio", 0.20d);
 
         Map<String, Object> shortUserPenalties = new LinkedHashMap<>();
         shortUserPenalties.put("verbosity_per_extra_ratio", 0.035d);
@@ -3217,7 +3219,7 @@ public class AdminConsoleService {
         shortUserBonuses.put("memory_target_presence", 0.10d);
         shortUserBonuses.put(
                 "source_memory_target_hit_margin",
-                runtimeDefaultDouble(runtimeCatalog, "rewrite_threshold", DEFAULT_REWRITE_THRESHOLD)
+                rewriteDefault
         );
 
         Map<String, Object> shortUserPolicy = new LinkedHashMap<>();

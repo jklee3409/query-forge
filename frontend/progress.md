@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-05-26] Session Summary (RAG Rewrite Defaults)
+- What was done: Updated `/admin/rag-tests` defaults so the runtime-hydrated threshold is `0.05`, anchor injection starts disabled, non-selective rewrite displays as raw-only instead of rewrite-always, and rebuilt the production React bundle.
+- Key decisions: Kept the existing RAG request payload shape and Gemini model selection unchanged; backend config generation is the source of truth for banning `rewrite_always` in final evaluation runs.
+- Issues encountered: Targeted `npx eslint src/pages/RagPage.jsx --quiet` and `npm run build` passed.
+- Next steps: Browser-smoke a fresh RAG form load after rebuilding/serving the updated Admin bundle.
+
 ## [2026-05-26] Session Summary (RAG Dataset Language and Snapshot Filter)
 - What was done: Updated `/admin/rag-tests` so selecting an EN dataset such as `postgresql_en_short_user_80` sets `evalQueryLanguage=en`, filters method chips by that language, and hides gating snapshots whose method language is incompatible.
 - Key decisions: Replaced the old `datasetKey.endsWith('_en')` heuristic with dataset `queryLanguage` plus a safer key/name fallback, and reused the same method-language rule for method selection, snapshot dropdowns, and snapshot compatibility labels.

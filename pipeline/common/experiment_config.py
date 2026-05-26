@@ -62,6 +62,8 @@ DEFAULT_REWRITE_ADOPTION_POLICY: dict[str, Any] = {
         "low_memory_extra_threshold": 0.02,
         "min_retrieval_gain_score": 0.0,
         "underspecified_memory_norm_cutoff": 0.72,
+        "raw_loss_guard_confidence_floor": 0.78,
+        "raw_loss_guard_min_overlap_ratio": 0.20,
     },
     "penalties": {
         "verbosity_per_extra_ratio": 0.08,
@@ -80,6 +82,8 @@ DEFAULT_REWRITE_ADOPTION_POLICY: dict[str, Any] = {
                 "preservation_floor": 0.68,
                 "max_length_ratio": 2.10,
                 "underspecified_memory_norm_cutoff": 0.66,
+                "raw_loss_guard_confidence_floor": 0.78,
+                "raw_loss_guard_min_overlap_ratio": 0.20,
             },
             "penalties": {
                 "verbosity_per_extra_ratio": 0.035,
@@ -262,6 +266,18 @@ def resolve_rewrite_adoption_policy(raw_config: dict[str, Any] | None) -> dict[s
         thresholds["underspecified_memory_norm_cutoff"] = _clamp_float(
             thresholds.get("underspecified_memory_norm_cutoff"),
             default=0.72,
+            min_value=0.0,
+            max_value=1.0,
+        )
+        thresholds["raw_loss_guard_confidence_floor"] = _clamp_float(
+            thresholds.get("raw_loss_guard_confidence_floor"),
+            default=0.78,
+            min_value=0.0,
+            max_value=1.0,
+        )
+        thresholds["raw_loss_guard_min_overlap_ratio"] = _clamp_float(
+            thresholds.get("raw_loss_guard_min_overlap_ratio"),
+            default=0.20,
             min_value=0.0,
             max_value=1.0,
         )

@@ -38,9 +38,9 @@
 - `app/sources/postgresql-docs-current.yaml` and `app/sources/postgis-docs-current.yaml` define the official English PostgreSQL-domain corpus sources used for the 2026-05-26 collection/import run.
 - `app/model_catalog.yml` now owns Admin RAG retriever mode defaults (`retriever_mode_defaults`) and rewrite memory candidate pool defaults, so frontend controls and backend omitted-field behavior are both hydrated from runtime options.
 - Rewrite prompts now accept `retrieval_context` so the LLM sees actual retrieval backend, vector store, retriever mode, embedding model, fusion weights, top-K, and candidate-pool values before generating candidates.
-- `prompts/rewrite/selective_rewrite_en_v1.md` is now version `v2`, with retrieval-context guidance and five few-shot examples aligned with the Korean/code-mixed rewrite prompt.
-- `prompts/rewrite/selective_rewrite_v2.md` is now version `v4`, with a global technical-document rewrite contract, five domain-diverse few-shot examples, and explicit policy that synthetic queries are retrieval-anchor examples rather than replacements for the raw user query.
-- `app/model_catalog.yml` now defaults `rewrite_threshold` to `0.02`, matching Admin backend/frontend RAG defaults.
+- `prompts/rewrite/selective_rewrite_en_v1.md` is now version `v3`, with retrieval-context guidance, synthetic-example-first query expansion, and cautious optional anchor use.
+- `prompts/rewrite/selective_rewrite_v2.md` is now version `v5`, with a global technical-document rewrite contract that prioritizes compatible synthetic query examples for retrieval structure and avoids forced anchor injection.
+- `app/model_catalog.yml` now defaults `rewrite_threshold` to `0.05`, matching Admin backend/frontend RAG defaults.
 - selective rewrite prompts now use sanitized memory rows (`synthetic_query`, target title/section, glossary/canonical anchors, evidence summary) and require candidate metadata fields `preserved_raw_terms`, `added_anchors`, `source_memory_index`, and `intent_risk`.
 - selective rewrite prompts now state that `top_memory_candidates` are synthetic query examples / compatible retrieval-anchor context only; they must not be copied wholesale or used as direct retrieval queries.
 - selective rewrite v2 is now metadata version `v3`, preserving the runtime schema/labels while prioritizing English technical-document anchor overlap for Korean/code-mixed queries.

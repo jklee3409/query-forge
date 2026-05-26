@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-05-26] Session Summary (Selective Rewrite Final Candidate Guard)
+- What was done: Updated `eval/runtime.py` so selective rewrite adoption compares `final_candidate_score` against a raw final-score baseline and rejects confident raw top-result loss through a raw-loss guard. Added regression coverage for high-confidence raw top1 loss.
+- Key decisions: Kept prompt-only synthetic memory semantics and legacy `force_rewrite` compatibility, while making normal selective adoption stricter against candidates that look better by raw retrieval score but lose strong raw evidence.
+- Issues encountered: `python -m py_compile ...` and `python -m unittest pipeline.tests.test_eval_runtime.EvalRuntimeRewriteTests -q` passed.
+- Next steps: Re-run fixed-snapshot RAG comparisons and inspect `final_score_delta` plus `raw_loss_guard_*` fields in rewrite cases.
+
 ## [2026-05-26] Session Summary (A/C Long English Generation Retry)
 - What was done: Added compact retry handling in `generation/synthetic_query_generator.py` for KO summary and A/C query-generation JSON calls when the provider returns `max_tokens_truncated`, including narrowed payload candidates and concise retry instructions.
 - Key decisions: Retries only compact prompt payload after MAX_TOKENS; cached chunk assets, raw strategy tables, grounding metadata, and final schema remain unchanged.

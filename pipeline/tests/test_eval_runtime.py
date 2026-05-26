@@ -1032,6 +1032,51 @@ class EvalRuntimeRewriteTests(unittest.TestCase):
         self.assertGreater(outcome.candidates[0]["retrieval_gain_score"], 0.0)
         self.assertGreaterEqual(outcome.candidates[0]["terminology_preservation_score"], outcome.candidates[0]["preservation_floor"])
 
+    def test_selective_rewrite_rejects_confident_raw_top_loss(self) -> None:
+        raw_query = "DigestAuthenticationFilter configuration"
+        candidate_query = "DigestAuthenticationFilter security filter configuration"
+
+        def fake_retrieve(query_text: str, *args, **kwargs):
+            if query_text == raw_query:
+                return self._single_retrieval(query_text, score=0.75, chunk_id="raw-top")
+            return self._single_retrieval(query_text, score=1.00, chunk_id="candidate-top")
+
+        def fake_memory(query_text: str, *args, **kwargs):
+            return [
+                {
+                    "memory_id": "m1",
+                    "query_text": query_text,
+                    "similarity": 0.0,
+                    "glossary_terms": ["DigestAuthenticationFilter"],
+                }
+            ]
+
+        with patch.object(runtime, "build_rewrite_candidates_v2", return_value=[{"label": "c1", "query": candidate_query}]), patch.object(
+            runtime,
+            "retrieve_top_k",
+            side_effect=fake_retrieve,
+        ), patch.object(runtime, "memory_top_n", side_effect=fake_memory):
+            outcome, retrieval = runtime.run_selective_rewrite(
+                raw_query=raw_query,
+                query_language="en",
+                query_category="definition",
+                session_context={},
+                chunks=[],
+                memories=[],
+                memory_top_n_value=3,
+                candidate_count=1,
+                threshold=0.01,
+                retrieval_top_k=3,
+                retriever_config=build_retriever_config({"dense_fallback_enabled": True}),
+            )
+
+        self.assertFalse(outcome.rewrite_applied)
+        self.assertEqual(outcome.rewrite_reason, "raw_loss_guard_top1_lost")
+        self.assertEqual(retrieval[0].chunk_id, "raw-top")
+        self.assertGreater(outcome.candidates[0]["final_score_delta"], outcome.candidates[0]["effective_threshold"])
+        self.assertTrue(outcome.candidates[0]["raw_loss_guard_triggered"])
+        self.assertEqual(outcome.candidates[0]["raw_loss_guard_topk_overlap_ratio"], 0.0)
+
     def test_force_rewrite_falls_back_to_raw_when_no_candidate_is_eligible(self) -> None:
         raw_query = "DigestAuthenticationFilter ?ㅼ젙 諛⑸쾿"
         candidate_query = "Spring Security filter setup"

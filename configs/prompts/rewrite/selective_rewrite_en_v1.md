@@ -1,7 +1,7 @@
 ---
 id: selective_rewrite_en_v1
 family: rewrite
-version: v2
+version: v3
 status: active
 ---
 
@@ -10,6 +10,7 @@ You generate rewrite candidates for English-native developer queries in an Engli
 Primary objective:
 - maximize retrieval quality (Recall@5, MRR@10, nDCG@10), not writing style.
 - preserve the original English user intent as the first priority.
+- use top_memory_candidates primarily as synthetic search-query examples: preserve raw intent while expanding the query into a more retrieval-suitable structure.
 - keep candidates concise, natural English search queries for technical documentation.
 - do not translate the query into Korean and do not introduce Korean sentence frames.
 
@@ -20,9 +21,9 @@ Inputs:
 - top_memory_candidates (sanitized English synthetic query examples; prompt context only)
   - each candidate has source_memory_index, synthetic_query, target_title, section_path, glossary_terms, canonical_anchors, short_evidence_summary
   - internal memory IDs, document IDs, chunk IDs, and target IDs are intentionally hidden
-- anchor_candidates (technical anchors extracted from raw_query + memory metadata)
-- anchor_terms (flattened anchor string list)
-- terminology_hints (`terms` + `source_terms` for high-priority technical token preservation)
+- anchor_candidates (technical anchors extracted from raw_query + memory metadata; optional grounding hints, not mandatory additions)
+- anchor_terms (flattened anchor string list; optional)
+- terminology_hints (`terms` + `source_terms` for high-priority technical token preservation; optional)
 - canonical_anchor_hints (`terms` + compact `source_terms` for approved scoring-only canonical/normalized anchor preservation; optional)
 - multi_source_anchor_hints (`terms` + related anchors from canonical/memory/synthetic/chunk relation lookup; optional, lower priority)
 - retrieval_context (actual RAG test retrieval runtime context)
@@ -63,13 +64,14 @@ Hard rules:
 3) Keep every exact technical anchor from raw_query verbatim:
    - annotations, class/interface/method names, property keys, config paths, artifact/module names, CLI commands, version strings, and error codes.
    - preserve spelling, case, punctuation, and symbol prefixes exactly.
-4) Use top_memory_candidates only as compatible retrieval-anchor examples:
+4) Use top_memory_candidates first as compatible synthetic search-query examples:
+   - infer useful retrieval structure from matching examples while preserving raw_query intent.
    - borrow only intent-compatible anchors or compact target concepts.
    - never copy a memory query wholesale.
    - ignore memory when it conflicts with raw_query.
    - never use a memory query itself as the retrieval query.
 5) If terminology_hints or canonical_anchor_hints are intent-compatible, preserve the relevant technical term verbatim.
-   Use multi_source_anchor_hints only as optional low-priority related-anchor hints.
+   Do not inject anchors merely because they are present; use multi_source_anchor_hints only as optional low-priority related-anchor hints.
 6) Never add unsupported products, versions, modules, APIs, failure symptoms, or configuration keys.
 7) Keep candidates short and search-oriented:
    - prefer compact noun/verb technical phrases.
@@ -80,7 +82,7 @@ Hard rules:
    - for hybrid, combine exact anchors with a semantically complete developer task phrase.
    - for db_ann/pgvector, preserve wording that will embed well under dense_embedding_model while still retaining exact anchors.
 8) Output English only except for exact non-English literals that already appear in the input.
-9) If the raw query is underspecified, add at most 1-2 supported English technical anchors from inputs.
+9) If the raw query is underspecified, first expand from compatible synthetic example structure, then add at most 1-2 supported English technical anchors when safe.
    Expanded multi-source anchors must never override raw_query anchors or change the task intent.
 10) If no safe retrieval-improving rewrite exists, return a conservative candidate close to raw_query.
 11) Output metadata is mandatory:
@@ -102,6 +104,7 @@ Quality checks before final output:
 - all candidates are English developer search queries.
 - candidate queries are mutually non-identical.
 - all candidates preserve raw_query intent and exact technical anchors.
+- if compatible memory examples exist, at least one candidate uses their search-query structure without copying them.
 - candidate_count is respected (max 3).
 - preserved_raw_terms and added_anchors are covered by the final query string.
 - source_memory_index points to a sanitized memory candidate or 0.
@@ -113,7 +116,7 @@ These five examples define the intended behavior. The synthetic example is searc
 Example 1:
 - raw_query: "filter order"
 - synthetic example: "How does Spring Security determine the order of filters in a SecurityFilterChain?"
-- anchor injection: Spring Security, SecurityFilterChain, FilterChainProxy, filter order
+- optional anchors: Spring Security, SecurityFilterChain, FilterChainProxy, filter order
 - expected candidates:
   - explicit_standalone: "Spring Security filter order SecurityFilterChain"
   - product_version_anchored: "Spring Security SecurityFilterChain filter order FilterChainProxy"
@@ -122,7 +125,7 @@ Example 1:
 Example 2:
 - raw_query: "task cancellation exception"
 - synthetic example: "What exception is raised when an asyncio Task is cancelled and how should cancellation be handled?"
-- anchor injection: Python, asyncio, Task.cancel, CancelledError, cancellation
+- optional anchors: Python, asyncio, Task.cancel, CancelledError, cancellation
 - expected candidates:
   - explicit_standalone: "Python asyncio task cancellation CancelledError"
   - product_version_anchored: "asyncio Task.cancel CancelledError cancellation handling"
@@ -131,7 +134,7 @@ Example 2:
 Example 3:
 - raw_query: "probe difference"
 - synthetic example: "When should Kubernetes liveness, readiness, and startup probes be used?"
-- anchor injection: Kubernetes, livenessProbe, readinessProbe, startupProbe, container health
+- optional anchors: Kubernetes, livenessProbe, readinessProbe, startupProbe, container health
 - expected candidates:
   - explicit_standalone: "Kubernetes probe difference livenessProbe readinessProbe"
   - product_version_anchored: "Kubernetes livenessProbe readinessProbe startupProbe differences"
@@ -140,7 +143,7 @@ Example 3:
 Example 4:
 - raw_query: "cleanup timing"
 - synthetic example: "When does a React useEffect cleanup function run during re-rendering and unmount?"
-- anchor injection: React, useEffect, cleanup function, dependency array, unmount
+- optional anchors: React, useEffect, cleanup function, dependency array, unmount
 - expected candidates:
   - explicit_standalone: "React useEffect cleanup timing"
   - product_version_anchored: "React useEffect cleanup function dependency array unmount"
@@ -149,7 +152,7 @@ Example 4:
 Example 5:
 - raw_query: "env precedence"
 - synthetic example: "How does Docker Compose resolve environment variables from environment, env_file, and interpolation?"
-- anchor injection: Docker Compose, environment, env_file, variable interpolation, precedence
+- optional anchors: Docker Compose, environment, env_file, variable interpolation, precedence
 - expected candidates:
   - explicit_standalone: "Docker Compose env precedence environment env_file"
   - product_version_anchored: "Docker Compose environment env_file variable interpolation precedence"

@@ -3,6 +3,12 @@
 ## Overview
 High-level progress tracking for the project.
 
+## [2026-05-26] Session Summary (Cautious Selective Rewrite Prompts)
+- What was done: Raised `app/model_catalog.yml` `rewrite_threshold` default to `0.05` and updated Korean/code-mixed and English rewrite prompts to `v5`/`v3`.
+- Key decisions: The rewrite prompt now prioritizes compatible synthetic query examples as retrieval-structure guidance and treats anchors as optional cautious grounding hints instead of forced additions.
+- Issues encountered: Validation is recorded in the root session summary.
+- Next steps: Inspect next Admin rewrite traces for lower bad-rewrite rate and enough accepted candidates under the stricter `0.05` threshold.
+
 ## [2026-05-26] Session Summary (PostgreSQL Source Presets)
 - What was done: Added source presets for official English PostgreSQL current docs and PostGIS docs: `app/sources/postgresql-docs-current.yaml` and `app/sources/postgis-docs-current.yaml`.
 - Key decisions: PostGIS supplements the same PostgreSQL technical-document domain so corpus size reaches Spring-scale chunk volume; the stale PostgreSQL 17 preset was removed after duplicate-section import conflict cleanup.
