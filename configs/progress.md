@@ -3,6 +3,12 @@
 ## Overview
 High-level progress tracking for the project.
 
+## [2026-05-26] Session Summary (Selective Rewrite v3 Draft)
+- What was done: Added `prompts/rewrite/selective_rewrite_v3.md` as a lightweight draft system prompt for real-time hybrid retrieval query rewriting.
+- Key decisions: Kept v3 separate from the active v2 runtime binding, removed retriever-backend input dependencies and `intent_risk`, capped candidates at two, and kept only three few-shot examples.
+- Issues encountered: Static prompt/document update only; no runtime loader, DB prompt binding, or migration was changed.
+- Next steps: If v3 is adopted operationally, update prompt binding/runtime schema and evaluate latency plus retrieval quality against the same snapshot and dataset.
+
 ## [2026-05-26] Session Summary (Cautious Selective Rewrite Prompts)
 - What was done: Raised `app/model_catalog.yml` `rewrite_threshold` default to `0.05` and updated Korean/code-mixed and English rewrite prompts to `v5`/`v3`.
 - Key decisions: The rewrite prompt now prioritizes compatible synthetic query examples as retrieval-structure guidance and treats anchors as optional cautious grounding hints instead of forced additions.

@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-05-26] Session Summary (Selective Rewrite v3 Draft Prompt)
+- What was done: Added `configs/prompts/rewrite/selective_rewrite_v3.md` as a lightweight draft rewrite prompt and updated configs documentation/progress.
+- Key decisions: Kept the active v2 runtime path unchanged; v3 simplifies inputs to raw query, optional session/memory/terminology hints, emits at most two candidates, and removes `intent_risk`.
+- Issues encountered: No code execution path was changed; validation was limited to static prompt and targeted documentation updates.
+- Next steps: Bind v3 through prompt catalog/runtime schema only after a controlled rewrite-effect evaluation plan is ready.
+
 ## [2026-05-26] Session Summary (Selective Rewrite Threshold and Guard)
 - What was done: Raised Admin `rewrite_threshold` default to `0.05`, made rewrite anchor injection opt-in, changed Admin RAG mode generation to exclude `rewrite_always`, revised rewrite prompts to synthetic-example-first cautious-anchor versions, and changed runtime adoption to final-score delta plus raw-loss guard.
 - Key decisions: Kept current LLM model defaults (`gemini-2.5-flash-lite`) and treated `rewrite_always` as legacy/ablation only, not an Admin operational/final evaluation mode.

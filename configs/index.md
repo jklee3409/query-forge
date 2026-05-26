@@ -15,7 +15,7 @@
 - `prompts/query_generation/gen_[a-g]_v1.md`: 전략별 합성 질의 프롬프트
 - `prompts/summary_extraction/*.md`: 요약/한국어 요약 프롬프트
 - `prompts/self_eval/quality_gate_v1.md`: 게이팅 자기평가 프롬프트
-- `prompts/rewrite/selective_rewrite_v1.md`, `prompts/rewrite/selective_rewrite_v2.md`: 선택적 리라이트 프롬프트 버전
+- `prompts/rewrite/selective_rewrite_v1.md`, `prompts/rewrite/selective_rewrite_v2.md`, `prompts/rewrite/selective_rewrite_v3.md`, `prompts/rewrite/selective_rewrite_en_v1.md`: 선택적 리라이트 프롬프트 버전
 - `prompts/translation/translate_chunk_en_to_ko_v1.md`: 번역 프롬프트
 
 ---
@@ -35,6 +35,7 @@
 ---
 
 ## Recent Notes
+- `prompts/rewrite/selective_rewrite_v3.md` is a draft lightweight rewrite prompt with simplified inputs, maximum two candidates, no `intent_risk`, and three compact few-shot examples for safe hybrid retrieval query rewriting.
 - `app/sources/postgresql-docs-current.yaml` and `app/sources/postgis-docs-current.yaml` define the official English PostgreSQL-domain corpus sources used for the 2026-05-26 collection/import run.
 - `app/model_catalog.yml` now owns Admin RAG retriever mode defaults (`retriever_mode_defaults`) and rewrite memory candidate pool defaults, so frontend controls and backend omitted-field behavior are both hydrated from runtime options.
 - Rewrite prompts now accept `retrieval_context` so the LLM sees actual retrieval backend, vector store, retriever mode, embedding model, fusion weights, top-K, and candidate-pool values before generating candidates.
