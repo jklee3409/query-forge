@@ -3,6 +3,12 @@
 ## Overview
 Evaluation dataset artifact changes for `data/eval/`.
 
+## [2026-05-26] Session Summary (PostgreSQL Low-Signal Query Revision)
+- What was done: Updated `postgresql_kr_short_user_test_80.jsonl` so each query is a short low-signal fragment extracted from its expected PostgreSQL chunk text, and synchronized the DB-managed dataset rows.
+- Key decisions: Preserved `query_language=ko`, `user_query_ko`, `user_query_en=null`, `short_user`, `test`, and all expected grounding fields to remain structurally aligned with Spring KR Short User Eval 80.
+- Issues encountered: Raw BM25 local metrics now align with Spring level: PostgreSQL `Recall@5=0.4562`, `Hit@5=0.5125`, `MRR@10=0.3848`, `nDCG@10=0.4057`; Spring reference was `0.4625`, `0.5250`, `0.3640`, `0.3968`.
+- Next steps: Use this version for PostgreSQL RAG experiments and run answer-level evaluation only under an explicit snapshot condition.
+
 ## [2026-05-26] Session Summary (PostgreSQL KR Short-User 80)
 - What was done: Added `postgresql_kr_short_user_test_80.jsonl` with 80 Korean short-user queries grounded to active PostgreSQL-domain chunks.
 - Key decisions: Matched the active Spring KR short-user DB structure with `query_language=ko`, `short_user`, `test` split, `single:59` / `multi:21`, and current `expected_doc_ids` / `expected_chunk_ids`.

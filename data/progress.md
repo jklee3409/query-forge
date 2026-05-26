@@ -3,6 +3,12 @@
 ## Overview
 High-level progress tracking for the project.
 
+## [2026-05-26] Session Summary (PostgreSQL Eval Query Degradation)
+- What was done: Rewrote PostgreSQL short-user eval queries to low-signal chunk-extracted fragments in the JSONL artifact and synchronized the active DB-managed dataset.
+- Key decisions: Kept the 80-item retrieval-aware structure, expected doc/chunk IDs, and dataset ID unchanged; recorded before/after raw BM25 metrics in dataset metadata.
+- Issues encountered: No temporary files were created; validation confirmed 80 rows, 101 grounded chunk references, no duplicate queries, and zero query tokens outside expected chunk text.
+- Next steps: Treat the degraded dataset as the PostgreSQL short-user baseline for future snapshot-controlled RAG comparisons.
+
 ## [2026-05-26] Session Summary (PostgreSQL KR Short-User Eval Dataset)
 - What was done: Created PostgreSQL KR short-user eval artifact `data/eval/postgresql_kr_short_user_test_80.jsonl` and upserted matching DB rows under dataset `862642e6-10bd-538d-9ba8-5de7f1f26d3c` / key `postgresql_kr_short_user_80`.
 - Key decisions: Followed the active Spring KR short-user structure, used short compressed Korean user queries, and grounded every item to current PostgreSQL-domain chunks with `single:59` / `multi:21`.

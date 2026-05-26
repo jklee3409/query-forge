@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-05-26] Session Summary (PostgreSQL Eval Query Degradation)
+- What was done: Degraded the PostgreSQL KR short-user eval dataset queries in `data/eval/postgresql_kr_short_user_test_80.jsonl` and the active DB dataset `862642e6-10bd-538d-9ba8-5de7f1f26d3c` using only token fragments extracted from each item's expected PostgreSQL chunks.
+- Key decisions: Preserved the Spring-compatible eval structure and all expected doc/chunk IDs while lowering raw BM25 retrieval from `Recall@5=0.9000` / `Hit@5=0.9750` to `Recall@5=0.4562` / `Hit@5=0.5125`, close to Spring KR short-user `Recall@5=0.4625` / `Hit@5=0.5250`.
+- Issues encountered: PostgreSQL corpus chunks are English, so the low-signal queries are English technical fragments stored in the existing `user_query_ko` slot to keep the dataset schema stable; validation found no duplicate queries, no missing expected chunks, and no token outside the expected chunks.
+- Next steps: Use the dataset with explicit PostgreSQL A/C snapshots for RAG runs and compare answer-level metrics if a full end-to-end evaluation is requested.
+
 ## [2026-05-26] Session Summary (PostgreSQL KR Short-User Eval 80)
 - What was done: Added PostgreSQL KR short-user eval dataset `postgresql_kr_short_user_80` with dataset ID `862642e6-10bd-538d-9ba8-5de7f1f26d3c`, wrote `data/eval/postgresql_kr_short_user_test_80.jsonl`, and upserted 80 active DB items.
 - Key decisions: Mirrored the active Spring KR short-user structure (`query_language=ko`, `short_user`, `test`, `single:59` / `multi:21`) while grounding every answer to current PostgreSQL-domain chunks; domain-scoped RAG method validation now falls back to the selected domain's enabled method policy for non-Spring/Python datasets.
