@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-05-26] Session Summary (PostgreSQL Domain Generation and BM25 Gating)
+- What was done: Added a PostgreSQL English technical-document domain from official PostgreSQL current docs plus PostGIS docs, imported 1,644 documents / 2,147 chunks / 36,682 glossary terms, generated A/C synthetic query batches (`A-1000-260526`, `C-1000-260526`) with 1,000 queries each, and ran `full_gating` for both with BM25-only retrieval.
+- Key decisions: Chose PostgreSQL because official English DB documentation can reach Spring-scale chunk volume; PostGIS was used as same-domain supplemental corpus scale, while final A/C generation targeted `postgresql-docs-current`.
+- Issues encountered: A duplicate PostgreSQL 17 source attempt was cleaned up within the new domain scope only; Gemini `MAX_TOKENS` failures required compact retry/default-token hardening, and Docker Desktop was restarted after a verification timeout before final DB checks passed.
+- Next steps: Use the completed PostgreSQL A/C BM25 full-gating snapshots for later memory/RAG experiments.
+
 ## [2026-05-26] Session Summary (RAG Rewrite Anchor Eval Table)
 - What was done: Added normalized DB persistence for Admin RAG rewrite-anchor evaluations, wired internal-only anchor scoring from rewrite artifacts/detail rows, and surfaced anchor quality in RAG detail and compare UI without changing eval-retrieval -> eval-answer order.
 - Key decisions: LLM-based anchor judging was excluded; only `rewrite_applied=true` details generate anchor rows, and legacy runs with no rows render guarded empty states.

@@ -97,7 +97,12 @@ SUMMARY_KO_RESPONSE_SCHEMA: dict[str, Any] = {
     "type": "object",
     "required": ["summary_ko"],
     "properties": {
-        "summary_ko": {"type": "string"},
+        "summary_ko": {"type": "string", "description": "2-3 concise Korean sentences, max 380 characters."},
+        "grounding_note": {
+            "type": "string",
+            "enum": ["all claims grounded in input"],
+            "description": "Always exactly: all claims grounded in input",
+        },
     },
     "additionalProperties": True,
 }
@@ -131,6 +136,8 @@ QUERY_REQUIRED_FIELDS_BY_STRATEGY: dict[str, tuple[str, ...]] = {
 
 FG_SUMMARY_KO_MIN_MAX_TOKENS = 2048
 FG_SUMMARY_KO_SOURCE_CHAR_LIMITS_ON_TRUNCATION: tuple[int, ...] = (3200, 2200, 1400)
+SUMMARY_KO_SOURCE_CHAR_LIMITS_ON_TRUNCATION: tuple[int, ...] = (900, 500)
+QUERY_PAYLOAD_TEXT_LIMITS_ON_TRUNCATION: tuple[int, ...] = (2200, 1400)
 B_DEFAULT_SUMMARY_MAX_CHARS = 900
 B_DEFAULT_QUERY_ORIGINAL_CHUNK_MAX_CHARS = 1800
 B_DEFAULT_QUERY_TRANSLATED_CHUNK_MAX_CHARS = 1200
@@ -842,6 +849,118 @@ def _summary_source_text_candidates(*, generation_strategy: str, source_text_ko:
         seen.add(candidate)
         deduped.append(candidate)
     return deduped
+
+
+def _summary_ko_payload_candidates(*, generation_strategy: str, source_text_ko: str) -> list[dict[str, str]]:
+    source_text = str(source_text_ko or "")
+    strategy = generation_strategy.strip().upper()
+    candidates: list[dict[str, str]] = [
+        {"source_text_ko": candidate}
+        for candidate in _summary_source_text_candidates(
+            generation_strategy=generation_strategy,
+            source_text_ko=source_text,
+        )
+    ]
+    retry_limits = (
+        FG_SUMMARY_KO_SOURCE_CHAR_LIMITS_ON_TRUNCATION
+        if strategy in {"F", "G"}
+        else SUMMARY_KO_SOURCE_CHAR_LIMITS_ON_TRUNCATION
+    )
+    for max_chars in retry_limits:
+        candidates.append(
+            {
+                "source_text_ko": _bounded_query_evidence_text(source_text, max_chars=max_chars),
+                "retry_hint": (
+                    "Previous Korean summary response hit MAX_TOKENS. "
+                    "Return exactly one concise JSON object with summary_ko only as 2 short Korean sentences."
+                ),
+            }
+        )
+    deduped: list[dict[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+    for candidate in candidates:
+        key = (candidate.get("source_text_ko", ""), candidate.get("retry_hint", ""))
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(candidate)
+    return deduped
+
+
+def _compact_query_payload_after_max_tokens(payload: dict[str, Any], *, max_chars: int) -> dict[str, Any]:
+    compacted = dict(payload)
+    for key in (
+        "original_chunk_en",
+        "original_chunk_ko",
+        "translated_chunk_ko",
+        "extractive_summary_en",
+        "extractive_summary_ko",
+    ):
+        value = compacted.get(key)
+        if isinstance(value, str):
+            compacted[key] = _bounded_query_evidence_text(value, max_chars=max_chars)
+    related_chunks = compacted.get("related_chunks_ko")
+    if isinstance(related_chunks, list):
+        compacted_related: list[dict[str, Any]] = []
+        related_limit = max(400, max_chars // 2)
+        for item in related_chunks:
+            if not isinstance(item, dict):
+                continue
+            compacted_item = dict(item)
+            text_ko = compacted_item.get("text_ko")
+            if isinstance(text_ko, str):
+                compacted_item["text_ko"] = _bounded_query_evidence_text(text_ko, max_chars=related_limit)
+            compacted_related.append(compacted_item)
+        compacted["related_chunks_ko"] = compacted_related
+    compacted["retry_hint"] = (
+        "Previous query-generation response hit MAX_TOKENS. "
+        "Return exactly one concise JSON object. Do not quote or summarize the evidence."
+    )
+    return compacted
+
+
+def _query_payload_candidates_after_max_tokens(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    candidates = [payload]
+    for max_chars in QUERY_PAYLOAD_TEXT_LIMITS_ON_TRUNCATION:
+        candidates.append(_compact_query_payload_after_max_tokens(payload, max_chars=max_chars))
+    return candidates
+
+
+def _llm_query_json(
+    client: LlmClient,
+    *,
+    prompt_text: str,
+    payload: dict[str, Any],
+    response_schema: dict[str, Any],
+    request_purpose: str,
+    trace_id: str,
+) -> dict[str, Any]:
+    candidates = _query_payload_candidates_after_max_tokens(payload)
+    for index, candidate in enumerate(candidates):
+        try:
+            return _llm_json(
+                client,
+                prompt_text=prompt_text,
+                payload=candidate,
+                response_schema=response_schema,
+                request_purpose=request_purpose,
+                trace_id=trace_id,
+            )
+        except RuntimeError as exc:
+            is_last = (index + 1) >= len(candidates)
+            if not is_last and _is_max_tokens_truncation_error(exc):
+                LOGGER.warning(
+                    "query_retry_after_max_tokens trace_id=%s attempt=%s/%s compact_chars=%s",
+                    trace_id,
+                    index + 1,
+                    len(candidates),
+                    QUERY_PAYLOAD_TEXT_LIMITS_ON_TRUNCATION[index]
+                    if index < len(QUERY_PAYLOAD_TEXT_LIMITS_ON_TRUNCATION)
+                    else None,
+                )
+                continue
+            raise
+    raise RuntimeError(f"query response missing for trace_id={trace_id}")
 
 
 def _deterministic_summary_template_version(
@@ -1618,34 +1737,35 @@ def _resolve_or_create_summary_ko(
     if cached:
         return cached[0], cached[1], True
     response: dict[str, Any] | None = None
-    candidate_sources = _summary_source_text_candidates(
+    candidate_payloads = _summary_ko_payload_candidates(
         generation_strategy=prompt_version_suffix,
         source_text_ko=source_text_ko,
     )
-    for index, source_candidate in enumerate(candidate_sources):
+    for index, payload_candidate in enumerate(candidate_payloads):
         try:
+            payload = {
+                "chunk_id": chunk.chunk_id,
+                **payload_candidate,
+            }
             response = _llm_json(
                 client,
                 prompt_text=prompt_text,
-                payload={
-                    "chunk_id": chunk.chunk_id,
-                    "source_text_ko": source_candidate,
-                },
+                payload=payload,
                 response_schema=SUMMARY_KO_RESPONSE_SCHEMA,
                 request_purpose="summary_extraction_ko",
                 trace_id=f"chunk:{chunk.chunk_id}",
             )
             break
         except RuntimeError as exc:
-            is_last = (index + 1) >= len(candidate_sources)
+            is_last = (index + 1) >= len(candidate_payloads)
             if not is_last and _is_max_tokens_truncation_error(exc):
                 LOGGER.warning(
                     "summary_ko_retry_after_max_tokens chunk=%s strategy=%s attempt=%s/%s source_chars=%s",
                     chunk.chunk_id,
                     prompt_version_suffix,
                     index + 1,
-                    len(candidate_sources),
-                    len(source_candidate),
+                    len(candidate_payloads),
+                    len(str(payload_candidate.get("source_text_ko") or "")),
                 )
                 continue
             raise
@@ -3525,7 +3645,7 @@ def run_generation(
                     b_payload_limits=b_payload_limits if generation_strategy == "B" else None,
                 )
                 query_response_schema = _query_response_schema_for_strategy(generation_strategy)
-                query_response = _llm_json(
+                query_response = _llm_query_json(
                     query_client,
                     prompt_text=query_prompt_text,
                     payload=query_payload,
@@ -3539,7 +3659,7 @@ def run_generation(
                     response=query_response,
                 )
                 if not query_text:
-                    query_response = _llm_json(
+                    query_response = _llm_query_json(
                         query_client,
                         prompt_text=query_prompt_text,
                         payload={**query_payload, "retry_hint": "query_text_must_not_be_empty"},

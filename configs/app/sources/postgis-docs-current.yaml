@@ -1,0 +1,11 @@
+source_id: postgis-docs-current
+product: postgis
+start_urls: ['https://postgis.net/docs/index.html']
+allow_prefixes: ['https://postgis.net/docs/']
+deny_url_patterns: [/docs/manual-1., /docs/manual-2., /docs/manual-3.0, /docs/manual-3.1,
+  /docs/manual-3.2, /docs/manual-3.3, /docs/manual-3.4, /docs/manual-3.5, /docs/manual-dev/,
+  /docs/postgis.pdf, /docs/*.pdf]
+request_delay_seconds: 0.15
+max_depth: 20
+enabled: true
+metadata: {collection_format: html, provider: admin, doc_family: technical}

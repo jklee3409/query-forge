@@ -1,0 +1,9 @@
+source_id: postgresql-docs-current
+product: postgresql
+start_urls: ['https://www.postgresql.org/docs/current/index.html']
+allow_prefixes: ['https://www.postgresql.org/docs/current/']
+deny_url_patterns: [/docs/current/bookindex.html, /docs/current/indexes.html, /docs/current/biblio.html]
+request_delay_seconds: 0.15
+max_depth: 20
+enabled: true
+metadata: {doc_family: technical, provider: admin, collection_format: html}

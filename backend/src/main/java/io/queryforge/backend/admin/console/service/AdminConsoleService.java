@@ -67,6 +67,9 @@ public class AdminConsoleService {
     private static final String RETRIEVER_MODE_HYBRID = "hybrid";
     private static final String DEFAULT_LLM_MODEL = "gemini-2.5-flash-lite";
     private static final String DEFAULT_LLM_FALLBACK_MODEL = "gemini-2.5-flash-lite";
+    private static final int STRATEGY_AC_SUMMARY_MAX_OUTPUT_TOKENS = 2048;
+    private static final int STRATEGY_AC_QUERY_MAX_OUTPUT_TOKENS = 4096;
+    private static final int STRATEGY_A_TRANSLATION_MAX_OUTPUT_TOKENS = 2048;
     private static final int STRATEGY_B_TRANSLATION_MAX_OUTPUT_TOKENS = 2048;
     private static final int STRATEGY_B_SUMMARY_MAX_CHARS = 900;
     private static final int STRATEGY_B_QUERY_ORIGINAL_CHUNK_MAX_CHARS = 1800;
@@ -347,7 +350,7 @@ public class AdminConsoleService {
     public AdminConsoleDtos.SyntheticGenerationBatchRow runSyntheticGeneration(AdminConsoleDtos.SyntheticBatchRunRequest request) {
         String methodCode = normalizeMethodCode(request.methodCode());
         UUID domainId = request.domainId();
-        validateSyntheticSourceMethodRestriction(methodCode, request.sourceId(), request.sourceDocumentId());
+        validateSyntheticSourceMethodRestriction(domainId, methodCode, request.sourceId(), request.sourceDocumentId());
         validateSyntheticDomainScope(domainId, methodCode, request.sourceId(), request.sourceDocumentId());
         AdminConsoleDtos.SyntheticGenerationMethod method = repository.findGenerationMethodByCode(methodCode)
                 .orElseThrow(() -> new IllegalArgumentException("generation method not found: " + methodCode));
@@ -2451,15 +2454,20 @@ public class AdminConsoleService {
         return allowedMethodCodesForScope(sourceResolution.scope());
     }
 
-    private void validateSyntheticSourceMethodRestriction(String methodCode, String sourceId, String sourceDocumentId) {
+    private void validateSyntheticSourceMethodRestriction(
+            UUID domainId,
+            String methodCode,
+            String sourceId,
+            String sourceDocumentId
+    ) {
         SourceResolution sourceResolution = resolveSourceScope(sourceId, sourceDocumentId, false);
         if (sourceResolution == null) {
-            if (allowedSourceIdsForMethod(methodCode).isEmpty()) {
+            if (domainId == null && allowedSourceIdsForMethod(methodCode).isEmpty()) {
                 throw new IllegalArgumentException("source_id or source_document_id is required for method_code " + methodCode);
             }
             return;
         }
-        validateSyntheticSourceAllowlist(methodCode, sourceResolution);
+        validateSyntheticSourceAllowlist(domainId, methodCode, sourceResolution);
         Set<String> allowedMethods = allowedMethodCodesForScope(sourceResolution.scope());
         if (!allowedMethods.contains(methodCode)) {
             throw new IllegalArgumentException(
@@ -2633,9 +2641,12 @@ public class AdminConsoleService {
         };
     }
 
-    private void validateSyntheticSourceAllowlist(String methodCode, SourceResolution sourceResolution) {
+    private void validateSyntheticSourceAllowlist(UUID domainId, String methodCode, SourceResolution sourceResolution) {
         if (isDisallowedSyntheticSource(sourceResolution.sourceId())) {
             throw new IllegalArgumentException("source_id is not allowed for synthetic generation: " + sourceResolution.sourceId());
+        }
+        if (domainId != null) {
+            return;
         }
         List<String> allowedSourceIds = allowedSourceIdsForMethod(methodCode);
         if (!allowedSourceIds.isEmpty() && !containsSourceId(allowedSourceIds, sourceResolution.sourceId())) {
@@ -2662,7 +2673,12 @@ public class AdminConsoleService {
         if (domainId == null) {
             return methodAllowedSourceIds;
         }
-        List<String> domainSourceIds = repository.findDomainSourceIds(domainId);
+        List<String> domainSourceIds = repository.findDomainSourceIds(domainId).stream()
+                .filter(sourceId -> !isDisallowedSyntheticSource(sourceId))
+                .toList();
+        if (repository.isGenerationMethodEnabledForDomain(domainId, methodCode)) {
+            return domainSourceIds;
+        }
         if (methodAllowedSourceIds.isEmpty()) {
             return domainSourceIds;
         }
@@ -2986,6 +3002,13 @@ public class AdminConsoleService {
     }
 
     private void applySyntheticGenerationStrategyDefaults(Map<String, Object> config, String methodCode) {
+        if ("A".equalsIgnoreCase(methodCode) || "C".equalsIgnoreCase(methodCode)) {
+            config.putIfAbsent("llm_summary_max_output_tokens", STRATEGY_AC_SUMMARY_MAX_OUTPUT_TOKENS);
+            config.putIfAbsent("llm_query_max_output_tokens", STRATEGY_AC_QUERY_MAX_OUTPUT_TOKENS);
+        }
+        if ("A".equalsIgnoreCase(methodCode)) {
+            config.putIfAbsent("llm_translation_max_output_tokens", STRATEGY_A_TRANSLATION_MAX_OUTPUT_TOKENS);
+        }
         if (!"B".equalsIgnoreCase(methodCode)) {
             return;
         }

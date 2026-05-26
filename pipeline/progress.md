@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-05-26] Session Summary (A/C Long English Generation Retry)
+- What was done: Added compact retry handling in `generation/synthetic_query_generator.py` for KO summary and A/C query-generation JSON calls when the provider returns `max_tokens_truncated`, including narrowed payload candidates and concise retry instructions.
+- Key decisions: Retries only compact prompt payload after MAX_TOKENS; cached chunk assets, raw strategy tables, grounding metadata, and final schema remain unchanged.
+- Issues encountered: `python -m py_compile pipeline/generation/synthetic_query_generator.py` passed. The change was needed to complete PostgreSQL A/C 1,000-query batches after earlier failed same-version attempts were deleted.
+- Next steps: Keep Admin-generated payload bounds aligned with this retry path for future English technical-doc domains.
+
 ## [2026-05-26] Session Summary (Rewrite Anchor Artifact Fields)
 - What was done: Persisted prompt-side rewrite anchor candidates, terminology hints, canonical hints, and multi-source hints into retrieval-eval rewrite case artifacts so backend anchor evaluation can use the exact rewrite inputs.
 - Key decisions: The eval-retrieval -> eval-answer order and retrieval scoring behavior are unchanged; this is artifact observability only.

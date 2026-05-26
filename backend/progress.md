@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-05-26] Session Summary (Domain-Scoped A/C Synthetic Runs)
+- What was done: Extended Admin synthetic source validation so domain-scoped A/C runs can use active sources attached to a domain when the domain method policy enables the method, while preserving legacy no-domain Spring/Python allowlists. Added A/C output-token defaults for summary, translation, and query stages to handle long English documentation chunks.
+- Key decisions: Domain-scoped generation remains source-bound and method-policy-driven; the rejected `arahansa-github-io-docs-spring` guard and legacy allowlists remain for unscoped calls.
+- Issues encountered: `.\gradlew.bat compileJava` passed. The live PostgreSQL A/C generation and BM25-only full-gating runs completed after earlier failed same-version attempts were deleted in the PostgreSQL domain scope.
+- Next steps: Monitor future non-Spring English-domain A/C runs for long-chunk truncation before broadening the same path to other strategies.
+
 ## [2026-05-26] Session Summary (RAG Rewrite Anchor Eval Persistence)
 - What was done: Added Flyway V40 for `rag_rewrite_anchor_eval`, created internal anchor evaluation row generation during RAG test finalization, added detail/run anchor lookup APIs, and enriched RAG run metrics with DB-derived anchor summaries.
 - Key decisions: Anchor evaluation is normalized in its own table and calculated from rewrite artifacts, expected/retrieved chunk/doc evidence, memory, glossary, and canonical hints; `metric_contribution` is not the source of truth.

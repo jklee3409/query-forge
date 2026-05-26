@@ -3,6 +3,12 @@
 ## Overview
 High-level progress tracking for the project.
 
+## [2026-05-26] Session Summary (PostgreSQL Corpus and Query/Gating Batches)
+- What was done: Verified PostgreSQL domain DB state after collection/import: 1,644 documents, 2,147 chunks, and 36,682 glossary terms across `postgresql-docs-current` (1,144 docs / 1,466 chunks) and `postgis-docs-current` (500 docs / 681 chunks). Verified final generation batches `73a0cf15-59af-45af-ab32-12a3bb9f8b30` (A, `A-1000-260526`) and `023083fd-e3e0-4ad6-bbb2-926ce96539b9` (C, `C-1000-260526`) each contain 1,000 raw queries.
+- Key decisions: Retained only the final completed A/C batches for the new PostgreSQL domain/version work; failed or cancelled same-version attempts were deleted within that domain scope only.
+- Issues encountered: Final BM25-only `full_gating` batches completed as `1c80af8d-b993-4b88-8013-3fe7cf995bef` (A: 1,000 processed, 275 accepted, 725 rejected) and `3306f0cc-25c5-459f-b3dc-0e894e76e806` (C: 1,000 processed, 312 accepted, 688 rejected). Docker Desktop was recovered after a verification timeout and targeted DB checks passed.
+- Next steps: Use the two PostgreSQL gating batch IDs as explicit snapshots for any later memory/RAG experiments.
+
 ## [2026-05-20] Session Summary (Method-Compressed Stress Eval Assets)
 - What was done: Generated five Spring method-compressed stress eval JSONL artifacts under `data/eval/` and an audit report under `data/reports/`, then upserted the matching DB datasets.
 - Key decisions: Kept each method as a separate dataset and preserved retrieval-aware fields from the source corpus chunks. The new assets are intentionally compressed and multi-chunk-heavy for stress testing, while the canonical V5 short-user datasets remain unchanged.

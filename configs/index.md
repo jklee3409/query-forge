@@ -10,7 +10,7 @@
 - `app/application.yml`, `app/application-docker.yml`: 애플리케이션 공통 및 Docker 프로파일 설정
 - `app/chunking.yml`: 문서 청킹 파라미터
 - `app/model_catalog.yml`: Admin runtime options/model allowlist 카탈로그 (`llm_providers`, `llm_models`, `dense_embedding_models`, `retrieval_backends`, `retriever_modes`, `rewrite_failure_policies`, `default_parameter_ranges`)
-- `app/sources/*.yaml`: 수집 대상 소스 정의(Spring Boot/Data/Framework/Security)
+- `app/sources/*.yaml`: 수집 대상 소스 정의(Spring Boot/Data/Framework/Security, PostgreSQL current docs, PostGIS docs)
 - `experiments/*.yaml`: generation/gating/eval 실험 프리셋(`gen_*`, `e2e_*`, `rule_*`, `rewrite_*` 등)
 - `prompts/query_generation/gen_[a-g]_v1.md`: 전략별 합성 질의 프롬프트
 - `prompts/summary_extraction/*.md`: 요약/한국어 요약 프롬프트
@@ -35,6 +35,7 @@
 ---
 
 ## Recent Notes
+- `app/sources/postgresql-docs-current.yaml` and `app/sources/postgis-docs-current.yaml` define the official English PostgreSQL-domain corpus sources used for the 2026-05-26 collection/import run.
 - `app/model_catalog.yml` now owns Admin RAG retriever mode defaults (`retriever_mode_defaults`) and rewrite memory candidate pool defaults, so frontend controls and backend omitted-field behavior are both hydrated from runtime options.
 - Rewrite prompts now accept `retrieval_context` so the LLM sees actual retrieval backend, vector store, retriever mode, embedding model, fusion weights, top-K, and candidate-pool values before generating candidates.
 - `prompts/rewrite/selective_rewrite_en_v1.md` is now version `v2`, with retrieval-context guidance and five few-shot examples aligned with the Korean/code-mixed rewrite prompt.

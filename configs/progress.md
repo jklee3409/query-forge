@@ -3,6 +3,12 @@
 ## Overview
 High-level progress tracking for the project.
 
+## [2026-05-26] Session Summary (PostgreSQL Source Presets)
+- What was done: Added source presets for official English PostgreSQL current docs and PostGIS docs: `app/sources/postgresql-docs-current.yaml` and `app/sources/postgis-docs-current.yaml`.
+- Key decisions: PostGIS supplements the same PostgreSQL technical-document domain so corpus size reaches Spring-scale chunk volume; the stale PostgreSQL 17 preset was removed after duplicate-section import conflict cleanup.
+- Issues encountered: Final PostgreSQL domain verification showed 1,644 documents and 2,147 chunks across the two active source presets.
+- Next steps: Keep these source IDs attached to the PostgreSQL domain for future ingestion, generation, and gating reruns.
+
 ## [2026-05-25] Session Summary (Domain-Neutral Query Generation Prompts)
 - What was done: Updated `prompts/query_generation/gen_a_v1.md`, `gen_b_v1.md`, `gen_c_v1.md`, and `gen_d_v1.md` to replace Spring-specific anchor guidance with generic source-grounded technical-document anchors.
 - Key decisions: Removed C's domain-specific `SAP flow` wording, preserved all output schemas and prompt versions, and left E/F/G unchanged because no Spring/Python-dependent wording was present.
