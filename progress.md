@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-05-26] Session Summary (Spring/PostgreSQL RAG Result Analysis)
+- What was done: Analyzed recent Admin GUI RAG quality-test results from DB for Spring and PostgreSQL domains, comparing raw, rewrite-always, and selective rewrite metrics plus answer/performance payloads.
+- Key decisions: Treated PostgreSQL as having only three completed result runs because the fourth latest run (`EN Baseline`) is still running; found current completed runs all use `gemini-2.5-flash-lite` for `llm_rewrite_model`.
+- Issues encountered: No code/config changes were made; sample-level inspection showed rewrite regressions mainly from adopting candidates when raw retrieval was already strong.
+- Next steps: Consider stricter selective-rewrite adoption guards and a controlled rewrite-only `gemini-2.5-flash` A/B run before changing defaults.
+
 ## [2026-05-26] Session Summary (PostgreSQL RAG Dataset Language Fix)
 - What was done: Fixed Admin RAG dataset language handling so PostgreSQL EN datasets report/select `evalQueryLanguage=en`, and language-incompatible gating snapshots are filtered from snapshot selectors.
 - Key decisions: Backend dataset rows now expose dataset language derived from metadata/active samples; frontend snapshot compatibility now applies the same EN-only method rule used for method chips. Backend RAG run creation also rejects dataset/request language mismatches.
