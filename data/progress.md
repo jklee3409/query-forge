@@ -3,6 +3,12 @@
 ## Overview
 High-level progress tracking for the project.
 
+## [2026-05-26] Session Summary (PostgreSQL KR Short-User Eval Dataset)
+- What was done: Created PostgreSQL KR short-user eval artifact `data/eval/postgresql_kr_short_user_test_80.jsonl` and upserted matching DB rows under dataset `862642e6-10bd-538d-9ba8-5de7f1f26d3c` / key `postgresql_kr_short_user_80`.
+- Key decisions: Followed the active Spring KR short-user structure, used short compressed Korean user queries, and grounded every item to current PostgreSQL-domain chunks with `single:59` / `multi:21`.
+- Issues encountered: None; bounded DB validation found 80 active dataset items and 101 active PostgreSQL-domain chunk references.
+- Next steps: Run snapshot-pinned A/C RAG tests against this dataset when evaluation is needed.
+
 ## [2026-05-26] Session Summary (PostgreSQL Corpus and Query/Gating Batches)
 - What was done: Verified PostgreSQL domain DB state after collection/import: 1,644 documents, 2,147 chunks, and 36,682 glossary terms across `postgresql-docs-current` (1,144 docs / 1,466 chunks) and `postgis-docs-current` (500 docs / 681 chunks). Verified final generation batches `73a0cf15-59af-45af-ab32-12a3bb9f8b30` (A, `A-1000-260526`) and `023083fd-e3e0-4ad6-bbb2-926ce96539b9` (C, `C-1000-260526`) each contain 1,000 raw queries.
 - Key decisions: Retained only the final completed A/C batches for the new PostgreSQL domain/version work; failed or cancelled same-version attempts were deleted within that domain scope only.

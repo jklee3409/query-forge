@@ -809,7 +809,7 @@ public class AdminConsoleService {
             throw new IllegalArgumentException("at least one generation method is required");
         }
         if (!syntheticFreeBaseline) {
-            validateDatasetMethodRestriction(request.datasetId(), methodCodes);
+            validateDatasetMethodRestriction(domainId, request.datasetId(), methodCodes);
             validateRagMethodLanguageCompatibility(evalQueryLanguage, methodCodes);
         }
         List<UUID> batchIds = request.generationBatchIds() == null ? List.of() : request.generationBatchIds();
@@ -2480,9 +2480,22 @@ public class AdminConsoleService {
         }
     }
 
-    private void validateDatasetMethodRestriction(UUID datasetId, List<String> methodCodes) {
-        DatasetResolution datasetResolution = resolveDatasetScope(datasetId, true);
+    private void validateDatasetMethodRestriction(UUID domainId, UUID datasetId, List<String> methodCodes) {
+        DatasetResolution datasetResolution = resolveDatasetScope(datasetId, domainId == null);
         Set<String> allowedMethods = allowedMethodCodesForScope(datasetResolution.scope());
+        if (datasetResolution.scope() == StrategyScope.UNKNOWN && domainId != null) {
+            allowedMethods = repository.findGenerationMethods(domainId).stream()
+                    .map(method -> normalizeMethodCode(method.methodCode()))
+                    .collect(LinkedHashSet::new, Set::add, Set::addAll);
+            if (allowedMethods.isEmpty()) {
+                throw new IllegalArgumentException(
+                        "domain has no enabled generation methods for dataset "
+                                + datasetResolution.context().datasetKey()
+                                + " (dataset_id=" + datasetId
+                                + ", domain_id=" + domainId + ")"
+                );
+            }
+        }
         for (String methodCode : methodCodes) {
             if (!allowedMethods.contains(methodCode)) {
                 throw new IllegalArgumentException(

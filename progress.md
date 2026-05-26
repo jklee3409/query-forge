@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-05-26] Session Summary (PostgreSQL KR Short-User Eval 80)
+- What was done: Added PostgreSQL KR short-user eval dataset `postgresql_kr_short_user_80` with dataset ID `862642e6-10bd-538d-9ba8-5de7f1f26d3c`, wrote `data/eval/postgresql_kr_short_user_test_80.jsonl`, and upserted 80 active DB items.
+- Key decisions: Mirrored the active Spring KR short-user structure (`query_language=ko`, `short_user`, `test`, `single:59` / `multi:21`) while grounding every answer to current PostgreSQL-domain chunks; domain-scoped RAG method validation now falls back to the selected domain's enabled method policy for non-Spring/Python datasets.
+- Issues encountered: No temporary files were left behind; targeted DB validation confirmed 101 expected chunk references all match active PostgreSQL-domain chunks, and backend `compileJava` passed.
+- Next steps: Run an explicit-snapshot PostgreSQL A/C RAG smoke using gating batches `1c80af8d-b993-4b88-8013-3fe7cf995bef` and `3306f0cc-25c5-459f-b3dc-0e894e76e806` when evaluation is requested.
+
 ## [2026-05-26] Session Summary (PostgreSQL Domain Generation and BM25 Gating)
 - What was done: Added a PostgreSQL English technical-document domain from official PostgreSQL current docs plus PostGIS docs, imported 1,644 documents / 2,147 chunks / 36,682 glossary terms, generated A/C synthetic query batches (`A-1000-260526`, `C-1000-260526`) with 1,000 queries each, and ran `full_gating` for both with BM25-only retrieval.
 - Key decisions: Chose PostgreSQL because official English DB documentation can reach Spring-scale chunk volume; PostGIS was used as same-domain supplemental corpus scale, while final A/C generation targeted `postgresql-docs-current`.

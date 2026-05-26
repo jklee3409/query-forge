@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-05-26] Session Summary (Domain-Scoped RAG Dataset Method Validation)
+- What was done: Updated Admin RAG test validation so domain-owned technical-document datasets with unknown legacy Spring/Python scope can use generation methods enabled by the selected domain policy.
+- Key decisions: Preserved strict legacy behavior when no `domain_id` is provided; PostgreSQL-domain datasets now validate against `tech_doc_domain_method_policy` instead of being rejected as unknown scope.
+- Issues encountered: `.\gradlew.bat compileJava` passed.
+- Next steps: Use the PostgreSQL KR short-user dataset with explicit A/C snapshots for a narrow RAG smoke when credentials and runtime cost are acceptable.
+
 ## [2026-05-26] Session Summary (Domain-Scoped A/C Synthetic Runs)
 - What was done: Extended Admin synthetic source validation so domain-scoped A/C runs can use active sources attached to a domain when the domain method policy enables the method, while preserving legacy no-domain Spring/Python allowlists. Added A/C output-token defaults for summary, translation, and query stages to handle long English documentation chunks.
 - Key decisions: Domain-scoped generation remains source-bound and method-policy-driven; the rejected `arahansa-github-io-docs-spring` guard and legacy allowlists remain for unscoped calls.

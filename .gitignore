@@ -74,6 +74,7 @@ data/eval/*
 !data/eval/human_eval_short_user_test_80_en.jsonl
 !data/eval/python_kr_short_user_test_80_ko.jsonl
 !data/eval/python_kr_short_user_test_80_en.jsonl
+!data/eval/postgresql_kr_short_user_test_80.jsonl
 !data/eval/spring_method_a_compressed_eval_80_ko.jsonl
 !data/eval/spring_method_b_compressed_eval_80_ko.jsonl
 !data/eval/spring_method_c_compressed_eval_80_ko.jsonl

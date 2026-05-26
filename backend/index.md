@@ -57,6 +57,7 @@ Spring Boot backend for Admin Console APIs, RAG APIs, pipeline command orchestra
 - Admin RAG test run API supports optional snapshot binding via `sourceGatingBatchId` and validates it into fixed `source_gating_run_id`.
 - Admin-generated default RAG rewrite runs now evaluate only `raw_only` plus rewrite modes; synthetic memory is recorded as prompt context for rewrite and `rewrite_memory_hint_retrieval_enabled=false` prevents memory-hint retrieval from entering default final retrieval.
 - Admin RAG test run API enforces query-language/method compatibility: `E/F` require English eval queries, while `A/B/C/D/G` require Korean/code-mixed eval queries; generated configs record `rewrite_prompt_profile`.
+- Domain-scoped Admin RAG test validation allows non-Spring/Python technical-document datasets when the dataset belongs to the selected domain; method validation then uses enabled `tech_doc_domain_method_policy` rows for that domain.
 - Admin RAG test run API supports optional `multi_source_anchor_expansion_enabled`, writing bounded relation lookup settings so selective rewrite can pass `multi_source_anchor_hints` as low-priority prompt hints.
 - Prompt catalog migration `V37` registers `selective_rewrite_v2` metadata version `v3` and binds `rag_rewrite.ko` to it while retaining v2/v1 fallbacks.
 - Admin RAG test run API supports `syntheticFreeBaseline` exploratory mode (synthetic-free baseline), forcing raw-only evaluation semantics without snapshot/method selection.
