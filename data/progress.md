@@ -5,14 +5,14 @@ High-level progress tracking for the project.
 
 ## [2026-05-26] Session Summary (PostgreSQL EN Eval Companion)
 - What was done: Created the PostgreSQL EN short-user companion dataset artifact `data/eval/postgresql_en_short_user_test_80.jsonl` and registered DB dataset `020a93c4-0465-5655-b681-a5799a98fd15` / key `postgresql_en_short_user_80`.
-- Key decisions: Kept the dataset paired to KR dataset `862642e6-10bd-538d-9ba8-5de7f1f26d3c` with identical grounding, category, difficulty, and single/multi structure; set the EN rows to `query_language=en` and `target_method=E`.
-- Issues encountered: The KR baseline's active queries are already degraded English fragments stored in the Korean field, so EN mapping copied those active strings into `user_query_en` without changing grounding.
+- Key decisions: Kept the dataset paired to KR dataset `862642e6-10bd-538d-9ba8-5de7f1f26d3c` with identical grounding, category, difficulty, and single/multi structure; set the EN rows to English-only short-user equivalents with `query_language=en` and `target_method=E`.
+- Issues encountered: The EN companion initially reflected an obsolete English-fragment query surface; it was corrected after the KR dataset was fixed, and validation confirmed 80 paired rows with no Hangul in EN fields and zero grounding mismatches.
 - Next steps: Use this EN dataset with the PostgreSQL E full-gating snapshot when running English RAG evaluation.
 
 ## [2026-05-26] Session Summary (PostgreSQL Eval Query Degradation)
-- What was done: Rewrote PostgreSQL short-user eval queries to low-signal chunk-extracted fragments in the JSONL artifact and synchronized the active DB-managed dataset.
+- What was done: Rewrote PostgreSQL short-user eval queries to low-signal Korean code-mixed short-user queries in the JSONL artifact and synchronized the active DB-managed dataset.
 - Key decisions: Kept the 80-item retrieval-aware structure, expected doc/chunk IDs, and dataset ID unchanged; recorded before/after raw BM25 metrics in dataset metadata.
-- Issues encountered: No temporary files were created; validation confirmed 80 rows, 101 grounded chunk references, no duplicate queries, and zero query tokens outside expected chunk text.
+- Issues encountered: No temporary files were created; validation confirmed 80 rows, 101 grounded chunk references, no duplicate queries, no missing Hangul, and zero Latin anchors outside expected chunk text. Final PostgreSQL KR BM25 metrics are `Recall@5=0.4625`, `Hit@5=0.5250`, `MRR@10=0.3931`, `nDCG@10=0.4105`, close to the Spring KR reference.
 - Next steps: Treat the degraded dataset as the PostgreSQL short-user baseline for future snapshot-controlled RAG comparisons.
 
 ## [2026-05-26] Session Summary (PostgreSQL KR Short-User Eval Dataset)

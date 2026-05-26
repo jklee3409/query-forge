@@ -5,14 +5,14 @@ Evaluation dataset artifact changes for `data/eval/`.
 
 ## [2026-05-26] Session Summary (PostgreSQL EN Short-User 80)
 - What was done: Added `postgresql_en_short_user_test_80.jsonl` and upserted DB dataset `020a93c4-0465-5655-b681-a5799a98fd15` / key `postgresql_en_short_user_80` as the English companion to `862642e6-10bd-538d-9ba8-5de7f1f26d3c`.
-- Key decisions: Preserved the original 80-row structure, expected doc/chunk IDs, answer key points, split, difficulty, and `single:59` / `multi:21` distribution; mapped the active PostgreSQL KR query surface directly into `user_query_en` and set `query_language=en`, `target_method=E`.
-- Issues encountered: The referenced KR dataset currently stores degraded low-signal English fragments in `user_query_ko`, so translation was a direct active-query-surface mapping rather than an LLM rewrite.
+- Key decisions: Preserved the original 80-row structure, expected doc/chunk IDs, answer key points, split, difficulty, and `single:59` / `multi:21` distribution; translated the active PostgreSQL KR query surface into English-only short-user equivalents and set `query_language=en`, `target_method=E`.
+- Issues encountered: The EN file initially reflected the obsolete English-fragment KR surface; it was corrected after `862642e6-10bd-538d-9ba8-5de7f1f26d3c` became the source of truth. Validation confirmed 80 paired rows, no Hangul in EN fields, and zero grounding mismatches.
 - Next steps: Use dataset key `postgresql_en_short_user_80` for E-method PostgreSQL RAG comparisons under explicit snapshot settings.
 
 ## [2026-05-26] Session Summary (PostgreSQL Low-Signal Query Revision)
-- What was done: Updated `postgresql_kr_short_user_test_80.jsonl` so each query is a short low-signal fragment extracted from its expected PostgreSQL chunk text, and synchronized the DB-managed dataset rows.
+- What was done: Updated `postgresql_kr_short_user_test_80.jsonl` so each query is a short low-signal Korean code-mixed query derived from its expected PostgreSQL chunk text, and synchronized the DB-managed dataset rows.
 - Key decisions: Preserved `query_language=ko`, `user_query_ko`, `user_query_en=null`, `short_user`, `test`, and all expected grounding fields to remain structurally aligned with Spring KR Short User Eval 80.
-- Issues encountered: Raw BM25 local metrics now align with Spring level: PostgreSQL `Recall@5=0.4562`, `Hit@5=0.5125`, `MRR@10=0.3848`, `nDCG@10=0.4057`; Spring reference was `0.4625`, `0.5250`, `0.3640`, `0.3968`.
+- Issues encountered: Raw BM25 local metrics now align with Spring level: PostgreSQL `Recall@5=0.4625`, `Hit@5=0.5250`, `MRR@10=0.3931`, `nDCG@10=0.4105`; Spring reference was `0.4625`, `0.5250`, `0.3640`, `0.3968`.
 - Next steps: Use this version for PostgreSQL RAG experiments and run answer-level evaluation only under an explicit snapshot condition.
 
 ## [2026-05-26] Session Summary (PostgreSQL KR Short-User 80)
