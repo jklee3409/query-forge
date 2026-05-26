@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-05-26] Session Summary (Selective Rewrite v3 Runtime Activation)
+- What was done: Activated `selective_rewrite_v3` for Korean/code-mixed Admin RAG rewrite by updating prompt lookup, LLM response schema, candidate-count caps/defaults, Prompt Studio catalog migration, and online rewrite fallback order.
+- Key decisions: English rewrite remains on `selective_rewrite_en_v1`; v3 requires only `label`/`query` while legacy metadata remains optional for scoring diagnostics.
+- Issues encountered: Targeted validation covered Python py_compile/unit tests and backend compile; no live Admin RAG run was executed.
+- Next steps: Restart backend to apply Flyway V42 and run a fixed-snapshot rewrite-effect comparison to measure v3 recall/latency impact.
+
 ## [2026-05-26] Session Summary (Selective Rewrite v3 Draft Prompt)
 - What was done: Added `configs/prompts/rewrite/selective_rewrite_v3.md` as a lightweight draft rewrite prompt and updated configs documentation/progress.
 - Key decisions: Kept the active v2 runtime path unchanged; v3 simplifies inputs to raw query, optional session/memory/terminology hints, emits at most two candidates, and removes `intent_risk`.

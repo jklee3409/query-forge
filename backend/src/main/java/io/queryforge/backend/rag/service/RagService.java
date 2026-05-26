@@ -48,7 +48,7 @@ public class RagService {
         int retrievalTopK = normalizedPositive(request.retrievalTopK(), 20);
         int rerankTopN = normalizedPositive(request.rerankTopN(), 5);
         int memoryTopN = normalizedPositive(request.memoryTopN(), 5);
-        int candidateCount = normalizedPositive(request.rewriteCandidateCount(), 3);
+        int candidateCount = Math.min(normalizedPositive(request.rewriteCandidateCount(), 2), 2);
         double threshold = request.rewriteThreshold() != null ? request.rewriteThreshold() : 0.05d;
         String gatingPreset = request.gatingPreset();
         if (gatingPreset == null || gatingPreset.isBlank()) {
@@ -272,7 +272,7 @@ public class RagService {
             throw new IllegalArgumentException("rawQuery must not be blank");
         }
         int memoryTopN = normalizedPositive(request.memoryTopN(), 5);
-        int candidateCount = normalizedPositive(request.candidateCount(), 3);
+        int candidateCount = Math.min(normalizedPositive(request.candidateCount(), 2), 2);
         String gatingPreset = request.gatingPreset() == null || request.gatingPreset().isBlank()
                 ? "full_gating"
                 : request.gatingPreset();

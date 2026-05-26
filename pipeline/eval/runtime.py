@@ -982,15 +982,12 @@ REWRITE_RESPONSE_SCHEMA: dict[str, Any] = {
         "candidates": {
             "type": "array",
             "minItems": 1,
+            "maxItems": 2,
             "items": {
                 "type": "object",
                 "required": [
                     "label",
                     "query",
-                    "preserved_raw_terms",
-                    "added_anchors",
-                    "source_memory_index",
-                    "intent_risk",
                 ],
                 "properties": {
                     "label": {"type": "string"},
@@ -2472,10 +2469,13 @@ def _rewrite_prompt_text(*, query_language: str = "ko") -> str:
         ]
     else:
         candidates = [
+            root / "rewrite" / "selective_rewrite_v3.md",
             root / "rewrite" / "selective_rewrite_v2.md",
             root / "rewrite" / "selective_rewrite_v1.md",
+            Path("configs/prompts/rewrite/selective_rewrite_v3.md"),
             Path("configs/prompts/rewrite/selective_rewrite_v2.md"),
             Path("configs/prompts/rewrite/selective_rewrite_v1.md"),
+            Path("../configs/prompts/rewrite/selective_rewrite_v3.md"),
             Path("../configs/prompts/rewrite/selective_rewrite_v2.md"),
             Path("../configs/prompts/rewrite/selective_rewrite_v1.md"),
         ]
@@ -2488,7 +2488,7 @@ def _rewrite_prompt_text(*, query_language: str = "ko") -> str:
         raise FileNotFoundError(
             "rewrite prompt file not found: selective_rewrite_en_v1.md, selective_rewrite_v2.md, or selective_rewrite_v1.md"
         )
-    raise FileNotFoundError("rewrite prompt file not found: selective_rewrite_v2.md or selective_rewrite_v1.md")
+    raise FileNotFoundError("rewrite prompt file not found: selective_rewrite_v3.md, selective_rewrite_v2.md, or selective_rewrite_v1.md")
 
 
 def _rewrite_client() -> LlmClient:
@@ -2544,11 +2544,12 @@ def build_rewrite_candidates(
     rewrite_anchor_injection_enabled: bool = True,
 ) -> list[dict[str, Any]]:
     trace_id = f"rewrite:{hashlib.sha1(raw_query.encode('utf-8')).hexdigest()[:12]}"
+    limited_candidate_count = max(1, min(int(candidate_count or 1), 2))
     payload: dict[str, Any] = {
         "raw_query": raw_query,
         "session_context": session_context,
         "top_memory_candidates": _memory_prompt_candidates(memory_items),
-        "candidate_count": candidate_count,
+        "candidate_count": limited_candidate_count,
     }
     if rewrite_anchor_injection_enabled:
         anchor_context = _build_rewrite_anchor_candidates(
@@ -2577,7 +2578,7 @@ def build_rewrite_candidates(
                 raw_query,
                 memory_items,
                 session_context=session_context,
-                candidate_count=candidate_count,
+                candidate_count=limited_candidate_count,
             )
         raise RuntimeError("LLM rewrite response must contain `candidates` list.")
     normalized: list[dict[str, str]] = []
@@ -2605,7 +2606,7 @@ def build_rewrite_candidates(
                 "intent_risk": intent_risk,
             }
         )
-        if len(normalized) >= candidate_count:
+        if len(normalized) >= limited_candidate_count:
             break
     if normalized:
         return normalized
@@ -2615,7 +2616,7 @@ def build_rewrite_candidates(
             raw_query,
             memory_items,
             session_context=session_context,
-            candidate_count=candidate_count,
+            candidate_count=limited_candidate_count,
         )
     raise RuntimeError("LLM rewrite candidate response was empty.")
 
@@ -2680,6 +2681,7 @@ def build_rewrite_candidates_v2(
     rewrite_runtime_stats: dict[str, int] | None = None,
 ) -> list[dict[str, str]]:
     trace_id = f"rewrite:{hashlib.sha1(raw_query.encode('utf-8')).hexdigest()[:12]}"
+    limited_candidate_count = max(1, min(int(candidate_count or 1), 2))
     failure_policy = _normalize_rewrite_failure_policy(rewrite_failure_policy)
     fallback_allowed = failure_policy == "heuristic_fallback"
     _bump_rewrite_runtime_stat(rewrite_runtime_stats, "llm_attempted_count")
@@ -2692,7 +2694,7 @@ def build_rewrite_candidates_v2(
                 raw_query,
                 memory_items,
                 session_context=session_context,
-                candidate_count=candidate_count,
+                candidate_count=limited_candidate_count,
                 query_language=query_language,
             )
         if failure_policy == "skip_to_raw":
@@ -2704,7 +2706,7 @@ def build_rewrite_candidates_v2(
         "query_language": query_language,
         "session_context": session_context,
         "top_memory_candidates": _memory_prompt_candidates(memory_items),
-        "candidate_count": candidate_count,
+        "candidate_count": limited_candidate_count,
     }
     if retrieval_context:
         payload["retrieval_context"] = retrieval_context
@@ -2778,7 +2780,7 @@ def build_rewrite_candidates_v2(
                 "intent_risk": intent_risk,
             }
         )
-        if len(normalized) >= candidate_count:
+        if len(normalized) >= limited_candidate_count:
             break
     if normalized:
         _bump_rewrite_runtime_stat(rewrite_runtime_stats, "llm_success_count")

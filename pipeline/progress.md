@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-05-26] Session Summary (Selective Rewrite v3 Runtime)
+- What was done: Updated selective rewrite runtime to prefer `selective_rewrite_v3.md` for Korean/code-mixed queries, loosened the LLM response schema to require only `label` and `query`, and capped rewrite candidates at two.
+- Key decisions: Kept English rewrite prompt selection on `selective_rewrite_en_v1.md`; legacy v2/v1 remain fallbacks, and optional v2 metadata fields still feed existing scoring/diagnostics when present.
+- Issues encountered: Targeted validation is recorded in the root session summary.
+- Next steps: Run same-snapshot Admin RAG rewrite-effect evaluation to compare v3 latency and bad-rewrite rate against v2.
+
 ## [2026-05-26] Session Summary (Selective Rewrite Final Candidate Guard)
 - What was done: Updated `eval/runtime.py` so selective rewrite adoption compares `final_candidate_score` against a raw final-score baseline and rejects confident raw top-result loss through a raw-loss guard. Added regression coverage for high-confidence raw top1 loss.
 - Key decisions: Kept prompt-only synthetic memory semantics and legacy `force_rewrite` compatibility, while making normal selective adoption stricter against candidates that look better by raw retrieval score but lose strong raw evidence.

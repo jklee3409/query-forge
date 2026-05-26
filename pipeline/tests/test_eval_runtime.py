@@ -167,18 +167,30 @@ class EvalRuntimeRewriteTests(unittest.TestCase):
             ],
         }
 
-    def test_rewrite_prompt_text_uses_language_specific_prompt_for_english(self) -> None:
+    def test_rewrite_prompt_text_prefers_v3_for_korean_and_language_specific_prompt_for_english(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             prompt_root = Path(temp_dir)
             rewrite_dir = prompt_root / "rewrite"
             rewrite_dir.mkdir(parents=True)
+            (rewrite_dir / "selective_rewrite_v3.md").write_text("ko v3 rewrite prompt", encoding="utf-8")
             (rewrite_dir / "selective_rewrite_v2.md").write_text("ko rewrite prompt", encoding="utf-8")
             (rewrite_dir / "selective_rewrite_en_v1.md").write_text("en rewrite prompt", encoding="utf-8")
 
             with patch.dict(os.environ, {"PROMPT_ROOT": str(prompt_root)}):
                 runtime._REWRITE_PROMPT_TEXTS.clear()
-                self.assertEqual(runtime._rewrite_prompt_text(query_language="ko"), "ko rewrite prompt")
+                self.assertEqual(runtime._rewrite_prompt_text(query_language="ko"), "ko v3 rewrite prompt")
                 self.assertEqual(runtime._rewrite_prompt_text(query_language="en"), "en rewrite prompt")
+
+    def test_rewrite_prompt_text_falls_back_to_v2_when_v3_missing(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            prompt_root = Path(temp_dir)
+            rewrite_dir = prompt_root / "rewrite"
+            rewrite_dir.mkdir(parents=True)
+            (rewrite_dir / "selective_rewrite_v2.md").write_text("ko rewrite prompt", encoding="utf-8")
+
+            with patch.dict(os.environ, {"PROMPT_ROOT": str(prompt_root)}):
+                runtime._REWRITE_PROMPT_TEXTS.clear()
+                self.assertEqual(runtime._rewrite_prompt_text(query_language="ko"), "ko rewrite prompt")
 
     def test_unavailable_cohere_reranker_returns_no_synthetic_scores(self) -> None:
         reranker = CohereReranker(
@@ -618,6 +630,40 @@ class EvalRuntimeRewriteTests(unittest.TestCase):
         self.assertNotIn("anchor_terms", payload)
         self.assertNotIn("terminology_hints", payload)
         self.assertNotIn("canonical_anchor_hints", payload)
+
+    def test_rewrite_candidate_count_is_capped_for_v3_contract(self) -> None:
+        class _FakeRewriteClient:
+            def __init__(self) -> None:
+                self.last_user_prompt = ""
+
+            def chat_json(self, **kwargs):
+                self.last_user_prompt = str(kwargs.get("user_prompt") or "")
+                return {
+                    "candidates": [
+                        {"label": "standalone", "query": "query one"},
+                        {"label": "expanded", "query": "query two"},
+                        {"label": "extra", "query": "query three"},
+                    ]
+                }
+
+        fake_client = _FakeRewriteClient()
+        with patch.object(runtime, "_REWRITE_PROMPT_TEXT", "rewrite prompt for test"), patch.object(
+            runtime,
+            "_rewrite_client",
+            return_value=fake_client,
+        ):
+            candidates = runtime.build_rewrite_candidates_v2(
+                "probe 차이",
+                [],
+                session_context={},
+                candidate_count=3,
+                query_language="ko",
+                rewrite_anchor_injection_enabled=False,
+            )
+
+        self.assertEqual(len(candidates), 2)
+        payload = json.loads(fake_client.last_user_prompt)
+        self.assertEqual(payload["candidate_count"], 2)
 
     def test_rewrite_payload_includes_multi_source_anchor_hints_when_enabled(self) -> None:
         class _FakeRewriteClient:

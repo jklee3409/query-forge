@@ -394,7 +394,7 @@ def load_experiment_config(
         enable_diversity=bool(raw.get("enable_diversity", False)),
         enable_anti_copy=bool(raw.get("enable_anti_copy", False)),
         memory_top_n=int(raw.get("memory_top_n", 5)),
-        rewrite_candidate_count=int(raw.get("rewrite_candidate_count", 3)),
+        rewrite_candidate_count=max(1, min(int(raw.get("rewrite_candidate_count", 2)), 2)),
         rewrite_threshold=float(raw.get("rewrite_threshold", 0.05)),
         retrieval_top_k=int(raw.get("retrieval_top_k", 20)),
         rerank_top_n=int(raw.get("rerank_top_n", 5)),

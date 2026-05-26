@@ -3264,7 +3264,7 @@ public class AdminConsoleService {
         config.put("llm_rpd", 10_000);
         config.put("llm_batch_size", 20);
         config.put("memory_top_n", 5);
-        config.put("rewrite_candidate_count", 3);
+        config.put("rewrite_candidate_count", 2);
         config.put("rewrite_threshold", runtimeDefaultDouble(runtimeCatalog, "rewrite_threshold", DEFAULT_REWRITE_THRESHOLD));
         config.put(
                 "rewrite_memory_candidate_pool_n",

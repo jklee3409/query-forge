@@ -28,6 +28,7 @@ import java.util.Optional;
 public class RewriteCandidateService {
 
     private static final List<String> PROMPT_FILENAMES = List.of(
+            "selective_rewrite_v3.md",
             "selective_rewrite_v2.md",
             "selective_rewrite_v1.md"
     );
@@ -51,7 +52,7 @@ public class RewriteCandidateService {
             List<RagRepository.MemoryCandidate> memories,
             int candidateCount
     ) {
-        int limitedCount = Math.max(1, Math.min(candidateCount, 3));
+        int limitedCount = Math.max(1, Math.min(candidateCount, 2));
         List<CandidateTemplate> fallback = heuristicCandidates(rawQuery, sessionContext, memories, limitedCount);
         Optional<PromptAsset> promptAsset = resolvePromptAsset();
         if (promptAsset.isEmpty()) {
@@ -317,6 +318,8 @@ public class RewriteCandidateService {
         String normalized = safeTrim(label).toLowerCase(Locale.ROOT);
         return switch (normalized) {
             case "explicit_standalone" -> "explicit_standalone";
+            case "standalone" -> "standalone";
+            case "expanded" -> "expanded";
             case "product_version_anchored", "memory_anchored" -> "product_version_anchored";
             case "error_or_task_focused", "task_or_error_focused" -> "error_or_task_focused";
             default -> "candidate_" + ordinal;

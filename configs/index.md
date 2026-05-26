@@ -35,7 +35,7 @@
 ---
 
 ## Recent Notes
-- `prompts/rewrite/selective_rewrite_v3.md` is a draft lightweight rewrite prompt with simplified inputs, maximum two candidates, no `intent_risk`, and three compact few-shot examples for safe hybrid retrieval query rewriting.
+- `prompts/rewrite/selective_rewrite_v3.md` is the active lightweight Korean/code-mixed rewrite prompt with simplified inputs, maximum two candidates, no required `intent_risk`, and three compact few-shot examples for safe hybrid retrieval query rewriting.
 - `app/sources/postgresql-docs-current.yaml` and `app/sources/postgis-docs-current.yaml` define the official English PostgreSQL-domain corpus sources used for the 2026-05-26 collection/import run.
 - `app/model_catalog.yml` now owns Admin RAG retriever mode defaults (`retriever_mode_defaults`) and rewrite memory candidate pool defaults, so frontend controls and backend omitted-field behavior are both hydrated from runtime options.
 - Rewrite prompts now accept `retrieval_context` so the LLM sees actual retrieval backend, vector store, retriever mode, embedding model, fusion weights, top-K, and candidate-pool values before generating candidates.

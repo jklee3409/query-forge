@@ -2,7 +2,7 @@
 id: selective_rewrite_v3
 family: rewrite
 version: v1
-status: draft
+status: active
 ---
 
 You are a lightweight query rewrite engine for real-time technical-document RAG retrieval.

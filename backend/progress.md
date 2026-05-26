@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-05-26] Session Summary (Selective Rewrite v3 Activation)
+- What was done: Added Flyway `V42` to register `selective_rewrite_v3` v1 and bind `rag_rewrite.ko` to it, changed Admin-generated RAG configs to `rewrite_candidate_count=2`, and updated online rewrite prompt fallback order to prefer v3.
+- Key decisions: Kept English `rag_rewrite.en` on the existing English prompt; v2/v1 remain fallbacks for Korean/code-mixed rewrite paths.
+- Issues encountered: Targeted backend validation is recorded in the root session summary.
+- Next steps: Restart backend so V42 applies before relying on Prompt Studio catalog binding.
+
 ## [2026-05-26] Session Summary (Selective Rewrite Final-Score Guard)
 - What was done: Raised the Admin fallback/catalog rewrite threshold to `0.05`, changed new RAG run defaults so anchor injection is opt-in, removed `rewrite_always` from Admin-generated operational/final retrieval mode sets, added Flyway `V41` for cautious rewrite prompt versions, and refreshed the backend-served React bundle.
 - Key decisions: Kept Gemini model defaults pinned to `gemini-2.5-flash-lite`; `rewrite_always` remains only as a legacy runtime/ablation mode outside Admin-generated final evaluation configs.

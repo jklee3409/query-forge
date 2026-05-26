@@ -3,6 +3,12 @@
 ## Overview
 High-level progress tracking for the project.
 
+## [2026-05-26] Session Summary (Selective Rewrite v3 Activation)
+- What was done: Marked `prompts/rewrite/selective_rewrite_v3.md` active as the lightweight Korean/code-mixed rewrite prompt.
+- Key decisions: v3 keeps the simplified input/output contract and omits mandatory `intent_risk`; runtime and catalog activation are recorded in pipeline/backend progress.
+- Issues encountered: Validation is recorded in the root session summary.
+- Next steps: Compare v3 rewrite-effect latency and retrieval metrics against the prior v2 prompt on the same snapshot/dataset.
+
 ## [2026-05-26] Session Summary (Selective Rewrite v3 Draft)
 - What was done: Added `prompts/rewrite/selective_rewrite_v3.md` as a lightweight draft system prompt for real-time hybrid retrieval query rewriting.
 - Key decisions: Kept v3 separate from the active v2 runtime binding, removed retriever-backend input dependencies and `intent_risk`, capped candidates at two, and kept only three few-shot examples.
