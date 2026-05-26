@@ -2006,14 +2006,27 @@ public class AdminConsoleRepository {
                        d.dataset_key,
                        d.dataset_name,
                        d.version,
+                       COALESCE(NULLIF(d.metadata ->> 'query_language', ''), items.query_language, 'ko') AS query_language,
+                       COALESCE(NULLIF(d.metadata ->> 'strategy_profile', ''), '') AS metadata_strategy_profile,
                        COALESCE(items.total_items, d.total_items, 0) AS total_items,
                        d.category_distribution::text AS category_distribution,
                        d.single_multi_distribution::text AS single_multi_distribution,
                        d.created_at
                 FROM eval_dataset d
                 LEFT JOIN LATERAL (
-                    SELECT COUNT(*) AS total_items
+                    SELECT COUNT(*) AS total_items,
+                           CASE
+                               WHEN COUNT(*) FILTER (
+                                   WHERE COALESCE(
+                                       NULLIF(LOWER(s.query_language), ''),
+                                       COALESCE(NULLIF(LOWER(d.metadata ->> 'query_language'), ''), 'ko')
+                                   ) = 'en'
+                               ) > 0 THEN 'en'
+                               ELSE 'ko'
+                           END AS query_language
                     FROM eval_dataset_item i
+                    JOIN eval_samples s
+                      ON s.sample_id = i.sample_id
                     WHERE i.dataset_id = d.dataset_id
                       AND i.active = TRUE
                 ) items ON TRUE
@@ -2028,6 +2041,8 @@ public class AdminConsoleRepository {
                         rs.getString("dataset_key"),
                         rs.getString("dataset_name"),
                         rs.getString("version"),
+                        rs.getString("query_language"),
+                        rs.getString("metadata_strategy_profile"),
                         rs.getInt("total_items"),
                         readJson(rs, "category_distribution"),
                         readJson(rs, "single_multi_distribution"),

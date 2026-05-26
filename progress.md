@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-05-26] Session Summary (PostgreSQL RAG Dataset Language Fix)
+- What was done: Fixed Admin RAG dataset language handling so PostgreSQL EN datasets report/select `evalQueryLanguage=en`, and language-incompatible gating snapshots are filtered from snapshot selectors.
+- Key decisions: Backend dataset rows now expose dataset language derived from metadata/active samples; frontend snapshot compatibility now applies the same EN-only method rule used for method chips. Backend RAG run creation also rejects dataset/request language mismatches.
+- Issues encountered: Backend `compileJava` passed and targeted `RagPage.jsx` ESLint passed; full frontend lint remains blocked by the existing `vite.config.js` `process` global error.
+- Next steps: Restart backend/Vite if needed, then smoke `/admin/domains/postgresql/rag-tests` by switching between KR and EN datasets and confirming A/C vs E snapshot availability.
+
 ## [2026-05-26] Session Summary (PostgreSQL E Generation, BM25 Gating, EN Eval)
 - What was done: Enabled PostgreSQL domain policy for Method E, ran Admin Console synthetic generation batch `9b0264e1-d615-4d6b-b015-f7731c433318` for 1,000 E queries at 1.5 queries/chunk, ran Admin Console `full_gating` batch `4d6b5c9f-b499-4666-9d3c-bb9eeb7f7c66` with BM25-only retrieval, and created EN eval dataset `020a93c4-0465-5655-b681-a5799a98fd15`.
 - Key decisions: Used the existing running backend/Admin API path and existing Docker Postgres container only; no Docker rebuild, Docker Engine restart, or container rebuild was performed. E generation targeted `postgresql-docs-current` under the PostgreSQL domain for consistency with A/C runs.

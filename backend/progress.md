@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-05-26] Session Summary (RAG Dataset Language Enforcement)
+- What was done: Added `queryLanguage` / `metadataStrategyProfile` to Admin RAG dataset rows and made RAG run creation reject `eval_query_language` values that conflict with the selected dataset language.
+- Key decisions: Dataset language now comes from dataset metadata or active sample rows, so PostgreSQL EN datasets are no longer treated as KO when the dataset key does not end with `_en`.
+- Issues encountered: `.\gradlew.bat compileJava` passed.
+- Next steps: Restart the backend process before relying on the new dataset row fields or backend mismatch guard in the running Admin GUI.
+
 ## [2026-05-26] Session Summary (PostgreSQL E Admin Pipeline Run)
 - What was done: Used the Admin Console API path to run PostgreSQL Method E synthetic generation batch `9b0264e1-d615-4d6b-b015-f7731c433318` and `full_gating` batch `4d6b5c9f-b499-4666-9d3c-bb9eeb7f7c66` with `retrieverMode=bm25_only`.
 - Key decisions: Preserved Admin GUI defaults for gating other than Retriever Mode; verified the persisted stage config kept `retriever_config.retriever_mode=bm25_only`, BM25 fusion weight `1.0`, dense weight `0.0`, dense required/fallback disabled, and rerank disabled.

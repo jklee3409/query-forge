@@ -2886,7 +2886,23 @@ public class AdminConsoleService {
     }
 
     private String normalizeEvalQueryLanguage(String requested, String datasetDefault) {
-        String candidate = firstNonBlank(requested, datasetDefault, QUERY_LANGUAGE_KO);
+        String normalizedRequested = blankToNull(requested);
+        String normalizedDatasetDefault = blankToNull(datasetDefault);
+        if (normalizedRequested != null) {
+            normalizedRequested = normalizedRequested.trim().toLowerCase();
+        }
+        if (normalizedDatasetDefault != null) {
+            normalizedDatasetDefault = normalizedDatasetDefault.trim().toLowerCase();
+        }
+        if (normalizedRequested != null
+                && normalizedDatasetDefault != null
+                && !normalizedRequested.equals(normalizedDatasetDefault)) {
+            throw new IllegalArgumentException(
+                    "eval_query_language must match dataset query language: requested="
+                            + normalizedRequested + ", dataset=" + normalizedDatasetDefault
+            );
+        }
+        String candidate = firstNonBlank(normalizedDatasetDefault, normalizedRequested, QUERY_LANGUAGE_KO);
         candidate = candidate == null ? QUERY_LANGUAGE_KO : candidate.trim().toLowerCase();
         if (!List.of(QUERY_LANGUAGE_KO, QUERY_LANGUAGE_EN).contains(candidate)) {
             throw new IllegalArgumentException("unsupported eval_query_language: " + requested);

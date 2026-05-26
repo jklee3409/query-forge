@@ -320,6 +320,8 @@ public final class AdminConsoleDtos {
             String datasetKey,
             String datasetName,
             String version,
+            String queryLanguage,
+            String metadataStrategyProfile,
             int totalItems,
             JsonNode categoryDistribution,
             JsonNode singleMultiDistribution,

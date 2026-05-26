@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-05-26] Session Summary (RAG Dataset Language and Snapshot Filter)
+- What was done: Updated `/admin/rag-tests` so selecting an EN dataset such as `postgresql_en_short_user_80` sets `evalQueryLanguage=en`, filters method chips by that language, and hides gating snapshots whose method language is incompatible.
+- Key decisions: Replaced the old `datasetKey.endsWith('_en')` heuristic with dataset `queryLanguage` plus a safer key/name fallback, and reused the same method-language rule for method selection, snapshot dropdowns, and snapshot compatibility labels.
+- Issues encountered: Targeted `npx eslint src/pages/RagPage.jsx --quiet` passed. Full `npm run lint -- --quiet` still fails on the pre-existing `vite.config.js` `process` global issue.
+- Next steps: Browser-smoke PostgreSQL KR/EN dataset switching once the backend serving `/api/admin/console/rag/datasets` has been restarted.
+
 ## [2026-05-26] Session Summary (RAG Anchor Quality UI)
 - What was done: Added structured Anchor Evaluation sections to RAG run detail, including per-detail anchor tables and run-level anchor quality cards, and added Anchor Quality as a separate comparison metric group.
 - Key decisions: UI reads normalized backend anchor rows/summaries and renders guarded empty states for legacy runs instead of dumping JSON.

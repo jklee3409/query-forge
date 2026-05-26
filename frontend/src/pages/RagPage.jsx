@@ -115,10 +115,29 @@ function normalizeStrategyMethodCode(value) {
   return String(value || '').trim().toUpperCase()
 }
 
+function normalizeEvalQueryLanguage(value) {
+  return String(value || '').trim().toLowerCase() === 'en' ? 'en' : 'ko'
+}
+
 function methodMatchesEvalLanguage(methodCode, evalQueryLanguage) {
   const normalizedMethod = normalizeStrategyMethodCode(methodCode)
-  const normalizedLanguage = String(evalQueryLanguage || '').trim().toLowerCase() === 'en' ? 'en' : 'ko'
+  const normalizedLanguage = normalizeEvalQueryLanguage(evalQueryLanguage)
   return ENGLISH_SYNTHETIC_METHOD_CODES.has(normalizedMethod) === (normalizedLanguage === 'en')
+}
+
+function resolveDatasetQueryLanguage(dataset) {
+  if (!dataset) return 'ko'
+  const explicitLanguage = normalizeStrategyHint(
+    dataset.queryLanguage || dataset.metadataQueryLanguage || dataset.metadata?.query_language,
+  )
+  if (explicitLanguage === 'en') return 'en'
+  if (explicitLanguage === 'ko') return 'ko'
+
+  const datasetKey = normalizeStrategyHint(dataset.datasetKey)
+  const datasetName = normalizeStrategyHint(dataset.datasetName)
+  const hint = `${datasetKey} ${datasetName}`
+  if (/(^|[_\s-])en([_\s-]|$)/.test(hint) || hint.includes('english')) return 'en'
+  return 'ko'
 }
 
 function resolveDatasetAllowedMethodCodes(dataset) {
@@ -148,6 +167,11 @@ function isSnapshotAllowedForMethodSet(batch, allowedMethodSet) {
   if (!allowedMethodSet) return true
   const methodCode = normalizeStrategyMethodCode(batch?.methodCode)
   return Boolean(methodCode && allowedMethodSet.has(methodCode))
+}
+
+function snapshotMatchesEvalLanguage(batch, evalQueryLanguage) {
+  const methodCode = normalizeStrategyMethodCode(batch?.methodCode)
+  return !methodCode || methodMatchesEvalLanguage(methodCode, evalQueryLanguage)
 }
 
 const RETRIEVAL_METRIC_DEFS = [
@@ -1755,7 +1779,24 @@ export function RagPage({ notify, domainId = null }) {
     const rows = await requestJson(appendQuery('/api/admin/console/rag/datasets', { domain_id: domainId }))
     const normalized = Array.isArray(rows) ? rows : []
     setDatasets(normalized)
-    setForm((prev) => ({ ...prev, datasetId: prev.datasetId || normalized[0]?.datasetId || '' }))
+    setForm((prev) => {
+      const datasetId = prev.datasetId || normalized[0]?.datasetId || ''
+      const dataset = normalized.find((item) => item.datasetId === datasetId)
+      return {
+        ...prev,
+        datasetId,
+        evalQueryLanguage: dataset ? resolveDatasetQueryLanguage(dataset) : prev.evalQueryLanguage,
+      }
+    })
+  }
+
+  const handleDatasetChange = (datasetId) => {
+    const dataset = datasets.find((item) => item.datasetId === datasetId)
+    setForm((prev) => ({
+      ...prev,
+      datasetId,
+      evalQueryLanguage: dataset ? resolveDatasetQueryLanguage(dataset) : prev.evalQueryLanguage,
+    }))
   }
 
   const loadTests = async () => {
@@ -1850,7 +1891,7 @@ export function RagPage({ notify, domainId = null }) {
     if (!form.datasetId) return
     const dataset = datasets.find((item) => item.datasetId === form.datasetId)
     if (!dataset) return
-    const preferredLanguage = String(dataset.datasetKey || '').toLowerCase().endsWith('_en') ? 'en' : 'ko'
+    const preferredLanguage = resolveDatasetQueryLanguage(dataset)
     if (form.evalQueryLanguage === preferredLanguage) return
     setForm((prev) => ({ ...prev, evalQueryLanguage: preferredLanguage }))
   }, [datasets, form.datasetId, form.evalQueryLanguage])
@@ -1871,7 +1912,6 @@ export function RagPage({ notify, domainId = null }) {
     ),
     [datasetAllowedMethodCodes, form.evalQueryLanguage],
   )
-  const datasetAllowedMethodKey = effectiveAllowedMethodCodes ? effectiveAllowedMethodCodes.join(',') : ''
   const datasetAllowedMethodSet = useMemo(
     () => (effectiveAllowedMethodCodes ? new Set(effectiveAllowedMethodCodes) : null),
     [effectiveAllowedMethodCodes],
@@ -1886,21 +1926,25 @@ export function RagPage({ notify, domainId = null }) {
     ),
     [methods, datasetAllowedMethodSet, form.evalQueryLanguage],
   )
+  const selectableMethodCodes = useMemo(
+    () => selectableMethods.map((method) => normalizeStrategyMethodCode(method.methodCode)).filter(Boolean),
+    [selectableMethods],
+  )
 
   useEffect(() => {
-    if (!effectiveAllowedMethodCodes || form.syntheticFreeBaseline) return
+    if (form.syntheticFreeBaseline) return
     setSelectedMethods((prev) => {
       const filtered = prev
         .map(normalizeStrategyMethodCode)
-        .filter((methodCode) => effectiveAllowedMethodCodes.includes(methodCode))
-      const next = filtered.length > 0 ? filtered : (effectiveAllowedMethodCodes[0] ? [effectiveAllowedMethodCodes[0]] : [])
+        .filter((methodCode) => selectableMethodCodes.includes(methodCode))
+      const next = filtered.length > 0 ? filtered : (selectableMethodCodes[0] ? [selectableMethodCodes[0]] : [])
       const current = prev.map(normalizeStrategyMethodCode)
       if (next.length === current.length && next.every((methodCode, index) => methodCode === current[index])) {
         return prev
       }
       return next
     })
-  }, [effectiveAllowedMethodCodes, datasetAllowedMethodKey, form.syntheticFreeBaseline])
+  }, [selectableMethodCodes, form.syntheticFreeBaseline])
 
   useEffect(() => {
     const totalPages = Math.max(1, Math.ceil(tests.length / historyPageSize))
@@ -1915,6 +1959,7 @@ export function RagPage({ notify, domainId = null }) {
   )
   const snapshotMethodCode = selectedSnapshot?.methodCode ? String(selectedSnapshot.methodCode).toUpperCase() : null
   const selectedSnapshotAllowedForDataset = isSnapshotAllowedForMethodSet(selectedSnapshot, datasetAllowedMethodSet)
+    && snapshotMatchesEvalLanguage(selectedSnapshot, form.evalQueryLanguage)
   const methodSelectionLocked = !form.syntheticFreeBaseline
     && Boolean(form.sourceGatingBatchId && snapshotMethodCode && selectedSnapshotAllowedForDataset)
 
@@ -1992,8 +2037,11 @@ export function RagPage({ notify, domainId = null }) {
     [gatingBatches],
   )
   const datasetSnapshotBatches = useMemo(
-    () => snapshotBatches.filter((batch) => isSnapshotAllowedForMethodSet(batch, datasetAllowedMethodSet)),
-    [snapshotBatches, datasetAllowedMethodSet],
+    () => snapshotBatches.filter((batch) => (
+      isSnapshotAllowedForMethodSet(batch, datasetAllowedMethodSet)
+      && snapshotMatchesEvalLanguage(batch, form.evalQueryLanguage)
+    )),
+    [snapshotBatches, datasetAllowedMethodSet, form.evalQueryLanguage],
   )
   const sourceSnapshotOptions = useMemo(
     () => datasetSnapshotBatches.filter((batch) => batch.gatingPreset === sourceSnapshotExpectedPreset),
@@ -2012,9 +2060,13 @@ export function RagPage({ notify, domainId = null }) {
   useEffect(() => {
     if (!form.sourceGatingBatchId) return
     const batch = gatingBatches.find((item) => item.gatingBatchId === form.sourceGatingBatchId)
-    if (batch && isSnapshotAllowedForMethodSet(batch, datasetAllowedMethodSet)) return
+    if (
+      batch
+      && isSnapshotAllowedForMethodSet(batch, datasetAllowedMethodSet)
+      && snapshotMatchesEvalLanguage(batch, form.evalQueryLanguage)
+    ) return
     setForm((prev) => ({ ...prev, sourceGatingBatchId: '' }))
-  }, [form.sourceGatingBatchId, gatingBatches, datasetAllowedMethodSet])
+  }, [form.sourceGatingBatchId, gatingBatches, datasetAllowedMethodSet, form.evalQueryLanguage])
 
   useEffect(() => {
     if (form.runDiscipline !== 'official' || form.officialComparisonType !== 'gating_effect') return
@@ -2026,7 +2078,11 @@ export function RagPage({ notify, domainId = null }) {
     const resolveAllowedSnapshotId = (snapshotId) => {
       if (!snapshotId) return ''
       const batch = gatingBatches.find((item) => item.gatingBatchId === snapshotId)
-      return batch && isSnapshotAllowedForMethodSet(batch, datasetAllowedMethodSet) ? snapshotId : ''
+      return batch
+        && isSnapshotAllowedForMethodSet(batch, datasetAllowedMethodSet)
+        && snapshotMatchesEvalLanguage(batch, form.evalQueryLanguage)
+        ? snapshotId
+        : ''
     }
     const nextUngated = resolveAllowedSnapshotId(form.officialGatingUngatedBatchId)
     const nextRuleOnly = resolveAllowedSnapshotId(form.officialGatingRuleOnlyBatchId)
@@ -2050,6 +2106,7 @@ export function RagPage({ notify, domainId = null }) {
     form.officialGatingFullGatingBatchId,
     gatingBatches,
     datasetAllowedMethodSet,
+    form.evalQueryLanguage,
   ])
 
   useEffect(() => {
@@ -2063,6 +2120,7 @@ export function RagPage({ notify, domainId = null }) {
   function isSnapshotCompatible(batch, gatingPreset, methodCodes) {
     if (!batch) return false
     if (batch.gatingPreset !== gatingPreset) return false
+    if (!snapshotMatchesEvalLanguage(batch, form.evalQueryLanguage)) return false
     if (!Array.isArray(methodCodes) || methodCodes.length === 0) return true
     if (!batch.methodCode) return true
     return methodCodes.includes(String(batch.methodCode).toUpperCase())
@@ -2663,7 +2721,7 @@ export function RagPage({ notify, domainId = null }) {
               >
                 <div className="form-grid form-grid--2">
             <label className="filter-field">평가 데이터셋
-              <select value={form.datasetId} onChange={(event) => setForm((prev) => ({ ...prev, datasetId: event.target.value }))}>
+              <select value={form.datasetId} onChange={(event) => handleDatasetChange(event.target.value)}>
                 {datasets.map((dataset) => <option key={dataset.datasetId} value={dataset.datasetId}>{dataset.datasetName} ({dataset.totalItems})</option>)}
               </select>
               <span className="field-hint">테스트 입력 샘플 집합입니다.</span>
