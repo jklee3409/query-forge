@@ -2522,29 +2522,66 @@ table.data-table {
 
 .rag-query-detail-selector {
   display: grid;
-  gap: 7px;
-  padding: 12px;
+  gap: 9px;
+  padding: 13px;
   border: 1px solid var(--border-subtle);
   border-radius: 8px;
-  background: var(--surface-muted);
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--accent-primary) 7%, transparent), transparent 58%),
+    var(--surface-muted);
 }
 
-.rag-query-detail-selector span {
+.rag-query-detail-selector > span {
   color: var(--text-secondary);
   font-size: 12px;
   font-weight: 800;
 }
 
-.rag-query-detail-selector select {
-  width: 100%;
+.rag-query-detail-selector .custom-dropdown {
+  width: min(100%, 760px);
 }
 
-.rag-run-detail-modal__top-action {
-  position: sticky;
-  bottom: 8px;
-  z-index: 2;
-  justify-self: end;
-  padding-top: 4px;
+.rag-query-detail-selector .custom-dropdown__trigger {
+  min-height: 44px;
+  border-color: color-mix(in srgb, var(--accent-primary) 32%, var(--border-subtle));
+  background: var(--surface-elevated);
+  box-shadow: 0 8px 22px rgba(33, 96, 170, 0.08);
+}
+
+.rag-query-detail-selector .custom-dropdown__trigger:hover {
+  border-color: color-mix(in srgb, var(--accent-primary) 58%, var(--border-subtle));
+}
+
+.rag-query-detail-selector .custom-dropdown__trigger-label {
+  font-weight: 850;
+  color: var(--text-primary);
+}
+
+.rag-query-detail-selector .custom-dropdown__menu {
+  max-width: min(760px, calc(96vw - 64px));
+  border-color: color-mix(in srgb, var(--accent-primary) 28%, var(--border-subtle));
+  box-shadow: 0 22px 48px rgba(15, 23, 42, 0.18);
+}
+
+.rag-query-detail-selector .custom-dropdown__option.is-selected {
+  background: color-mix(in srgb, var(--accent-primary) 14%, var(--surface-elevated));
+  color: var(--text-primary);
+  box-shadow: inset 3px 0 0 var(--accent-primary);
+}
+
+.rag-query-detail-selector .custom-dropdown__option.is-selected .custom-dropdown__option-meta {
+  color: var(--text-secondary);
+}
+
+.rag-query-detail-selector .custom-dropdown__option:hover {
+  background: color-mix(in srgb, var(--accent-primary) 9%, var(--surface-muted));
+}
+
+:root[data-theme="dark"] .rag-query-detail-selector .custom-dropdown__option.is-selected {
+  background: color-mix(in srgb, var(--accent-primary) 18%, var(--surface-elevated));
+  border-color: color-mix(in srgb, var(--accent-primary) 44%, var(--border-subtle));
+  color: var(--text-primary);
+  box-shadow: inset 3px 0 0 var(--accent-primary), 0 0 0 1px color-mix(in srgb, var(--accent-primary) 26%, transparent);
 }
 
 .rag-query-detail-list {

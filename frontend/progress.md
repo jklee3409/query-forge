@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-05-27] Session Summary (RAG Detail Modal Name and Dropdown)
+- What was done: Updated `/admin/rag-tests` run detail modal titles to show the configured RAG test name instead of the shortened DB UUID, replaced the native query-analysis select with the shared searchable dropdown, and removed the sticky `최상단으로` button.
+- Key decisions: Added an `allowClear` prop to `SelectDropdown` so the RAG query selector can disable the generic clear option without changing existing filter dropdown behavior. Scoped the selector styling so selected options use the Admin accent treatment instead of the old native/yellow appearance.
+- Issues encountered: `npm exec eslint -- src/pages/RagPage.jsx src/components/SelectDropdown.jsx` passed with the existing two `RagPage.jsx` hook dependency warnings. `npm run build` passed and refreshed the backend static bundle.
+- Next steps: Browser-smoke a completed RAG run detail modal in light and dark mode.
+
 ## [2026-05-26] Session Summary (RAG Rewrite Defaults)
 - What was done: Updated `/admin/rag-tests` defaults so the runtime-hydrated threshold is `0.05`, anchor injection starts disabled, non-selective rewrite displays as raw-only instead of rewrite-always, and rebuilt the production React bundle.
 - Key decisions: Kept the existing RAG request payload shape and Gemini model selection unchanged; backend config generation is the source of truth for banning `rewrite_always` in final evaluation runs.

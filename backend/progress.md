@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-05-27] Session Summary (Admin React Bundle Refresh - RAG Detail Modal)
+- What was done: Refreshed the backend-served React bundle after the RAG run detail modal started showing configured test names, using a custom query-analysis dropdown, and removing the scroll-to-top button.
+- Key decisions: No backend Java/API/schema behavior changed; the static Admin bundle is the deployment artifact for the frontend-only modal update.
+- Issues encountered: Frontend validation is recorded in the root/frontend progress summaries.
+- Next steps: Serve the refreshed bundle and browser-smoke the RAG detail modal from the Spring Boot static route if needed.
+
 ## [2026-05-26] Session Summary (Selective Rewrite v3 Activation)
 - What was done: Added Flyway `V42` to register `selective_rewrite_v3` v1 and bind `rag_rewrite.ko` to it, changed Admin-generated RAG configs to `rewrite_candidate_count=2`, and updated online rewrite prompt fallback order to prefer v3.
 - Key decisions: Kept English `rag_rewrite.en` on the existing English prompt; v2/v1 remain fallbacks for Korean/code-mixed rewrite paths.

@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-05-27] Session Summary (RAG Detail Modal Name and Dropdown)
+- What was done: Changed the Admin RAG run detail modal title to use the configured RAG test name instead of the shortened DB UUID, replaced the native query-analysis selector with the shared searchable custom dropdown, removed the scroll-to-top action, and refreshed the backend-served React bundle.
+- Key decisions: Reused `SelectDropdown` with a new `allowClear` option so existing dropdowns keep their clear behavior while the query selector stays single-choice only. Scoped selected-state styling to the RAG detail selector to avoid the previous native/yellow selected appearance in light and dark themes.
+- Issues encountered: Targeted ESLint passed with the existing `RagPage.jsx` hook dependency warnings. `npm run build` passed.
+- Next steps: Browser-smoke a completed RAG run detail modal in light and dark mode.
+
 ## [2026-05-27] Session Summary (Admin Eval Artifact Cleanup)
 - What was done: Removed all tracked `configs/experiments/admin_eval_*.yaml` files, deleted local untracked Admin eval YAML artifacts, and added Git ignore rules for future Admin eval configs.
 - Key decisions: UUID-named Admin eval configs are runtime artifacts rather than durable source-controlled experiment presets; official reproducible conditions should be promoted to named presets.

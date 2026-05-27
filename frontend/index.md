@@ -34,7 +34,8 @@
 ---
 
 ## Recent Update
-- `/admin/rag-tests` now supports deleting non-default evaluation datasets, trims noisy comparison-table helper text, removes Hallucination Rate/Answer Relevance from the detailed comparison metrics, and renders RAG run details one query at a time through a `질의 분석 보기` dropdown with a scroll-to-top action.
+- `/admin/rag-tests` RAG run detail modal now uses the configured test name in the title instead of a shortened DB UUID, uses the shared custom searchable dropdown for `질의 분석 보기`, and no longer renders the sticky `최상단으로` action.
+- `/admin/rag-tests` now supports deleting non-default evaluation datasets, trims noisy comparison-table helper text, removes Hallucination Rate/Answer Relevance from the detailed comparison metrics, and renders RAG run details one query at a time through a `질의 분석 보기` dropdown.
 - `/admin/rag-tests` detail cards now keep rewrite-skipped samples' LLM rewrite candidates and recommended synthetic candidates visible by default, cap recommended-candidate tags to three, simplify canonical anchor metadata, remove the Rewrite Anchor Analysis Grounding column, and hide completed ETA `KST`/progress-count clutter.
 - `/admin/rag-tests` now hydrates RAG runtime defaults from backend runtime options (`model_catalog.yml`), including threshold, retrieval/rerank Top-N, retriever mode defaults, candidate pool, and fusion weights instead of keeping separate frontend constants.
 - `/admin/rag-tests` now initializes the selective rewrite threshold at `0.05`, aligned with backend/catalog defaults, and starts rewrite anchor injection disabled so anchors are opt-in grounding hints.

@@ -10,6 +10,7 @@ export function SelectDropdown({
   searchPlaceholder = '검색어 입력...',
   disabled = false,
   onOpen = null,
+  allowClear = true,
 }) {
   const shellRef = useRef(null)
   const [open, setOpen] = useState(false)
@@ -92,13 +93,15 @@ export function SelectDropdown({
             placeholder={searchPlaceholder}
           />
           <div className="custom-dropdown__options">
-            <button
-              type="button"
-              className={`custom-dropdown__option ${!value ? 'is-selected' : ''}`}
-              onClick={() => choose('')}
-            >
-              <span className="custom-dropdown__option-label">{clearLabel}</span>
-            </button>
+            {allowClear && (
+              <button
+                type="button"
+                className={`custom-dropdown__option ${!value ? 'is-selected' : ''}`}
+                onClick={() => choose('')}
+              >
+                <span className="custom-dropdown__option-label">{clearLabel}</span>
+              </button>
+            )}
             {filteredOptions.length === 0 ? (
               <div className="custom-dropdown__empty">{emptyLabel}</div>
             ) : (

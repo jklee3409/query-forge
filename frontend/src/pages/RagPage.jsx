@@ -8,6 +8,7 @@ import {
 import { DetailCard, IdBadge, Modal, StatusBadge } from '../components/Common.jsx'
 import { LlmJobsTable } from '../components/LlmJobsTable.jsx'
 import { RemainingEta } from '../components/RemainingEta.jsx'
+import { SelectDropdown } from '../components/SelectDropdown.jsx'
 import { appendQuery, requestJson, toNumber } from '../lib/api.js'
 import { fmtTime, shortId } from '../lib/format.js'
 
@@ -992,6 +993,20 @@ function detailRowKey(row, index = 0) {
   return String(row?.detailId || row?.sampleId || `detail-${index}`)
 }
 
+function buildQueryDetailOption(row, index) {
+  const queryText = compactText(row?.rawQuery || row?.rewriteQuery || '-', 96)
+  return {
+    value: detailRowKey(row, index),
+    label: `#${index + 1} · ${row?.sampleId || `sample-${index + 1}`}`,
+    meta: `${row?.queryCategory || '-'} · ${queryText}`,
+  }
+}
+
+function resolveRunDetailModalTitle(run) {
+  const runName = String(run?.runLabel || run?.runName || '').trim()
+  return runName ? `RAG 실행 상세 · ${runName}` : 'RAG 실행 상세'
+}
+
 function renderRagQueryDetailRows(details) {
   const rows = Array.isArray(details) ? details : []
   if (!rows.length) {
@@ -1059,30 +1074,29 @@ function RagRunDetailModalBody({
 }) {
   const rows = useMemo(() => (Array.isArray(details) ? details : []), [details])
   const [selectedKey, setSelectedKey] = useState(() => detailRowKey(rows[0], 0))
+  const detailOptions = useMemo(
+    () => rows.map((row, index) => buildQueryDetailOption(row, index)),
+    [rows],
+  )
   const selectedIndex = rows.findIndex((row, index) => detailRowKey(row, index) === selectedKey)
   const resolvedSelectedIndex = selectedIndex >= 0 ? selectedIndex : 0
   const selectedRow = rows[resolvedSelectedIndex]
 
-  const scrollToTop = (event) => {
-    const modal = event.currentTarget.closest('.modal')
-    if (modal) {
-      modal.scrollTo({ top: 0, behavior: 'smooth' })
-    }
-  }
-
   return (
     <div className="detail-grid detail-grid--single rag-run-detail-modal">
       {rows.length > 0 && (
-        <label className="rag-query-detail-selector">
+        <div className="rag-query-detail-selector">
           <span>질의 분석 보기</span>
-          <select value={selectedRow ? detailRowKey(selectedRow, resolvedSelectedIndex) : ''} onChange={(event) => setSelectedKey(event.target.value)}>
-            {rows.map((row, index) => (
-              <option key={detailRowKey(row, index)} value={detailRowKey(row, index)}>
-                #{index + 1} · {row?.sampleId || `sample-${index + 1}`} · {compactText(row?.rawQuery || row?.rewriteQuery || '-', 72)}
-              </option>
-            ))}
-          </select>
-        </label>
+          <SelectDropdown
+            value={selectedRow ? detailRowKey(selectedRow, resolvedSelectedIndex) : ''}
+            options={detailOptions}
+            onChange={setSelectedKey}
+            placeholder="질의 선택"
+            searchPlaceholder="sample id 또는 질의 검색"
+            emptyLabel="표시할 질의가 없습니다."
+            allowClear={false}
+          />
+        </div>
       )}
       {renderRagQueryDetailRows(selectedRow ? [selectedRow] : [])}
       <details className="rag-detail-disclosure rag-detail-disclosure--group">
@@ -1101,9 +1115,6 @@ function RagRunDetailModalBody({
           {renderRagDetailJsonDisclosure('모드별 검색 지표', retrievalSummaryRows)}
         </div>
       </details>
-      <div className="rag-run-detail-modal__top-action">
-        <button type="button" className="button button--ghost" onClick={scrollToTop}>최상단으로</button>
-      </div>
     </div>
   )
 }
@@ -2447,7 +2458,7 @@ export function RagPage({ notify, domainId = null }) {
       const anchorEnabled = resolveRewriteAnchorEnabled(runRow)
       const multiSourceEnabled = resolveMultiSourceAnchorEnabled(runRow)
       setModal({
-        title: `RAG 실행 상세 · ${shortId(runId)}`,
+        title: resolveRunDetailModalTitle(runRow),
         body: (
           <RagRunDetailModalBody
             details={details}
