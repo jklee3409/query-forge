@@ -136,8 +136,8 @@ public class AdminConsoleService {
             UUID datasetId,
             UUID domainId
     ) {
-        Set<String> allowedMethodCodes = resolveAllowedMethodCodesForMethodList(sourceId, sourceDocumentId, datasetId);
-        return repository.findGenerationMethods(domainId).stream()
+        Set<String> allowedMethodCodes = resolveAllowedMethodCodesForMethodList(sourceId, sourceDocumentId, datasetId, domainId);
+        return repository.findGenerationMethods().stream()
                 .filter(method -> allowedMethodCodes.contains(normalizeMethodCode(method.methodCode())))
                 .toList();
     }
@@ -2467,20 +2467,22 @@ public class AdminConsoleService {
     private Set<String> resolveAllowedMethodCodesForMethodList(
             String sourceId,
             String sourceDocumentId,
-            UUID datasetId
+            UUID datasetId,
+            UUID domainId
     ) {
+        Set<String> domainAllowedMethodCodes = allowedMethodCodesForDomainLanguage(domainId);
         if (datasetId != null) {
             DatasetResolution datasetResolution = resolveDatasetScope(datasetId, false);
-            return allowedMethodCodesForScope(datasetResolution.scope());
+            return intersectMethodCodes(allowedMethodCodesForScope(datasetResolution.scope()), domainAllowedMethodCodes);
         }
         SourceResolution sourceResolution = resolveSourceScope(sourceId, sourceDocumentId, false);
         if (sourceResolution == null) {
-            return ALL_METHOD_CODES;
+            return domainAllowedMethodCodes;
         }
-        if (!isAllowedSyntheticSourceForScope(sourceResolution.sourceId(), sourceResolution.scope())) {
+        if (domainId == null && !isAllowedSyntheticSourceForScope(sourceResolution.sourceId(), sourceResolution.scope())) {
             return Set.of();
         }
-        return allowedMethodCodesForScope(sourceResolution.scope());
+        return intersectMethodCodes(allowedMethodCodesForScope(sourceResolution.scope()), domainAllowedMethodCodes);
     }
 
     private void validateSyntheticSourceMethodRestriction(
@@ -2683,6 +2685,46 @@ public class AdminConsoleService {
         };
     }
 
+    private Set<String> allowedMethodCodesForDomainLanguage(UUID domainId) {
+        if (domainId == null) {
+            return ALL_METHOD_CODES;
+        }
+        Optional<AdminConsoleRepository.DomainLanguageContext> languageContext =
+                repository.findDomainLanguageContext(domainId);
+        if (languageContext.isPresent()) {
+            AdminConsoleRepository.DomainLanguageContext context = languageContext.get();
+            if (isEnglishLanguage(context.sourceLanguage())) {
+                return SPRING_TECHDOC_METHOD_CODES;
+            }
+            if (isKoreanLanguage(context.sourceLanguage())) {
+                return PYTHON_KR_METHOD_CODES;
+            }
+            if (isEnglishLanguage(context.primaryLanguage())) {
+                return SPRING_TECHDOC_METHOD_CODES;
+            }
+            if (isKoreanLanguage(context.primaryLanguage())) {
+                return PYTHON_KR_METHOD_CODES;
+            }
+        }
+        Set<String> policyMethodCodes = repository.findGenerationMethods(domainId).stream()
+                .map(method -> normalizeMethodCode(method.methodCode()))
+                .collect(LinkedHashSet::new, Set::add, Set::addAll);
+        return policyMethodCodes.isEmpty() ? ALL_METHOD_CODES : policyMethodCodes;
+    }
+
+    private Set<String> intersectMethodCodes(Set<String> left, Set<String> right) {
+        if (left == null || left.isEmpty() || right == null || right.isEmpty()) {
+            return Set.of();
+        }
+        Set<String> result = new LinkedHashSet<>();
+        for (String methodCode : left) {
+            if (right.contains(methodCode)) {
+                result.add(methodCode);
+            }
+        }
+        return result;
+    }
+
     private void validateSyntheticSourceAllowlist(UUID domainId, String methodCode, SourceResolution sourceResolution) {
         if (isDisallowedSyntheticSource(sourceResolution.sourceId())) {
             throw new IllegalArgumentException("source_id is not allowed for synthetic generation: " + sourceResolution.sourceId());
@@ -2718,7 +2760,7 @@ public class AdminConsoleService {
         List<String> domainSourceIds = repository.findDomainSourceIds(domainId).stream()
                 .filter(sourceId -> !isDisallowedSyntheticSource(sourceId))
                 .toList();
-        if (repository.isGenerationMethodEnabledForDomain(domainId, methodCode)) {
+        if (allowedMethodCodesForDomainLanguage(domainId).contains(methodCode)) {
             return domainSourceIds;
         }
         if (methodAllowedSourceIds.isEmpty()) {
@@ -2744,9 +2786,13 @@ public class AdminConsoleService {
         if (domainId == null) {
             return;
         }
-        if (!repository.isGenerationMethodEnabledForDomain(domainId, methodCode)) {
+        Set<String> languageAllowedMethodCodes = allowedMethodCodesForDomainLanguage(domainId);
+        if (!languageAllowedMethodCodes.contains(methodCode)) {
             throw new IllegalArgumentException(
-                    "method_code " + methodCode + " is not enabled for domain_id=" + domainId
+                    "method_code " + methodCode
+                            + " is not allowed for domain source language"
+                            + " (domain_id=" + domainId
+                            + ", allowed=" + languageAllowedMethodCodes + ")"
             );
         }
         String normalizedSourceId = blankToNull(sourceId);
@@ -2858,6 +2904,16 @@ public class AdminConsoleService {
         return normalizedText.contains("ko")
                 || normalizedText.contains("kr")
                 || normalizedText.contains("korean");
+    }
+
+    private boolean isEnglishLanguage(String value) {
+        String normalized = normalizeHint(value);
+        return "en".equals(normalized) || "eng".equals(normalized) || "english".equals(normalized);
+    }
+
+    private boolean isKoreanLanguage(String value) {
+        String normalized = normalizeHint(value);
+        return "ko".equals(normalized) || "kr".equals(normalized) || "kor".equals(normalized) || "korean".equals(normalized);
     }
 
     private String normalizeHint(String value) {

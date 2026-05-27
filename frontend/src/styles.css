@@ -1399,6 +1399,8 @@ textarea:focus-visible,
 }
 
 .custom-dropdown__trigger-label {
+  flex: 1 1 auto;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -1469,9 +1471,42 @@ textarea:focus-visible,
   font-weight: 700;
 }
 
+.custom-dropdown__option-main {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+}
+
 .custom-dropdown__option-meta {
   font-size: 11px;
   color: #5f718f;
+}
+
+.custom-dropdown__badge {
+  flex: 0 0 auto;
+  border: 1px solid var(--border-subtle);
+  border-radius: 999px;
+  padding: 2px 7px;
+  background: var(--surface-muted);
+  color: var(--text-secondary);
+  font-size: 10px;
+  font-weight: 850;
+  line-height: 1.25;
+  text-transform: uppercase;
+}
+
+.custom-dropdown__badge[data-tone="success"] {
+  border-color: color-mix(in srgb, var(--success) 34%, var(--border-subtle));
+  background: var(--success-soft);
+  color: var(--success);
+}
+
+.custom-dropdown__badge[data-tone="warning"] {
+  border-color: color-mix(in srgb, var(--warning) 38%, var(--border-subtle));
+  background: var(--warning-soft);
+  color: #8a5a00;
 }
 
 .custom-dropdown__option.is-selected .custom-dropdown__option-meta {
@@ -1484,50 +1519,6 @@ textarea:focus-visible,
   background: #f7f9fc;
   color: #6d798d;
   font-size: 12px;
-}
-
-.anchor-eval-shell {
-  gap: 14px;
-  background: linear-gradient(160deg, #f8fbff 0%, #f2f6ff 100%);
-}
-
-.anchor-eval-panel {
-  border: 1px solid #cfdaf0;
-  border-radius: 14px;
-  padding: 14px;
-  background: #ffffff;
-}
-
-.anchor-eval-panel__title {
-  font-size: 13px;
-  font-weight: 800;
-  color: #1b2a44;
-  margin-bottom: 10px;
-}
-
-.anchor-eval-chip-row {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-top: 12px;
-}
-
-.anchor-eval-chip {
-  display: inline-flex;
-  align-items: center;
-  padding: 4px 10px;
-  border-radius: 999px;
-  border: 1px solid #c9d7ef;
-  background: #f1f6ff;
-  color: #1f3b63;
-  font-size: 11px;
-  font-weight: 700;
-}
-
-.anchor-eval-chip.is-loading {
-  background: #fff7e8;
-  border-color: #f0d7aa;
-  color: #8a5b16;
 }
 
 .multi-source-anchor-tracker__subtitle {
@@ -5425,7 +5416,6 @@ textarea {
 .chat-controls,
 .chat-panel,
 .chat-result,
-.anchor-eval-panel,
 .stage-card,
 .source-pick-card {
   background: var(--surface-elevated);
@@ -6013,8 +6003,7 @@ input[type="radio"]:disabled {
   border-color: rgba(255, 255, 255, 0.08);
 }
 
-.rewrite-strategy-field,
-.anchor-eval-shell {
+.rewrite-strategy-field {
   background: var(--surface-muted);
   border-color: var(--border-subtle);
 }
@@ -6109,7 +6098,6 @@ option {
 :root[data-theme="dark"] .chat-controls,
 :root[data-theme="dark"] .chat-panel,
 :root[data-theme="dark"] .chat-result,
-:root[data-theme="dark"] .anchor-eval-panel,
 :root[data-theme="dark"] .stage-card,
 :root[data-theme="dark"] .source-pick-card {
   background: var(--surface-elevated);

@@ -90,6 +90,13 @@ public class AdminConsoleRepository {
     ) {
     }
 
+    public record DomainLanguageContext(
+            UUID domainId,
+            String primaryLanguage,
+            String sourceLanguage
+    ) {
+    }
+
     public List<AdminConsoleDtos.SyntheticGenerationMethod> findGenerationMethods() {
         return findGenerationMethods(null);
     }
@@ -233,6 +240,30 @@ public class AdminConsoleRepository {
                 Integer.class
         );
         return count != null && count > 0;
+    }
+
+    public Optional<DomainLanguageContext> findDomainLanguageContext(UUID domainId) {
+        if (domainId == null) {
+            return Optional.empty();
+        }
+        String sql = """
+                SELECT domain_id,
+                       primary_language,
+                       source_language
+                FROM tech_doc_domain
+                WHERE domain_id = :domainId
+                LIMIT 1
+                """;
+        List<DomainLanguageContext> rows = jdbcTemplate.query(
+                sql,
+                new MapSqlParameterSource("domainId", domainId),
+                (rs, rowNum) -> new DomainLanguageContext(
+                        readUuid(rs, "domain_id"),
+                        rs.getString("primary_language"),
+                        rs.getString("source_language")
+                )
+        );
+        return rows.stream().findFirst();
     }
 
     public boolean sourceDocumentBelongsToDomain(UUID domainId, String documentId) {
@@ -3351,6 +3382,38 @@ public class AdminConsoleRepository {
 
     public List<AdminConsoleDtos.RagTestResultDetailRow> findRagTestDetails(UUID runId, Integer limit) {
         String sql = """
+                WITH ranked AS (
+                    SELECT DISTINCT ON (COALESCE(sample_id, detail_id::text))
+                           detail_id,
+                           rag_test_run_id,
+                           sample_id,
+                           query_category,
+                           raw_query,
+                           rewrite_query,
+                           rewrite_applied,
+                           memory_candidates,
+                           rewrite_candidates,
+                           retrieved_chunks,
+                           metric_contribution,
+                           hit_target,
+                           created_at
+                    FROM rag_test_result_detail
+                    WHERE rag_test_run_id = :runId
+                    ORDER BY
+                        COALESCE(sample_id, detail_id::text),
+                        CASE
+                            WHEN jsonb_typeof(rewrite_candidates) = 'array' AND jsonb_array_length(rewrite_candidates) > 0 THEN 0
+                            WHEN jsonb_typeof(rewrite_candidates) = 'object' AND rewrite_candidates <> '{}'::jsonb THEN 0
+                            ELSE 1
+                        END,
+                        CASE
+                            WHEN jsonb_typeof(memory_candidates) = 'array' AND jsonb_array_length(memory_candidates) > 0 THEN 0
+                            WHEN jsonb_typeof(memory_candidates) = 'object' AND memory_candidates <> '{}'::jsonb THEN 0
+                            ELSE 1
+                        END,
+                        CASE WHEN rewrite_applied IS TRUE THEN 0 ELSE 1 END,
+                        created_at
+                )
                 SELECT detail_id,
                        rag_test_run_id,
                        sample_id,
@@ -3363,8 +3426,7 @@ public class AdminConsoleRepository {
                        retrieved_chunks::text AS retrieved_chunks,
                        metric_contribution::text AS metric_contribution,
                        hit_target
-                FROM rag_test_result_detail
-                WHERE rag_test_run_id = :runId
+                FROM ranked
                 ORDER BY
                     NULLIF(substring(sample_id from '([0-9]+)$'), '')::numeric NULLS LAST,
                     sample_id NULLS LAST,

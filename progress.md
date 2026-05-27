@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-05-27] Session Summary (Admin Domain Method and RAG Detail Dropdown)
+- What was done: Removed the Pipeline Monitor Anchor Eval section, changed Admin synthetic method availability to follow domain source language (`en` -> A/B/C/D/E, `ko` -> F/G), and added rewrite applied/skipped badges plus sample-level dedupe to the RAG detail query selector.
+- Key decisions: Domain source language is now the backend source of truth for synthetic method listing/run validation in domain workspaces, while legacy global source allowlists remain for unscoped runs. RAG detail lookup now returns one representative row per sample and the frontend keeps a defensive dedupe pass.
+- Issues encountered: Targeted frontend ESLint passed with existing hook dependency warnings in `PipelinePage.jsx` and `RagPage.jsx`; backend `compileJava` and frontend production build passed.
+- Next steps: Browser-smoke English and Korean domain Synthetic Query Studio method lists plus a completed RAG detail modal with 80-sample datasets.
+
 ## [2026-05-27] Session Summary (RAG Detail Modal Name and Dropdown)
 - What was done: Changed the Admin RAG run detail modal title to use the configured RAG test name instead of the shortened DB UUID, replaced the native query-analysis selector with the shared searchable custom dropdown, removed the scroll-to-top action, and refreshed the backend-served React bundle.
 - Key decisions: Reused `SelectDropdown` with a new `allowClear` option so existing dropdowns keep their clear behavior while the query selector stays single-choice only. Scoped selected-state styling to the RAG detail selector to avoid the previous native/yellow selected appearance in light and dark themes.

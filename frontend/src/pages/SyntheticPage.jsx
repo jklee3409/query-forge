@@ -84,9 +84,10 @@ function allowedSyntheticSourceIds(methodCode) {
   return []
 }
 
-function isSourceAllowedForMethod(sourceId, methodCode) {
+function isSourceAllowedForMethod(sourceId, methodCode, domainScoped = false) {
   const normalizedSourceId = normalizeSourceId(sourceId)
   if (!normalizedSourceId || isHiddenSyntheticSource(normalizedSourceId)) return false
+  if (domainScoped) return true
   const allowedIds = allowedSyntheticSourceIds(methodCode)
   return allowedIds.length === 0 || allowedIds.includes(normalizedSourceId)
 }
@@ -95,8 +96,9 @@ function sanitizeSyntheticSources(rows) {
   return (Array.isArray(rows) ? rows : []).filter((source) => source?.sourceId && !isHiddenSyntheticSource(source.sourceId))
 }
 
-function sourcesForMethod(rows, methodCode) {
+function sourcesForMethod(rows, methodCode, domainScoped = false) {
   const sanitized = sanitizeSyntheticSources(rows)
+  if (domainScoped) return sanitized
   const allowedIds = allowedSyntheticSourceIds(methodCode)
   if (allowedIds.length === 0) return sanitized
   const rank = new Map(allowedIds.map((sourceId, index) => [sourceId, index]))
@@ -105,7 +107,12 @@ function sourcesForMethod(rows, methodCode) {
     .sort((left, right) => (rank.get(left.sourceId) ?? 999) - (rank.get(right.sourceId) ?? 999))
 }
 
-function scopeHintForMethod(methodCode, sourceCount) {
+function scopeHintForMethod(methodCode, sourceCount, domainScoped = false) {
+  if (domainScoped) {
+    const scope = syntheticSourceScope(methodCode)
+    if (scope === 'python') return `한글 기술 문서 도메인에서 F/G 전략 대상 소스 ${sourceCount}개를 사용합니다.`
+    if (scope === 'spring') return `영어 기술 문서 도메인에서 A/B/C/D/E 전략 대상 소스 ${sourceCount}개를 사용합니다.`
+  }
   const scope = syntheticSourceScope(methodCode)
   if (scope === 'python') return `F/G 전략은 Python KR 공식 문서 ${sourceCount}개만 사용합니다.`
   if (scope === 'spring') return `A/B/C/D/E 전략은 Spring 공식 레퍼런스 ${sourceCount}개만 사용합니다.`
@@ -335,10 +342,10 @@ export function SyntheticPage({ notify, domainId = null }) {
 
   useEffect(() => {
     setRunForm((prev) => {
-      if (!prev.sourceId || isSourceAllowedForMethod(prev.sourceId, prev.methodCode)) return prev
+      if (!prev.sourceId || isSourceAllowedForMethod(prev.sourceId, prev.methodCode, Boolean(domainId))) return prev
       return { ...prev, sourceId: '', sourceDocumentId: '' }
     })
-  }, [runForm.methodCode, sources])
+  }, [runForm.methodCode, sources, domainId])
 
   const buildRunRequestBody = () => {
     const baseBody = {
@@ -356,13 +363,13 @@ export function SyntheticPage({ notify, domainId = null }) {
       const sourceId = normalizeSourceId(runForm.sourceId)
       return {
         ...baseBody,
-        sourceId: sourceId && isSourceAllowedForMethod(sourceId, runForm.methodCode) ? sourceId : null,
+        sourceId: sourceId && isSourceAllowedForMethod(sourceId, runForm.methodCode, Boolean(domainId)) ? sourceId : null,
         sourceDocumentId: runForm.sourceDocumentId,
       }
     }
     if (runForm.sourceId) {
       const sourceId = normalizeSourceId(runForm.sourceId)
-      if (!isSourceAllowedForMethod(sourceId, runForm.methodCode)) return null
+      if (!isSourceAllowedForMethod(sourceId, runForm.methodCode, Boolean(domainId))) return null
       return { ...baseBody, sourceId, sourceDocumentId: null }
     }
     return { ...baseBody, sourceId: null, sourceDocumentId: null }
@@ -488,10 +495,10 @@ export function SyntheticPage({ notify, domainId = null }) {
   const total = byMethod.reduce((sum, item) => sum + Number(item.count || 0), 0)
   const queryFilterBatchOptions = batches.filter(isBatchSelectableInQueryFilter)
   const runMethodOptions = methods.length > 0 ? methods : runMethods
-  const availableSources = sourcesForMethod(sources, runForm.methodCode)
+  const availableSources = sourcesForMethod(sources, runForm.methodCode, Boolean(domainId))
   const selectedSourceCount = runForm.sourceDocumentId || runForm.sourceId ? 1 : availableSources.length
   const selectedMethodMeta = strategyMeta({ methodCode: runForm.methodCode })
-  const sourceScopeHint = scopeHintForMethod(runForm.methodCode, selectedSourceCount)
+  const sourceScopeHint = scopeHintForMethod(runForm.methodCode, selectedSourceCount, Boolean(domainId))
   const chunkSamplingLabel = runForm.chunkSamplingMode === 'random' ? '랜덤 샘플링 선택됨' : '문서 순서 샘플링 선택됨'
   const methodCountMap = new Map(byMethod.map((item) => [String(item.method_code || item.methodCode || '').toUpperCase(), Number(item.count || 0)]))
   const batchStatusOptions = Array.from(new Set(batches.map((batch) => compactStatus(batch.status)).filter(Boolean))).sort()
@@ -567,7 +574,7 @@ export function SyntheticPage({ notify, domainId = null }) {
                   className={`strategy-selector-card ${selected ? 'is-selected' : ''}`}
                   data-accent={meta.accent}
                   onClick={() => setRunForm((prev) => {
-                    const sourceAllowed = !prev.sourceId || isSourceAllowedForMethod(prev.sourceId, method.methodCode)
+                    const sourceAllowed = !prev.sourceId || isSourceAllowedForMethod(prev.sourceId, method.methodCode, Boolean(domainId))
                     return {
                       ...prev,
                       methodCode: method.methodCode,

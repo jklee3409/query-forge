@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-05-27] Session Summary (Pipeline Anchor Eval Removal and RAG Dropdown Tags)
+- What was done: Removed the `/admin/pipeline` Anchor Eval section/state/styles, updated `/admin/synthetic-queries` domain workspaces so source selection no longer applies legacy Spring/Python hard allowlists, and added rewrite applied/skipped badges plus sample-level dedupe to the `/admin/rag-tests` detail query dropdown.
+- Key decisions: Domain method availability is served by the backend based on domain source language; the frontend now trusts that domain-scoped method list and only filters hidden sources locally. `SelectDropdown` gained optional per-option badges for the RAG rewrite status tag.
+- Issues encountered: `npm exec eslint -- src/pages/PipelinePage.jsx src/pages/SyntheticPage.jsx src/pages/RagPage.jsx src/components/SelectDropdown.jsx` passed with existing hook dependency warnings. `npm run build` passed and refreshed the backend static bundle.
+- Next steps: Browser-smoke Pipeline Monitor, English/Korean Synthetic Query Studio domain workspaces, and an 80-sample RAG detail modal.
+
 ## [2026-05-27] Session Summary (RAG Detail Modal Name and Dropdown)
 - What was done: Updated `/admin/rag-tests` run detail modal titles to show the configured RAG test name instead of the shortened DB UUID, replaced the native query-analysis select with the shared searchable dropdown, and removed the sticky `최상단으로` button.
 - Key decisions: Added an `allowClear` prop to `SelectDropdown` so the RAG query selector can disable the generic clear option without changing existing filter dropdown behavior. Scoped the selector styling so selected options use the Admin accent treatment instead of the old native/yellow appearance.

@@ -82,6 +82,11 @@ export function SelectDropdown({
         disabled={disabled}
       >
         <span className="custom-dropdown__trigger-label">{selected?.label || placeholder}</span>
+        {selected?.badgeLabel && (
+          <span className="custom-dropdown__badge" data-tone={selected.badgeTone || 'neutral'}>
+            {selected.badgeLabel}
+          </span>
+        )}
         <span className="custom-dropdown__caret" aria-hidden="true">▾</span>
       </button>
       {open && (
@@ -112,7 +117,14 @@ export function SelectDropdown({
                   className={`custom-dropdown__option ${option.value === value ? 'is-selected' : ''}`}
                   onClick={() => choose(option.value)}
                 >
-                  <span className="custom-dropdown__option-label">{option.label}</span>
+                  <span className="custom-dropdown__option-main">
+                    <span className="custom-dropdown__option-label">{option.label}</span>
+                    {option.badgeLabel && (
+                      <span className="custom-dropdown__badge" data-tone={option.badgeTone || 'neutral'}>
+                        {option.badgeLabel}
+                      </span>
+                    )}
+                  </span>
                   {option.meta && <span className="custom-dropdown__option-meta">{option.meta}</span>}
                 </button>
               ))

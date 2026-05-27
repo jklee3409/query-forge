@@ -34,6 +34,7 @@
 ---
 
 ## Recent Update
+- `/admin/pipeline` no longer renders the Anchor Eval section. `/admin/synthetic-queries` domain workspaces use domain source language for method availability (`en` -> A/B/C/D/E, `ko` -> F/G), and `/admin/rag-tests` detail query dropdowns show rewrite applied/skipped badges while de-duplicating repeated sample rows.
 - `/admin/rag-tests` RAG run detail modal now uses the configured test name in the title instead of a shortened DB UUID, uses the shared custom searchable dropdown for `질의 분석 보기`, and no longer renders the sticky `최상단으로` action.
 - `/admin/rag-tests` now supports deleting non-default evaluation datasets, trims noisy comparison-table helper text, removes Hallucination Rate/Answer Relevance from the detailed comparison metrics, and renders RAG run details one query at a time through a `질의 분석 보기` dropdown.
 - `/admin/rag-tests` detail cards now keep rewrite-skipped samples' LLM rewrite candidates and recommended synthetic candidates visible by default, cap recommended-candidate tags to three, simplify canonical anchor metadata, remove the Rewrite Anchor Analysis Grounding column, and hide completed ETA `KST`/progress-count clutter.
@@ -64,7 +65,7 @@
 - Shared admin UI primitives were added in `src/components/AdminUi.jsx` for section headers, metric cards, strategy flows, progress metrics, batch cards, experiment sections, config summaries, balance bars, empty states, and confirm dialogs.
 - `/admin/synthetic-queries` run form now resolves method dropdown from context-aware backend options (`/api/admin/console/synthetic/methods?source_id=...&source_document_id=...`), so Spring sources expose `A~E` and Python KR source exposes `F/G` only.
 - `/admin/rag-tests` 실행 상세 모달은 샘플별 `원본 질의`와 `최종 재작성 합성 질의`를 기본 화면에 우선 노출하고, 나머지 지표/후보/청크 로그는 드롭다운(Disclosure)으로 접어서 확인하는 구조로 재구성되었다.
-- Admin pages now use section-scoped lazy loading for secondary data areas: `/admin/pipeline` Anchors + Anchor Eval history, `/admin/synthetic-queries` LLM jobs, `/admin/quality-gating` LLM jobs, and `/admin/rag-tests` rewrite logs + LLM jobs are fetched on demand instead of at initial mount.
+- Admin pages now use section-scoped lazy loading for secondary data areas: `/admin/pipeline` Anchors, `/admin/synthetic-queries` LLM jobs, `/admin/quality-gating` LLM jobs, and `/admin/rag-tests` rewrite logs + LLM jobs are fetched on demand instead of at initial mount.
 - `/admin/pipeline` now includes a paginated `Anchors` section with document/chunk/keyword filtering, and document/chunk filters use a custom searchable dropdown UI (`SelectDropdown`) instead of native select boxes.
 - `/admin/rag-tests` now has a `Test Name` input wired to backend `runName`, defaults `Retrieval Top-K` to `10`, and shows configured/legacy-stable names in run history and comparison UI instead of relying on generic Run A/Run B labels.
 - `/admin/rag-tests` retriever controls now use fixed mode presets: dense model is read-only (`intfloat/multilingual-e5-small`), Dense Required/Hash Fallback/Cohere Rerank checkboxes are removed, candidate pool is fixed at `50`, and mode weights are BM25 `0/1/0`, Dense `1/0/0`, Hybrid `0.60/0.32/0.08`.

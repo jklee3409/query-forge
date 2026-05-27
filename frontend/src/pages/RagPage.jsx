@@ -993,12 +993,49 @@ function detailRowKey(row, index = 0) {
   return String(row?.detailId || row?.sampleId || `detail-${index}`)
 }
 
+function detailSampleKey(row, index = 0) {
+  const sampleId = String(row?.sampleId || '').trim()
+  return sampleId || detailRowKey(row, index)
+}
+
+function detailPayloadScore(row) {
+  let score = 0
+  if (hasDetailPayload(parseDetailPayload(row?.rewriteCandidates))) score += 8
+  if (hasDetailPayload(parseDetailPayload(row?.memoryCandidates))) score += 4
+  if (row?.rewriteApplied) score += 2
+  if (hasDetailPayload(parseDetailPayload(row?.anchorEvaluations))) score += 1
+  return score
+}
+
+function dedupeRagDetailRows(details) {
+  const rows = Array.isArray(details) ? details : []
+  const bySample = new Map()
+  rows.forEach((row, index) => {
+    const sampleKey = detailSampleKey(row, index)
+    const current = bySample.get(sampleKey)
+    const score = detailPayloadScore(row)
+    if (!current || score > current.score) {
+      bySample.set(sampleKey, {
+        row,
+        score,
+        order: current?.order ?? index,
+      })
+    }
+  })
+  return Array.from(bySample.values())
+    .sort((left, right) => left.order - right.order)
+    .map((entry) => entry.row)
+}
+
 function buildQueryDetailOption(row, index) {
   const queryText = compactText(row?.rawQuery || row?.rewriteQuery || '-', 96)
+  const rewriteApplied = Boolean(row?.rewriteApplied)
   return {
     value: detailRowKey(row, index),
     label: `#${index + 1} · ${row?.sampleId || `sample-${index + 1}`}`,
     meta: `${row?.queryCategory || '-'} · ${queryText}`,
+    badgeLabel: rewriteApplied ? 'applied' : 'skipped',
+    badgeTone: rewriteApplied ? 'success' : 'warning',
   }
 }
 
@@ -1072,7 +1109,7 @@ function RagRunDetailModalBody({
   anchorEnabled,
   multiSourceEnabled,
 }) {
-  const rows = useMemo(() => (Array.isArray(details) ? details : []), [details])
+  const rows = useMemo(() => dedupeRagDetailRows(details), [details])
   const [selectedKey, setSelectedKey] = useState(() => detailRowKey(rows[0], 0))
   const detailOptions = useMemo(
     () => rows.map((row, index) => buildQueryDetailOption(row, index)),
