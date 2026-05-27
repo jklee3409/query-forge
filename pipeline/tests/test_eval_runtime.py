@@ -457,11 +457,15 @@ class EvalRuntimeRewriteTests(unittest.TestCase):
     def test_rewrite_payload_contains_anchor_candidates(self) -> None:
         class _FakeRewriteClient:
             def __init__(self) -> None:
-                self.last_user_prompt = ""
+                self.user_prompts: list[str] = []
 
             def chat_json(self, **kwargs):
-                self.last_user_prompt = str(kwargs.get("user_prompt") or "")
-                return {"candidates": [{"label": "explicit_standalone", "query": "DigestAuthenticationFilter 설정 포인트"}]}
+                user_prompt = str(kwargs.get("user_prompt") or "")
+                self.user_prompts.append(user_prompt)
+                payload = json.loads(user_prompt)
+                if payload.get("candidate_policy", {}).get("mode") == "memory_expanded":
+                    return {"candidates": [{"label": "expanded", "query": "DigestAuthenticationFilter 설정 포인트"}]}
+                return {"candidates": [{"label": "standalone", "query": "Security DigestAuthenticationFilter 같이 쓸때 포인트"}]}
 
         fake_client = _FakeRewriteClient()
         memory_rows = [
@@ -492,7 +496,7 @@ class EvalRuntimeRewriteTests(unittest.TestCase):
                 "Security DigestAuthenticationFilter 같이 쓸때 포인트?",
                 memory_rows,
                 session_context={},
-                candidate_count=1,
+                candidate_count=2,
                 query_language="ko",
                 rewrite_terminology_hints_max_count=3,
                 retrieval_context={
@@ -502,10 +506,39 @@ class EvalRuntimeRewriteTests(unittest.TestCase):
                     "dense_embedding_model": "intfloat/multilingual-e5-small",
                     "fusion_weights": {"dense": 0.6, "bm25": 0.32, "technical": 0.08},
                 },
+                raw_retrieval_context=[
+                    {
+                        "rank": 1,
+                        "technical_terms": ["DigestAuthenticationFilter"],
+                        "text_preview": "DigestAuthenticationFilter config",
+                    }
+                ],
+                domain_context=runtime._rewrite_domain_context("spring-security"),
+                trusted_memory_items=[{**memory_rows[0], "source_memory_index": 1}],
             )
 
-        self.assertEqual(len(candidates), 1)
-        payload = json.loads(fake_client.last_user_prompt)
+        self.assertEqual(len(candidates), 2)
+        self.assertEqual(candidates[0]["label"], "standalone")
+        self.assertEqual(candidates[0]["source_memory_index"], 0)
+        self.assertEqual(candidates[0]["added_anchors"], [])
+        standalone_payload = json.loads(fake_client.user_prompts[0])
+        self.assertEqual(standalone_payload.get("candidate_policy", {}).get("mode"), "raw_standalone")
+        self.assertEqual(standalone_payload.get("top_memory_candidates"), [])
+        self.assertEqual(
+            standalone_payload.get("raw_retrieval_context", [{}])[0].get("technical_terms"),
+            ["DigestAuthenticationFilter"],
+        )
+        domain_context = standalone_payload.get("domain_context") or {}
+        self.assertEqual(domain_context.get("current_technical_domain"), "Spring")
+        self.assertIn(
+            {"ko": "보안", "en": "Spring Security"},
+            domain_context.get("ko_to_en_term_examples") or [],
+        )
+        self.assertNotIn("anchor_candidates", standalone_payload)
+        self.assertNotIn("terminology_hints", standalone_payload)
+
+        payload = json.loads(fake_client.user_prompts[1])
+        self.assertEqual(payload.get("candidate_policy", {}).get("mode"), "memory_expanded")
         anchor_candidates = payload.get("anchor_candidates") or []
         anchor_terms = payload.get("anchor_terms") or []
         terminology_hints = payload.get("terminology_hints") or {}
@@ -540,6 +573,66 @@ class EvalRuntimeRewriteTests(unittest.TestCase):
         self.assertNotIn("memory_id", memory_prompt_row)
         self.assertNotIn("target_doc_id", memory_prompt_row)
         self.assertNotIn("target_chunk_ids", memory_prompt_row)
+
+    def test_standalone_candidate_drops_memory_anchor_contamination(self) -> None:
+        class _FakeRewriteClient:
+            def chat_json(self, **kwargs):
+                return {
+                    "candidates": [
+                        {
+                            "label": "standalone",
+                            "query": "현재 트랜잭션 커밋됨 PostgreSQL SAVEPOINT",
+                        }
+                    ]
+                }
+
+        raw_query = "현재 트랜잭션 커밋됨?"
+        with patch.object(runtime, "_REWRITE_PROMPT_TEXT", "rewrite prompt for test"), patch.object(
+            runtime,
+            "_rewrite_client",
+            return_value=_FakeRewriteClient(),
+        ):
+            candidates = runtime.build_rewrite_candidates_v2(
+                raw_query,
+                [{"query_text": "PostgreSQL SAVEPOINT transaction rollback"}],
+                session_context={},
+                candidate_count=1,
+                query_language="ko",
+                trusted_memory_items=[],
+            )
+
+        self.assertEqual(candidates[0]["label"], "standalone")
+        self.assertEqual(candidates[0]["query"], raw_query)
+        self.assertEqual(candidates[0]["added_anchors"], [])
+
+    def test_standalone_candidate_keeps_raw_retrieval_evidence_terms(self) -> None:
+        class _FakeRewriteClient:
+            def chat_json(self, **kwargs):
+                return {
+                    "candidates": [
+                        {
+                            "label": "standalone",
+                            "query": "현재 트랜잭션 SAVEPOINT",
+                        }
+                    ]
+                }
+
+        with patch.object(runtime, "_REWRITE_PROMPT_TEXT", "rewrite prompt for test"), patch.object(
+            runtime,
+            "_rewrite_client",
+            return_value=_FakeRewriteClient(),
+        ):
+            candidates = runtime.build_rewrite_candidates_v2(
+                "현재 트랜잭션?",
+                [{"query_text": "PostgreSQL SAVEPOINT transaction rollback"}],
+                session_context={},
+                candidate_count=1,
+                query_language="ko",
+                raw_retrieval_context=[{"technical_terms": ["SAVEPOINT"]}],
+                trusted_memory_items=[],
+            )
+
+        self.assertEqual(candidates[0]["query"], "현재 트랜잭션 SAVEPOINT")
 
     def test_memory_rerank_prefers_raw_overlap_and_domain_match(self) -> None:
         raw_retrieval = [
@@ -586,6 +679,136 @@ class EvalRuntimeRewriteTests(unittest.TestCase):
         self.assertGreater(reranked[0]["memory_rerank_score"], reranked[1]["memory_rerank_score"])
         self.assertEqual(reranked[0]["memory_rank_before"], 2)
         self.assertEqual(reranked[0]["memory_rank_after"], 1)
+
+    def test_selective_rewrite_passes_only_trusted_memory_to_candidate_builder(self) -> None:
+        raw_query = "현재 트랜잭션 커밋됨?"
+        captured: dict[str, object] = {}
+
+        def fake_retrieve(query_text: str, *args, **kwargs):
+            return [
+                runtime.RetrievalCandidate(
+                    chunk_id="chunk-end",
+                    document_id="doc-end",
+                    score=0.65,
+                    text="END commits the current transaction",
+                )
+            ]
+
+        def fake_memory(query_text: str, *args, **kwargs):
+            return [
+                {
+                    "memory_id": "m-savepoint",
+                    "query_text": "PostgreSQL에서 savepoint는 무엇이며 트랜잭션 상태를 어떻게 복원하나요?",
+                    "target_doc_id": "doc-savepoint",
+                    "target_chunk_ids": ["chunk-savepoint"],
+                    "similarity": 0.98,
+                    "utility_score": 0.85,
+                    "product": "postgresql",
+                },
+                {
+                    "memory_id": "m-end",
+                    "query_text": "PostgreSQL END 명령은 현재 트랜잭션을 어떻게 커밋하나요?",
+                    "target_doc_id": "doc-end",
+                    "target_chunk_ids": ["chunk-end"],
+                    "similarity": 0.20,
+                    "utility_score": 0.70,
+                    "product": "postgresql",
+                },
+            ]
+
+        def fake_builder(*args, **kwargs):
+            captured["trusted_memory_items"] = kwargs.get("trusted_memory_items")
+            captured["domain_context"] = kwargs.get("domain_context")
+            return [{"label": "standalone", "query": "현재 트랜잭션 커밋"}]
+
+        with patch.object(runtime, "retrieve_top_k", side_effect=fake_retrieve), patch.object(
+            runtime,
+            "memory_top_n",
+            side_effect=fake_memory,
+        ), patch.object(runtime, "build_rewrite_candidates_v2", side_effect=fake_builder):
+            runtime.run_selective_rewrite(
+                raw_query=raw_query,
+                query_language="ko",
+                session_context={},
+                chunks=[],
+                memories=[],
+                memory_top_n_value=2,
+                candidate_count=2,
+                threshold=0.01,
+                retrieval_top_k=5,
+                source_product="postgresql",
+                retriever_config=build_retriever_config({"dense_fallback_enabled": True}),
+                rewrite_adoption_policy={"thresholds": {"preservation_floor": 0.0}},
+            )
+
+        trusted = captured.get("trusted_memory_items")
+        self.assertIsInstance(trusted, list)
+        self.assertEqual([row["memory_id"] for row in trusted], ["m-end"])
+        self.assertEqual(trusted[0]["source_memory_index"], 1)
+        domain_context = captured.get("domain_context") or {}
+        self.assertEqual(domain_context.get("current_technical_domain"), "PostgreSQL")
+        self.assertIn("Postgres", domain_context.get("domain_aliases") or [])
+        example_terms = {item.get("en") for item in domain_context.get("ko_to_en_term_examples") or []}
+        self.assertIn("Transaction", example_terms)
+        self.assertIn("COMMIT current transaction", example_terms)
+
+    def test_standalone_scoring_ignores_trusted_memory_anchor_requirements(self) -> None:
+        raw_query = "보안 보통 어떻게 씀?"
+
+        def fake_retrieve(query_text: str, *args, **kwargs):
+            score = 0.58 if query_text != raw_query else 0.56
+            return [
+                runtime.RetrievalCandidate(
+                    chunk_id="chunk-password",
+                    document_id="doc-password",
+                    score=score,
+                    text="DelegatingPasswordEncoder password storage",
+                )
+            ]
+
+        def fake_memory(query_text: str, *args, **kwargs):
+            return [
+                {
+                    "memory_id": "m-password",
+                    "query_text": "DelegatingPasswordEncoder에서 비밀번호 매칭은 어떻게 동작하나요?",
+                    "target_doc_id": "doc-password",
+                    "target_chunk_ids": ["chunk-password"],
+                    "similarity": 0.9,
+                    "utility_score": 0.9,
+                    "product": "spring-security",
+                    "glossary_terms": ["DelegatingPasswordEncoder"],
+                }
+            ]
+
+        def fake_builder(*args, **kwargs):
+            return [{"label": "standalone", "query": "보안 사용 방법"}]
+
+        with patch.object(runtime, "retrieve_top_k", side_effect=fake_retrieve), patch.object(
+            runtime,
+            "memory_top_n",
+            side_effect=fake_memory,
+        ), patch.object(runtime, "build_rewrite_candidates_v2", side_effect=fake_builder):
+            outcome, _retrieval = runtime.run_selective_rewrite(
+                raw_query=raw_query,
+                query_language="ko",
+                session_context={},
+                chunks=[],
+                memories=[],
+                memory_top_n_value=1,
+                candidate_count=1,
+                threshold=0.05,
+                retrieval_top_k=5,
+                source_product="spring-security",
+                retriever_config=build_retriever_config({"dense_fallback_enabled": True}),
+                rewrite_adoption_policy={"thresholds": {"preservation_floor": 0.0}},
+            )
+
+        candidate = outcome.candidates[0]
+        self.assertEqual(candidate["label"], "standalone")
+        self.assertEqual(candidate["terminology_preservation_score"], 1.0)
+        self.assertEqual(candidate["preservation_penalty"], 0.0)
+        self.assertEqual(candidate["memory_target_missing_penalty"], 0.0)
+        self.assertEqual(candidate["memory_target_tokens"], [])
 
     def test_rewrite_payload_skips_anchor_when_disabled(self) -> None:
         class _FakeRewriteClient:
@@ -634,10 +857,10 @@ class EvalRuntimeRewriteTests(unittest.TestCase):
     def test_rewrite_candidate_count_is_capped_for_v3_contract(self) -> None:
         class _FakeRewriteClient:
             def __init__(self) -> None:
-                self.last_user_prompt = ""
+                self.user_prompts: list[str] = []
 
             def chat_json(self, **kwargs):
-                self.last_user_prompt = str(kwargs.get("user_prompt") or "")
+                self.user_prompts.append(str(kwargs.get("user_prompt") or ""))
                 return {
                     "candidates": [
                         {"label": "standalone", "query": "query one"},
@@ -654,25 +877,30 @@ class EvalRuntimeRewriteTests(unittest.TestCase):
         ):
             candidates = runtime.build_rewrite_candidates_v2(
                 "probe 차이",
-                [],
+                [{"query_text": "probe readiness 차이", "source_memory_index": 1}],
                 session_context={},
                 candidate_count=3,
                 query_language="ko",
                 rewrite_anchor_injection_enabled=False,
+                trusted_memory_items=[{"query_text": "probe readiness 차이", "source_memory_index": 1}],
             )
 
         self.assertEqual(len(candidates), 2)
-        payload = json.loads(fake_client.last_user_prompt)
-        self.assertEqual(payload["candidate_count"], 2)
+        self.assertEqual([json.loads(prompt)["candidate_count"] for prompt in fake_client.user_prompts], [1, 1])
+        self.assertEqual([candidate["label"] for candidate in candidates], ["standalone", "expanded"])
 
     def test_rewrite_payload_includes_multi_source_anchor_hints_when_enabled(self) -> None:
         class _FakeRewriteClient:
             def __init__(self) -> None:
-                self.last_user_prompt = ""
+                self.user_prompts: list[str] = []
 
             def chat_json(self, **kwargs):
-                self.last_user_prompt = str(kwargs.get("user_prompt") or "")
-                return {"candidates": [{"label": "explicit_standalone", "query": "DigestAuthenticationFilter SecurityFilterChain"}]}
+                user_prompt = str(kwargs.get("user_prompt") or "")
+                self.user_prompts.append(user_prompt)
+                payload = json.loads(user_prompt)
+                if payload.get("candidate_policy", {}).get("mode") == "memory_expanded":
+                    return {"candidates": [{"label": "expanded", "query": "DigestAuthenticationFilter SecurityFilterChain"}]}
+                return {"candidates": [{"label": "standalone", "query": "DigestAuthenticationFilter order"}]}
 
         fake_client = _FakeRewriteClient()
         index = runtime.MultiSourceAnchorIndex(
@@ -725,14 +953,15 @@ class EvalRuntimeRewriteTests(unittest.TestCase):
         ):
             runtime.build_rewrite_candidates_v2(
                 "DigestAuthenticationFilter order",
-                [],
+                [{"query_text": "DigestAuthenticationFilter order", "source_memory_index": 1}],
                 session_context={},
-                candidate_count=1,
+                candidate_count=2,
                 query_language="en",
                 multi_source_anchor_hints=hints,
+                trusted_memory_items=[{"query_text": "DigestAuthenticationFilter order", "source_memory_index": 1}],
             )
 
-        payload = json.loads(fake_client.last_user_prompt)
+        payload = json.loads(fake_client.user_prompts[1])
         multi_source_hints = payload.get("multi_source_anchor_hints") or {}
         self.assertIn("SecurityFilterChain", multi_source_hints.get("terms") or [])
         self.assertEqual(multi_source_hints.get("priority"), "low")
@@ -848,6 +1077,34 @@ class EvalRuntimeRewriteTests(unittest.TestCase):
         self.assertEqual(runtime_stats.get("llm_failure_count"), 1)
         self.assertEqual(runtime_stats.get("heuristic_fallback_count"), 1)
 
+    def test_rewrite_heuristic_fallback_does_not_use_untrusted_memory(self) -> None:
+        class _FailingRewriteClient:
+            def chat_json(self, **kwargs):
+                raise RuntimeError("rewrite llm failed")
+
+        runtime_stats: dict[str, int] = {}
+        with patch.object(runtime, "_REWRITE_PROMPT_TEXT", "rewrite prompt for test"), patch.object(
+            runtime,
+            "_rewrite_client",
+            return_value=_FailingRewriteClient(),
+        ):
+            candidates = runtime.build_rewrite_candidates_v2(
+                "현재 트랜잭션 커밋됨?",
+                [{"query_text": "PostgreSQL SAVEPOINT transaction rollback"}],
+                session_context={},
+                candidate_count=2,
+                query_language="ko",
+                rewrite_failure_policy="heuristic_fallback",
+                rewrite_runtime_stats=runtime_stats,
+                trusted_memory_items=[],
+            )
+
+        self.assertEqual(len(candidates), 1)
+        self.assertEqual(candidates[0]["label"], "standalone")
+        self.assertNotIn("SAVEPOINT", candidates[0]["query"])
+        self.assertEqual(candidates[0]["source_memory_index"], 0)
+        self.assertEqual(runtime_stats.get("heuristic_fallback_count"), 1)
+
     def test_selective_rewrite_rejects_candidate_with_terminology_loss(self) -> None:
         raw_query = "DigestAuthenticationFilter 설정 방법"
         candidate_query = "security filter configuration guide"
@@ -936,6 +1193,8 @@ class EvalRuntimeRewriteTests(unittest.TestCase):
                 {
                     "memory_id": "m-canonical",
                     "query_text": "Spring Framework guide",
+                    "target_doc_id": "doc-raw",
+                    "target_chunk_ids": ["raw"],
                     "similarity": 0.0,
                     "product": "spring-framework",
                     "glossary_terms": [],

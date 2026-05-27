@@ -35,6 +35,8 @@
 ---
 
 ## Recent Notes
+- `prompts/rewrite/selective_rewrite_v3.md` now consumes runtime `domain_context` so Korean technical terms are rewritten into active-domain English documentation terms, with few-shots for Spring, PostgreSQL, and Kubernetes short queries.
+- `prompts/rewrite/selective_rewrite_v3.md` now accepts `candidate_policy`: `raw_standalone` ignores synthetic memory/anchor hints but can use raw-retrieval evidence terms, while `memory_expanded` may use only trusted evidence-compatible memory anchors.
 - `prompts/rewrite/selective_rewrite_v3.md` is the active lightweight Korean/code-mixed rewrite prompt with simplified inputs, maximum two candidates, no required `intent_risk`, and three compact few-shot examples for safe hybrid retrieval query rewriting.
 - `app/sources/postgresql-docs-current.yaml` and `app/sources/postgis-docs-current.yaml` define the official English PostgreSQL-domain corpus sources used for the 2026-05-26 collection/import run.
 - `app/model_catalog.yml` now owns Admin RAG retriever mode defaults (`retriever_mode_defaults`) and rewrite memory candidate pool defaults, so frontend controls and backend omitted-field behavior are both hydrated from runtime options.

@@ -3,6 +3,18 @@
 ## Overview
 High-level progress tracking for the project.
 
+## [2026-05-27] Session Summary (Domain-Aware Selective Rewrite v3)
+- What was done: Updated `prompts/rewrite/selective_rewrite_v3.md` to consume `domain_context` and instruct the LLM to translate Korean technical terms into domain-appropriate English documentation terms.
+- Key decisions: Added few-shot examples for Spring and PostgreSQL short Korean queries, including `트랜잭션 -> Transaction` and PostgreSQL `COMMIT` recovery from raw retrieval evidence.
+- Issues encountered: Prompt validation is static/targeted only; no live LLM prompt run was executed.
+- Next steps: Inspect real prompt payloads and rejected rewrite cases after the next fixed-snapshot RAG rerun.
+
+## [2026-05-27] Session Summary (Selective Rewrite v3 Candidate Policy)
+- What was done: Rewrote `prompts/rewrite/selective_rewrite_v3.md` around `candidate_policy`, raw-retrieval evidence, and separate raw-standalone vs trusted-memory-expanded examples.
+- Key decisions: `raw_standalone` ignores synthetic memory hints but may use exact terms from raw-query retrieval evidence; `memory_expanded` may use trusted memory anchors only when they clearly match raw intent.
+- Issues encountered: Run `76c16e3b-e92a-4b01-8b3f-10859adb2c8b` showed that generic Korean paraphrases were not enough to cross rewrite adoption thresholds.
+- Next steps: Inspect real rewrite payloads to confirm standalone prompts recover evidence-backed exact technical terms without copying synthetic memory anchors.
+
 ## [2026-05-26] Session Summary (Selective Rewrite v3 Activation)
 - What was done: Marked `prompts/rewrite/selective_rewrite_v3.md` active as the lightweight Korean/code-mixed rewrite prompt.
 - Key decisions: v3 keeps the simplified input/output contract and omits mandatory `intent_risk`; runtime and catalog activation are recorded in pipeline/backend progress.

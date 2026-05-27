@@ -1,5 +1,17 @@
 # progress.md
 
+## [2026-05-27] Session Summary (Domain-Aware Rewrite Payload)
+- What was done: Added `_rewrite_domain_context(source_product)` and passed it through `run_selective_rewrite -> build_rewrite_candidates_v2` so the LLM receives the active technical-document domain and Korean-to-English technical term examples.
+- Key decisions: Domain context is derived from source/product scope and remains prompt metadata only; it does not change retrieval scoring, memory lookup, or final adoption thresholds.
+- Issues encountered: Targeted tests were extended to assert PostgreSQL domain context propagation into the candidate builder.
+- Next steps: Compare rewrite-case payloads from the next Admin run to confirm Spring/PostgreSQL/Kubernetes domains receive the expected `current_technical_domain` and examples.
+
+## [2026-05-27] Session Summary (Trusted Rewrite Memory Candidate Split)
+- What was done: Updated `eval/runtime.py` so selective rewrite first asks the LLM for a raw-only `standalone` candidate with raw-retrieval evidence but no synthetic-memory anchor payload, then asks for an `expanded` candidate only when trusted memory rows overlap raw retrieval doc/chunk evidence.
+- Key decisions: Prompt-side anchor, terminology, canonical, and multi-source hints are built only from trusted memory. Standalone scoring now uses raw-query anchors only and cannot be rejected for missing trusted-memory anchors/targets. Heuristic fallback follows the same separation, and rewrite retrieval context avoids loading a dense backend for metadata.
+- Issues encountered: Run `76c16e3b-e92a-4b01-8b3f-10859adb2c8b` exposed generic standalone rewrites plus incorrect memory-anchor scoring penalties.
+- Next steps: Use fixed-snapshot RAG traces to compare rejected reasons, exact-anchor recovery, and top-memory contamination before/after this split.
+
 ## [2026-05-26] Session Summary (Selective Rewrite v3 Runtime)
 - What was done: Updated selective rewrite runtime to prefer `selective_rewrite_v3.md` for Korean/code-mixed queries, loosened the LLM response schema to require only `label` and `query`, and capped rewrite candidates at two.
 - Key decisions: Kept English rewrite prompt selection on `selective_rewrite_en_v1.md`; legacy v2/v1 remain fallbacks, and optional v2 metadata fields still feed existing scoring/diagnostics when present.

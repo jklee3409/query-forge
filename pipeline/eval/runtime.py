@@ -26,6 +26,7 @@ try:
     from common.embeddings import embed_text, embedding_to_halfvec_literal
     from common.experiment_config import resolve_rewrite_adoption_policy
     from common.local_retriever import (
+        RETRIEVAL_MODE_BM25_ONLY,
         RETRIEVAL_MODE_DENSE_ONLY,
         RETRIEVAL_MODE_HYBRID,
         RetrieverConfig,
@@ -48,6 +49,7 @@ except ModuleNotFoundError:  # pragma: no cover
     from pipeline.common.embeddings import embed_text, embedding_to_halfvec_literal
     from pipeline.common.experiment_config import resolve_rewrite_adoption_policy
     from pipeline.common.local_retriever import (
+        RETRIEVAL_MODE_BM25_ONLY,
         RETRIEVAL_MODE_DENSE_ONLY,
         RETRIEVAL_MODE_HYBRID,
         RetrieverConfig,
@@ -2628,27 +2630,44 @@ def _heuristic_rewrite_candidates_v2(
     session_context: dict[str, Any],
     candidate_count: int,
     query_language: str,
-) -> list[dict[str, str]]:
-    top_memory_query = memory_items[0]["query_text"] if memory_items else raw_query
+) -> list[dict[str, Any]]:
     previous_entity = str(session_context.get("previous_assistant_summary") or "").strip()
     previous_question = str(session_context.get("previous_user_question") or "").strip()
-
-    if query_language == "en":
-        templates = [
-            {"label": "explicit_standalone", "query": raw_query},
-            {"label": "memory_anchored", "query": f"{raw_query} {top_memory_query}".strip()},
-            {"label": "task_or_error_focused", "query": f"{raw_query} troubleshooting example".strip()},
-        ]
-        if previous_entity or previous_question:
-            templates[0]["query"] = f"{previous_question} {raw_query} {previous_entity}".strip()
-        return templates[:candidate_count]
-
-    return _heuristic_rewrite_candidates(
-        raw_query,
-        memory_items,
-        session_context=session_context,
-        candidate_count=candidate_count,
-    )
+    standalone_parts = [previous_question, raw_query, previous_entity]
+    standalone_query = " ".join(part for part in standalone_parts if part).strip() or raw_query
+    templates: list[dict[str, Any]] = [
+        {
+            "label": "standalone",
+            "query": standalone_query,
+            "source_memory_index": 0,
+            "intent_risk": "low",
+            "added_anchors": [],
+        }
+    ]
+    if candidate_count > 1 and memory_items:
+        expanded_query = build_memory_guided_query(
+            standalone_query,
+            memory_items,
+            query_language=query_language,
+            max_hint_tokens=3,
+        )
+        normalized_standalone = " ".join(standalone_query.split()).casefold()
+        normalized_expanded = " ".join(expanded_query.split()).casefold()
+        if normalized_expanded and normalized_expanded != normalized_standalone:
+            try:
+                source_memory_index = int(memory_items[0].get("source_memory_index") or 1)
+            except (TypeError, ValueError):
+                source_memory_index = 1
+            templates.append(
+                {
+                    "label": "expanded",
+                    "query": expanded_query,
+                    "source_memory_index": max(1, source_memory_index),
+                    "intent_risk": "medium",
+                    "added_anchors": [],
+                }
+            )
+    return templates[:candidate_count]
 
 
 def _normalize_rewrite_failure_policy(value: str | None) -> str:
@@ -2666,6 +2685,89 @@ def _bump_rewrite_runtime_stat(runtime_stats: dict[str, int] | None, key: str) -
     runtime_stats[key] = int(runtime_stats.get(key, 0)) + 1
 
 
+def _rewrite_domain_context(source_product: str | None) -> dict[str, Any]:
+    product = str(source_product or "").strip()
+    normalized = _normalize_product_scope_key(product)
+    domain = product or "technical documentation"
+    aliases: list[str] = []
+    examples: list[dict[str, str]] = [
+        {"ko": "트랜잭션", "en": "Transaction"},
+        {"ko": "어노테이션", "en": "Annotation"},
+        {"ko": "설정", "en": "Configuration"},
+        {"ko": "인증", "en": "Authentication"},
+        {"ko": "권한", "en": "Authorization"},
+    ]
+    if "spring" in normalized:
+        domain = "Spring"
+        aliases = ["Spring Framework", "Spring Boot", "Spring Security", "Spring Data"]
+        examples.extend(
+            [
+                {"ko": "보안", "en": "Spring Security"},
+                {"ko": "메서드 보안", "en": "Method Security"},
+                {"ko": "저장소", "en": "Repository"},
+                {"ko": "자바 영속성", "en": "JPA"},
+                {"ko": "표현식 언어", "en": "SpEL"},
+                {"ko": "여러 부분 요청", "en": "Multipart request"},
+            ]
+        )
+    elif "postgres" in normalized or "postgis" in normalized:
+        domain = "PostgreSQL"
+        aliases = ["PostgreSQL", "Postgres", "PostGIS"]
+        examples.extend(
+            [
+                {"ko": "트랜잭션", "en": "Transaction"},
+                {"ko": "현재 트랜잭션 커밋", "en": "COMMIT current transaction"},
+                {"ko": "저장점", "en": "SAVEPOINT"},
+                {"ko": "되돌리기", "en": "ROLLBACK"},
+                {"ko": "잘라내기", "en": "TRUNCATE"},
+            ]
+        )
+    elif "kubernetes" in normalized or normalized == "k8s":
+        domain = "Kubernetes"
+        aliases = ["Kubernetes", "kubectl", "k8s"]
+        examples.extend(
+            [
+                {"ko": "준비 상태 검사", "en": "readiness probe"},
+                {"ko": "생존 검사", "en": "liveness probe"},
+                {"ko": "파드", "en": "Pod"},
+                {"ko": "배포", "en": "Deployment"},
+                {"ko": "서비스", "en": "Service"},
+            ]
+        )
+    elif "python" in normalized:
+        domain = "Python"
+        aliases = ["Python", "CPython", "Python standard library"]
+        examples.extend(
+            [
+                {"ko": "반복자", "en": "Iterator"},
+                {"ko": "문맥 관리자", "en": "Context Manager"},
+                {"ko": "비동기", "en": "asyncio"},
+                {"ko": "예외", "en": "Exception"},
+            ]
+        )
+    deduped_examples: list[dict[str, str]] = []
+    seen: set[tuple[str, str]] = set()
+    for example in examples:
+        key = (example["ko"].casefold(), example["en"].casefold())
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped_examples.append(example)
+        if len(deduped_examples) >= 12:
+            break
+    return {
+        "current_technical_domain": domain,
+        "source_product": product,
+        "domain_aliases": aliases,
+        "rewrite_instruction": (
+            f"The current technical-document domain is {domain}. "
+            "Interpret the user's Korean technical words inside this domain, "
+            "then rewrite key technical terms into standard English documentation terms."
+        ),
+        "ko_to_en_term_examples": deduped_examples,
+    }
+
+
 def build_rewrite_candidates_v2(
     raw_query: str,
     memory_items: list[dict[str, Any]],
@@ -2677,22 +2779,51 @@ def build_rewrite_candidates_v2(
     rewrite_terminology_hints_max_count: int = DEFAULT_REWRITE_TERMINOLOGY_HINTS_MAX,
     multi_source_anchor_hints: dict[str, Any] | None = None,
     retrieval_context: dict[str, Any] | None = None,
+    raw_retrieval_context: list[dict[str, Any]] | None = None,
+    domain_context: dict[str, Any] | None = None,
     rewrite_failure_policy: str | None = None,
     rewrite_runtime_stats: dict[str, int] | None = None,
+    trusted_memory_items: list[dict[str, Any]] | None = None,
 ) -> list[dict[str, str]]:
     trace_id = f"rewrite:{hashlib.sha1(raw_query.encode('utf-8')).hexdigest()[:12]}"
     limited_candidate_count = max(1, min(int(candidate_count or 1), 2))
     failure_policy = _normalize_rewrite_failure_policy(rewrite_failure_policy)
     fallback_allowed = failure_policy == "heuristic_fallback"
     _bump_rewrite_runtime_stat(rewrite_runtime_stats, "llm_attempted_count")
+    expanded_memory_items = list(memory_items if trusted_memory_items is None else trusted_memory_items)
+    pure_rewrite_latency_ms = 0.0
+    standalone_source_text = f"{raw_query} {session_context}".strip()
+    standalone_evidence_text = json.dumps(
+        list(raw_retrieval_context or [])[:3],
+        ensure_ascii=False,
+    )
+    standalone_forbidden_terms = [
+        term
+        for term in _build_rewrite_anchor_candidates(
+            raw_query="",
+            query_language=query_language,
+            memory_items=memory_items,
+        ).get("anchor_terms", [])
+        if str(term).strip()
+        and not _term_present_in_text(str(term), standalone_source_text)
+        and not _term_present_in_text(str(term), standalone_evidence_text)
+    ]
+
+    def _standalone_query_without_memory_anchors(query: str) -> str:
+        for term in standalone_forbidden_terms:
+            if _term_present_in_text(str(term), query):
+                return raw_query
+        return query
 
     def _handle_failure(error: Exception) -> list[dict[str, str]]:
         _bump_rewrite_runtime_stat(rewrite_runtime_stats, "llm_failure_count")
+        if rewrite_runtime_stats is not None:
+            rewrite_runtime_stats["pure_rewrite_latency_ms"] = pure_rewrite_latency_ms
         if fallback_allowed:
             _bump_rewrite_runtime_stat(rewrite_runtime_stats, "heuristic_fallback_count")
             return _heuristic_rewrite_candidates_v2(
                 raw_query,
-                memory_items,
+                expanded_memory_items,
                 session_context=session_context,
                 candidate_count=limited_candidate_count,
                 query_language=query_language,
@@ -2701,90 +2832,182 @@ def build_rewrite_candidates_v2(
             return []
         raise error
 
-    payload: dict[str, Any] = {
-        "raw_query": raw_query,
-        "query_language": query_language,
-        "session_context": session_context,
-        "top_memory_candidates": _memory_prompt_candidates(memory_items),
-        "candidate_count": limited_candidate_count,
-    }
-    if retrieval_context:
-        payload["retrieval_context"] = retrieval_context
-    if rewrite_anchor_injection_enabled:
-        anchor_context = _build_rewrite_anchor_candidates(
-            raw_query=raw_query,
-            query_language=query_language,
-            memory_items=memory_items,
-        )
-        payload["anchor_candidates"] = anchor_context["anchors"]
-        payload["anchor_terms"] = anchor_context["anchor_terms"]
-        payload["terminology_hints"] = _build_rewrite_terminology_hints(
-            raw_query=raw_query,
-            query_language=query_language,
-            memory_items=memory_items,
-            max_terms=rewrite_terminology_hints_max_count,
-        )
-        canonical_anchor_hints = _build_rewrite_canonical_anchor_hints(
-            memory_items=memory_items,
-            query_language=query_language,
-            max_terms=rewrite_terminology_hints_max_count,
-        )
-        if canonical_anchor_hints["terms"]:
-            payload["canonical_anchor_hints"] = canonical_anchor_hints
-        if multi_source_anchor_hints and multi_source_anchor_hints.get("terms"):
-            payload["multi_source_anchor_hints"] = multi_source_anchor_hints
-    try:
+    def _build_payload(
+        *,
+        mode: str,
+        prompt_memory_items: list[dict[str, Any]],
+        output_label: str,
+    ) -> dict[str, Any]:
+        payload: dict[str, Any] = {
+            "raw_query": raw_query,
+            "query_language": query_language,
+            "session_context": session_context,
+            "domain_context": domain_context or _rewrite_domain_context(None),
+            "top_memory_candidates": _memory_prompt_candidates(prompt_memory_items),
+            "raw_retrieval_context": list(raw_retrieval_context or [])[:3],
+            "candidate_count": 1,
+            "candidate_policy": {
+                "mode": mode,
+                "output_label": output_label,
+                "raw_query_is_source_of_truth": True,
+                "memory_allowed": mode == "memory_expanded",
+                "anchor_hints_allowed": mode == "memory_expanded" and rewrite_anchor_injection_enabled,
+                "do_not_add_product_or_api_terms_unless_present_in_raw_or_allowed_inputs": True,
+            },
+        }
+        if mode == "raw_standalone":
+            payload["top_memory_candidates"] = []
+        if retrieval_context:
+            payload["retrieval_context"] = retrieval_context
+        if mode == "memory_expanded" and rewrite_anchor_injection_enabled and prompt_memory_items:
+            anchor_context = _build_rewrite_anchor_candidates(
+                raw_query=raw_query,
+                query_language=query_language,
+                memory_items=prompt_memory_items,
+            )
+            payload["anchor_candidates"] = anchor_context["anchors"]
+            payload["anchor_terms"] = anchor_context["anchor_terms"]
+            payload["terminology_hints"] = _build_rewrite_terminology_hints(
+                raw_query=raw_query,
+                query_language=query_language,
+                memory_items=prompt_memory_items,
+                max_terms=rewrite_terminology_hints_max_count,
+            )
+            canonical_anchor_hints = _build_rewrite_canonical_anchor_hints(
+                memory_items=prompt_memory_items,
+                query_language=query_language,
+                max_terms=rewrite_terminology_hints_max_count,
+            )
+            if canonical_anchor_hints["terms"]:
+                payload["canonical_anchor_hints"] = canonical_anchor_hints
+            if multi_source_anchor_hints and multi_source_anchor_hints.get("terms"):
+                payload["multi_source_anchor_hints"] = multi_source_anchor_hints
+        return payload
+
+    def _chat_rewrite(payload: dict[str, Any], *, trace_suffix: str) -> list[Any]:
+        nonlocal pure_rewrite_latency_ms
         llm_started = time.perf_counter()
-        response = _rewrite_client().chat_json(
-            system_prompt=_rewrite_prompt_text(query_language=query_language),
-            user_prompt=json.dumps(
-                payload,
-                ensure_ascii=False,
-                indent=2,
-            ),
-            response_schema=REWRITE_RESPONSE_SCHEMA,
-            request_purpose="selective_rewrite",
-            trace_id=trace_id,
-        )
-        if rewrite_runtime_stats is not None:
-            rewrite_runtime_stats["pure_rewrite_latency_ms"] = (time.perf_counter() - llm_started) * 1000.0
-    except Exception as exception:
-        if rewrite_runtime_stats is not None:
-            rewrite_runtime_stats["pure_rewrite_latency_ms"] = (time.perf_counter() - llm_started) * 1000.0
-        return _handle_failure(exception)
-    candidate_rows = response.get("candidates")
-    if not isinstance(candidate_rows, list):
-        return _handle_failure(RuntimeError("LLM rewrite response must contain `candidates` list."))
-    normalized: list[dict[str, str]] = []
-    for item in candidate_rows:
-        if not isinstance(item, dict):
-            continue
-        query = str(item.get("query") or "").strip()
-        if not query:
-            continue
-        label = str(item.get("label") or f"candidate_{len(normalized) + 1}").strip()
+        _bump_rewrite_runtime_stat(rewrite_runtime_stats, "llm_call_count")
         try:
-            source_memory_index = int(item.get("source_memory_index") or 0)
-        except (TypeError, ValueError):
-            source_memory_index = 0
-        intent_risk = str(item.get("intent_risk") or "medium").strip().lower()
-        if intent_risk not in {"low", "medium", "high"}:
-            intent_risk = "medium"
-        normalized.append(
-            {
-                "label": label,
-                "query": query,
-                "preserved_raw_terms": _bounded_string_list(item.get("preserved_raw_terms"), max_items=12),
-                "added_anchors": _bounded_string_list(item.get("added_anchors"), max_items=12),
-                "source_memory_index": max(0, source_memory_index),
-                "intent_risk": intent_risk,
-            }
-        )
-        if len(normalized) >= limited_candidate_count:
-            break
-    if normalized:
-        _bump_rewrite_runtime_stat(rewrite_runtime_stats, "llm_success_count")
+            response = _rewrite_client().chat_json(
+                system_prompt=_rewrite_prompt_text(query_language=query_language),
+                user_prompt=json.dumps(
+                    payload,
+                    ensure_ascii=False,
+                    indent=2,
+                ),
+                response_schema=REWRITE_RESPONSE_SCHEMA,
+                request_purpose="selective_rewrite",
+                trace_id=f"{trace_id}:{trace_suffix}",
+            )
+        finally:
+            pure_rewrite_latency_ms += (time.perf_counter() - llm_started) * 1000.0
+        candidate_rows = response.get("candidates")
+        if not isinstance(candidate_rows, list):
+            raise RuntimeError("LLM rewrite response must contain `candidates` list.")
+        return candidate_rows
+
+    def _normalize_candidate_rows(
+        candidate_rows: list[Any],
+        *,
+        label: str,
+        max_items: int,
+        default_source_memory_index: int = 0,
+        anchor_fields_allowed: bool,
+    ) -> list[dict[str, str]]:
+        normalized: list[dict[str, str]] = []
+        for item in candidate_rows:
+            if not isinstance(item, dict):
+                continue
+            query = str(item.get("query") or "").strip()
+            if not query:
+                continue
+            if not anchor_fields_allowed:
+                query = _standalone_query_without_memory_anchors(query).strip()
+                if not query:
+                    continue
+            try:
+                source_memory_index = int(item.get("source_memory_index") or default_source_memory_index)
+            except (TypeError, ValueError):
+                source_memory_index = default_source_memory_index
+            if not anchor_fields_allowed:
+                source_memory_index = 0
+            intent_risk = str(item.get("intent_risk") or "medium").strip().lower()
+            if intent_risk not in {"low", "medium", "high"}:
+                intent_risk = "medium"
+            normalized.append(
+                {
+                    "label": label,
+                    "query": query,
+                    "preserved_raw_terms": _bounded_string_list(item.get("preserved_raw_terms"), max_items=12),
+                    "added_anchors": (
+                        _bounded_string_list(item.get("added_anchors"), max_items=12)
+                        if anchor_fields_allowed
+                        else []
+                    ),
+                    "source_memory_index": max(0, source_memory_index),
+                    "intent_risk": intent_risk,
+                }
+            )
+            if len(normalized) >= max_items:
+                break
         return normalized
+
+    candidates: list[dict[str, str]] = []
+    try:
+        standalone_rows = _chat_rewrite(
+            _build_payload(mode="raw_standalone", prompt_memory_items=[], output_label="standalone"),
+            trace_suffix="standalone",
+        )
+    except Exception as exception:
+        return _handle_failure(exception)
+    candidates.extend(
+        _normalize_candidate_rows(
+            standalone_rows,
+            label="standalone",
+            max_items=1,
+            default_source_memory_index=0,
+            anchor_fields_allowed=False,
+        )
+    )
+    if not candidates:
+        return _handle_failure(RuntimeError("LLM standalone rewrite candidate response was empty."))
+
+    if limited_candidate_count > 1 and expanded_memory_items:
+        default_source_memory_index = 0
+        try:
+            default_source_memory_index = int(expanded_memory_items[0].get("source_memory_index") or 0)
+        except (TypeError, ValueError):
+            default_source_memory_index = 0
+        try:
+            expanded_rows = _chat_rewrite(
+                _build_payload(
+                    mode="memory_expanded",
+                    prompt_memory_items=expanded_memory_items,
+                    output_label="expanded",
+                ),
+                trace_suffix="expanded",
+            )
+        except Exception as exception:
+            if failure_policy == "fail_run":
+                return _handle_failure(exception)
+            _bump_rewrite_runtime_stat(rewrite_runtime_stats, "llm_failure_count")
+            expanded_rows = []
+        candidates.extend(
+            _normalize_candidate_rows(
+                expanded_rows,
+                label="expanded",
+                max_items=limited_candidate_count - len(candidates),
+                default_source_memory_index=default_source_memory_index,
+                anchor_fields_allowed=rewrite_anchor_injection_enabled,
+            )
+        )
+
+    if rewrite_runtime_stats is not None:
+        rewrite_runtime_stats["pure_rewrite_latency_ms"] = pure_rewrite_latency_ms
+    if candidates:
+        _bump_rewrite_runtime_stat(rewrite_runtime_stats, "llm_success_count")
+        return candidates[:limited_candidate_count]
     return _handle_failure(RuntimeError("LLM rewrite candidate response was empty."))
 
 
@@ -3262,9 +3485,13 @@ def _short_evidence_summary(memory_row: dict[str, Any]) -> str:
 def _memory_prompt_candidates(memory_items: list[dict[str, Any]]) -> list[dict[str, Any]]:
     prompt_rows: list[dict[str, Any]] = []
     for index, memory_row in enumerate(memory_items[:5], start=1):
+        try:
+            source_memory_index = int(memory_row.get("source_memory_index") or index)
+        except (TypeError, ValueError):
+            source_memory_index = index
         prompt_rows.append(
             {
-                "source_memory_index": index,
+                "source_memory_index": source_memory_index,
                 "synthetic_query": str(memory_row.get("query_text") or ""),
                 "target_title": str(memory_row.get("target_title") or ""),
                 "section_path": str(memory_row.get("target_section_path") or ""),
@@ -3277,6 +3504,59 @@ def _memory_prompt_candidates(memory_items: list[dict[str, Any]]) -> list[dict[s
             }
         )
     return prompt_rows
+
+
+def _raw_retrieval_prompt_candidates(
+    raw_retrieval: list[RetrievalCandidate],
+    *,
+    query_language: str,
+    max_items: int = 3,
+) -> list[dict[str, Any]]:
+    prompt_rows: list[dict[str, Any]] = []
+    for index, item in enumerate(raw_retrieval[:max_items], start=1):
+        text = " ".join(str(item.text or "").split())
+        section_match = re.search(r"Section Path:\s*([^`]+?)(?:\s{2,}|$)", text)
+        section_path = section_match.group(1).strip()[:180] if section_match else ""
+        prompt_rows.append(
+            {
+                "rank": index,
+                "score": round(float(item.score), 6),
+                "section_path": section_path,
+                "technical_terms": _extract_memory_hint_tokens(
+                    text,
+                    language_hint=query_language,
+                    max_items=10,
+                ),
+                "text_preview": text[:420].strip(),
+            }
+        )
+    return prompt_rows
+
+
+def _trusted_rewrite_memory_items(memory_items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    trusted_rows: list[dict[str, Any]] = []
+    for index, memory_row in enumerate(memory_items, start=1):
+        features = memory_row.get("memory_rerank_features") if isinstance(memory_row, dict) else None
+        if not isinstance(features, dict):
+            continue
+        try:
+            chunk_overlap_count = int(features.get("raw_topk_chunk_overlap_count") or 0)
+        except (TypeError, ValueError):
+            chunk_overlap_count = 0
+        try:
+            chunk_overlap_score = float(features.get("raw_topk_chunk_overlap_score") or 0.0)
+        except (TypeError, ValueError):
+            chunk_overlap_score = 0.0
+        try:
+            doc_overlap_score = float(features.get("raw_topk_doc_overlap_score") or 0.0)
+        except (TypeError, ValueError):
+            doc_overlap_score = 0.0
+        if chunk_overlap_count <= 0 and chunk_overlap_score <= 0.0 and doc_overlap_score <= 0.0:
+            continue
+        trusted_row = dict(memory_row)
+        trusted_row["source_memory_index"] = index
+        trusted_rows.append(trusted_row)
+    return trusted_rows
 
 
 def _rewrite_retrieval_context(
@@ -3292,12 +3572,18 @@ def _rewrite_retrieval_context(
     vector_store = adapter_metadata.get("vector_store")
     if not vector_store and backend == RETRIEVAL_BACKEND_LOCAL:
         vector_store = "in_memory_local"
+    retriever_name = adapter_metadata.get("retriever_name")
+    if not retriever_name:
+        retriever_name = (
+            f"local:{retriever_config.mode}"
+            if retriever_config.mode == RETRIEVAL_MODE_BM25_ONLY
+            else f"local:{retriever_config.mode}:{retriever_config.dense_embedding_model}"
+        )
     weights = retriever_config.fusion_weights()
     return {
         "retrieval_backend": backend,
         "vector_store": vector_store,
-        "retriever_name": adapter_metadata.get("retriever_name")
-        or local_retriever_name(retriever_config),
+        "retriever_name": retriever_name,
         "retriever_mode": retriever_config.mode,
         "dense_embedding_model": str(retriever_config.dense_embedding_model),
         "dense_embedding_required": bool(retriever_config.dense_embedding_required),
@@ -3850,6 +4136,7 @@ def run_selective_rewrite(
         source_product=source_product,
         top_n=memory_top_n_value,
     )
+    trusted_memory_items = _trusted_rewrite_memory_items(memory_items)
     raw_memory_affinity = memory_items[0]["similarity"] if memory_items else 0.0
     raw_retrieval_score = retrieval_confidence_score(raw_retrieval)
     raw_confidence_base = raw_retrieval_score
@@ -3918,11 +4205,11 @@ def run_selective_rewrite(
     memory_hint_retrieval_applied = False
     rewrite_runtime_stats: dict[str, int] = {}
     multi_source_anchor_hints = None
-    if rewrite_anchor_injection_enabled and multi_source_anchor_expansion_enabled:
+    if rewrite_anchor_injection_enabled and multi_source_anchor_expansion_enabled and trusted_memory_items:
         multi_source_anchor_hints = _build_multi_source_anchor_hints(
             raw_query=raw_query,
             query_language=query_language,
-            memory_items=memory_items,
+            memory_items=trusted_memory_items,
             anchor_index=multi_source_anchor_index,
             relation_type_allowlist=multi_source_anchor_relation_types,
             min_relation_score=multi_source_anchor_min_score,
@@ -3932,20 +4219,20 @@ def run_selective_rewrite(
     prompt_anchor_context: dict[str, Any] = {"anchors": [], "anchor_terms": []}
     prompt_terminology_hints: dict[str, Any] | None = None
     prompt_canonical_anchor_hints: dict[str, Any] | None = None
-    if rewrite_anchor_injection_enabled:
+    if rewrite_anchor_injection_enabled and trusted_memory_items:
         prompt_anchor_context = _build_rewrite_anchor_candidates(
             raw_query=raw_query,
             query_language=query_language,
-            memory_items=memory_items,
+            memory_items=trusted_memory_items,
         )
         prompt_terminology_hints = _build_rewrite_terminology_hints(
             raw_query=raw_query,
             query_language=query_language,
-            memory_items=memory_items,
+            memory_items=trusted_memory_items,
             max_terms=rewrite_terminology_hints_max_count,
         )
         prompt_canonical_anchor_hints = _build_rewrite_canonical_anchor_hints(
-            memory_items=memory_items,
+            memory_items=trusted_memory_items,
             query_language=query_language,
             max_terms=rewrite_terminology_hints_max_count,
         )
@@ -3967,8 +4254,14 @@ def run_selective_rewrite(
             memory_candidate_pool_n=memory_pool_n,
             memory_top_n_value=memory_top_n_value,
         ),
+        raw_retrieval_context=_raw_retrieval_prompt_candidates(
+            raw_retrieval,
+            query_language=query_language,
+        ),
+        domain_context=_rewrite_domain_context(source_product),
         rewrite_failure_policy=rewrite_failure_policy,
         rewrite_runtime_stats=rewrite_runtime_stats,
+        trusted_memory_items=trusted_memory_items,
     )
     rewrite_llm_attempted = rewrite_runtime_stats.get("llm_attempted_count", 0) > 0
     rewrite_llm_succeeded = rewrite_runtime_stats.get("llm_success_count", 0) > 0
@@ -3978,17 +4271,29 @@ def run_selective_rewrite(
         if "pure_rewrite_latency_ms" in rewrite_runtime_stats
         else None
     )
+    raw_only_anchor_context = _build_rewrite_anchor_candidates(
+        raw_query=raw_query,
+        query_language=query_language,
+        memory_items=[],
+    )
+    raw_only_anchor_terms = [
+        str(item)
+        for item in raw_only_anchor_context.get("anchor_terms") or []
+        if str(item).strip()
+    ]
     anchor_context = _build_rewrite_anchor_candidates(
         raw_query=raw_query,
         query_language=query_language,
-        memory_items=memory_items,
+        memory_items=trusted_memory_items,
     )
-    raw_anchor_terms = [str(item) for item in anchor_context.get("anchor_terms") or [] if str(item).strip()]
-    canonical_anchor_groups = _collect_scoring_canonical_anchor_groups(memory_items)
+    memory_anchor_terms = [str(item) for item in anchor_context.get("anchor_terms") or [] if str(item).strip()]
+    canonical_anchor_groups = _collect_scoring_canonical_anchor_groups(trusted_memory_items)
     candidates: list[dict[str, Any]] = []
     best_candidate: dict[str, Any] | None = None
     best_eligible_candidate: dict[str, Any] | None = None
     for template in candidate_templates:
+        candidate_label = str(template.get("label") or "").strip().lower()
+        uses_memory_context = candidate_label != "standalone"
         retrieved = retrieve_top_k(
             template["query"],
             chunks,
@@ -4022,24 +4327,29 @@ def run_selective_rewrite(
             raw_query=raw_query,
             candidate_query=template["query"],
             query_language=query_language,
-            raw_anchor_terms=raw_anchor_terms,
-            canonical_anchor_groups=canonical_anchor_groups,
+            raw_anchor_terms=memory_anchor_terms if uses_memory_context else raw_only_anchor_terms,
+            canonical_anchor_groups=canonical_anchor_groups if uses_memory_context else {},
         )
         terminology_preservation_score = terminology_metrics["terminology_preservation_score"]
         technical_preservation_ratio = terminology_metrics["technical_preservation_ratio"]
         anchor_overlap_ratio = terminology_metrics["anchor_overlap_ratio"]
 
+        scoring_candidate_memory_affinity = (
+            candidate_memory_affinity
+            if uses_memory_context
+            else raw_memory_affinity
+        )
         memory_metrics = _memory_alignment_score(
             raw_memory_similarity=raw_memory_affinity,
-            candidate_memory_similarity=candidate_memory_affinity,
+            candidate_memory_similarity=scoring_candidate_memory_affinity,
         )
         memory_alignment_score = memory_metrics["memory_alignment_score"]
         try:
             source_memory_index = int(template.get("source_memory_index") or 0)
         except (TypeError, ValueError):
             source_memory_index = 0
-        memory_target_context = memory_items
-        if 0 < source_memory_index <= len(memory_items):
+        memory_target_context = memory_items if uses_memory_context else []
+        if uses_memory_context and 0 < source_memory_index <= len(memory_items):
             source_memory_row = memory_items[source_memory_index - 1]
             memory_target_context = [
                 source_memory_row,

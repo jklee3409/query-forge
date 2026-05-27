@@ -1,5 +1,17 @@
 # progress.md
 
+## [2026-05-27] Session Summary (Domain-Aware Rewrite Prompt)
+- What was done: Injected dynamic `domain_context` into selective rewrite LLM payloads so Korean technical terms are rewritten into English documentation terms for the active source domain such as Spring, PostgreSQL, Kubernetes, or Python.
+- Key decisions: Few-shot prompt examples now show domain-specific term recovery (`트랜잭션 -> Transaction`, PostgreSQL `COMMIT`, Spring Security terms) while preserving the raw-only standalone vs trusted-memory-expanded split.
+- Issues encountered: No full RAG run was executed on the low-spec laptop; validation is limited to targeted rewrite runtime tests.
+- Next steps: Rerun the pure-Korean Spring/PostgreSQL datasets and inspect rewrite traces for accepted standalone candidates with correct English technical anchors.
+
+## [2026-05-27] Session Summary (Selective Rewrite Trusted Memory Split)
+- What was done: Split selective rewrite candidate generation into raw-only `standalone` and trusted-memory-only `expanded` LLM calls, added raw-retrieval evidence to rewrite prompts, and hid memory/anchor hints when reranked memory does not overlap raw retrieval evidence.
+- Key decisions: `rewrite_anchor_injection_enabled=true` no longer allows synthetic-memory anchors into standalone prompt/candidate/scoring; standalone scoring no longer penalizes missing trusted-memory anchors or memory targets. Rewrite retrieval-context metadata no longer loads the dense model just to name the retriever.
+- Issues encountered: Run `76c16e3b-e92a-4b01-8b3f-10859adb2c8b` showed 0 LLM failures but 95% selective rejection because standalone candidates were generic Korean paraphrases and were still scored against memory-anchor requirements.
+- Next steps: Rerun the Spring/PostgreSQL pure-Korean datasets against the same snapshots to inspect accepted rewrite rate, bad rewrite rate, and whether raw-retrieval evidence produces exact technical anchors.
+
 ## [2026-05-27] Session Summary (Spring/PostgreSQL Anchor-Translated Eval Copies)
 - What was done: Created separate Spring and PostgreSQL Korean short-user eval datasets whose query surfaces intentionally translate English technical anchors into Korean, wrote JSONL artifacts, and registered DB datasets `44282405-1ea1-5f78-bf85-6270724ee475` / `8a08c160-e4cd-5ce0-9f5c-640c51b6d887`.
 - Key decisions: Preserved the source datasets `b2d47254-8655-4c9c-81ac-7615677ec5bd` and `862642e6-10bd-538d-9ba8-5de7f1f26d3c`; copied expected doc/chunk IDs, answer key points, split, category, difficulty, and single/multi structure unchanged into new sample IDs.
