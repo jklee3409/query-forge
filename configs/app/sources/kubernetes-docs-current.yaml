@@ -1,0 +1,14 @@
+source_id: kubernetes-docs-current
+product: kubernetes
+start_urls: ['https://kubernetes.io/docs/home/index.html']
+allow_prefixes: ['https://kubernetes.io/docs/']
+deny_url_patterns:
+  - /docs/contribute/
+  - /docs/setup/release/
+  - /docs/reference/glossary/
+  - /docs/reference/generated/kubernetes-api/
+  - /_print/
+request_delay_seconds: 0.12
+max_depth: 12
+enabled: true
+metadata: {collection_format: html, provider: kubernetes, doc_family: technical}

@@ -1,5 +1,17 @@
 # progress.md
 
+## [2026-05-27] Session Summary (Kubernetes KR Anchor-Translated Eval)
+- What was done: Revised Kubernetes KR short-user eval queries to intentionally translate/paraphrase English technical anchors into Korean surfaces, regenerated paired JSONL artifacts, and upserted the active DB datasets.
+- Key decisions: Preserved the existing 80-item retrieval-aware grounding, dataset IDs, KO/EN pairing, and `single:59` / `multi:21` structure while changing only the Korean query surface and paired metadata.
+- Issues encountered: None; validation passed and targeted DB verification found 80 active KR rows with zero ASCII anchor tokens in `user_query_ko`.
+- Next steps: Rerun the Kubernetes KR baseline against dataset `87f74f10-1e61-5c56-84f9-f70a87fba424` to measure anchor-removal impact.
+
+## [2026-05-27] Session Summary (Kubernetes KO/EN Short-User Eval 80)
+- What was done: Created paired Kubernetes KO/EN short-user evaluation datasets from active `kubernetes-docs-current` chunks, wrote JSONL artifacts, added a reusable builder script, and upserted DB datasets `87f74f10-1e61-5c56-84f9-f70a87fba424` / `e0445e9e-7ed3-58aa-8ce1-a32d06d44a11`.
+- Key decisions: Followed the Spring/PostgreSQL 80-item retrieval-aware structure with `short_user`, `test`, `single:59` / `multi:21`, identical KO/EN expected doc/chunk IDs, KO A/C target-method tagging, and EN E tagging.
+- Issues encountered: New data/eval files required `.gitignore` exceptions; validation caught all-English KO surfaces and they were corrected before DB upsert.
+- Next steps: Use dataset keys `kubernetes_kr_short_user_80` and `kubernetes_en_short_user_80` only with explicit Kubernetes memory/gating snapshots for later RAG evaluation.
+
 ## [2026-05-26] Session Summary (Selective Rewrite v3 Runtime Activation)
 - What was done: Activated `selective_rewrite_v3` for Korean/code-mixed Admin RAG rewrite by updating prompt lookup, LLM response schema, candidate-count caps/defaults, Prompt Studio catalog migration, and online rewrite fallback order.
 - Key decisions: English rewrite remains on `selective_rewrite_en_v1`; v3 requires only `label`/`query` while legacy metadata remains optional for scoring diagnostics.

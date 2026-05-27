@@ -3,6 +3,18 @@
 ## Overview
 High-level progress tracking for the project.
 
+## [2026-05-27] Session Summary (Kubernetes KR Anchor Translation)
+- What was done: Regenerated `kubernetes_kr_short_user_test_80.jsonl` with English technical anchors translated/paraphrased into Korean query surfaces and synchronized the DB-managed dataset.
+- Key decisions: Kept expected doc/chunk IDs, answer key points, sample IDs, paired EN dataset identity, and single/multi distribution unchanged.
+- Issues encountered: None; validation passed and DB verification confirmed 80 active KR rows with zero ASCII anchor tokens.
+- Next steps: Use this revised KR dataset for an anchor-effect Kubernetes baseline rerun.
+
+## [2026-05-27] Session Summary (Kubernetes KO/EN Eval Datasets)
+- What was done: Created Kubernetes KO/EN short-user eval JSONL artifacts under `data/eval/` and registered matching DB datasets `87f74f10-1e61-5c56-84f9-f70a87fba424` and `e0445e9e-7ed3-58aa-8ce1-a32d06d44a11`.
+- Key decisions: Preserved the Spring/PostgreSQL 80-item evaluation shape with identical KO/EN grounding, `single:59` / `multi:21`, and source chunk-derived answer key points from `kubernetes-docs-current`.
+- Issues encountered: Validation required revising all-English KO query surfaces into Korean code-mixed short-user queries.
+- Next steps: Pair these datasets with explicit Kubernetes snapshots before running RAG evaluation.
+
 ## [2026-05-26] Session Summary (PostgreSQL EN Eval Companion)
 - What was done: Created the PostgreSQL EN short-user companion dataset artifact `data/eval/postgresql_en_short_user_test_80.jsonl` and registered DB dataset `020a93c4-0465-5655-b681-a5799a98fd15` / key `postgresql_en_short_user_80`.
 - Key decisions: Kept the dataset paired to KR dataset `862642e6-10bd-538d-9ba8-5de7f1f26d3c` with identical grounding, category, difficulty, and single/multi structure; set the EN rows to English-only short-user equivalents with `query_language=en` and `target_method=E`.

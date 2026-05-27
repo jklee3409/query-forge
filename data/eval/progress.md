@@ -3,6 +3,18 @@
 ## Overview
 Evaluation dataset artifact changes for `data/eval/`.
 
+## [2026-05-27] Session Summary (Kubernetes KR Anchor-Translated Surface)
+- What was done: Updated `kubernetes_kr_short_user_test_80.jsonl` so Korean short-user queries preserve intent while translating/paraphrasing English technical anchors into Korean.
+- Key decisions: Preserved all sample IDs, expected grounding fields, KO/EN paired order, and target-method distribution; EN companion metadata now points to the revised paired Korean query text.
+- Issues encountered: None; builder validation passed for 80 KO and 80 EN rows.
+- Next steps: Rerun retrieval evaluation to compare against the earlier code-mixed KR baseline.
+
+## [2026-05-27] Session Summary (Kubernetes KO/EN Short-User 80)
+- What was done: Added paired Kubernetes short-user eval artifacts `kubernetes_kr_short_user_test_80.jsonl` and `kubernetes_en_short_user_test_80.jsonl`, then upserted DB datasets `87f74f10-1e61-5c56-84f9-f70a87fba424` / `e0445e9e-7ed3-58aa-8ce1-a32d06d44a11`.
+- Key decisions: Matched the Spring/PostgreSQL 80-item structure with `short_user`, `test`, `single:59` / `multi:21`, shared expected doc/chunk IDs, and English-source chunk grounding; KR uses A/C target-method tagging and EN uses E.
+- Issues encountered: Initial validation caught KO rows with all-English surfaces; those were revised to include Korean short-user wording while preserving source anchors.
+- Next steps: Use dataset keys `kubernetes_kr_short_user_80` and `kubernetes_en_short_user_80` for snapshot-pinned Kubernetes RAG comparisons.
+
 ## [2026-05-26] Session Summary (PostgreSQL EN Short-User 80)
 - What was done: Added `postgresql_en_short_user_test_80.jsonl` and upserted DB dataset `020a93c4-0465-5655-b681-a5799a98fd15` / key `postgresql_en_short_user_80` as the English companion to `862642e6-10bd-538d-9ba8-5de7f1f26d3c`.
 - Key decisions: Preserved the original 80-row structure, expected doc/chunk IDs, answer key points, split, difficulty, and `single:59` / `multi:21` distribution; translated the active PostgreSQL KR query surface into English-only short-user equivalents and set `query_language=en`, `target_method=E`.

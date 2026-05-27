@@ -3,6 +3,18 @@
 ## Overview
 High-level progress tracking for the project.
 
+## [2026-05-27] Session Summary (Kubernetes Anchor-Translated Builder)
+- What was done: Updated `build_kubernetes_eval_datasets.py` to generate v2 Kubernetes KR short-user queries with English technical anchors translated/paraphrased into Korean surfaces.
+- Key decisions: Left source English query specs intact for pairing/audit, added a reviewed KO anchor-translated query list, and kept DB upsert behavior paired for KR and EN datasets.
+- Issues encountered: None; `py_compile` passed and the builder regenerated/upserted both Kubernetes eval datasets successfully.
+- Next steps: Use the same script for future Kubernetes dataset refreshes so anchor-translated KR surfaces remain reproducible.
+
+## [2026-05-27] Session Summary (Kubernetes Eval Dataset Builder)
+- What was done: Added `scripts/build_kubernetes_eval_datasets.py` to generate paired Kubernetes KO/EN short-user 80 JSONL files and upsert both datasets into DB tables.
+- Key decisions: The builder resolves expected docs/chunks from active `kubernetes-docs-current` corpus chunks at runtime, preserves a `single:59` / `multi:21` distribution, and keeps KO/EN sample grounding paired.
+- Issues encountered: KO validation caught all-English surfaces in a few code-mixed queries; those prompts were revised to include Korean wording.
+- Next steps: Re-run the script if the Kubernetes corpus is refreshed, then use explicit Kubernetes snapshots for RAG evaluation.
+
 ## [2026-05-20] Session Summary (Method-Compressed Eval Dataset Builder)
 - What was done: Added `scripts/build_method_compressed_eval_datasets.py` to build five 80-item Spring method-compressed eval datasets from accepted synthetic queries in existing A/B/C/D/E gating batches.
 - Key decisions: The builder keeps A/B/C/D/E source identity explicit, selects `far`/`near` multi-chunk rows first, compresses source synthetic query text into short anchor-style user queries, writes JSONL artifacts, emits an audit report, and upserts DB eval dataset/sample/item rows.

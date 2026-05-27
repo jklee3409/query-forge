@@ -24,7 +24,7 @@
 - `preprocess`, `chunk-docs`, `glossary-docs` 결과는 `processed/`에 저장합니다.
 - generation/gating/memory 관련 산출물은 `synthetic/`에 저장합니다.
 - retrieval/answer 평가 입력은 `eval/`, 요약 리포트와 audit는 `reports/`에 저장합니다.
-- `eval/`에는 기존 Spring 도메인 KO/EN short-user 데이터셋, Python KR 도메인 KO/EN paired short-user 데이터셋, A/B/C/D/E method-compressed Spring stress 데이터셋이 포함됩니다.
+- `eval/`에는 기존 Spring 도메인 KO/EN short-user 데이터셋, Python KR 도메인 KO/EN paired short-user 데이터셋, Kubernetes KO/EN short-user 데이터셋, A/B/C/D/E method-compressed Spring stress 데이터셋이 포함됩니다.
 - The runtime DB now also contains the PostgreSQL English technical-document corpus plus completed A/C synthetic generation and BM25-only full-gating batches; `data/` remains the artifact/report directory rather than the DB source of truth.
 
 ## Notes
