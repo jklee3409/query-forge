@@ -35,6 +35,7 @@
 ---
 
 ## Recent Notes
+- Admin-generated experiment configs (`admin_gen_*`, `admin_gate_*`, `admin_eval_*`) are treated as runtime artifacts and ignored by Git; durable experiment conditions should be promoted to named presets instead.
 - `prompts/rewrite/selective_rewrite_v3.md` now consumes runtime `domain_context` so Korean technical terms are rewritten into active-domain English documentation terms, with few-shots for Spring, PostgreSQL, and Kubernetes short queries.
 - `prompts/rewrite/selective_rewrite_v3.md` now accepts `candidate_policy`: `raw_standalone` ignores synthetic memory/anchor hints but can use raw-retrieval evidence terms, while `memory_expanded` may use only trusted evidence-compatible memory anchors.
 - `prompts/rewrite/selective_rewrite_v3.md` is the active lightweight Korean/code-mixed rewrite prompt with simplified inputs, maximum two candidates, no required `intent_risk`, and three compact few-shot examples for safe hybrid retrieval query rewriting.

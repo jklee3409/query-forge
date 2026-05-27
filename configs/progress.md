@@ -3,6 +3,12 @@
 ## Overview
 High-level progress tracking for the project.
 
+## [2026-05-27] Session Summary (Admin Eval Artifact Ignore)
+- What was done: Removed tracked `configs/experiments/admin_eval_*.yaml` runtime artifacts and added ignore rules for future `admin_eval_*.yaml`/`*.yml` files.
+- Key decisions: Admin-generated eval configs are transient run artifacts; durable reproducibility should use named experiment presets instead.
+- Issues encountered: None.
+- Next steps: Keep future official experiment conditions in curated preset files, not UUID-named Admin run configs.
+
 ## [2026-05-27] Session Summary (Domain-Aware Selective Rewrite v3)
 - What was done: Updated `prompts/rewrite/selective_rewrite_v3.md` to consume `domain_context` and instruct the LLM to translate Korean technical terms into domain-appropriate English documentation terms.
 - Key decisions: Added few-shot examples for Spring and PostgreSQL short Korean queries, including `트랜잭션 -> Transaction` and PostgreSQL `COMMIT` recovery from raw retrieval evidence.

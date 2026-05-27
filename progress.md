@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-05-27] Session Summary (Admin Eval Artifact Cleanup)
+- What was done: Removed all tracked `configs/experiments/admin_eval_*.yaml` files, deleted local untracked Admin eval YAML artifacts, and added Git ignore rules for future Admin eval configs.
+- Key decisions: UUID-named Admin eval configs are runtime artifacts rather than durable source-controlled experiment presets; official reproducible conditions should be promoted to named presets.
+- Issues encountered: A concurrent local cleanup command reported files already removed after `git rm`; final verification found no remaining `admin_eval_*.yaml` files.
+- Next steps: Push the cleanup commit so GitHub no longer shows the tracked Admin eval artifacts.
+
 ## [2026-05-27] Session Summary (Domain-Aware Rewrite Prompt)
 - What was done: Injected dynamic `domain_context` into selective rewrite LLM payloads so Korean technical terms are rewritten into English documentation terms for the active source domain such as Spring, PostgreSQL, Kubernetes, or Python.
 - Key decisions: Few-shot prompt examples now show domain-specific term recovery (`트랜잭션 -> Transaction`, PostgreSQL `COMMIT`, Spring Security terms) while preserving the raw-only standalone vs trusted-memory-expanded split.

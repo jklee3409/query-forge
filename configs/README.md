@@ -25,7 +25,7 @@ prompts/      LLM 프롬프트 파일
 
 ### `experiments/`
 
-관리자 실행 배치(`admin_gen_*`, `admin_gate_*`, `admin_eval_*`)와 고정 프리셋(`ungated`, `rule_only`, `full_gating`, `rewrite_always` 등)이 저장된다. 이 파일들은 backend/pipeline이 실험 재현성을 보장하는 기준으로 사용한다.
+고정 프리셋(`ungated`, `rule_only`, `full_gating`, `rewrite_always` 등)이 저장된다. 관리자 실행 배치(`admin_gen_*`, `admin_gate_*`, `admin_eval_*`)는 런타임 산출물이므로 Git 추적 대상에서 제외하고, 재현이 필요한 공식 실험 조건만 별도 프리셋으로 정리한다.
 
 ### `prompts/`
 
