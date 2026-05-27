@@ -2051,6 +2051,26 @@ public class AdminConsoleRepository {
         );
     }
 
+    public Optional<String> findEvalDatasetKey(UUID datasetId) {
+        if (datasetId == null) {
+            return Optional.empty();
+        }
+        List<String> rows = jdbcTemplate.query(
+                "SELECT dataset_key FROM eval_dataset WHERE dataset_id = :datasetId",
+                new MapSqlParameterSource("datasetId", datasetId),
+                (rs, rowNum) -> rs.getString("dataset_key")
+        );
+        return rows.stream().findFirst();
+    }
+
+    @Transactional
+    public int deleteEvalDataset(UUID datasetId) {
+        return jdbcTemplate.update(
+                "DELETE FROM eval_dataset WHERE dataset_id = :datasetId",
+                new MapSqlParameterSource("datasetId", datasetId)
+        );
+    }
+
     public List<AdminConsoleDtos.EvalDatasetItemRow> findEvalDatasetItems(UUID datasetId, Integer limit, Integer offset) {
         String sql = """
                 SELECT i.dataset_id,
@@ -3345,7 +3365,10 @@ public class AdminConsoleRepository {
                        hit_target
                 FROM rag_test_result_detail
                 WHERE rag_test_run_id = :runId
-                ORDER BY created_at DESC
+                ORDER BY
+                    NULLIF(substring(sample_id from '([0-9]+)$'), '')::numeric NULLS LAST,
+                    sample_id NULLS LAST,
+                    created_at
                 LIMIT :limit
                 """;
         List<AdminConsoleDtos.RagTestResultDetailRow> details = jdbcTemplate.query(

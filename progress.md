@@ -1232,3 +1232,11 @@ High-level progress tracking for the project.
 - Key decisions: Kept repository behavior unchanged and added explicit SQL casts only around optional `family` and `activeOnly` filters.
 - Issues encountered: Browser devtools only showed generic 500; backend logs showed `could not determine data type of parameter $1`.
 - Next steps: Restart the active backend instance so the corrected query predicates are loaded.
+
+---
+
+## [2026-05-27] Session Summary (Admin RAG Eval Lab Cleanup)
+- What was done: Added Admin RAG eval dataset deletion API/UI, sorted RAG detail rows by dataset query number, reduced comparison-table noise, and simplified RAG run detail modal query/anchor/candidate display.
+- Key decisions: Dataset deletion reuses existing RAG run cleanup for linked terminal histories, blocks the auto-managed default dataset, and rejects deletion while active RAG runs exist.
+- Issues encountered: None; targeted Admin RAG integration test and frontend production build passed.
+- Next steps: Smoke-test `/admin/rag-tests` in the running backend with a real custom eval dataset and completed rewrite-skipped run.

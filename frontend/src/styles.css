@@ -2520,6 +2520,33 @@ table.data-table {
   gap: 14px;
 }
 
+.rag-query-detail-selector {
+  display: grid;
+  gap: 7px;
+  padding: 12px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 8px;
+  background: var(--surface-muted);
+}
+
+.rag-query-detail-selector span {
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.rag-query-detail-selector select {
+  width: 100%;
+}
+
+.rag-run-detail-modal__top-action {
+  position: sticky;
+  bottom: 8px;
+  z-index: 2;
+  justify-self: end;
+  padding-top: 4px;
+}
+
 .rag-query-detail-list {
   display: grid;
   gap: 14px;
@@ -6059,6 +6086,7 @@ option {
 :root[data-theme="dark"] .empty-state--panel,
 :root[data-theme="dark"] .balance-bar,
 :root[data-theme="dark"] .remaining-eta,
+:root[data-theme="dark"] .rag-query-detail-selector,
 :root[data-theme="dark"] .rag-query-focus,
 :root[data-theme="dark"] .rag-detail-disclosure,
 :root[data-theme="dark"] .rag-detail-json,

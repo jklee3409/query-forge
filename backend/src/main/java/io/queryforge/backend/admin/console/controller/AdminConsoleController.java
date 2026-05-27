@@ -154,6 +154,11 @@ public class AdminConsoleController {
         return service.listEvalDatasetItems(datasetId, limit, offset);
     }
 
+    @DeleteMapping("/rag/datasets/{datasetId}")
+    public void deleteRagDataset(@PathVariable UUID datasetId) {
+        service.deleteEvalDataset(datasetId);
+    }
+
     @GetMapping("/rag/tests")
     public List<AdminConsoleDtos.RagTestRunRow> ragTests(
             @RequestParam(name = "limit", required = false) Integer limit,

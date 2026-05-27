@@ -184,8 +184,6 @@ const RETRIEVAL_METRIC_DEFS = [
 const ANSWER_METRIC_DEFS = [
   { key: 'correctness', label: 'Correctness (정확성)', max: 1, precision: 3, trend: 'higher' },
   { key: 'grounding', label: 'Grounding (근거 충실도)', max: 1, precision: 3, trend: 'higher' },
-  { key: 'hallucination_rate', label: 'Hallucination Rate (환각 비율)', max: 1, precision: 3, trend: 'lower' },
-  { key: 'answer_relevance', label: 'Answer Relevance (응답 관련성)', max: 1, precision: 3, trend: 'higher' },
   { key: 'faithfulness', label: 'Faithfulness (사실 충실도)', max: 1, precision: 3, trend: 'higher' },
   { key: 'context_recall', label: 'Context Recall (문맥 재현율)', max: 1, precision: 3, trend: 'higher' },
 ]
@@ -278,8 +276,8 @@ const KPI_METRIC_KEYS = new Set([
 ])
 
 const METRIC_TREND_LABEL = {
-  higher: '높을수록 좋음',
-  lower: '낮을수록 좋음',
+  higher: '',
+  lower: '',
 }
 
 const TABLE_NUMBER_FORMATTERS = new Map()
@@ -646,12 +644,12 @@ function renderDetailEmpty() {
   return <div className="rag-detail-disclosure__empty">데이터 없음</div>
 }
 
-function renderDetailTokenList(values) {
+function renderDetailTokenList(values, maxItems = 12) {
   const items = Array.isArray(values) ? values.filter((item) => item != null && String(item).trim()) : []
   if (!items.length) return null
   return (
     <div className="rag-detail-token-list">
-      {items.slice(0, 12).map((item, index) => (
+      {items.slice(0, maxItems).map((item, index) => (
         <span key={`${String(item)}-${index}`} className="rag-detail-token">{String(item)}</span>
       ))}
     </div>
@@ -678,7 +676,7 @@ function renderCanonicalAnchorDetail(candidate) {
   if (!anchors.length) return null
   const scoringAnchors = anchors.filter((anchor) => isTruthyDetailValue(anchor.used_for_scoring ?? anchor.usedForScoring))
   const reviewAnchors = anchors.filter((anchor) => !isTruthyDetailValue(anchor.used_for_scoring ?? anchor.usedForScoring))
-  const displayAnchors = [...scoringAnchors, ...reviewAnchors].slice(0, 8)
+  const displayAnchors = [...scoringAnchors, ...reviewAnchors].slice(0, 5)
   return (
     <div className="rag-canonical-anchor-block">
       <div className="rag-canonical-anchor-block__header">
@@ -690,25 +688,15 @@ function renderCanonicalAnchorDetail(candidate) {
           const scoring = isTruthyDetailValue(anchor.used_for_scoring ?? anchor.usedForScoring)
           const canonical = firstDetailValue(anchor, ['canonical_form', 'canonicalForm']) || 'unresolved'
           const alias = firstDetailValue(anchor, ['display_alias', 'displayAlias', 'input_alias', 'inputAlias']) || '-'
-          const normalizedAlias = firstDetailValue(anchor, ['normalized_alias', 'normalizedAlias'])
-          const status = firstDetailValue(anchor, ['resolution_status', 'resolutionStatus']) || '-'
-          const termType = firstDetailValue(anchor, ['term_type', 'termType'])
-          const language = firstDetailValue(anchor, ['alias_language', 'aliasLanguage'])
-          const termId = firstDetailValue(anchor, ['canonical_term_id', 'canonicalTermId'])
           const confidence = firstDetailValue(anchor, ['confidence'])
           return (
             <div key={`${alias}-${canonical}-${index}`} className="rag-canonical-anchor" data-scoring={scoring ? 'true' : 'false'}>
               <div className="rag-canonical-anchor__main">
                 <strong>{canonical}</strong>
-                <span>{status}</span>
               </div>
               <div className="rag-canonical-anchor__meta">
                 <span>alias {alias}</span>
-                {normalizedAlias && <span>norm {normalizedAlias}</span>}
-                <span>conf {formatDetailNumber(confidence, 2)}</span>
-                {language && <span>{language}</span>}
-                {termType && <span>{termType}</span>}
-                {termId && <span>term {shortId(termId)}</span>}
+                {confidence != null && <span>conf {formatDetailNumber(confidence, 2)}</span>}
               </div>
             </div>
           )
@@ -807,6 +795,13 @@ function renderMemoryCandidateDetail(value) {
         const docId = firstDetailValue(candidate, ['target_doc_id', 'document_id', 'doc_id'])
         const memoryId = firstDetailValue(candidate, ['memory_id', 'memoryId'])
         const terms = detailArray(candidate?.glossary_terms || candidate?.anchor_terms || candidate?.terms)
+        const candidateTags = [
+          product,
+          retriever,
+          docId ? `doc ${shortId(docId)}` : null,
+          memoryId ? `memory ${shortId(memoryId)}` : null,
+          ...terms,
+        ].filter((item) => item != null && String(item).trim())
         return (
           <article key={memoryId || `${queryText}-${index}`} className="rag-structured-card rag-structured-card--candidate">
             <div className="rag-structured-card__topline">
@@ -814,13 +809,7 @@ function renderMemoryCandidateDetail(value) {
               {score != null && <span className="rag-structured-score">score {formatDetailNumber(score)}</span>}
             </div>
             <p className="rag-structured-card__text">{queryText || '-'}</p>
-            <div className="rag-structured-card__meta">
-              {product && <span>{product}</span>}
-              {retriever && <span>{retriever}</span>}
-              {docId && <span>doc {shortId(docId)}</span>}
-              {memoryId && <span>memory {shortId(memoryId)}</span>}
-            </div>
-            {renderDetailTokenList(terms)}
+            {renderDetailTokenList(candidateTags, 3)}
             {renderCanonicalAnchorDetail(candidate)}
           </article>
         )
@@ -894,11 +883,7 @@ function anchorSourceTags(row) {
   const parsed = parseDetailPayload(row?.sourceTags)
   const tags = Array.isArray(parsed) ? parsed : []
   const merged = [row?.anchorSource, ...tags].filter((value) => value != null && value !== '')
-  return Array.from(new Set(merged.map((value) => String(value))))
-}
-
-function renderAnchorBoolFlag(active, label) {
-  return <span className={`rag-anchor-flag ${active ? 'is-on' : 'is-off'}`}>{label}</span>
+  return Array.from(new Set(merged.map((value) => String(value)))).slice(0, 3)
 }
 
 function renderAnchorEvaluationRows(value) {
@@ -919,7 +904,6 @@ function renderAnchorEvaluationRows(value) {
               <th>Anchor</th>
               <th>Source</th>
               <th>Label</th>
-              <th>Grounding</th>
               <th>Risk</th>
               <th>Score</th>
             </tr>
@@ -943,15 +927,6 @@ function renderAnchorEvaluationRows(value) {
                     </div>
                   </td>
                   <td><span className={`rag-anchor-label rag-anchor-label--${label}`}>{label}</span></td>
-                  <td>
-                    <div className="rag-anchor-flags">
-                      {renderAnchorBoolFlag(row?.appearsInFinalRewrite, 'final')}
-                      {renderAnchorBoolFlag(row?.appearsInExpectedChunk, 'expected chunk')}
-                      {renderAnchorBoolFlag(row?.appearsInExpectedDoc, 'expected doc')}
-                      {renderAnchorBoolFlag(row?.appearsInRetrievedChunk, 'retrieved')}
-                    </div>
-                    <small className="rag-anchor-evidence">{row?.evidenceSummary || 'no evidence'}</small>
-                  </td>
                   <td>{formatDetailNumber(row?.driftRiskScore, 3)}</td>
                   <td>{formatDetailNumber(row?.overallAnchorScore, 3)}</td>
                 </tr>
@@ -1000,17 +975,21 @@ function renderAnchorEvaluationSummary(value) {
   )
 }
 
-function renderRagDetailJsonDisclosure(label, value, renderer = renderGenericDetailValue) {
+function renderRagDetailJsonDisclosure(label, value, renderer = renderGenericDetailValue, defaultOpen = false) {
   const parsed = parseDetailPayload(value)
   const isEmpty = !hasDetailPayload(parsed)
   return (
-    <details className="rag-detail-disclosure">
+    <details className="rag-detail-disclosure" open={defaultOpen}>
       <summary>{label}</summary>
       <div className="rag-detail-disclosure__content">
         {isEmpty ? renderDetailEmpty() : renderer(parsed)}
       </div>
     </details>
   )
+}
+
+function detailRowKey(row, index = 0) {
+  return String(row?.detailId || row?.sampleId || `detail-${index}`)
 }
 
 function renderRagQueryDetailRows(details) {
@@ -1025,6 +1004,7 @@ function renderRagQueryDetailRows(details) {
         const rewriteQuery = normalizeQueryText(row?.rewriteQuery)
         const finalRewriteQuery = rewriteQuery === '-' ? rawQuery : rewriteQuery
         const rowKey = row?.detailId || row?.sampleId || `detail-${index}`
+        const showSkippedRewriteCandidates = !row?.rewriteApplied
         return (
           <article className="rag-query-detail-card" key={rowKey}>
             <header className="rag-query-detail-card__header">
@@ -1051,12 +1031,12 @@ function renderRagQueryDetailRows(details) {
 
             {renderAnchorEvaluationRows(row?.anchorEvaluations)}
 
-            <details className="rag-detail-disclosure rag-detail-disclosure--group">
+            <details className="rag-detail-disclosure rag-detail-disclosure--group" open={showSkippedRewriteCandidates}>
               <summary>세부 데이터 보기</summary>
               <div className="rag-detail-disclosure__content rag-detail-disclosure__content--group">
                 {renderRagDetailJsonDisclosure('지표 기여', row?.metricContribution, renderMetricContributionDetail)}
-                {renderRagDetailJsonDisclosure('추천 합성 질의 후보', row?.memoryCandidates, renderMemoryCandidateDetail)}
-                {renderRagDetailJsonDisclosure('재작성 후보 로그', row?.rewriteCandidates, renderRewriteCandidateDetail)}
+                {renderRagDetailJsonDisclosure('추천 합성 질의 후보', row?.memoryCandidates, renderMemoryCandidateDetail, showSkippedRewriteCandidates)}
+                {renderRagDetailJsonDisclosure('재작성 후보 로그', row?.rewriteCandidates, renderRewriteCandidateDetail, showSkippedRewriteCandidates)}
                 {renderRagDetailJsonDisclosure('검색 청크 결과', row?.retrievedChunks, renderRetrievedChunkDetail)}
               </div>
             </details>
@@ -1064,6 +1044,67 @@ function renderRagQueryDetailRows(details) {
         )
       })}
     </section>
+  )
+}
+
+function RagRunDetailModalBody({
+  details,
+  runMetrics,
+  anchorSummary,
+  retrievalSummaryRows,
+  performance,
+  rewriteMode,
+  anchorEnabled,
+  multiSourceEnabled,
+}) {
+  const rows = useMemo(() => (Array.isArray(details) ? details : []), [details])
+  const [selectedKey, setSelectedKey] = useState(() => detailRowKey(rows[0], 0))
+  const selectedIndex = rows.findIndex((row, index) => detailRowKey(row, index) === selectedKey)
+  const resolvedSelectedIndex = selectedIndex >= 0 ? selectedIndex : 0
+  const selectedRow = rows[resolvedSelectedIndex]
+
+  const scrollToTop = (event) => {
+    const modal = event.currentTarget.closest('.modal')
+    if (modal) {
+      modal.scrollTo({ top: 0, behavior: 'smooth' })
+    }
+  }
+
+  return (
+    <div className="detail-grid detail-grid--single rag-run-detail-modal">
+      {rows.length > 0 && (
+        <label className="rag-query-detail-selector">
+          <span>질의 분석 보기</span>
+          <select value={selectedRow ? detailRowKey(selectedRow, resolvedSelectedIndex) : ''} onChange={(event) => setSelectedKey(event.target.value)}>
+            {rows.map((row, index) => (
+              <option key={detailRowKey(row, index)} value={detailRowKey(row, index)}>
+                #{index + 1} · {row?.sampleId || `sample-${index + 1}`} · {compactText(row?.rawQuery || row?.rewriteQuery || '-', 72)}
+              </option>
+            ))}
+          </select>
+        </label>
+      )}
+      {renderRagQueryDetailRows(selectedRow ? [selectedRow] : [])}
+      <details className="rag-detail-disclosure rag-detail-disclosure--group">
+        <summary>실행 요약 지표 보기</summary>
+        <div className="rag-detail-disclosure__content rag-detail-disclosure__content--group">
+          {renderPerformanceCards(runMetrics)}
+          {renderAnchorEvaluationSummary(anchorSummary)}
+          {renderRunDetailModeSummary(retrievalSummaryRows)}
+          {renderRunDetailModeComparison(retrievalSummaryRows)}
+          {renderRagDetailJsonDisclosure('실행 프로필', {
+            rewrite_mode: rewriteMode.label,
+            rewrite_anchor_injection_enabled: anchorEnabled,
+            multi_source_anchor_expansion_enabled: multiSourceEnabled,
+          })}
+          {renderRagDetailJsonDisclosure('성능 지표', performance)}
+          {renderRagDetailJsonDisclosure('모드별 검색 지표', retrievalSummaryRows)}
+        </div>
+      </details>
+      <div className="rag-run-detail-modal__top-action">
+        <button type="button" className="button button--ghost" onClick={scrollToTop}>최상단으로</button>
+      </div>
+    </div>
   )
 }
 
@@ -1559,24 +1600,8 @@ function formatMetricSampleBasis(metricDef, metrics) {
   return count == null ? `${label} n=-` : `${label} n=${formatTableNumber(count, 0)}`
 }
 
-function formatCompareMetricSampleBasis(row) {
-  if (!row?.sampleCountLabel) return ''
-  const leftCount = toMetricNumber(row.leftSampleCount)
-  const rightCount = toMetricNumber(row.rightSampleCount)
-  if (leftCount == null && rightCount == null) return ''
-  if (leftCount != null && rightCount != null) {
-    return `${row.sampleCountLabel} A n=${formatTableNumber(leftCount, 0)} / B n=${formatTableNumber(rightCount, 0)}`
-  }
-  const resolvedCount = leftCount != null ? leftCount : rightCount
-  return `${row.sampleCountLabel} n=${formatTableNumber(resolvedCount, 0)}`
-}
-
 function metricSupportText(row) {
-  const parts = []
-  if (row?.description) parts.push(row.description)
-  const sampleBasis = formatCompareMetricSampleBasis(row)
-  if (sampleBasis) parts.push(sampleBasis)
-  return parts.join(' | ')
+  return row?.supportText || ''
 }
 
 function renderPerformanceCards(metrics) {
@@ -1662,6 +1687,7 @@ export function RagPage({ notify, domainId = null }) {
   const [compareRunIds, setCompareRunIds] = useState([])
   const [activeCompareMetricKey, setActiveCompareMetricKey] = useState('')
   const [deletingRunId, setDeletingRunId] = useState('')
+  const [deletingDatasetId, setDeletingDatasetId] = useState('')
   const [chunkEmbeddingStatus, setChunkEmbeddingStatus] = useState(null)
   const [chunkEmbeddingStatusLoading, setChunkEmbeddingStatusLoading] = useState(false)
   const [chunkEmbeddingMaterializing, setChunkEmbeddingMaterializing] = useState(false)
@@ -1780,7 +1806,8 @@ export function RagPage({ notify, domainId = null }) {
     const normalized = Array.isArray(rows) ? rows : []
     setDatasets(normalized)
     setForm((prev) => {
-      const datasetId = prev.datasetId || normalized[0]?.datasetId || ''
+      const currentStillExists = normalized.some((item) => item.datasetId === prev.datasetId)
+      const datasetId = currentStillExists ? prev.datasetId : (normalized[0]?.datasetId || '')
       const dataset = normalized.find((item) => item.datasetId === datasetId)
       return {
         ...prev,
@@ -2422,25 +2449,16 @@ export function RagPage({ notify, domainId = null }) {
       setModal({
         title: `RAG 실행 상세 · ${shortId(runId)}`,
         body: (
-          <div className="detail-grid detail-grid--single rag-run-detail-modal">
-            {renderRagQueryDetailRows(details)}
-            <details className="rag-detail-disclosure rag-detail-disclosure--group">
-              <summary>실행 요약 지표 보기</summary>
-              <div className="rag-detail-disclosure__content rag-detail-disclosure__content--group">
-                {renderPerformanceCards(runMetrics)}
-                {renderAnchorEvaluationSummary(anchorSummary)}
-                {renderRunDetailModeSummary(retrievalSummaryRows)}
-                {renderRunDetailModeComparison(retrievalSummaryRows)}
-                {renderRagDetailJsonDisclosure('실행 프로필', {
-                  rewrite_mode: rewriteMode.label,
-                  rewrite_anchor_injection_enabled: anchorEnabled,
-                  multi_source_anchor_expansion_enabled: multiSourceEnabled,
-                })}
-                {renderRagDetailJsonDisclosure('성능 지표', performance)}
-                {renderRagDetailJsonDisclosure('모드별 검색 지표', retrievalSummaryRows)}
-              </div>
-            </details>
-          </div>
+          <RagRunDetailModalBody
+            details={details}
+            runMetrics={runMetrics}
+            anchorSummary={anchorSummary}
+            retrievalSummaryRows={retrievalSummaryRows}
+            performance={performance}
+            rewriteMode={rewriteMode}
+            anchorEnabled={anchorEnabled}
+            multiSourceEnabled={multiSourceEnabled}
+          />
         ),
       })
     } catch (error) {
@@ -2466,6 +2484,21 @@ export function RagPage({ notify, domainId = null }) {
       notify(error.message, 'error')
     } finally {
       setDeletingRunId('')
+    }
+  }
+
+  const deleteDataset = async (datasetId) => {
+    if (!window.confirm('선택한 평가 데이터셋과 연결된 RAG 테스트 이력을 삭제할까요? 실행 중인 테스트가 있으면 삭제되지 않습니다.')) return
+    setDeletingDatasetId(datasetId)
+    try {
+      await requestJson(`/api/admin/console/rag/datasets/${datasetId}`, { method: 'DELETE' })
+      setCompareRunIds([])
+      await Promise.all([loadDatasets(), loadTests()])
+      notify('평가 데이터셋을 삭제했습니다.')
+    } catch (error) {
+      notify(error.message, 'error')
+    } finally {
+      setDeletingDatasetId('')
     }
   }
 
@@ -3175,6 +3208,7 @@ export function RagPage({ notify, domainId = null }) {
                       const rightLeadingClass = row.outcome === 'right' ? 'is-leading' : ''
                       const leftRunLabel = compareRunMeta[0]?.tableLabel || 'A'
                       const rightRunLabel = compareRunMeta[1]?.tableLabel || 'B'
+                      const supportText = metricSupportText(row)
                       return (
                         <article
                           key={row.key}
@@ -3192,7 +3226,7 @@ export function RagPage({ notify, domainId = null }) {
                               <span className={`metric-chip metric-chip--${row.outcome}`}>{compareOutcomeLabel(row.outcome, leftRunLabel, rightRunLabel)}</span>
                             </div>
                           </div>
-                          <div className="compare-metric-card__hint">{metricSupportText(row) || (METRIC_TREND_LABEL[row.trend] || METRIC_TREND_LABEL.higher)}</div>
+                          {supportText && <div className="compare-metric-card__hint">{supportText}</div>}
                           <div className={`compare-metric-card__decision compare-metric-card__decision--${changeInsight.tone}`}>
                             <strong className="compare-metric-card__decision-main">{changeInsight.summary}</strong>
                             <span className="compare-metric-card__decision-detail">{changeInsight.detail}</span>
@@ -3288,7 +3322,7 @@ export function RagPage({ notify, domainId = null }) {
                     const rightValue = formatTableMetricValue(row.right, row)
                     const deltaInfo = buildDeltaInterpretation(row)
                     const resultInfo = buildResultLabel(row, compareRunMeta[0]?.tableLabel, compareRunMeta[1]?.tableLabel)
-                    const trendLabel = metricSupportText(row) || (METRIC_TREND_LABEL[row.trend] || METRIC_TREND_LABEL.higher)
+                    const trendLabel = metricSupportText(row)
                     return (
                       <tr
                         key={`${row.groupKey}:${row.key}`}
@@ -3304,7 +3338,7 @@ export function RagPage({ notify, domainId = null }) {
                             <span>{row.label}</span>
                             {row.priority === 'core' && <span className="metric-chip metric-chip--core compare-data-table__kpi-chip">KPI</span>}
                           </div>
-                          <div className="compare-data-table__metric-sub">{trendLabel}</div>
+                          {trendLabel && <div className="compare-data-table__metric-sub">{trendLabel}</div>}
                         </td>
                         <td className="compare-data-table__num">
                           <strong>{leftValue.main}</strong>
@@ -3320,7 +3354,7 @@ export function RagPage({ notify, domainId = null }) {
                         </td>
                         <td className={`compare-data-table__result compare-data-table__result--${row.outcome}`}>
                           <span className={`compare-result-chip compare-result-chip--${row.outcome}`}>{resultInfo.main}</span>
-                          <small>{resultInfo.sub}</small>
+                          {resultInfo.sub && <small>{resultInfo.sub}</small>}
                         </td>
                       </tr>
                     )
@@ -3336,7 +3370,7 @@ export function RagPage({ notify, domainId = null }) {
         <div className="table-header"><div className="table-title">평가 데이터셋</div></div>
         <div className="table-wrap">
           <table className="data-table">
-            <thead><tr><th>데이터셋 ID</th><th>이름</th><th>버전</th><th>문항 수</th><th>생성 일시</th><th>상세</th></tr></thead>
+            <thead><tr><th>데이터셋 ID</th><th>이름</th><th>버전</th><th>문항 수</th><th>생성 일시</th><th>상세</th><th>삭제</th></tr></thead>
             <tbody>
               {datasets.map((dataset) => (
                 <tr key={dataset.datasetId}>
@@ -3346,6 +3380,16 @@ export function RagPage({ notify, domainId = null }) {
                   <td>{dataset.totalItems ?? 0}</td>
                   <td>{fmtTime(dataset.createdAt)}</td>
                   <td><button type="button" className="button button--ghost" onClick={() => openDatasetItems(dataset.datasetId)}>상세 조회</button></td>
+                  <td>
+                    <button
+                      type="button"
+                      className="button button--danger-ghost"
+                      disabled={dataset.datasetKey === 'human_eval_default' || deletingDatasetId === dataset.datasetId}
+                      onClick={() => deleteDataset(dataset.datasetId)}
+                    >
+                      {dataset.datasetKey === 'human_eval_default' ? '자동' : deletingDatasetId === dataset.datasetId ? '삭제 중...' : '삭제'}
+                    </button>
+                  </td>
                 </tr>
               ))}
             </tbody>

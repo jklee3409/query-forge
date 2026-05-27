@@ -485,6 +485,14 @@ High-level progress tracking for the project.
 
 ---
 
+## [2026-05-27] Session Summary (RAG Eval Lab Detail Cleanup)
+- What was done: Added eval dataset delete controls, removed Hallucination Rate/Answer Relevance from RAG comparison metrics, removed comparison-table helper copy, and made RAG run detail show one query analysis at a time via dropdown.
+- Key decisions: Rewrite-skipped details open candidate sections by default, recommended synthetic candidate tags are capped to three, anchor Grounding column is removed, and completed ETA cards no longer show `KST` or progress counts.
+- Issues encountered: None; `npm run build` passed and refreshed the backend React bundle.
+- Next steps: Smoke-test a completed RAG detail modal with rewrite-skipped samples in the browser.
+
+---
+
 ## Notes
 - Keep this file concise
 - Only record important changes

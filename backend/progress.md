@@ -660,3 +660,11 @@ High-level backend progress tracking.
 - Key decisions: Limited the fix to the two failing SELECT predicates and did not alter DTOs, controllers, or response shape.
 - Issues encountered: PostgreSQL rejected `? IS NULL` for an untyped nullable bind parameter in prepared statements.
 - Next steps: Reload the running backend and verify Prompt Studio loads both asset and binding lists.
+
+---
+
+## [2026-05-27] Session Summary (RAG Dataset Delete + Detail Ordering)
+- What was done: Added `DELETE /api/admin/console/rag/datasets/{datasetId}`, wired service/repository cleanup, and changed RAG detail lookup ordering to dataset sample-number order.
+- Key decisions: Auto-managed `human_eval_default` is not deletable; custom dataset deletion cascades through existing RAG run cleanup for linked terminal histories and blocks active RAG runs.
+- Issues encountered: None; `AdminConsoleRagIntegrationTest` passed.
+- Next steps: Verify deletion from the live Admin GUI against a non-default dataset after backend reload.

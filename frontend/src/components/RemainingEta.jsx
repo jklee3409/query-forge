@@ -36,15 +36,11 @@ export function RemainingEta({
     return (
       <div className={`remaining-eta ${compact ? 'remaining-eta--compact' : ''}`} data-status={statusTone(status)}>
         <div className="remaining-eta__head">
-          <span className="remaining-eta__label">작업 시작 KST</span>
+          <span className="remaining-eta__label">작업 시작</span>
           <span className="remaining-eta__state">Done</span>
         </div>
         <div className="remaining-eta__timestamp">{fmtTime(startedAt)}</div>
         <div className="remaining-eta__value">{elapsedText}</div>
-        <div className="remaining-eta__meta">
-          <span>걸린 시간</span>
-          <span>{progressText}</span>
-        </div>
       </div>
     )
   }

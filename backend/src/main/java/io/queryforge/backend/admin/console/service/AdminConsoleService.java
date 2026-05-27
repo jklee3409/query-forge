@@ -670,6 +670,36 @@ public class AdminConsoleService {
         return repository.findEvalDatasetItems(datasetId, limit, offset);
     }
 
+    @Transactional
+    public void deleteEvalDataset(UUID datasetId) {
+        String datasetKey = repository.findEvalDatasetKey(datasetId)
+                .orElseThrow(() -> new IllegalArgumentException("eval dataset not found: " + datasetId));
+        if (DEFAULT_DATASET_KEY.equals(datasetKey)) {
+            throw new IllegalArgumentException("default eval dataset is auto-managed and cannot be deleted: " + datasetId);
+        }
+        List<AdminConsoleDtos.RagTestRunRow> linkedRuns = repository.findRagTestRunsByDataset(datasetId);
+        List<AdminConsoleDtos.RagTestRunRow> activeRuns = linkedRuns.stream()
+                .filter(row -> {
+                    String status = row.status() == null ? "" : row.status().trim().toLowerCase(Locale.ROOT);
+                    return Set.of("planned", "queued", "running").contains(status);
+                })
+                .toList();
+        if (!activeRuns.isEmpty()) {
+            throw new IllegalArgumentException(
+                    "eval dataset has active rag test runs: " + activeRuns.stream()
+                            .map(row -> row.ragTestRunId().toString())
+                            .collect(java.util.stream.Collectors.joining(", "))
+            );
+        }
+        for (AdminConsoleDtos.RagTestRunRow run : linkedRuns) {
+            deleteRagTestRun(run.ragTestRunId());
+        }
+        int removed = repository.deleteEvalDataset(datasetId);
+        if (removed <= 0) {
+            throw new IllegalArgumentException("eval dataset not found: " + datasetId);
+        }
+    }
+
     public List<AdminConsoleDtos.RagTestRunRow> listRagTestRuns(Integer limit) {
         return listRagTestRuns(limit, null);
     }

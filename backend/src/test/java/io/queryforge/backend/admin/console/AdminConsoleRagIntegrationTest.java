@@ -633,6 +633,114 @@ class AdminConsoleRagIntegrationTest {
     }
 
     @Test
+    void deleteEvalDatasetRemovesDatasetItemsAndLinkedTerminalRagRuns() throws Exception {
+        UUID datasetId = insertEvalDataset("delete-dataset");
+        UUID datasetItemId = UUID.randomUUID();
+        UUID runId = UUID.randomUUID();
+        String sampleId = "dataset-delete-sample-001";
+
+        jdbcTemplate.update(
+                """
+                INSERT INTO eval_samples (
+                    sample_id,
+                    split,
+                    user_query_ko,
+                    query_category
+                ) VALUES (
+                    :sampleId,
+                    'test',
+                    'dataset delete query',
+                    'factoid'
+                )
+                """,
+                new MapSqlParameterSource("sampleId", sampleId)
+        );
+        jdbcTemplate.update(
+                """
+                INSERT INTO eval_dataset_item (
+                    dataset_item_id,
+                    dataset_id,
+                    sample_id,
+                    query_category,
+                    active
+                ) VALUES (
+                    :datasetItemId,
+                    :datasetId,
+                    :sampleId,
+                    'factoid',
+                    TRUE
+                )
+                """,
+                new MapSqlParameterSource()
+                        .addValue("datasetItemId", datasetItemId)
+                        .addValue("datasetId", datasetId)
+                        .addValue("sampleId", sampleId)
+        );
+        jdbcTemplate.update(
+                """
+                INSERT INTO rag_test_run (
+                    rag_test_run_id,
+                    status,
+                    dataset_id,
+                    generation_method_codes,
+                    generation_batch_ids,
+                    gating_applied,
+                    rewrite_enabled,
+                    selective_rewrite,
+                    use_session_context,
+                    metadata,
+                    created_by
+                ) VALUES (
+                    :runId,
+                    'completed',
+                    :datasetId,
+                    '["A"]'::jsonb,
+                    '[]'::jsonb,
+                    TRUE,
+                    TRUE,
+                    TRUE,
+                    FALSE,
+                    '{}'::jsonb,
+                    'test-admin'
+                )
+                """,
+                new MapSqlParameterSource()
+                        .addValue("runId", runId)
+                        .addValue("datasetId", datasetId)
+        );
+        jdbcTemplate.update(
+                """
+                INSERT INTO rag_test_result_summary (
+                    rag_test_run_id,
+                    recall_at_5,
+                    hit_at_5,
+                    mrr_at_10,
+                    ndcg_at_10,
+                    answer_metrics,
+                    metrics_json
+                ) VALUES (
+                    :runId,
+                    0.5,
+                    1.0,
+                    0.7,
+                    0.8,
+                    '{}'::jsonb,
+                    '{}'::jsonb
+                )
+                """,
+                new MapSqlParameterSource("runId", runId)
+        );
+
+        mockMvc.perform(delete("/api/admin/console/rag/datasets/{datasetId}", datasetId))
+                .andExpect(status().isOk());
+
+        assertThat(countRows("SELECT COUNT(*) FROM eval_dataset WHERE dataset_id = :datasetId", "datasetId", datasetId)).isZero();
+        assertThat(countRows("SELECT COUNT(*) FROM eval_dataset_item WHERE dataset_id = :datasetId", "datasetId", datasetId)).isZero();
+        assertThat(countRows("SELECT COUNT(*) FROM rag_test_run WHERE rag_test_run_id = :runId", runId)).isZero();
+        assertThat(countRows("SELECT COUNT(*) FROM rag_test_result_summary WHERE rag_test_run_id = :runId", runId)).isZero();
+    }
+
+    @Test
     void runRagRejectsCatalogOutOfAllowlistLlmModel() throws Exception {
         UUID datasetId = insertEvalDataset("rag-invalid-llm-model");
         mockMvc.perform(post("/api/admin/console/rag/tests/run")
