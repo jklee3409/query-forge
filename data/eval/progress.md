@@ -3,6 +3,12 @@
 ## Overview
 Evaluation dataset artifact changes for `data/eval/`.
 
+## [2026-05-27] Session Summary (Spring/PostgreSQL Anchor-Translated Short-User 80)
+- What was done: Added separate anchor-translated KR short-user artifacts for Spring and PostgreSQL: `spring_kr_anchor_translated_short_user_test_80.jsonl` and `postgresql_kr_anchor_translated_short_user_test_80.jsonl`.
+- Key decisions: Preserved the existing source artifacts/datasets and copied retrieval-aware grounding unchanged; only `sample_id`, `user_query_ko`, and audit metadata were changed for the new variants.
+- Issues encountered: None; builder validation passed with `single:59` / `multi:21` per dataset and zero ASCII query surfaces.
+- Next steps: Use dataset keys `spring_kr_anchor_translated_short_user_80` and `postgresql_kr_anchor_translated_short_user_80` for anchor-effect RAG reruns.
+
 ## [2026-05-27] Session Summary (Kubernetes KR Anchor-Translated Surface)
 - What was done: Updated `kubernetes_kr_short_user_test_80.jsonl` so Korean short-user queries preserve intent while translating/paraphrasing English technical anchors into Korean.
 - Key decisions: Preserved all sample IDs, expected grounding fields, KO/EN paired order, and target-method distribution; EN companion metadata now points to the revised paired Korean query text.

@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-05-27] Session Summary (Spring/PostgreSQL Anchor-Translated Eval Copies)
+- What was done: Created separate Spring and PostgreSQL Korean short-user eval datasets whose query surfaces intentionally translate English technical anchors into Korean, wrote JSONL artifacts, and registered DB datasets `44282405-1ea1-5f78-bf85-6270724ee475` / `8a08c160-e4cd-5ce0-9f5c-640c51b6d887`.
+- Key decisions: Preserved the source datasets `b2d47254-8655-4c9c-81ac-7615677ec5bd` and `862642e6-10bd-538d-9ba8-5de7f1f26d3c`; copied expected doc/chunk IDs, answer key points, split, category, difficulty, and single/multi structure unchanged into new sample IDs.
+- Issues encountered: None in final validation; both generated 80-row datasets have zero ASCII letters in `user_query_ko` and source datasets still have 80 active rows.
+- Next steps: Use the new dataset keys for anchor-effect RAG comparisons without replacing the existing KR baselines.
+
 ## [2026-05-27] Session Summary (Kubernetes KR Anchor-Translated Eval)
 - What was done: Revised Kubernetes KR short-user eval queries to intentionally translate/paraphrase English technical anchors into Korean surfaces, regenerated paired JSONL artifacts, and upserted the active DB datasets.
 - Key decisions: Preserved the existing 80-item retrieval-aware grounding, dataset IDs, KO/EN pairing, and `single:59` / `multi:21` structure while changing only the Korean query surface and paired metadata.

@@ -3,6 +3,12 @@
 ## Overview
 High-level progress tracking for the project.
 
+## [2026-05-27] Session Summary (Spring/PostgreSQL Anchor-Translated Eval Copies)
+- What was done: Added `data/eval/spring_kr_anchor_translated_short_user_test_80.jsonl` and `data/eval/postgresql_kr_anchor_translated_short_user_test_80.jsonl`, then upserted separate DB datasets `44282405-1ea1-5f78-bf85-6270724ee475` and `8a08c160-e4cd-5ce0-9f5c-640c51b6d887`.
+- Key decisions: Kept the original Spring/PostgreSQL KR datasets untouched while cloning grounding metadata and translating only English anchor tokens in Korean query text.
+- Issues encountered: Validation confirmed 80 rows per artifact, no duplicate translated queries, no ASCII letters in `user_query_ko`, and unchanged grounding fields.
+- Next steps: Run snapshot-controlled RAG tests against the new anchor-translated dataset keys when comparison is needed.
+
 ## [2026-05-27] Session Summary (Kubernetes KR Anchor Translation)
 - What was done: Regenerated `kubernetes_kr_short_user_test_80.jsonl` with English technical anchors translated/paraphrased into Korean query surfaces and synchronized the DB-managed dataset.
 - Key decisions: Kept expected doc/chunk IDs, answer key points, sample IDs, paired EN dataset identity, and single/multi distribution unchanged.

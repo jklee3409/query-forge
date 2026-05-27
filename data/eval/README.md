@@ -7,9 +7,11 @@
 - `human_eval_short_user_test_40.jsonl`: 기존 Spring 영어 문서 도메인의 한국어 short-user 40문항
 - `human_eval_short_user_test_80.jsonl`: 기존 Spring 영어 문서 도메인의 한국어 short-user 80문항
 - `human_eval_short_user_test_80_en.jsonl`: 기존 Spring 영어 문서 도메인의 영어 short-user 80문항
+- `spring_kr_anchor_translated_short_user_test_80.jsonl`: 기존 Spring KR short-user 80문항에서 영어 anchor를 한국어로 의도 번역한 별도 80문항
 - `python_kr_short_user_test_80_ko.jsonl`: 한국어 Python 문서 도메인의 한국어 short-user 80문항
 - `python_kr_short_user_test_80_en.jsonl`: 한국어 Python 문서 도메인의 영어 short-user 80문항
 - `postgresql_kr_short_user_test_80.jsonl`: PostgreSQL 도메인의 현재 영어 기술문서 청크에 grounded 된 한국어 short-user 80문항
+- `postgresql_kr_anchor_translated_short_user_test_80.jsonl`: PostgreSQL KR short-user 80문항에서 영어 anchor를 한국어로 의도 번역한 별도 80문항
 - `postgresql_en_short_user_test_80.jsonl`: PostgreSQL EN short-user 80 companion paired to `postgresql_kr_short_user_test_80.jsonl`
 - `kubernetes_kr_short_user_test_80.jsonl`: Kubernetes 도메인의 현재 영어 기술문서 청크에 grounded 된 한국어 short-user 80문항
 - `kubernetes_en_short_user_test_80.jsonl`: Kubernetes EN short-user 80 companion paired to `kubernetes_kr_short_user_test_80.jsonl`

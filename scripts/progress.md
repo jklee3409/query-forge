@@ -3,6 +3,12 @@
 ## Overview
 High-level progress tracking for the project.
 
+## [2026-05-27] Session Summary (Spring/PostgreSQL Anchor-Translated Builder)
+- What was done: Added `scripts/build_anchor_translated_eval_datasets.py` to clone active Spring/PostgreSQL KR short-user datasets into separate anchor-translated Korean variants and upsert them to DB.
+- Key decisions: The builder reads source datasets by fixed IDs, preserves grounding fields, writes deterministic JSONL artifacts, and fails if translated `user_query_ko` contains ASCII letters or duplicates.
+- Issues encountered: None; `py_compile` and dry-run validation passed before DB upsert.
+- Next steps: Re-run this script when the source KR datasets are intentionally curated and the anchor-translated copies need to be refreshed.
+
 ## [2026-05-27] Session Summary (Kubernetes Anchor-Translated Builder)
 - What was done: Updated `build_kubernetes_eval_datasets.py` to generate v2 Kubernetes KR short-user queries with English technical anchors translated/paraphrased into Korean surfaces.
 - Key decisions: Left source English query specs intact for pairing/audit, added a reviewed KO anchor-translated query list, and kept DB upsert behavior paired for KR and EN datasets.
