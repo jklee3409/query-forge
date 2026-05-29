@@ -6,6 +6,12 @@
 - Issues encountered: The failure matched the earlier PostgreSQL nullable bind-parameter type inference issue; targeted Testcontainers regression tests passed.
 - Next steps: Restart the running backend before verifying the fixed `/api/admin/console/synthetic/methods` path in the browser.
 
+## [2026-05-29] Session Summary (AGENTS Synthetic Method Alignment)
+- What was done: Updated `.codex/AGENTS.md` to document A/B/C/D/E/F/G synthetic method flows, F/G Korean-origin definitions, method-aware dataset support, snapshot/logging strategy support, and F/G raw-table/prompt references.
+- Key decisions: Treated the change as documentation correction only and preserved pipeline order, gating rules, evaluation rules, schema structure, and architecture constraints.
+- Issues encountered: Existing unrelated AGENTS sections still contain legacy mojibake; no runtime tests were run because this was documentation-only.
+- Next steps: Keep AGENTS method definitions synchronized with query-generation prompt assets when strategy semantics change.
+
 ## [2026-05-29] Session Summary (README Tone Pass)
 - What was done: Refined the root `README.md` wording without changing the documented implementation facts, section structure, run commands, source list, or evaluation descriptions.
 - Key decisions: Removed repeated AI-style meta subjects such as "이 프로젝트는" / "이 저장소는" equivalents and rewrote paragraphs toward direct technical README prose.

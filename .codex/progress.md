@@ -3,6 +3,12 @@
 ## Overview
 High-level progress tracking for the project.
 
+## [2026-05-29] Session Summary (AGENTS Synthetic Method Alignment)
+- What was done: Updated `.codex/AGENTS.md` to align synthetic query method documentation with current A/B/C/D/E/F/G research design, including F/G Korean-origin method definitions, raw tables, dataset `target_method` support, snapshot/logging wording, and prompt references.
+- Key decisions: Kept the update documentation-only and did not change pipeline order, gating rules, evaluation rules, schema structure, or architecture constraints.
+- Issues encountered: Existing unrelated AGENTS sections still contain legacy mojibake; no runtime tests were run because this was documentation-only.
+- Next steps: Keep AGENTS method descriptions synchronized with query-generation prompt assets and source-language method policy.
+
 ## [2026-05-26] Session Summary (Low-Spec Laptop Rule Explicitness)
 - What was done: Updated `.codex/AGENTS.md` Section `4.0 Local Resource Safety` to explicitly include the Korean low-spec laptop rules: no whole-project scans, no indiscriminate DB queries, and no memory-heavy work under the IntelliJ 4GB heap constraint. Added the low-spec rule review to the mandatory session-start checklist in Section `4.5`.
 - Key decisions: Kept the existing resource-safety section and made the missing memory limit plus pre-work review requirement explicit instead of creating a separate policy location.
