@@ -2,16 +2,15 @@ package io.queryforge.backend.admin.pipeline.repository;
 
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import io.queryforge.backend.admin.persistence.entity.CorpusRunEntity;
-import io.queryforge.backend.admin.persistence.repository.CorpusRunJpaRepository;
 import io.queryforge.backend.admin.pipeline.model.PipelineAdminDtos;
-import jakarta.persistence.EntityManager;
-import jakarta.persistence.PersistenceContext;
-import jakarta.persistence.Query;
 import lombok.RequiredArgsConstructor;
+import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
+import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.sql.ResultSet;
+import java.sql.SQLException;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.LinkedHashMap;
@@ -28,21 +27,31 @@ public class PipelineAdminRepository {
     private static final long PIPELINE_START_LOCK_KEY = 937_511_042L;
 
     private final ObjectMapper objectMapper;
-    private final CorpusRunJpaRepository runRepository;
-
-    @PersistenceContext
-    private EntityManager entityManager;
+    private final NamedParameterJdbcTemplate jdbcTemplate;
 
     public Optional<UUID> findActiveRunId() {
-        return runRepository.findFirstByRunStatusInOrderByCreatedAtDesc(List.of("queued", "running"))
-                .map(CorpusRunEntity::getRunId);
+        String sql = """
+                SELECT run_id
+                FROM corpus_runs
+                WHERE run_status IN (:statuses)
+                ORDER BY created_at DESC
+                LIMIT 1
+                """;
+        List<UUID> rows = jdbcTemplate.query(
+                sql,
+                new MapSqlParameterSource("statuses", List.of("queued", "running")),
+                (rs, rowNum) -> readUuid(rs, "run_id")
+        );
+        return rows.stream().findFirst();
     }
 
     @Transactional
     public void acquirePipelineStartLock() {
-        entityManager.createNativeQuery("SELECT pg_advisory_xact_lock(:lockKey)")
-                .setParameter("lockKey", PIPELINE_START_LOCK_KEY)
-                .getSingleResult();
+        jdbcTemplate.queryForObject(
+                "SELECT pg_advisory_xact_lock(:lockKey)",
+                new MapSqlParameterSource("lockKey", PIPELINE_START_LOCK_KEY),
+                Object.class
+        );
     }
 
     @Transactional
@@ -664,9 +673,7 @@ public class PipelineAdminRepository {
     }
 
     private void executeUpdate(String sql, Map<String, Object> parameters) {
-        Query query = entityManager.createNativeQuery(sql);
-        parameters.forEach(query::setParameter);
-        query.executeUpdate();
+        jdbcTemplate.update(sql, new MapSqlParameterSource(parameters));
     }
 
     private Map<String, Object> params(Object... keyValuePairs) {
@@ -705,30 +712,29 @@ public class PipelineAdminRepository {
     }
 
     private long queryForLong(String sql) {
-        Object value = entityManager.createNativeQuery(sql).getSingleResult();
+        Object value = jdbcTemplate.queryForObject(sql, new MapSqlParameterSource(), Object.class);
         return longValue(value);
     }
 
     private long queryForLong(String sql, UUID domainId) {
-        Query query = entityManager.createNativeQuery(sql);
+        MapSqlParameterSource parameters = new MapSqlParameterSource();
         if (domainId != null) {
-            query.setParameter("domainId", domainId);
+            parameters.addValue("domainId", domainId);
         }
-        return longValue(query.getSingleResult());
+        Object value = jdbcTemplate.queryForObject(sql, parameters, Object.class);
+        return longValue(value);
     }
 
-    @SuppressWarnings("unchecked")
     private List<Object[]> queryRows(String sql) {
-        return entityManager.createNativeQuery(sql).getResultList();
+        return jdbcTemplate.query(sql, new MapSqlParameterSource(), this::readObjectArray);
     }
 
-    @SuppressWarnings("unchecked")
     private List<Object[]> queryRows(String sql, UUID domainId) {
-        Query query = entityManager.createNativeQuery(sql);
+        MapSqlParameterSource parameters = new MapSqlParameterSource();
         if (domainId != null) {
-            query.setParameter("domainId", domainId);
+            parameters.addValue("domainId", domainId);
         }
-        return query.getResultList();
+        return jdbcTemplate.query(sql, parameters, this::readObjectArray);
     }
 
     private String writeJson(Object value) {
@@ -777,5 +783,25 @@ public class PipelineAdminRepository {
 
     private String stringValue(Object value) {
         return value == null ? null : String.valueOf(value);
+    }
+
+    private Object[] readObjectArray(ResultSet rs, int rowNum) throws SQLException {
+        int columnCount = rs.getMetaData().getColumnCount();
+        Object[] values = new Object[columnCount];
+        for (int index = 1; index <= columnCount; index++) {
+            values[index - 1] = rs.getObject(index);
+        }
+        return values;
+    }
+
+    private UUID readUuid(ResultSet rs, String column) throws SQLException {
+        Object value = rs.getObject(column);
+        if (value == null) {
+            return null;
+        }
+        if (value instanceof UUID uuid) {
+            return uuid;
+        }
+        return UUID.fromString(String.valueOf(value));
     }
 }
