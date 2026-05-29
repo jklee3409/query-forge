@@ -28,18 +28,11 @@ import java.util.UUID;
 @Transactional(readOnly = true)
 public class AdminConsoleRepository {
 
-    private static final List<String> STRATEGY_RAW_TABLES = List.of(
-            "synthetic_queries_raw_a",
-            "synthetic_queries_raw_b",
-            "synthetic_queries_raw_c",
-            "synthetic_queries_raw_d",
-            "synthetic_queries_raw_e",
-            "synthetic_queries_raw_f",
-            "synthetic_queries_raw_g"
-    );
-
     private final NamedParameterJdbcTemplate jdbcTemplate;
     private final ObjectMapper objectMapper;
+    private final AdminConsoleDomainScopeRepository domainScopeRepository;
+    private final AdminSyntheticMethodRepository syntheticMethodRepository;
+    private final AdminEvalDatasetRepository evalDatasetRepository;
 
     public record EvalSampleMeta(
             String sampleId,
@@ -98,234 +91,47 @@ public class AdminConsoleRepository {
     }
 
     public List<AdminConsoleDtos.SyntheticGenerationMethod> findGenerationMethods() {
-        String sql = """
-                SELECT generation_method_id,
-                       method_code,
-                       method_name,
-                       description,
-                       active,
-                       prompt_template_version,
-                       summary_strategy,
-                       translation_strategy,
-                       query_language_strategy,
-                       terminology_preservation_rule,
-                       metadata::text AS metadata
-                FROM synthetic_query_generation_method
-                ORDER BY method_code
-                """;
-        return jdbcTemplate.query(
-                sql,
-                (rs, rowNum) -> new AdminConsoleDtos.SyntheticGenerationMethod(
-                        readUuid(rs, "generation_method_id"),
-                        rs.getString("method_code"),
-                        rs.getString("method_name"),
-                        rs.getString("description"),
-                        rs.getBoolean("active"),
-                        rs.getString("prompt_template_version"),
-                        rs.getString("summary_strategy"),
-                        rs.getString("translation_strategy"),
-                        rs.getString("query_language_strategy"),
-                        rs.getString("terminology_preservation_rule"),
-                        readJson(rs, "metadata")
-                )
-        );
+        return syntheticMethodRepository.findGenerationMethods();
     }
 
     public List<AdminConsoleDtos.SyntheticGenerationMethod> findGenerationMethods(UUID domainId) {
-        if (domainId == null) {
-            return findGenerationMethods();
-        }
-        String sql = """
-                SELECT m.generation_method_id,
-                       m.method_code,
-                       m.method_name,
-                       m.description,
-                       m.active,
-                       m.prompt_template_version,
-                       m.summary_strategy,
-                       m.translation_strategy,
-                       m.query_language_strategy,
-                       m.terminology_preservation_rule,
-                       m.metadata::text AS metadata
-                FROM synthetic_query_generation_method m
-                WHERE EXISTS (
-                    SELECT 1
-                    FROM tech_doc_domain_method_policy p
-                    WHERE p.domain_id = :domainId
-                      AND p.method_code = m.method_code
-                      AND p.enabled IS TRUE
-                )
-                ORDER BY m.method_code
-                """;
-        return jdbcTemplate.query(
-                sql,
-                new MapSqlParameterSource("domainId", domainId),
-                (rs, rowNum) -> new AdminConsoleDtos.SyntheticGenerationMethod(
-                        readUuid(rs, "generation_method_id"),
-                        rs.getString("method_code"),
-                        rs.getString("method_name"),
-                        rs.getString("description"),
-                        rs.getBoolean("active"),
-                        rs.getString("prompt_template_version"),
-                        rs.getString("summary_strategy"),
-                        rs.getString("translation_strategy"),
-                        rs.getString("query_language_strategy"),
-                        rs.getString("terminology_preservation_rule"),
-                        readJson(rs, "metadata")
-                )
-        );
+        return syntheticMethodRepository.findGenerationMethods(domainId);
     }
 
     public Optional<AdminConsoleDtos.SyntheticGenerationMethod> findGenerationMethodByCode(String methodCode) {
-        String sql = """
-                SELECT generation_method_id,
-                       method_code,
-                       method_name,
-                       description,
-                       active,
-                       prompt_template_version,
-                       summary_strategy,
-                       translation_strategy,
-                       query_language_strategy,
-                       terminology_preservation_rule,
-                       metadata::text AS metadata
-                FROM synthetic_query_generation_method
-                WHERE method_code = :methodCode
-                """;
-        List<AdminConsoleDtos.SyntheticGenerationMethod> rows = jdbcTemplate.query(
-                sql,
-                new MapSqlParameterSource("methodCode", methodCode),
-                (rs, rowNum) -> new AdminConsoleDtos.SyntheticGenerationMethod(
-                        readUuid(rs, "generation_method_id"),
-                        rs.getString("method_code"),
-                        rs.getString("method_name"),
-                        rs.getString("description"),
-                        rs.getBoolean("active"),
-                        rs.getString("prompt_template_version"),
-                        rs.getString("summary_strategy"),
-                        rs.getString("translation_strategy"),
-                        rs.getString("query_language_strategy"),
-                        rs.getString("terminology_preservation_rule"),
-                        readJson(rs, "metadata")
-                )
-        );
-        return rows.stream().findFirst();
+        return syntheticMethodRepository.findGenerationMethodByCode(methodCode);
     }
 
     public boolean isGenerationMethodEnabledForDomain(UUID domainId, String methodCode) {
-        if (domainId == null || methodCode == null || methodCode.isBlank()) {
-            return true;
-        }
-        String sql = """
-                SELECT COUNT(*)
-                FROM tech_doc_domain_method_policy
-                WHERE domain_id = :domainId
-                  AND method_code = :methodCode
-                  AND enabled IS TRUE
-                """;
-        Integer count = jdbcTemplate.queryForObject(
-                sql,
-                new MapSqlParameterSource()
-                        .addValue("domainId", domainId)
-                        .addValue("methodCode", methodCode.trim().toUpperCase()),
-                Integer.class
-        );
-        return count != null && count > 0;
+        return domainScopeRepository.isGenerationMethodEnabledForDomain(domainId, methodCode);
     }
 
     public List<String> findDomainSourceIds(UUID domainId) {
-        if (domainId == null) {
-            return List.of();
-        }
-        String sql = """
-                SELECT source_id
-                FROM tech_doc_domain_source
-                WHERE domain_id = :domainId
-                  AND active IS TRUE
-                ORDER BY source_id
-                """;
-        return jdbcTemplate.query(
-                sql,
-                new MapSqlParameterSource("domainId", domainId),
-                (rs, rowNum) -> rs.getString("source_id")
-        );
+        return domainScopeRepository.findDomainSourceIds(domainId);
     }
 
     public boolean sourceBelongsToDomain(UUID domainId, String sourceId) {
-        if (domainId == null || sourceId == null || sourceId.isBlank()) {
-            return true;
-        }
-        String sql = """
-                SELECT COUNT(*)
-                FROM tech_doc_domain_source
-                WHERE domain_id = :domainId
-                  AND source_id = :sourceId
-                  AND active IS TRUE
-                """;
-        Integer count = jdbcTemplate.queryForObject(
-                sql,
-                new MapSqlParameterSource()
-                        .addValue("domainId", domainId)
-                        .addValue("sourceId", sourceId.trim()),
-                Integer.class
-        );
-        return count != null && count > 0;
+        return domainScopeRepository.sourceBelongsToDomain(domainId, sourceId);
     }
 
     public Optional<DomainLanguageContext> findDomainLanguageContext(UUID domainId) {
-        if (domainId == null) {
-            return Optional.empty();
-        }
-        String sql = """
-                SELECT domain_id,
-                       primary_language,
-                       source_language
-                FROM tech_doc_domain
-                WHERE domain_id = :domainId
-                LIMIT 1
-                """;
-        List<DomainLanguageContext> rows = jdbcTemplate.query(
-                sql,
-                new MapSqlParameterSource("domainId", domainId),
-                (rs, rowNum) -> new DomainLanguageContext(
-                        readUuid(rs, "domain_id"),
-                        rs.getString("primary_language"),
-                        rs.getString("source_language")
-                )
-        );
-        return rows.stream().findFirst();
+        return domainScopeRepository.findDomainLanguageContext(domainId);
     }
 
     public boolean sourceDocumentBelongsToDomain(UUID domainId, String documentId) {
-        if (domainId == null || documentId == null || documentId.isBlank()) {
-            return true;
-        }
-        String sql = """
-                SELECT COUNT(*)
-                FROM corpus_documents
-                WHERE document_id = :documentId
-                  AND domain_id = :domainId
-                """;
-        Integer count = jdbcTemplate.queryForObject(
-                sql,
-                new MapSqlParameterSource()
-                        .addValue("domainId", domainId)
-                        .addValue("documentId", documentId.trim()),
-                Integer.class
-        );
-        return count != null && count > 0;
+        return domainScopeRepository.sourceDocumentBelongsToDomain(domainId, documentId);
     }
 
     public boolean generationBatchBelongsToDomain(UUID domainId, UUID batchId) {
-        return rowBelongsToDomain("synthetic_query_generation_batch", "batch_id", domainId, batchId);
+        return domainScopeRepository.generationBatchBelongsToDomain(domainId, batchId);
     }
 
     public boolean gatingBatchBelongsToDomain(UUID domainId, UUID batchId) {
-        return rowBelongsToDomain("quality_gating_batch", "gating_batch_id", domainId, batchId);
+        return domainScopeRepository.gatingBatchBelongsToDomain(domainId, batchId);
     }
 
     public boolean evalDatasetBelongsToDomain(UUID domainId, UUID datasetId) {
-        return rowBelongsToDomain("eval_dataset", "dataset_id", domainId, datasetId);
+        return domainScopeRepository.evalDatasetBelongsToDomain(domainId, datasetId);
     }
 
     @Transactional
@@ -402,7 +208,7 @@ public class AdminConsoleRepository {
 
     @Transactional
     public void syncSyntheticQueryBatchProvenance(UUID batchId, UUID sourceGenerationRunId) {
-        for (String tableName : STRATEGY_RAW_TABLES) {
+        for (String tableName : AdminConsoleStrategyTables.RAW_TABLES) {
             updateStrategyRawBatchProvenance(tableName, batchId, sourceGenerationRunId);
         }
 
@@ -466,7 +272,7 @@ public class AdminConsoleRepository {
         }
         MapSqlParameterSource params = new MapSqlParameterSource("batchId", batchId);
         int totalDeleted = 0;
-        for (String tableName : STRATEGY_RAW_TABLES) {
+        for (String tableName : AdminConsoleStrategyTables.RAW_TABLES) {
             String sql = "DELETE FROM " + tableName + " WHERE generation_batch_id = :batchId";
             totalDeleted += jdbcTemplate.update(sql, params);
         }
@@ -1921,30 +1727,15 @@ public class AdminConsoleRepository {
     }
 
     public long countEvalSamples() {
-        Long value = jdbcTemplate.queryForObject("SELECT COUNT(*) FROM eval_samples", new MapSqlParameterSource(), Long.class);
-        return value == null ? 0L : value;
+        return evalDatasetRepository.countEvalSamples();
     }
 
     public long countEvalSamplesForDefaultDataset() {
-        String sql = """
-                SELECT COUNT(*)
-                FROM eval_samples s
-                WHERE COALESCE(s.metadata ->> 'builder', '') = 'build-eval-dataset'
-                   OR s.sample_id LIKE 'dev-human-%%'
-                   OR s.sample_id LIKE 'test-human-%%'
-                """;
-        Long value = jdbcTemplate.queryForObject(sql, new MapSqlParameterSource(), Long.class);
-        return value == null ? 0L : value;
+        return evalDatasetRepository.countEvalSamplesForDefaultDataset();
     }
 
     public Optional<UUID> findEvalDatasetIdByKey(String datasetKey) {
-        String sql = "SELECT dataset_id FROM eval_dataset WHERE dataset_key = :datasetKey";
-        List<UUID> rows = jdbcTemplate.query(
-                sql,
-                new MapSqlParameterSource("datasetKey", datasetKey),
-                (rs, rowNum) -> readUuid(rs, "dataset_id")
-        );
-        return rows.stream().findFirst();
+        return evalDatasetRepository.findEvalDatasetIdByKey(datasetKey);
     }
 
     @Transactional
@@ -1957,365 +1748,62 @@ public class AdminConsoleRepository {
             JsonNode categoryDistribution,
             JsonNode singleMultiDistribution
     ) {
-        UUID datasetId = findEvalDatasetIdByKey(datasetKey).orElse(UUID.randomUUID());
-        String sql = """
-                INSERT INTO eval_dataset (
-                    dataset_id,
-                    dataset_key,
-                    dataset_name,
-                    description,
-                    version,
-                    total_items,
-                    category_distribution,
-                    single_multi_distribution,
-                    updated_at
-                ) VALUES (
-                    :datasetId,
-                    :datasetKey,
-                    :datasetName,
-                    :description,
-                    :version,
-                    :totalItems,
-                    CAST(:categoryDistribution AS jsonb),
-                    CAST(:singleMultiDistribution AS jsonb),
-                    NOW()
-                )
-                ON CONFLICT (dataset_key) DO UPDATE
-                SET dataset_name = EXCLUDED.dataset_name,
-                    description = EXCLUDED.description,
-                    version = EXCLUDED.version,
-                    total_items = EXCLUDED.total_items,
-                    category_distribution = EXCLUDED.category_distribution,
-                    single_multi_distribution = EXCLUDED.single_multi_distribution,
-                    updated_at = NOW()
-                """;
-        jdbcTemplate.update(
-                sql,
-                new MapSqlParameterSource()
-                        .addValue("datasetId", datasetId)
-                        .addValue("datasetKey", datasetKey)
-                        .addValue("datasetName", datasetName)
-                        .addValue("description", description)
-                        .addValue("version", version)
-                        .addValue("totalItems", totalItems)
-                        .addValue("categoryDistribution", categoryDistribution.toString())
-                        .addValue("singleMultiDistribution", singleMultiDistribution.toString())
+        return evalDatasetRepository.upsertEvalDataset(
+                datasetKey,
+                datasetName,
+                description,
+                version,
+                totalItems,
+                categoryDistribution,
+                singleMultiDistribution
         );
-        return datasetId;
     }
 
     @Transactional
     public void refreshEvalDatasetItems(UUID datasetId) {
-        jdbcTemplate.update(
-                "DELETE FROM eval_dataset_item WHERE dataset_id = :datasetId",
-                new MapSqlParameterSource("datasetId", datasetId)
-        );
-        jdbcTemplate.update(
-                """
-                INSERT INTO eval_dataset_item (
-                    dataset_item_id,
-                    dataset_id,
-                    sample_id,
-                    query_category,
-                    single_or_multi_chunk,
-                    active
-                )
-                SELECT gen_random_uuid(),
-                       :datasetId,
-                       s.sample_id,
-                       s.query_category,
-                       s.single_or_multi_chunk,
-                       TRUE
-                FROM eval_samples s
-                ORDER BY s.sample_id
-                """,
-                new MapSqlParameterSource("datasetId", datasetId)
-        );
+        evalDatasetRepository.refreshEvalDatasetItems(datasetId);
     }
 
     @Transactional
     public void refreshDefaultEvalDatasetItems(UUID datasetId) {
-        jdbcTemplate.update(
-                "DELETE FROM eval_dataset_item WHERE dataset_id = :datasetId",
-                new MapSqlParameterSource("datasetId", datasetId)
-        );
-        jdbcTemplate.update(
-                """
-                INSERT INTO eval_dataset_item (
-                    dataset_item_id,
-                    dataset_id,
-                    sample_id,
-                    query_category,
-                    single_or_multi_chunk,
-                    active
-                )
-                SELECT gen_random_uuid(),
-                       :datasetId,
-                       s.sample_id,
-                       s.query_category,
-                       s.single_or_multi_chunk,
-                       TRUE
-                FROM eval_samples s
-                WHERE COALESCE(s.metadata ->> 'builder', '') = 'build-eval-dataset'
-                   OR s.sample_id LIKE 'dev-human-%%'
-                   OR s.sample_id LIKE 'test-human-%%'
-                ORDER BY s.sample_id
-                """,
-                new MapSqlParameterSource("datasetId", datasetId)
-        );
+        evalDatasetRepository.refreshDefaultEvalDatasetItems(datasetId);
     }
 
     public List<AdminConsoleDtos.EvalDatasetRow> findEvalDatasets() {
-        return findEvalDatasets(null);
+        return evalDatasetRepository.findEvalDatasets();
     }
 
     public List<AdminConsoleDtos.EvalDatasetRow> findEvalDatasets(UUID domainId) {
-        String domainWhereClause = domainId == null ? "" : "WHERE d.domain_id = :domainId";
-        String sql = """
-                SELECT d.dataset_id,
-                       d.dataset_key,
-                       d.dataset_name,
-                       d.version,
-                       COALESCE(NULLIF(d.metadata ->> 'query_language', ''), items.query_language, 'ko') AS query_language,
-                       COALESCE(NULLIF(d.metadata ->> 'strategy_profile', ''), '') AS metadata_strategy_profile,
-                       COALESCE(items.total_items, d.total_items, 0) AS total_items,
-                       d.category_distribution::text AS category_distribution,
-                       d.single_multi_distribution::text AS single_multi_distribution,
-                       d.created_at
-                FROM eval_dataset d
-                LEFT JOIN LATERAL (
-                    SELECT COUNT(*) AS total_items,
-                           CASE
-                               WHEN COUNT(*) FILTER (
-                                   WHERE COALESCE(
-                                       NULLIF(LOWER(s.query_language), ''),
-                                       COALESCE(NULLIF(LOWER(d.metadata ->> 'query_language'), ''), 'ko')
-                                   ) = 'en'
-                               ) > 0 THEN 'en'
-                               ELSE 'ko'
-                           END AS query_language
-                    FROM eval_dataset_item i
-                    JOIN eval_samples s
-                      ON s.sample_id = i.sample_id
-                    WHERE i.dataset_id = d.dataset_id
-                      AND i.active = TRUE
-                ) items ON TRUE
-                %s
-                ORDER BY d.created_at DESC
-                """.formatted(domainWhereClause);
-        MapSqlParameterSource params = new MapSqlParameterSource();
-        if (domainId != null) {
-            params.addValue("domainId", domainId);
-        }
-        return jdbcTemplate.query(
-                sql,
-                params,
-                (rs, rowNum) -> new AdminConsoleDtos.EvalDatasetRow(
-                        readUuid(rs, "dataset_id"),
-                        rs.getString("dataset_key"),
-                        rs.getString("dataset_name"),
-                        rs.getString("version"),
-                        rs.getString("query_language"),
-                        rs.getString("metadata_strategy_profile"),
-                        rs.getInt("total_items"),
-                        readJson(rs, "category_distribution"),
-                        readJson(rs, "single_multi_distribution"),
-                        readInstant(rs, "created_at")
-                )
-        );
+        return evalDatasetRepository.findEvalDatasets(domainId);
     }
 
     public Optional<String> findEvalDatasetKey(UUID datasetId) {
-        if (datasetId == null) {
-            return Optional.empty();
-        }
-        List<String> rows = jdbcTemplate.query(
-                "SELECT dataset_key FROM eval_dataset WHERE dataset_id = :datasetId",
-                new MapSqlParameterSource("datasetId", datasetId),
-                (rs, rowNum) -> rs.getString("dataset_key")
-        );
-        return rows.stream().findFirst();
+        return evalDatasetRepository.findEvalDatasetKey(datasetId);
     }
 
     @Transactional
     public int deleteEvalDataset(UUID datasetId) {
-        return jdbcTemplate.update(
-                "DELETE FROM eval_dataset WHERE dataset_id = :datasetId",
-                new MapSqlParameterSource("datasetId", datasetId)
-        );
+        return evalDatasetRepository.deleteEvalDataset(datasetId);
     }
 
     public List<AdminConsoleDtos.EvalDatasetItemRow> findEvalDatasetItems(UUID datasetId, Integer limit, Integer offset) {
-        String sql = """
-                SELECT i.dataset_id,
-                       s.sample_id,
-                       s.split,
-                       s.query_category,
-                       s.single_or_multi_chunk,
-                       s.user_query_ko,
-                       s.user_query_en,
-                       COALESCE(NULLIF(s.query_language, ''), COALESCE(d.metadata ->> 'query_language', 'ko')) AS query_language,
-                       s.dialog_context::text AS dialog_context,
-                       s.metadata ->> 'target_method' AS target_method,
-                       COALESCE(s.metadata -> 'evaluation_focus', '[]'::jsonb)::text AS evaluation_focus
-                FROM eval_dataset_item i
-                JOIN eval_samples s
-                  ON s.sample_id = i.sample_id
-                JOIN eval_dataset d
-                  ON d.dataset_id = i.dataset_id
-                WHERE i.dataset_id = :datasetId
-                  AND i.active = TRUE
-                ORDER BY s.sample_id
-                LIMIT :limit OFFSET :offset
-                """;
-        return jdbcTemplate.query(
-                sql,
-                new MapSqlParameterSource()
-                        .addValue("datasetId", datasetId)
-                        .addValue("limit", normalizeLimit(limit, 500))
-                        .addValue("offset", normalizeOffset(offset)),
-                (rs, rowNum) -> new AdminConsoleDtos.EvalDatasetItemRow(
-                        readUuid(rs, "dataset_id"),
-                        rs.getString("sample_id"),
-                        rs.getString("split"),
-                        rs.getString("query_category"),
-                        rs.getString("single_or_multi_chunk"),
-                        rs.getString("user_query_ko"),
-                        rs.getString("user_query_en"),
-                        rs.getString("query_language"),
-                        readJson(rs, "dialog_context"),
-                        rs.getString("target_method"),
-                        readJson(rs, "evaluation_focus")
-                )
-        );
+        return evalDatasetRepository.findEvalDatasetItems(datasetId, limit, offset);
     }
 
     public Optional<String> findEvalDatasetQueryLanguage(UUID datasetId) {
-        String sql = """
-                SELECT COALESCE(
-                           NULLIF(d.metadata ->> 'query_language', ''),
-                           NULLIF(
-                               (
-                                   SELECT CASE
-                                              WHEN COUNT(*) FILTER (WHERE COALESCE(NULLIF(s.query_language, ''), 'ko') = 'en') > 0
-                                                  THEN 'en'
-                                              ELSE 'ko'
-                                          END
-                                   FROM eval_dataset_item i
-                                   JOIN eval_samples s
-                                     ON s.sample_id = i.sample_id
-                                   WHERE i.dataset_id = d.dataset_id
-                                     AND i.active = TRUE
-                               ),
-                               ''
-                           ),
-                           'ko'
-                       ) AS query_language
-                FROM eval_dataset d
-                WHERE d.dataset_id = :datasetId
-                """;
-        List<String> rows = jdbcTemplate.query(
-                sql,
-                new MapSqlParameterSource("datasetId", datasetId),
-                (rs, rowNum) -> rs.getString("query_language")
-        );
-        return rows.stream().findFirst();
+        return evalDatasetRepository.findEvalDatasetQueryLanguage(datasetId);
     }
 
     public Optional<String> findSourceIdByDocumentId(String documentId) {
-        String sql = "SELECT source_id FROM corpus_documents WHERE document_id = :documentId";
-        List<String> rows = jdbcTemplate.query(
-                sql,
-                new MapSqlParameterSource("documentId", documentId),
-                (rs, rowNum) -> rs.getString("source_id")
-        );
-        return rows.stream().findFirst();
+        return domainScopeRepository.findSourceIdByDocumentId(documentId);
     }
 
     public Optional<SourceStrategyContext> findSourceStrategyContext(String sourceId) {
-        String sql = """
-                SELECT s.source_id,
-                       s.source_type,
-                       s.product_name,
-                       s.source_name,
-                       COALESCE(doc.has_ko, FALSE) AS has_ko_documents,
-                       COALESCE(doc.has_en, FALSE) AS has_en_documents
-                FROM corpus_sources s
-                LEFT JOIN LATERAL (
-                    SELECT BOOL_OR(LOWER(COALESCE(d.language_code, '')) = 'ko') AS has_ko,
-                           BOOL_OR(LOWER(COALESCE(d.language_code, '')) = 'en') AS has_en
-                    FROM corpus_documents d
-                    WHERE d.source_id = s.source_id
-                      AND d.is_active = TRUE
-                ) doc ON TRUE
-                WHERE s.source_id = :sourceId
-                LIMIT 1
-                """;
-        List<SourceStrategyContext> rows = jdbcTemplate.query(
-                sql,
-                new MapSqlParameterSource("sourceId", sourceId),
-                (rs, rowNum) -> new SourceStrategyContext(
-                        rs.getString("source_id"),
-                        rs.getString("source_type"),
-                        rs.getString("product_name"),
-                        rs.getString("source_name"),
-                        rs.getBoolean("has_ko_documents"),
-                        rs.getBoolean("has_en_documents")
-                )
-        );
-        return rows.stream().findFirst();
+        return domainScopeRepository.findSourceStrategyContext(sourceId);
     }
 
     public Optional<DatasetStrategyContext> findDatasetStrategyContext(UUID datasetId) {
-        String sql = """
-                SELECT d.dataset_id,
-                       d.dataset_key,
-                       LOWER(COALESCE(d.metadata ->> 'strategy_profile', '')) AS metadata_strategy_profile,
-                       LOWER(COALESCE(d.metadata ->> 'query_language', '')) AS metadata_query_language,
-                       COALESCE(stats.has_spring, FALSE) AS has_spring_samples,
-                       COALESCE(stats.has_python, FALSE) AS has_python_samples,
-                       COALESCE(stats.has_ko_query, FALSE) AS has_ko_queries,
-                       COALESCE(stats.has_en_query, FALSE) AS has_en_queries
-                FROM eval_dataset d
-                LEFT JOIN LATERAL (
-                    SELECT BOOL_OR(LOWER(COALESCE(s.source_product, '')) LIKE '%spring%') AS has_spring,
-                           BOOL_OR(LOWER(COALESCE(s.source_product, '')) LIKE '%python%') AS has_python,
-                           BOOL_OR(
-                               COALESCE(
-                                   NULLIF(LOWER(s.query_language), ''),
-                                   COALESCE(NULLIF(LOWER(d.metadata ->> 'query_language'), ''), 'ko')
-                               ) = 'ko'
-                           ) AS has_ko_query,
-                           BOOL_OR(
-                               COALESCE(
-                                   NULLIF(LOWER(s.query_language), ''),
-                                   COALESCE(NULLIF(LOWER(d.metadata ->> 'query_language'), ''), 'ko')
-                               ) = 'en'
-                           ) AS has_en_query
-                    FROM eval_dataset_item i
-                    JOIN eval_samples s
-                      ON s.sample_id = i.sample_id
-                    WHERE i.dataset_id = d.dataset_id
-                      AND i.active = TRUE
-                ) stats ON TRUE
-                WHERE d.dataset_id = :datasetId
-                LIMIT 1
-                """;
-        List<DatasetStrategyContext> rows = jdbcTemplate.query(
-                sql,
-                new MapSqlParameterSource("datasetId", datasetId),
-                (rs, rowNum) -> new DatasetStrategyContext(
-                        readUuid(rs, "dataset_id"),
-                        rs.getString("dataset_key"),
-                        rs.getString("metadata_strategy_profile"),
-                        rs.getString("metadata_query_language"),
-                        rs.getBoolean("has_spring_samples"),
-                        rs.getBoolean("has_python_samples"),
-                        rs.getBoolean("has_ko_queries"),
-                        rs.getBoolean("has_en_queries")
-                )
-        );
-        return rows.stream().findFirst();
+        return domainScopeRepository.findDatasetStrategyContext(datasetId);
     }
 
     @Transactional
@@ -4242,26 +3730,6 @@ public class AdminConsoleRepository {
     private long queryLong(String sql) {
         Long value = jdbcTemplate.queryForObject(sql, new MapSqlParameterSource(), Long.class);
         return value == null ? 0L : value;
-    }
-
-    private boolean rowBelongsToDomain(String tableName, String idColumn, UUID domainId, UUID rowId) {
-        if (domainId == null || rowId == null) {
-            return true;
-        }
-        String sql = """
-                SELECT COUNT(*)
-                FROM %s
-                WHERE %s = :rowId
-                  AND domain_id = :domainId
-                """.formatted(tableName, idColumn);
-        Integer count = jdbcTemplate.queryForObject(
-                sql,
-                new MapSqlParameterSource()
-                        .addValue("rowId", rowId)
-                        .addValue("domainId", domainId),
-                Integer.class
-        );
-        return count != null && count > 0;
     }
 
     private UUID readUuid(ResultSet rs, String column) throws SQLException {
