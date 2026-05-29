@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-05-29] Session Summary (Detailed Rewrite Few-Shot Prompt)
+- What was done: Strengthened `selective_rewrite_detailed_intent_v1.md` wording so `top_memory_candidates` are explicitly treated as retrieved synthetic query examples and few-shot rewrite guidance.
+- Key decisions: Anchor payloads are described as optional hint-only grounding controls, not mandatory insertion targets, preserving raw-query intent in detailed rewrite mode.
+- Issues encountered: Prompt/document-only change; validation used `git diff --check`.
+- Next steps: Inspect the next detailed-intent rewrite traces for synthetic-example use without anchor over-injection.
+
 ## [2026-05-29] Session Summary (RAG Detailed Rewrite Profile)
 - What was done: Added Admin RAG `rewrite_query_profile` support with `compact_anchor` and `detailed_intent`, added rewrite-only LLM model override plumbing, and connected both through backend config generation, frontend controls, and pipeline selective rewrite runtime.
 - Key decisions: Kept the existing compact anchor rewrite as the default path; detailed query expansion is a separate profile with its own prompt and looser verbosity adoption policy. Rewrite-stage model override is optional and only changes `llm_rewrite_model`.

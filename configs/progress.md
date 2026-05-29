@@ -3,6 +3,12 @@
 ## Overview
 High-level progress tracking for the project.
 
+## [2026-05-29] Session Summary (Detailed Rewrite Few-Shot Prompt)
+- What was done: Updated `prompts/rewrite/selective_rewrite_detailed_intent_v1.md` to explicitly call `top_memory_candidates` retrieved synthetic query examples and few-shot rewrite guidance.
+- Key decisions: Anchor candidates/terms/terminology/canonical/multi-source hints are now described as optional grounding hints, not terms the LLM must insert.
+- Issues encountered: Prompt-only change; no live LLM call was executed.
+- Next steps: Compare detailed-intent prompt payloads after the next fixed-snapshot RAG run.
+
 ## [2026-05-29] Session Summary (Detailed Rewrite Profile Prompt)
 - What was done: Added `prompts/rewrite/selective_rewrite_detailed_intent_v1.md` and registered `rewrite_query_profiles` in `app/model_catalog.yml`.
 - Key decisions: `compact_anchor` remains the default Admin runtime profile; `detailed_intent` is a separate prompt asset for expanding short Korean/code-mixed queries into self-contained technical-document questions.

@@ -39,8 +39,9 @@ Rules:
 - This profile is not a compact keyword query. Rewrite the raw query into a complete technical-document question.
 - Prefer Korean for Korean inputs, but keep official English API/class/config/protocol names when they are present in raw_query, raw_retrieval_context, domain_context, or allowed anchor hints.
 - If candidate_policy.mode is raw_standalone, do not use top_memory_candidates, anchor_candidates, anchor_terms, terminology_hints, canonical_anchor_hints, or multi_source_anchor_hints. You may use only raw_query, session_context, domain_context, and raw_retrieval_context.
-- If candidate_policy.mode is memory_expanded, use top_memory_candidates and allowed anchor hints only when they clearly match the raw intent.
-- Do not copy a synthetic memory query wholesale. Use it only as evidence for vocabulary, scope, and retrieval structure.
+- If candidate_policy.mode is memory_expanded, treat top_memory_candidates as retrieved synthetic query examples and few-shot rewrite guidance. Use their synthetic_query, target title/section, glossary terms, canonical anchors, and evidence summary to understand the retrieval shape only when they clearly match the raw intent.
+- Do not copy a retrieved synthetic query wholesale or use it as the final answer. Convert compatible few-shot guidance into a rewritten user query that preserves the raw intent.
+- Treat anchor_candidates, anchor_terms, terminology_hints, canonical_anchor_hints, and multi_source_anchor_hints as optional hint-only grounding controls. They are not mandatory insertion targets and must not override the raw query.
 - Do not invent specific APIs, annotations, methods, properties, or error codes that are unsupported by the inputs.
 - The rewritten query should usually be one Korean sentence or two short Korean sentences, about 40-220 Korean characters for Korean inputs.
 - Ask for official-document grounded explanation, configuration, API, method, or caution points only when that matches the raw query.
