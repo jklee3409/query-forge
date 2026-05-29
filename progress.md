@@ -1,5 +1,17 @@
 # progress.md
 
+## [2026-05-29] Session Summary (README Tone Pass)
+- What was done: Refined the root `README.md` wording without changing the documented implementation facts, section structure, run commands, source list, or evaluation descriptions.
+- Key decisions: Removed repeated AI-style meta subjects such as "이 프로젝트는" / "이 저장소는" equivalents and rewrote paragraphs toward direct technical README prose.
+- Issues encountered: No build/test was run because the change is documentation wording only.
+- Next steps: Keep module-level README tone cleanup separate from this root README pass.
+
+## [2026-05-29] Session Summary (Root README Research Refresh)
+- What was done: Rewrote the root `README.md` in Korean as a research-project guide after inspecting project rules, pipeline/backend/frontend/config/migration/source/eval artifacts, and aligned it with implemented synthetic generation, gating, memory, rewrite, Admin GUI, snapshot, pgvector, and evaluation behavior.
+- Key decisions: Described confirmed Spring/PostgreSQL/PostGIS/Kubernetes/Python source configs and eval artifacts only, treated Arahansa Spring as configured but excluded from canonical Spring synthetic scope, and avoided claiming DB row counts or p95 latency metrics that were not verified as implemented.
+- Issues encountered: Existing README and several docs render with legacy mojibake in terminal output; no build/test was run because the change is documentation-only.
+- Next steps: If needed, clean encoding/readability in module-level READMEs and add a verified local bootstrap sequence once runtime environment assumptions are fixed.
+
 ## [2026-05-27] Session Summary (Admin Domain Method and RAG Detail Dropdown)
 - What was done: Removed the Pipeline Monitor Anchor Eval section, changed Admin synthetic method availability to follow domain source language (`en` -> A/B/C/D/E, `ko` -> F/G), and added rewrite applied/skipped badges plus sample-level dedupe to the RAG detail query selector.
 - Key decisions: Domain source language is now the backend source of truth for synthetic method listing/run validation in domain workspaces, while legacy global source allowlists remain for unscoped runs. RAG detail lookup now returns one representative row per sample and the frontend keeps a defensive dedupe pass.
