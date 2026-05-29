@@ -9,13 +9,13 @@
 - `README.md`: 설정 디렉토리 사용 가이드
 - `app/application.yml`, `app/application-docker.yml`: 애플리케이션 공통 및 Docker 프로파일 설정
 - `app/chunking.yml`: 문서 청킹 파라미터
-- `app/model_catalog.yml`: Admin runtime options/model allowlist 카탈로그 (`llm_providers`, `llm_models`, `dense_embedding_models`, `retrieval_backends`, `retriever_modes`, `rewrite_failure_policies`, `default_parameter_ranges`)
+- `app/model_catalog.yml`: Admin runtime options/model allowlist 카탈로그 (`llm_providers`, `llm_models`, `dense_embedding_models`, `retrieval_backends`, `retriever_modes`, `rewrite_failure_policies`, `rewrite_query_profiles`, `default_parameter_ranges`)
 - `app/sources/*.yaml`: 수집 대상 소스 정의(Spring Boot/Data/Framework/Security, PostgreSQL current docs, PostGIS docs)
 - `experiments/*.yaml`: generation/gating/eval 실험 프리셋(`gen_*`, `e2e_*`, `rule_*`, `rewrite_*` 등)
 - `prompts/query_generation/gen_[a-g]_v1.md`: 전략별 합성 질의 프롬프트
 - `prompts/summary_extraction/*.md`: 요약/한국어 요약 프롬프트
 - `prompts/self_eval/quality_gate_v1.md`: 게이팅 자기평가 프롬프트
-- `prompts/rewrite/selective_rewrite_v1.md`, `prompts/rewrite/selective_rewrite_v2.md`, `prompts/rewrite/selective_rewrite_v3.md`, `prompts/rewrite/selective_rewrite_en_v1.md`: 선택적 리라이트 프롬프트 버전
+- `prompts/rewrite/selective_rewrite_v1.md`, `prompts/rewrite/selective_rewrite_v2.md`, `prompts/rewrite/selective_rewrite_v3.md`, `prompts/rewrite/selective_rewrite_en_v1.md`, `prompts/rewrite/selective_rewrite_detailed_intent_v1.md`: 선택적 리라이트 프롬프트 버전
 - `prompts/translation/translate_chunk_en_to_ko_v1.md`: 번역 프롬프트
 
 ---
@@ -35,6 +35,7 @@
 ---
 
 ## Recent Notes
+- `app/model_catalog.yml` now includes `rewrite_query_profiles` (`compact_anchor`, `detailed_intent`), and `prompts/rewrite/selective_rewrite_detailed_intent_v1.md` defines the detailed query-expansion rewrite profile.
 - Admin-generated experiment configs (`admin_gen_*`, `admin_gate_*`, `admin_eval_*`) are treated as runtime artifacts and ignored by Git; durable experiment conditions should be promoted to named presets instead.
 - `prompts/rewrite/selective_rewrite_v3.md` now consumes runtime `domain_context` so Korean technical terms are rewritten into active-domain English documentation terms, with few-shots for Spring, PostgreSQL, and Kubernetes short queries.
 - `prompts/rewrite/selective_rewrite_v3.md` now accepts `candidate_policy`: `raw_standalone` ignores synthetic memory/anchor hints but can use raw-retrieval evidence terms, while `memory_expanded` may use only trusted evidence-compatible memory anchors.

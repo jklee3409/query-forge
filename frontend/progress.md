@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-05-29] Session Summary (RAG Rewrite Profile Controls)
+- What was done: Added `/admin/rag-tests` controls for rewrite-only LLM model selection and `rewriteQueryProfile` (`compact_anchor` / `detailed_intent`), included both in run payloads and summary preview, and refreshed the backend-served React bundle.
+- Key decisions: Blank Rewrite LLM inherits the common LLM model, so existing runs keep the previous behavior unless an operator selects a rewrite-specific model.
+- Issues encountered: `npm exec eslint -- src/pages/RagPage.jsx` passed with the existing two hook dependency warnings. `npm run build` passed.
+- Next steps: Browser-smoke a fresh RAG form load and confirm runtime options populate the new profile selector.
+
 ## [2026-05-27] Session Summary (Pipeline Anchor Eval Removal and RAG Dropdown Tags)
 - What was done: Removed the `/admin/pipeline` Anchor Eval section/state/styles, updated `/admin/synthetic-queries` domain workspaces so source selection no longer applies legacy Spring/Python hard allowlists, and added rewrite applied/skipped badges plus sample-level dedupe to the `/admin/rag-tests` detail query dropdown.
 - Key decisions: Domain method availability is served by the backend based on domain source language; the frontend now trusts that domain-scoped method list and only filters hidden sources locally. `SelectDropdown` gained optional per-option badges for the RAG rewrite status tag.

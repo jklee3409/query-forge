@@ -34,6 +34,7 @@
 ---
 
 ## Recent Update
+- `/admin/rag-tests` now exposes rewrite-only LLM model selection and a runtime-driven rewrite profile selector. `compact_anchor` keeps the existing compact anchor path, while `detailed_intent` requests self-contained detailed query expansion before optional anchor injection.
 - `/admin/pipeline` no longer renders the Anchor Eval section. `/admin/synthetic-queries` domain workspaces use domain source language for method availability (`en` -> A/B/C/D/E, `ko` -> F/G), and `/admin/rag-tests` detail query dropdowns show rewrite applied/skipped badges while de-duplicating repeated sample rows.
 - `/admin/rag-tests` RAG run detail modal now uses the configured test name in the title instead of a shortened DB UUID, uses the shared custom searchable dropdown for `질의 분석 보기`, and no longer renders the sticky `최상단으로` action.
 - `/admin/rag-tests` now supports deleting non-default evaluation datasets, trims noisy comparison-table helper text, removes Hallucination Rate/Answer Relevance from the detailed comparison metrics, and renders RAG run details one query at a time through a `질의 분석 보기` dropdown.

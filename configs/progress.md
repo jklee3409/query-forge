@@ -3,6 +3,12 @@
 ## Overview
 High-level progress tracking for the project.
 
+## [2026-05-29] Session Summary (Detailed Rewrite Profile Prompt)
+- What was done: Added `prompts/rewrite/selective_rewrite_detailed_intent_v1.md` and registered `rewrite_query_profiles` in `app/model_catalog.yml`.
+- Key decisions: `compact_anchor` remains the default Admin runtime profile; `detailed_intent` is a separate prompt asset for expanding short Korean/code-mixed queries into self-contained technical-document questions.
+- Issues encountered: Validation is covered by backend/frontend/pipeline targeted checks in the root session summary; no live LLM prompt call was executed.
+- Next steps: Compare detailed-intent prompt traces against compact-anchor traces on the same snapshot before changing defaults.
+
 ## [2026-05-27] Session Summary (Admin Eval Artifact Ignore)
 - What was done: Removed tracked `configs/experiments/admin_eval_*.yaml` runtime artifacts and added ignore rules for future `admin_eval_*.yaml`/`*.yml` files.
 - Key decisions: Admin-generated eval configs are transient run artifacts; durable reproducibility should use named experiment presets instead.

@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-05-29] Session Summary (RAG Detailed Rewrite Profile)
+- What was done: Added Admin RAG `rewrite_query_profile` support with `compact_anchor` and `detailed_intent`, added rewrite-only LLM model override plumbing, and connected both through backend config generation, frontend controls, and pipeline selective rewrite runtime.
+- Key decisions: Kept the existing compact anchor rewrite as the default path; detailed query expansion is a separate profile with its own prompt and looser verbosity adoption policy. Rewrite-stage model override is optional and only changes `llm_rewrite_model`.
+- Issues encountered: Targeted validation passed: backend `compileJava`, pipeline `py_compile`, `EvalRuntimeRewriteTests`, `RagPage.jsx` ESLint with existing hook warnings, and frontend production build.
+- Next steps: Run a small fixed-snapshot Admin RAG comparison when credentials/cost allow to compare `compact_anchor` vs `detailed_intent` rewrite traces and retrieval metrics.
+
 ## [2026-05-29] Session Summary (Backend JDBC Repository Consolidation)
 - What was done: Removed the remaining Spring Data JPA dependency and unused JPA entity/repository layer, converted Pipeline Admin persistence to `NamedParameterJdbcTemplate`, and extracted Admin Console synthetic-method, domain/scope, and eval-dataset SQL into dedicated JDBC repositories while keeping `AdminConsoleRepository` as the stable facade.
 - Key decisions: Preserved existing SQL semantics, pipeline stage flow, A/B/C/D/E/F/G split raw table contract, and Admin service public repository API; no migration or schema behavior was changed.

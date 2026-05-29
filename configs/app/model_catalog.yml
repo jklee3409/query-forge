@@ -83,6 +83,19 @@ rewrite_failure_policies:
     availability: available
     reason: ""
 
+rewrite_query_profiles:
+  - code: compact_anchor
+    label: Compact anchor
+    status: active
+    availability: available
+    reason: ""
+    default: true
+  - code: detailed_intent
+    label: Detailed intent
+    status: active
+    availability: available
+    reason: ""
+
 default_parameter_ranges:
   retrieval_top_k:
     min: 1

@@ -886,6 +886,8 @@ class DbAnnRuntimeRetrievalAdapter:
 _REWRITE_CLIENT: LlmClient | None = None
 _REWRITE_PROMPT_TEXT: str | None = None
 _REWRITE_PROMPT_TEXTS: dict[str, str] = {}
+REWRITE_QUERY_PROFILE_COMPACT_ANCHOR = "compact_anchor"
+REWRITE_QUERY_PROFILE_DETAILED_INTENT = "detailed_intent"
 _RERANKER: CohereReranker | None = None
 _RUNTIME_RETRIEVER_CACHE_LOCK = threading.Lock()
 _RUNTIME_CACHE_MAX_ENTRIES = 32
@@ -2448,44 +2450,73 @@ def memory_top_n(
     return scored
 
 
-def _rewrite_prompt_text(*, query_language: str = "ko") -> str:
+def _normalize_rewrite_query_profile(value: str | None) -> str:
+    normalized = str(value or "").strip().lower().replace("-", "_")
+    if normalized == REWRITE_QUERY_PROFILE_DETAILED_INTENT:
+        return REWRITE_QUERY_PROFILE_DETAILED_INTENT
+    return REWRITE_QUERY_PROFILE_COMPACT_ANCHOR
+
+
+def _rewrite_prompt_text(
+    *,
+    query_language: str = "ko",
+    rewrite_query_profile: str = REWRITE_QUERY_PROFILE_COMPACT_ANCHOR,
+) -> str:
     global _REWRITE_PROMPT_TEXT, _REWRITE_PROMPT_TEXTS
     if _REWRITE_PROMPT_TEXT is not None:
         return _REWRITE_PROMPT_TEXT
     normalized_language = "en" if str(query_language or "").strip().lower() == "en" else "ko"
-    cached = _REWRITE_PROMPT_TEXTS.get(normalized_language)
+    normalized_profile = _normalize_rewrite_query_profile(rewrite_query_profile)
+    cache_key = f"{normalized_language}:{normalized_profile}"
+    cached = _REWRITE_PROMPT_TEXTS.get(cache_key)
     if cached is not None:
         return cached
     root = Path(os.getenv("PROMPT_ROOT") or "configs/prompts")
-    if normalized_language == "en":
+    if normalized_profile == REWRITE_QUERY_PROFILE_DETAILED_INTENT:
         candidates = [
-            root / "rewrite" / "selective_rewrite_en_v1.md",
-            root / "rewrite" / "selective_rewrite_v2.md",
-            root / "rewrite" / "selective_rewrite_v1.md",
-            Path("configs/prompts/rewrite/selective_rewrite_en_v1.md"),
-            Path("configs/prompts/rewrite/selective_rewrite_v2.md"),
-            Path("configs/prompts/rewrite/selective_rewrite_v1.md"),
-            Path("../configs/prompts/rewrite/selective_rewrite_en_v1.md"),
-            Path("../configs/prompts/rewrite/selective_rewrite_v2.md"),
-            Path("../configs/prompts/rewrite/selective_rewrite_v1.md"),
+            root / "rewrite" / "selective_rewrite_detailed_intent_v1.md",
+            Path("configs/prompts/rewrite/selective_rewrite_detailed_intent_v1.md"),
+            Path("../configs/prompts/rewrite/selective_rewrite_detailed_intent_v1.md"),
         ]
     else:
-        candidates = [
-            root / "rewrite" / "selective_rewrite_v3.md",
-            root / "rewrite" / "selective_rewrite_v2.md",
-            root / "rewrite" / "selective_rewrite_v1.md",
-            Path("configs/prompts/rewrite/selective_rewrite_v3.md"),
-            Path("configs/prompts/rewrite/selective_rewrite_v2.md"),
-            Path("configs/prompts/rewrite/selective_rewrite_v1.md"),
-            Path("../configs/prompts/rewrite/selective_rewrite_v3.md"),
-            Path("../configs/prompts/rewrite/selective_rewrite_v2.md"),
-            Path("../configs/prompts/rewrite/selective_rewrite_v1.md"),
-        ]
+        candidates = []
+    if normalized_language == "en":
+        candidates.extend(
+            [
+                root / "rewrite" / "selective_rewrite_en_v1.md",
+                root / "rewrite" / "selective_rewrite_v2.md",
+                root / "rewrite" / "selective_rewrite_v1.md",
+                Path("configs/prompts/rewrite/selective_rewrite_en_v1.md"),
+                Path("configs/prompts/rewrite/selective_rewrite_v2.md"),
+                Path("configs/prompts/rewrite/selective_rewrite_v1.md"),
+                Path("../configs/prompts/rewrite/selective_rewrite_en_v1.md"),
+                Path("../configs/prompts/rewrite/selective_rewrite_v2.md"),
+                Path("../configs/prompts/rewrite/selective_rewrite_v1.md"),
+            ]
+        )
+    else:
+        candidates.extend(
+            [
+                root / "rewrite" / "selective_rewrite_v3.md",
+                root / "rewrite" / "selective_rewrite_v2.md",
+                root / "rewrite" / "selective_rewrite_v1.md",
+                Path("configs/prompts/rewrite/selective_rewrite_v3.md"),
+                Path("configs/prompts/rewrite/selective_rewrite_v2.md"),
+                Path("configs/prompts/rewrite/selective_rewrite_v1.md"),
+                Path("../configs/prompts/rewrite/selective_rewrite_v3.md"),
+                Path("../configs/prompts/rewrite/selective_rewrite_v2.md"),
+                Path("../configs/prompts/rewrite/selective_rewrite_v1.md"),
+            ]
+        )
     for path in candidates:
         if path.exists():
             prompt_text = path.read_text(encoding="utf-8")
-            _REWRITE_PROMPT_TEXTS[normalized_language] = prompt_text
+            _REWRITE_PROMPT_TEXTS[cache_key] = prompt_text
             return prompt_text
+    if normalized_profile == REWRITE_QUERY_PROFILE_DETAILED_INTENT:
+        raise FileNotFoundError(
+            "rewrite prompt file not found: selective_rewrite_detailed_intent_v1.md or compact fallback prompt"
+        )
     if normalized_language == "en":
         raise FileNotFoundError(
             "rewrite prompt file not found: selective_rewrite_en_v1.md, selective_rewrite_v2.md, or selective_rewrite_v1.md"
@@ -2493,7 +2524,9 @@ def _rewrite_prompt_text(*, query_language: str = "ko") -> str:
     raise FileNotFoundError("rewrite prompt file not found: selective_rewrite_v3.md, selective_rewrite_v2.md, or selective_rewrite_v1.md")
 
 
-def _rewrite_client() -> LlmClient:
+def _rewrite_client(raw_config: dict[str, Any] | None = None) -> LlmClient:
+    if raw_config:
+        return LlmClient(load_stage_config(stage="rewrite", raw_config=raw_config))
     global _REWRITE_CLIENT
     if _REWRITE_CLIENT is None:
         _REWRITE_CLIENT = LlmClient(load_stage_config(stage="rewrite", raw_config={}))
@@ -2781,15 +2814,19 @@ def build_rewrite_candidates_v2(
     retrieval_context: dict[str, Any] | None = None,
     raw_retrieval_context: list[dict[str, Any]] | None = None,
     domain_context: dict[str, Any] | None = None,
+    rewrite_query_profile: str = REWRITE_QUERY_PROFILE_COMPACT_ANCHOR,
     rewrite_failure_policy: str | None = None,
     rewrite_runtime_stats: dict[str, int] | None = None,
     trusted_memory_items: list[dict[str, Any]] | None = None,
+    raw_config: dict[str, Any] | None = None,
 ) -> list[dict[str, str]]:
     trace_id = f"rewrite:{hashlib.sha1(raw_query.encode('utf-8')).hexdigest()[:12]}"
     limited_candidate_count = max(1, min(int(candidate_count or 1), 2))
+    normalized_rewrite_query_profile = _normalize_rewrite_query_profile(rewrite_query_profile)
     failure_policy = _normalize_rewrite_failure_policy(rewrite_failure_policy)
     fallback_allowed = failure_policy == "heuristic_fallback"
     _bump_rewrite_runtime_stat(rewrite_runtime_stats, "llm_attempted_count")
+    rewrite_client: LlmClient | None = None
     expanded_memory_items = list(memory_items if trusted_memory_items is None else trusted_memory_items)
     pure_rewrite_latency_ms = 0.0
     standalone_source_text = f"{raw_query} {session_context}".strip()
@@ -2845,10 +2882,12 @@ def build_rewrite_candidates_v2(
             "domain_context": domain_context or _rewrite_domain_context(None),
             "top_memory_candidates": _memory_prompt_candidates(prompt_memory_items),
             "raw_retrieval_context": list(raw_retrieval_context or [])[:3],
+            "rewrite_query_profile": normalized_rewrite_query_profile,
             "candidate_count": 1,
             "candidate_policy": {
                 "mode": mode,
                 "output_label": output_label,
+                "rewrite_query_profile": normalized_rewrite_query_profile,
                 "raw_query_is_source_of_truth": True,
                 "memory_allowed": mode == "memory_expanded",
                 "anchor_hints_allowed": mode == "memory_expanded" and rewrite_anchor_injection_enabled,
@@ -2885,12 +2924,17 @@ def build_rewrite_candidates_v2(
         return payload
 
     def _chat_rewrite(payload: dict[str, Any], *, trace_suffix: str) -> list[Any]:
-        nonlocal pure_rewrite_latency_ms
+        nonlocal pure_rewrite_latency_ms, rewrite_client
         llm_started = time.perf_counter()
         _bump_rewrite_runtime_stat(rewrite_runtime_stats, "llm_call_count")
         try:
-            response = _rewrite_client().chat_json(
-                system_prompt=_rewrite_prompt_text(query_language=query_language),
+            if rewrite_client is None:
+                rewrite_client = _rewrite_client(raw_config=raw_config)
+            response = rewrite_client.chat_json(
+                system_prompt=_rewrite_prompt_text(
+                    query_language=query_language,
+                    rewrite_query_profile=normalized_rewrite_query_profile,
+                ),
                 user_prompt=json.dumps(
                     payload,
                     ensure_ascii=False,
@@ -4077,8 +4121,10 @@ def run_selective_rewrite(
     multi_source_anchor_min_score: float = 0.72,
     multi_source_anchor_max_per_seed: int = 2,
     multi_source_anchor_max_total: int = 8,
+    rewrite_query_profile: str = REWRITE_QUERY_PROFILE_COMPACT_ANCHOR,
     rewrite_failure_policy: str | None = None,
     rewrite_adoption_policy: dict[str, Any] | None = None,
+    raw_config: dict[str, Any] | None = None,
     retriever_config: RetrieverConfig | None = None,
     retrieval_adapter: DbAnnRuntimeRetrievalAdapter | None = None,
     raw_retrieval: list[RetrievalCandidate] | None = None,
@@ -4259,9 +4305,11 @@ def run_selective_rewrite(
             query_language=query_language,
         ),
         domain_context=_rewrite_domain_context(source_product),
+        rewrite_query_profile=rewrite_query_profile,
         rewrite_failure_policy=rewrite_failure_policy,
         rewrite_runtime_stats=rewrite_runtime_stats,
         trusted_memory_items=trusted_memory_items,
+        raw_config=raw_config,
     )
     rewrite_llm_attempted = rewrite_runtime_stats.get("llm_attempted_count", 0) > 0
     rewrite_llm_succeeded = rewrite_runtime_stats.get("llm_success_count", 0) > 0

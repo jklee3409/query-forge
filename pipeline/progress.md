@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-05-29] Session Summary (Detailed Intent Rewrite Runtime)
+- What was done: Added `rewrite_query_profile` runtime support to selective rewrite, added detailed-intent prompt selection, passed Admin raw config into rewrite-stage LLM client creation, and recorded the profile in retrieval rewrite artifacts.
+- Key decisions: `compact_anchor` remains the default prompt path; `detailed_intent` prefers `selective_rewrite_detailed_intent_v1.md` with compact prompt fallback. `llm_rewrite_model` now reaches `load_stage_config(stage="rewrite", raw_config=...)`.
+- Issues encountered: `python -m py_compile eval/runtime.py eval/retrieval_eval.py` and `python -m unittest pipeline.tests.test_eval_runtime.EvalRuntimeRewriteTests -q` passed.
+- Next steps: Inspect next fixed-snapshot `rewrite_cases_*.json` for `rewrite_query_profile`, detailed standalone candidates, and rewrite-only model usage.
+
 ## [2026-05-27] Session Summary (Domain-Aware Rewrite Payload)
 - What was done: Added `_rewrite_domain_context(source_product)` and passed it through `run_selective_rewrite -> build_rewrite_candidates_v2` so the LLM receives the active technical-document domain and Korean-to-English technical term examples.
 - Key decisions: Domain context is derived from source/product scope and remains prompt metadata only; it does not change retrieval scoring, memory lookup, or final adoption thresholds.

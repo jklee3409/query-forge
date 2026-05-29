@@ -181,6 +181,28 @@ class EvalRuntimeRewriteTests(unittest.TestCase):
                 self.assertEqual(runtime._rewrite_prompt_text(query_language="ko"), "ko v3 rewrite prompt")
                 self.assertEqual(runtime._rewrite_prompt_text(query_language="en"), "en rewrite prompt")
 
+    def test_rewrite_prompt_text_uses_detailed_intent_profile_prompt(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            prompt_root = Path(temp_dir)
+            rewrite_dir = prompt_root / "rewrite"
+            rewrite_dir.mkdir(parents=True)
+            (rewrite_dir / "selective_rewrite_detailed_intent_v1.md").write_text(
+                "detailed intent rewrite prompt",
+                encoding="utf-8",
+            )
+            (rewrite_dir / "selective_rewrite_v3.md").write_text("ko v3 rewrite prompt", encoding="utf-8")
+
+            with patch.dict(os.environ, {"PROMPT_ROOT": str(prompt_root)}):
+                runtime._REWRITE_PROMPT_TEXTS.clear()
+                self.assertEqual(
+                    runtime._rewrite_prompt_text(
+                        query_language="ko",
+                        rewrite_query_profile="detailed_intent",
+                    ),
+                    "detailed intent rewrite prompt",
+                )
+                self.assertEqual(runtime._rewrite_prompt_text(query_language="ko"), "ko v3 rewrite prompt")
+
     def test_rewrite_prompt_text_falls_back_to_v2_when_v3_missing(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             prompt_root = Path(temp_dir)
@@ -514,6 +536,7 @@ class EvalRuntimeRewriteTests(unittest.TestCase):
                     }
                 ],
                 domain_context=runtime._rewrite_domain_context("spring-security"),
+                rewrite_query_profile="detailed_intent",
                 trusted_memory_items=[{**memory_rows[0], "source_memory_index": 1}],
             )
 
@@ -523,6 +546,11 @@ class EvalRuntimeRewriteTests(unittest.TestCase):
         self.assertEqual(candidates[0]["added_anchors"], [])
         standalone_payload = json.loads(fake_client.user_prompts[0])
         self.assertEqual(standalone_payload.get("candidate_policy", {}).get("mode"), "raw_standalone")
+        self.assertEqual(standalone_payload.get("rewrite_query_profile"), "detailed_intent")
+        self.assertEqual(
+            standalone_payload.get("candidate_policy", {}).get("rewrite_query_profile"),
+            "detailed_intent",
+        )
         self.assertEqual(standalone_payload.get("top_memory_candidates"), [])
         self.assertEqual(
             standalone_payload.get("raw_retrieval_context", [{}])[0].get("technical_terms"),

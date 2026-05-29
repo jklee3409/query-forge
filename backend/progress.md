@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-05-29] Session Summary (RAG Rewrite Profile Controls)
+- What was done: Extended Admin RAG run requests/config generation with `rewriteQueryProfile`, `rewriteLlmModel`, runtime catalog profile allowlisting, detailed-intent adoption policy, and rewrite experiment-record metadata.
+- Key decisions: `compact_anchor` remains the default profile; `detailed_intent` uses a separate verbosity-tolerant adoption policy and optional rewrite-only LLM model override through `llm_rewrite_model`.
+- Issues encountered: `.\gradlew.bat compileJava` passed.
+- Next steps: Use a small snapshot-pinned RAG run to verify persisted config values and sample rewrite details from the running Admin UI.
+
 ## [2026-05-29] Session Summary (JDBC Repository Consolidation)
 - What was done: Converted `PipelineAdminRepository` from JPA/native `EntityManager` to `NamedParameterJdbcTemplate`, removed unused JPA entities/repositories/config/dependency, and extracted Admin Console domain/scope, synthetic-method, and eval-dataset queries into dedicated JDBC repositories.
 - Key decisions: Kept `AdminConsoleRepository` as the existing facade so service-layer call sites and business flow remain unchanged. Strategy raw-table writes still use the A-G allowlist and reads still use `synthetic_queries_raw_all`.

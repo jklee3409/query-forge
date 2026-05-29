@@ -45,6 +45,8 @@ public class AdminConsoleService {
     private static final String REWRITE_FAILURE_POLICY_FAIL_RUN = "fail_run";
     private static final String REWRITE_FAILURE_POLICY_SKIP_TO_RAW = "skip_to_raw";
     private static final String REWRITE_FAILURE_POLICY_HEURISTIC_FALLBACK = "heuristic_fallback";
+    private static final String REWRITE_QUERY_PROFILE_COMPACT_ANCHOR = "compact_anchor";
+    private static final String REWRITE_QUERY_PROFILE_DETAILED_INTENT = "detailed_intent";
     private static final String SYNTHETIC_FREE_BASELINE_METHOD = "BASELINE";
     private static final String STAGE_CUTOFF_RULE_ONLY = "rule_only";
     private static final String STAGE_CUTOFF_RULE_PLUS_LLM = "rule_plus_llm";
@@ -275,6 +277,15 @@ public class AdminConsoleService {
                         REWRITE_FAILURE_POLICY_HEURISTIC_FALLBACK
                 )
         );
+        List<String> rewriteQueryProfiles = fallbackIfEmpty(
+                catalog.availableRewriteQueryProfiles(),
+                List.of(REWRITE_QUERY_PROFILE_COMPACT_ANCHOR, REWRITE_QUERY_PROFILE_DETAILED_INTENT)
+        );
+        String defaultRewriteQueryProfile = firstNonBlank(
+                rewriteQueryProfiles.contains(catalog.defaultRewriteQueryProfile()) ? catalog.defaultRewriteQueryProfile() : null,
+                rewriteQueryProfiles.contains(REWRITE_QUERY_PROFILE_COMPACT_ANCHOR) ? REWRITE_QUERY_PROFILE_COMPACT_ANCHOR : null,
+                rewriteQueryProfiles.isEmpty() ? null : rewriteQueryProfiles.getFirst()
+        );
         return new AdminConsoleDtos.RuntimeOptionsResponse(
                 llmModels,
                 defaultLlmModel,
@@ -284,12 +295,15 @@ public class AdminConsoleService {
                 defaultRetrievalBackend,
                 retrieverModes,
                 rewriteFailurePolicies,
+                rewriteQueryProfiles,
+                defaultRewriteQueryProfile,
                 catalog.llmProviderOptions().stream().map(this::toRuntimeOptionDto).toList(),
                 catalog.llmModelOptions().stream().map(this::toRuntimeOptionDto).toList(),
                 catalog.denseEmbeddingModelOptions().stream().map(this::toRuntimeOptionDto).toList(),
                 catalog.retrievalBackendOptions().stream().map(this::toRuntimeOptionDto).toList(),
                 catalog.retrieverModeOptions().stream().map(this::toRuntimeOptionDto).toList(),
                 catalog.rewriteFailurePolicyOptions().stream().map(this::toRuntimeOptionDto).toList(),
+                catalog.rewriteQueryProfileOptions().stream().map(this::toRuntimeOptionDto).toList(),
                 catalog.defaultParameterRanges(),
                 defaultRetrieverMode,
                 objectMapper.valueToTree(catalog.retrieverModeDefaults())
@@ -894,6 +908,7 @@ public class AdminConsoleService {
                 : runtimeDefaultInt(runtimeCatalog, "rerank_top_n", 5);
         Map<String, Object> retrieverConfig = resolveRetrieverConfig(request.retrieverConfig(), false, runtimeCatalog);
         validateLlmModelSelection(blankToNull(request.llmModel()), runtimeCatalog);
+        validateLlmModelSelection(blankToNull(request.rewriteLlmModel()), runtimeCatalog);
         String retrievalBackend = normalizeRetrievalBackend(request.retrievalBackend(), runtimeCatalog);
         validateRetrievalBackendSelection(retrievalBackend, runtimeCatalog);
         validateRetrieverSelection(retrieverConfig, runtimeCatalog);
@@ -911,6 +926,8 @@ public class AdminConsoleService {
                 : runtimeDefaultDouble(runtimeCatalog, "rewrite_threshold", DEFAULT_REWRITE_THRESHOLD);
         String rewriteFailurePolicy = normalizeRewriteFailurePolicy(request.rewriteFailurePolicy());
         validateRewriteFailurePolicySelection(rewriteFailurePolicy, runtimeCatalog);
+        String requestedRewriteQueryProfile = normalizeRewriteQueryProfile(request.rewriteQueryProfile(), runtimeCatalog);
+        validateRewriteQueryProfileSelection(requestedRewriteQueryProfile, runtimeCatalog);
         String stageCutoffLevel = normalizeStageCutoffLevel(request.stageCutoffLevel(), gatingPreset);
 
         if (stageCutoffEnabled) {
@@ -1024,6 +1041,9 @@ public class AdminConsoleService {
         if (!rewriteEnabled || !rewriteAnchorInjectionEnabled) {
             multiSourceAnchorExpansionEnabled = false;
         }
+        String rewriteQueryProfile = rewriteEnabled
+                ? requestedRewriteQueryProfile
+                : REWRITE_QUERY_PROFILE_COMPACT_ANCHOR;
 
         String experimentName = "admin_eval_" + UUID.randomUUID().toString().replace("-", "").substring(0, 12);
         Map<String, Object> config = baseExperimentConfig(
@@ -1032,6 +1052,7 @@ public class AdminConsoleService {
         );
         CanonicalAnchorVersionMetadata.putDefaults(config);
         applyLlmModelOverrides(config, request.llmModel());
+        applyRewriteLlmModelOverride(config, request.rewriteLlmModel());
         config.put("run_name", runLabel);
         config.put("dataset_id", request.datasetId().toString());
         if (domainId != null) {
@@ -1047,6 +1068,7 @@ public class AdminConsoleService {
         config.put("selective_rewrite", selectiveRewrite);
         config.put("use_session_context", useSessionContext);
         config.put("rewrite_threshold", threshold);
+        config.put("rewrite_query_profile", rewriteQueryProfile);
         config.put("rewrite_anchor_injection_enabled", rewriteAnchorInjectionEnabled);
         // memory_lookup_* is retained only for explicit memory_only_* ablation modes.
         // Default rewrite evaluation uses synthetic memory as LLM prompt context only.
@@ -1064,6 +1086,7 @@ public class AdminConsoleService {
         config.put("multi_source_anchor_max_total", 8);
         config.put("multi_source_anchor_max_per_seed", 2);
         config.put("rewrite_failure_policy", rewriteFailurePolicy);
+        config.put("rewrite_adoption_policy", rewriteAdoptionPolicyForProfile(rewriteQueryProfile));
         config.put("rewrite_prompt_profile", resolveRewritePromptProfile(evalQueryLanguage));
         config.put("retrieval_top_k", retrievalTopK);
         config.put("rerank_top_n", rerankTopN);
@@ -1209,6 +1232,8 @@ public class AdminConsoleService {
         initialRewriteConfig.put("selective_rewrite", selectiveRewrite);
         initialRewriteConfig.put("use_session_context", useSessionContext);
         initialRewriteConfig.put("rewrite_threshold", threshold);
+        initialRewriteConfig.put("rewrite_query_profile", rewriteQueryProfile);
+        initialRewriteConfig.put("llm_rewrite_model", config.get("llm_rewrite_model"));
         initialRewriteConfig.put("rewrite_anchor_injection_enabled", rewriteAnchorInjectionEnabled);
         initialRewriteConfig.put("memory_lookup_intent_preserving_enabled", config.get("memory_lookup_intent_preserving_enabled"));
         initialRewriteConfig.put("memory_lookup_hint_token_max", config.get("memory_lookup_hint_token_max"));
@@ -1350,6 +1375,23 @@ public class AdminConsoleService {
                 REWRITE_FAILURE_POLICY_HEURISTIC_FALLBACK
         ).contains(normalized)) {
             throw new IllegalArgumentException("unsupported rewrite_failure_policy: " + value);
+        }
+        return normalized;
+    }
+
+    private String normalizeRewriteQueryProfile(String value, RuntimeCatalog catalog) {
+        if (value == null || value.isBlank()) {
+            return firstNonBlank(
+                    catalog.defaultRewriteQueryProfile(),
+                    REWRITE_QUERY_PROFILE_COMPACT_ANCHOR
+            );
+        }
+        String normalized = value.trim().toLowerCase().replace("-", "_");
+        if (!List.of(
+                REWRITE_QUERY_PROFILE_COMPACT_ANCHOR,
+                REWRITE_QUERY_PROFILE_DETAILED_INTENT
+        ).contains(normalized)) {
+            throw new IllegalArgumentException("unsupported rewrite_query_profile: " + value);
         }
         return normalized;
     }
@@ -1547,6 +1589,7 @@ public class AdminConsoleService {
             List<RuntimeOptionMetadata> retrievalBackends = parseRuntimeOptions(rootMap.get("retrieval_backends"), true);
             List<RuntimeOptionMetadata> retrieverModes = parseRuntimeOptions(rootMap.get("retriever_modes"), true);
             List<RuntimeOptionMetadata> rewritePolicies = parseRuntimeOptions(rootMap.get("rewrite_failure_policies"), true);
+            List<RuntimeOptionMetadata> rewriteQueryProfiles = parseRuntimeOptions(rootMap.get("rewrite_query_profiles"), true);
             Map<String, AdminConsoleDtos.RuntimeParameterRange> parameterRanges = parseDefaultParameterRanges(
                     rootMap.get("default_parameter_ranges")
             );
@@ -1560,6 +1603,7 @@ public class AdminConsoleService {
                     retrievalBackends,
                     retrieverModes,
                     rewritePolicies,
+                    rewriteQueryProfiles,
                     parameterRanges,
                     retrieverModeDefaults
             );
@@ -1619,6 +1663,10 @@ public class AdminConsoleService {
                 new RuntimeOptionMetadata(REWRITE_FAILURE_POLICY_SKIP_TO_RAW, REWRITE_FAILURE_POLICY_SKIP_TO_RAW, null, "active", "available", null, false),
                 new RuntimeOptionMetadata(REWRITE_FAILURE_POLICY_HEURISTIC_FALLBACK, REWRITE_FAILURE_POLICY_HEURISTIC_FALLBACK, null, "active", "available", null, false)
         );
+        List<RuntimeOptionMetadata> rewriteQueryProfiles = List.of(
+                new RuntimeOptionMetadata(REWRITE_QUERY_PROFILE_COMPACT_ANCHOR, "Compact anchor", null, "active", "available", null, true),
+                new RuntimeOptionMetadata(REWRITE_QUERY_PROFILE_DETAILED_INTENT, "Detailed intent", null, "active", "available", null, false)
+        );
         Map<String, AdminConsoleDtos.RuntimeParameterRange> ranges = defaultRuntimeParameterRanges();
         return new RuntimeCatalog(
                 List.of(),
@@ -1627,6 +1675,7 @@ public class AdminConsoleService {
                 retrievalBackends,
                 retrieverModes,
                 rewritePolicies,
+                rewriteQueryProfiles,
                 ranges,
                 fallbackRetrieverModeDefaults()
         );
@@ -1954,6 +2003,18 @@ public class AdminConsoleService {
         }
     }
 
+    private void validateRewriteQueryProfileSelection(String profile, RuntimeCatalog catalog) {
+        RuntimeOptionMetadata option = catalog.findRewriteQueryProfile(profile);
+        if (option == null) {
+            throw new IllegalArgumentException("rewrite_query_profile is not allowed by catalog: " + profile);
+        }
+        if (!isSelectable(option)) {
+            throw new IllegalArgumentException(
+                    "rewrite_query_profile is not selectable by catalog: " + profile + appendReason(option.reason())
+            );
+        }
+    }
+
     private void validateDbAnnConfigurationIfNeeded(String retrievalBackend, Map<String, Object> retrieverConfig) {
         if (!RETRIEVAL_BACKEND_DB_ANN.equals(retrievalBackend)) {
             return;
@@ -2091,6 +2152,7 @@ public class AdminConsoleService {
             List<RuntimeOptionMetadata> retrievalBackendOptions,
             List<RuntimeOptionMetadata> retrieverModeOptions,
             List<RuntimeOptionMetadata> rewriteFailurePolicyOptions,
+            List<RuntimeOptionMetadata> rewriteQueryProfileOptions,
             Map<String, AdminConsoleDtos.RuntimeParameterRange> defaultParameterRanges,
             Map<String, Map<String, Object>> retrieverModeDefaults
     ) {
@@ -2129,6 +2191,13 @@ public class AdminConsoleService {
                     .toList();
         }
 
+        List<String> availableRewriteQueryProfiles() {
+            return rewriteQueryProfileOptions.stream()
+                    .filter(this::isSelectable)
+                    .map(RuntimeOptionMetadata::code)
+                    .toList();
+        }
+
         String defaultLlmModel() {
             return defaultCode(llmModelOptions);
         }
@@ -2143,6 +2212,10 @@ public class AdminConsoleService {
 
         String defaultRetrieverMode() {
             return defaultCode(retrieverModeOptions);
+        }
+
+        String defaultRewriteQueryProfile() {
+            return defaultCode(rewriteQueryProfileOptions);
         }
 
         Map<String, Object> retrieverModeDefault(String mode) {
@@ -2175,6 +2248,10 @@ public class AdminConsoleService {
 
         RuntimeOptionMetadata findRewriteFailurePolicy(String policy) {
             return findNormalized(rewriteFailurePolicyOptions, policy);
+        }
+
+        RuntimeOptionMetadata findRewriteQueryProfile(String profile) {
+            return findNormalized(rewriteQueryProfileOptions, profile);
         }
 
         private String defaultCode(List<RuntimeOptionMetadata> options) {
@@ -3063,6 +3140,14 @@ public class AdminConsoleService {
         config.put("llm_rewrite_model", llmModel);
     }
 
+    private void applyRewriteLlmModelOverride(Map<String, Object> config, String requestedRewriteLlmModel) {
+        String rewriteLlmModel = blankToNull(requestedRewriteLlmModel);
+        if (rewriteLlmModel == null) {
+            return;
+        }
+        config.put("llm_rewrite_model", rewriteLlmModel);
+    }
+
     private void applySyntheticExecutionMode(
             Map<String, Object> config,
             String methodCode,
@@ -3321,6 +3406,49 @@ public class AdminConsoleService {
         return policy;
     }
 
+    private Map<String, Object> detailedIntentRewriteAdoptionPolicy() {
+        RuntimeCatalog runtimeCatalog = loadRuntimeCatalog();
+        double rewriteDefault = runtimeDefaultDouble(runtimeCatalog, "rewrite_threshold", DEFAULT_REWRITE_THRESHOLD);
+        Map<String, Object> thresholds = new LinkedHashMap<>();
+        thresholds.put("min_improvement", rewriteDefault);
+        thresholds.put("preservation_floor", 0.62d);
+        thresholds.put("max_length_ratio", 6.00d);
+        thresholds.put("max_compact_query_chars", 260);
+        thresholds.put("underspecified_memory_norm_cutoff", 0.66d);
+        thresholds.put("raw_loss_guard_confidence_floor", 0.78d);
+        thresholds.put("raw_loss_guard_min_overlap_ratio", 0.20d);
+
+        Map<String, Object> penalties = new LinkedHashMap<>();
+        penalties.put("verbosity_per_extra_ratio", 0.008d);
+        penalties.put("memory_target_missing", 0.04d);
+
+        Map<String, Object> bonuses = new LinkedHashMap<>();
+        bonuses.put("memory_target_presence", 0.08d);
+        bonuses.put("source_memory_target_hit_margin", rewriteDefault);
+
+        Map<String, Object> shortUserPolicy = new LinkedHashMap<>();
+        shortUserPolicy.put("thresholds", thresholds);
+        shortUserPolicy.put("penalties", penalties);
+        shortUserPolicy.put("bonuses", bonuses);
+
+        Map<String, Object> categoryOverrides = new LinkedHashMap<>();
+        categoryOverrides.put("short_user", shortUserPolicy);
+
+        Map<String, Object> policy = new LinkedHashMap<>();
+        policy.put("thresholds", new LinkedHashMap<>(thresholds));
+        policy.put("penalties", new LinkedHashMap<>(penalties));
+        policy.put("bonuses", new LinkedHashMap<>(bonuses));
+        policy.put("category_overrides", categoryOverrides);
+        return policy;
+    }
+
+    private Map<String, Object> rewriteAdoptionPolicyForProfile(String rewriteQueryProfile) {
+        if (REWRITE_QUERY_PROFILE_DETAILED_INTENT.equals(rewriteQueryProfile)) {
+            return detailedIntentRewriteAdoptionPolicy();
+        }
+        return relaxedShortUserRewriteAdoptionPolicy();
+    }
+
     private Map<String, Object> baseExperimentConfig(String experimentKey, String methodCode) {
         boolean englishOnly = isEnglishOnlyMethod(methodCode);
         RuntimeCatalog runtimeCatalog = loadRuntimeCatalog();
@@ -3357,6 +3485,7 @@ public class AdminConsoleService {
                 runtimeDefaultInt(runtimeCatalog, "rewrite_memory_candidate_pool_n", DEFAULT_REWRITE_MEMORY_CANDIDATE_POOL_N)
         );
         config.put("rewrite_failure_policy", REWRITE_FAILURE_POLICY_FAIL_RUN);
+        config.put("rewrite_query_profile", REWRITE_QUERY_PROFILE_COMPACT_ANCHOR);
         config.put("rewrite_adoption_policy", relaxedShortUserRewriteAdoptionPolicy());
         config.put("memory_lookup_intent_preserving_enabled", true);
         config.put("memory_lookup_hint_token_max", 3);

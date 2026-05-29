@@ -1727,6 +1727,8 @@ export function RagPage({ notify, domainId = null }) {
     defaultRetrieverMode: '',
     retrieverModeDefaults: {},
     rewriteFailurePolicies: [],
+    rewriteQueryProfiles: [],
+    defaultRewriteQueryProfile: 'compact_anchor',
     defaultParameterRanges: {},
   })
   const [historyPage, setHistoryPage] = useState(0)
@@ -1752,6 +1754,7 @@ export function RagPage({ notify, domainId = null }) {
     officialGatingRuleOnlyBatchId: '',
     officialGatingFullGatingBatchId: '',
     llmModel: '',
+    rewriteLlmModel: '',
     threshold: '',
     retrievalTopK: '',
     rerankTopN: '',
@@ -1766,6 +1769,7 @@ export function RagPage({ notify, domainId = null }) {
     useSessionContext: false,
     rewriteAnchorInjectionEnabled: false,
     multiSourceAnchorExpansionEnabled: false,
+    rewriteQueryProfile: 'compact_anchor',
     rewriteFailurePolicy: 'fail_run',
   })
 
@@ -1793,6 +1797,9 @@ export function RagPage({ notify, domainId = null }) {
     const rewriteFailurePolicies = Array.isArray(payload.rewriteFailurePolicies)
       ? payload.rewriteFailurePolicies.filter(Boolean)
       : []
+    const rewriteQueryProfiles = Array.isArray(payload.rewriteQueryProfiles)
+      ? payload.rewriteQueryProfiles.filter(Boolean)
+      : []
     const defaultParameterRanges = payload.defaultParameterRanges && typeof payload.defaultParameterRanges === 'object'
       ? payload.defaultParameterRanges
       : {}
@@ -1803,6 +1810,7 @@ export function RagPage({ notify, domainId = null }) {
     const defaultDenseEmbeddingModel = payload.defaultDenseEmbeddingModel || denseEmbeddingModels[0] || ''
     const defaultRetrievalBackend = payload.defaultRetrievalBackend || retrievalBackends[0] || 'local'
     const defaultRetrieverMode = payload.defaultRetrieverMode || retrieverModes[0] || ''
+    const defaultRewriteQueryProfile = payload.defaultRewriteQueryProfile || rewriteQueryProfiles[0] || 'compact_anchor'
     const resolvedRetrieverMode = retrieverModes.includes(form.retrieverMode)
       ? form.retrieverMode
       : (defaultRetrieverMode || form.retrieverMode || '')
@@ -1820,6 +1828,8 @@ export function RagPage({ notify, domainId = null }) {
       defaultRetrieverMode,
       retrieverModeDefaults,
       rewriteFailurePolicies,
+      rewriteQueryProfiles,
+      defaultRewriteQueryProfile,
       defaultParameterRanges,
     })
     setForm((prev) => {
@@ -1830,6 +1840,7 @@ export function RagPage({ notify, domainId = null }) {
       return {
         ...prev,
         llmModel: prev.llmModel || defaultLlmModel,
+        rewriteLlmModel: llmModels.includes(prev.rewriteLlmModel) ? prev.rewriteLlmModel : '',
         threshold: serverDefaultValue(prev.threshold, '', defaultThreshold),
         retrievalTopK: serverDefaultValue(prev.retrievalTopK, '', defaultRetrievalTopK),
         rerankTopN: serverDefaultValue(prev.rerankTopN, '', defaultRerankTopN),
@@ -1845,6 +1856,9 @@ export function RagPage({ notify, domainId = null }) {
         rewriteFailurePolicy: rewriteFailurePolicies.includes(prev.rewriteFailurePolicy)
           ? prev.rewriteFailurePolicy
           : (rewriteFailurePolicies[0] || ''),
+        rewriteQueryProfile: rewriteQueryProfiles.includes(prev.rewriteQueryProfile)
+          ? prev.rewriteQueryProfile
+          : defaultRewriteQueryProfile,
       }
     })
   }
@@ -2374,8 +2388,10 @@ export function RagPage({ notify, domainId = null }) {
           useSessionContext,
           rewriteAnchorInjectionEnabled,
           multiSourceAnchorExpansionEnabled,
+          rewriteQueryProfile: rewriteEnabled ? (form.rewriteQueryProfile || runtimeOptions.defaultRewriteQueryProfile || 'compact_anchor') : 'compact_anchor',
           rewriteFailurePolicy: form.rewriteFailurePolicy || 'fail_run',
           llmModel: form.llmModel || runtimeOptions.defaultLlmModel || null,
+          rewriteLlmModel: form.rewriteLlmModel || null,
           threshold: toNumber(form.threshold),
           retrievalBackend: form.retrievalBackend,
           retrievalTopK: toNumber(form.retrievalTopK),
@@ -2778,6 +2794,8 @@ export function RagPage({ notify, domainId = null }) {
     { label: '스냅샷', value: selectedSnapshotSummary },
     { label: '게이팅', value: runGatingPreset },
     { label: '재작성', value: form.rewriteEnabled ? (form.selectiveRewrite ? '선택적' : '항상') : '꺼짐' },
+    { label: '재작성 프로필', value: form.rewriteEnabled ? form.rewriteQueryProfile : 'compact_anchor' },
+    { label: 'Rewrite LLM', value: form.rewriteLlmModel || form.llmModel || runtimeOptions.defaultLlmModel || '-' },
     { label: '검색', value: `${form.retrievalBackend} / ${retrieverModeLabel(form.retrieverMode)}` },
   ]
 
@@ -2988,6 +3006,32 @@ export function RagPage({ notify, domainId = null }) {
                 {runtimeOptions.llmModels.map((model) => <option key={model} value={model}>{model}</option>)}
               </select>
               <span className="field-hint">생성/평가/재작성 공통 모델</span>
+            </label>
+            <label className="filter-field">Rewrite LLM
+              <select
+                value={form.rewriteLlmModel}
+                disabled={!form.rewriteEnabled}
+                onChange={(event) => setForm((prev) => ({ ...prev, rewriteLlmModel: event.target.value }))}
+              >
+                <option value="">공통 LLM 사용</option>
+                {runtimeOptions.llmModels.map((model) => <option key={model} value={model}>{model}</option>)}
+              </select>
+              <span className="field-hint">쿼리 재작성 단계만 별도 모델로 실행</span>
+            </label>
+            <label className="filter-field filter-field--small">재작성 프로필
+              <select
+                value={form.rewriteQueryProfile}
+                disabled={!form.rewriteEnabled}
+                onChange={(event) => setForm((prev) => ({ ...prev, rewriteQueryProfile: event.target.value }))}
+              >
+                {(runtimeOptions.rewriteQueryProfiles.length > 0
+                  ? runtimeOptions.rewriteQueryProfiles
+                  : [form.rewriteQueryProfile || runtimeOptions.defaultRewriteQueryProfile || 'compact_anchor']
+                ).filter(Boolean).map((profile) => (
+                  <option key={profile} value={profile}>{profile}</option>
+                ))}
+              </select>
+              <span className="field-hint">compact_anchor / detailed_intent</span>
             </label>
             <label className="filter-field filter-field--small">재작성 임계값
               <div className="slider-field">
