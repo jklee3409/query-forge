@@ -98,10 +98,43 @@ public class AdminConsoleRepository {
     }
 
     public List<AdminConsoleDtos.SyntheticGenerationMethod> findGenerationMethods() {
-        return findGenerationMethods(null);
+        String sql = """
+                SELECT generation_method_id,
+                       method_code,
+                       method_name,
+                       description,
+                       active,
+                       prompt_template_version,
+                       summary_strategy,
+                       translation_strategy,
+                       query_language_strategy,
+                       terminology_preservation_rule,
+                       metadata::text AS metadata
+                FROM synthetic_query_generation_method
+                ORDER BY method_code
+                """;
+        return jdbcTemplate.query(
+                sql,
+                (rs, rowNum) -> new AdminConsoleDtos.SyntheticGenerationMethod(
+                        readUuid(rs, "generation_method_id"),
+                        rs.getString("method_code"),
+                        rs.getString("method_name"),
+                        rs.getString("description"),
+                        rs.getBoolean("active"),
+                        rs.getString("prompt_template_version"),
+                        rs.getString("summary_strategy"),
+                        rs.getString("translation_strategy"),
+                        rs.getString("query_language_strategy"),
+                        rs.getString("terminology_preservation_rule"),
+                        readJson(rs, "metadata")
+                )
+        );
     }
 
     public List<AdminConsoleDtos.SyntheticGenerationMethod> findGenerationMethods(UUID domainId) {
+        if (domainId == null) {
+            return findGenerationMethods();
+        }
         String sql = """
                 SELECT m.generation_method_id,
                        m.method_code,
@@ -115,15 +148,12 @@ public class AdminConsoleRepository {
                        m.terminology_preservation_rule,
                        m.metadata::text AS metadata
                 FROM synthetic_query_generation_method m
-                WHERE (
-                    :domainId IS NULL
-                    OR EXISTS (
-                        SELECT 1
-                        FROM tech_doc_domain_method_policy p
-                        WHERE p.domain_id = :domainId
-                          AND p.method_code = m.method_code
-                          AND p.enabled IS TRUE
-                    )
+                WHERE EXISTS (
+                    SELECT 1
+                    FROM tech_doc_domain_method_policy p
+                    WHERE p.domain_id = :domainId
+                      AND p.method_code = m.method_code
+                      AND p.enabled IS TRUE
                 )
                 ORDER BY m.method_code
                 """;
@@ -505,6 +535,7 @@ public class AdminConsoleRepository {
     }
 
     public List<AdminConsoleDtos.SyntheticGenerationBatchRow> findGenerationBatches(Integer limit, UUID domainId) {
+        String domainWhereClause = domainId == null ? "" : "WHERE b.domain_id = :domainId";
         String sql = """
                 SELECT b.batch_id,
                        m.method_code,
@@ -594,15 +625,18 @@ public class AdminConsoleRepository {
                     ORDER BY lj.created_at DESC
                     LIMIT 1
                 ) job ON TRUE
-                WHERE (:domainId IS NULL OR b.domain_id = :domainId)
+                %s
                 ORDER BY b.created_at DESC
                 LIMIT :limit
-                """;
+                """.formatted(domainWhereClause);
+        MapSqlParameterSource params = new MapSqlParameterSource()
+                .addValue("limit", normalizeLimit(limit, 100));
+        if (domainId != null) {
+            params.addValue("domainId", domainId);
+        }
         return jdbcTemplate.query(
                 sql,
-                new MapSqlParameterSource()
-                        .addValue("limit", normalizeLimit(limit, 100))
-                        .addValue("domainId", domainId),
+                params,
                 (rs, rowNum) -> new AdminConsoleDtos.SyntheticGenerationBatchRow(
                         readUuid(rs, "batch_id"),
                         rs.getString("method_code"),
@@ -1572,6 +1606,7 @@ public class AdminConsoleRepository {
     }
 
     public List<AdminConsoleDtos.GatingBatchRow> findGatingBatches(Integer limit, UUID domainId) {
+        String domainWhereClause = domainId == null ? "" : "WHERE qb.domain_id = :domainId";
         String sql = """
                 WITH limited_batch AS (
                     SELECT qb.gating_batch_id,
@@ -1590,7 +1625,7 @@ public class AdminConsoleRepository {
                            qb.stage_config_json,
                            qb.created_at
                     FROM quality_gating_batch qb
-                    WHERE (:domainId IS NULL OR qb.domain_id = :domainId)
+                    %s
                     ORDER BY qb.created_at DESC
                     LIMIT :limit
                 ),
@@ -1704,12 +1739,15 @@ public class AdminConsoleRepository {
                            END AS estimated_seconds_per_query
                 ) rate ON TRUE
                 ORDER BY lb.created_at DESC
-                """;
+                """.formatted(domainWhereClause);
+        MapSqlParameterSource params = new MapSqlParameterSource()
+                .addValue("limit", normalizeLimit(limit, 100));
+        if (domainId != null) {
+            params.addValue("domainId", domainId);
+        }
         return jdbcTemplate.query(
                 sql,
-                new MapSqlParameterSource()
-                        .addValue("limit", normalizeLimit(limit, 100))
-                        .addValue("domainId", domainId),
+                params,
                 (rs, rowNum) -> mapGatingBatchRow(rs)
         );
     }
@@ -2032,6 +2070,7 @@ public class AdminConsoleRepository {
     }
 
     public List<AdminConsoleDtos.EvalDatasetRow> findEvalDatasets(UUID domainId) {
+        String domainWhereClause = domainId == null ? "" : "WHERE d.domain_id = :domainId";
         String sql = """
                 SELECT d.dataset_id,
                        d.dataset_key,
@@ -2061,12 +2100,16 @@ public class AdminConsoleRepository {
                     WHERE i.dataset_id = d.dataset_id
                       AND i.active = TRUE
                 ) items ON TRUE
-                WHERE (:domainId IS NULL OR d.domain_id = :domainId)
+                %s
                 ORDER BY d.created_at DESC
-                """;
+                """.formatted(domainWhereClause);
+        MapSqlParameterSource params = new MapSqlParameterSource();
+        if (domainId != null) {
+            params.addValue("domainId", domainId);
+        }
         return jdbcTemplate.query(
                 sql,
-                new MapSqlParameterSource("domainId", domainId),
+                params,
                 (rs, rowNum) -> new AdminConsoleDtos.EvalDatasetRow(
                         readUuid(rs, "dataset_id"),
                         rs.getString("dataset_key"),
@@ -3287,6 +3330,7 @@ public class AdminConsoleRepository {
     }
 
     public List<AdminConsoleDtos.RagTestRunRow> findRagTestRuns(Integer limit, UUID domainId) {
+        String domainWhereClause = domainId == null ? "" : "WHERE r.domain_id = :domainId";
         String sql = """
                 SELECT r.rag_test_run_id,
                        r.run_label,
@@ -3367,15 +3411,18 @@ public class AdminConsoleRepository {
                                ELSE hist.historical_seconds_per_stage
                            END AS estimated_seconds_per_stage
                 ) rate ON TRUE
-                WHERE (:domainId IS NULL OR r.domain_id = :domainId)
+                %s
                 ORDER BY r.created_at DESC
                 LIMIT :limit
-                """;
+                """.formatted(domainWhereClause);
+        MapSqlParameterSource params = new MapSqlParameterSource()
+                .addValue("limit", normalizeLimit(limit, 100));
+        if (domainId != null) {
+            params.addValue("domainId", domainId);
+        }
         return jdbcTemplate.query(
                 sql,
-                new MapSqlParameterSource()
-                        .addValue("limit", normalizeLimit(limit, 100))
-                        .addValue("domainId", domainId),
+                params,
                 (rs, rowNum) -> mapRagTestRunRow(rs)
         );
     }

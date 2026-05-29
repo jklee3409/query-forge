@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-05-29] Session Summary (Admin Console Nullable Domain SQL Fix)
+- What was done: Changed Admin Console repository method and list queries to avoid nullable `domainId` SQL predicates in no-domain calls, including synthetic methods, generation batches, gating batches, eval datasets, and RAG test runs.
+- Key decisions: `findGenerationMethods()` now uses a pure all-method query, while `findGenerationMethods(UUID)` delegates to it for null and applies domain-policy `EXISTS` only for non-null domain IDs.
+- Issues encountered: Targeted regression tests passed: `AdminConsoleGatingIntegrationTest.adminConsoleListEndpointsAcceptMissingDomainId` and `generationMethodsCanBeFilteredByDomainPolicy`.
+- Next steps: Restart the active backend process to load the repository fix.
+
 ## [2026-05-27] Session Summary (Domain-Language Synthetic Methods and RAG Detail Dedup)
 - What was done: Changed Admin synthetic method listing/run validation to use `tech_doc_domain.source_language` for domain workspaces (`en` allows A/B/C/D/E, `ko` allows F/G), and changed RAG detail lookup to return one representative detail row per sample.
 - Key decisions: Domain language now overrides legacy per-domain method policy for GUI run availability, while global unscoped runs keep the existing fixed source allowlists. RAG detail row selection prefers rows with rewrite/memory candidate payloads before falling back to older rows.

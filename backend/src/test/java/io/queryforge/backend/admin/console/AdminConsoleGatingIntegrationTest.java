@@ -107,6 +107,72 @@ class AdminConsoleGatingIntegrationTest {
     }
 
     @Test
+    void adminConsoleListEndpointsAcceptMissingDomainId() throws Exception {
+        mockMvc.perform(get("/api/admin/console/synthetic/methods"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].methodCode").exists());
+
+        mockMvc.perform(get("/api/admin/console/synthetic/batches").param("limit", "1"))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(get("/api/admin/console/gating/batches").param("limit", "1"))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(get("/api/admin/console/rag/datasets"))
+                .andExpect(status().isOk());
+
+        mockMvc.perform(get("/api/admin/console/rag/tests").param("limit", "1"))
+                .andExpect(status().isOk());
+    }
+
+    @Test
+    void generationMethodsCanBeFilteredByDomainPolicy() {
+        UUID domainId = UUID.randomUUID();
+        jdbcTemplate.update(
+                """
+                INSERT INTO tech_doc_domain (
+                    domain_id,
+                    domain_key,
+                    display_name,
+                    primary_language,
+                    source_language,
+                    created_by
+                ) VALUES (
+                    :domainId,
+                    :domainKey,
+                    'Test Method Policy',
+                    NULL,
+                    NULL,
+                    'test-admin'
+                )
+                """,
+                new MapSqlParameterSource()
+                        .addValue("domainId", domainId)
+                        .addValue("domainKey", "test-method-policy-" + domainId)
+        );
+        jdbcTemplate.update(
+                """
+                INSERT INTO tech_doc_domain_method_policy (
+                    domain_id,
+                    method_code,
+                    enabled
+                ) VALUES (
+                    :domainId,
+                    'A',
+                    TRUE
+                )
+                """,
+                new MapSqlParameterSource("domainId", domainId)
+        );
+
+        var methods = adminConsoleRepository.findGenerationMethods(domainId);
+
+        assertThat(methods)
+                .extracting(AdminConsoleDtos.SyntheticGenerationMethod::methodCode)
+                .containsExactly("A");
+    }
+
+    @Test
     void gatingFunnelReturnsZeroCountsWhenStageResultRowsAreMissing() throws Exception {
         UUID methodId = jdbcTemplate.getJdbcTemplate().queryForObject(
                 "SELECT generation_method_id FROM synthetic_query_generation_method WHERE method_code = 'A'",

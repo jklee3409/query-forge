@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-05-29] Session Summary (Admin Console Nullable Domain SQL Fix)
+- What was done: Split Admin Console domain-optional list queries so no-domain calls no longer bind nullable `domainId` into `:domainId IS NULL` SQL predicates, and added targeted regression coverage for synthetic methods plus related list APIs.
+- Key decisions: Kept domain-scoped behavior by using separate non-null domain WHERE/EXISTS clauses instead of SQL-side nullable checks.
+- Issues encountered: The failure matched the earlier PostgreSQL nullable bind-parameter type inference issue; targeted Testcontainers regression tests passed.
+- Next steps: Restart the running backend before verifying the fixed `/api/admin/console/synthetic/methods` path in the browser.
+
 ## [2026-05-29] Session Summary (README Tone Pass)
 - What was done: Refined the root `README.md` wording without changing the documented implementation facts, section structure, run commands, source list, or evaluation descriptions.
 - Key decisions: Removed repeated AI-style meta subjects such as "이 프로젝트는" / "이 저장소는" equivalents and rewrote paragraphs toward direct technical README prose.
