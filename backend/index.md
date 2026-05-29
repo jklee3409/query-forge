@@ -19,6 +19,7 @@ Spring Boot backend for Admin Console APIs, RAG APIs, pipeline command orchestra
 - Execute pipeline commands via backend-managed jobs.
 - Maintain DB schema evolution through Flyway.
 - Preserve strategy-separated synthetic raw storage (A/B/C/D/E/F/G) and split-aware read paths.
+- Use JDBC/Flyway/PostgreSQL as the backend persistence contract; Spring Data JPA is no longer part of the runtime dependency set.
 
 ---
 
@@ -26,6 +27,8 @@ Spring Boot backend for Admin Console APIs, RAG APIs, pipeline command orchestra
 - Legacy single-table `synthetic_queries_raw` is retired by migration `V17`.
 - Read paths use `synthetic_queries_raw_all` (union view over `synthetic_queries_raw_a/b/c/d/e/f/g`).
 - Write/provenance updates for synthetic raw rows are strategy-table specific.
+- Admin Console persistence is being decomposed behind the existing `AdminConsoleRepository` facade. `AdminSyntheticMethodRepository` owns synthetic method lookup SQL, `AdminConsoleDomainScopeRepository` owns domain/source/dataset scope validation SQL, `AdminEvalDatasetRepository` owns eval dataset/item management SQL, and `AdminConsoleStrategyTables` centralizes the A-G raw table allowlist.
+- Pipeline Admin persistence now uses `NamedParameterJdbcTemplate` directly; the previous unused JPA entity/repository layer and JPA auditing config have been removed.
 - Admin gating result API supports strategy filtering via `method_code` and paging via `limit/offset`.
 - Admin gating funnel API supports optional strategy filtering via `method_code` (`전체 + DB 등록 전략 코드`).
 - Admin gating config supports dynamic rule-level Korean ratio thresholds via request payload (`ruleMinKoreanRatio`).

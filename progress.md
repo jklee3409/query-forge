@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-05-29] Session Summary (Backend JDBC Repository Consolidation)
+- What was done: Removed the remaining Spring Data JPA dependency and unused JPA entity/repository layer, converted Pipeline Admin persistence to `NamedParameterJdbcTemplate`, and extracted Admin Console synthetic-method, domain/scope, and eval-dataset SQL into dedicated JDBC repositories while keeping `AdminConsoleRepository` as the stable facade.
+- Key decisions: Preserved existing SQL semantics, pipeline stage flow, A/B/C/D/E/F/G split raw table contract, and Admin service public repository API; no migration or schema behavior was changed.
+- Issues encountered: Targeted backend validation passed: `compileJava`, Admin Console nullable/domain regression tests, `PipelineAdminIntegrationTest`, and `AdminConsoleRagIntegrationTest`.
+- Next steps: Continue decomposing the large Admin Console facade by moving synthetic batch, gating, dataset, and RAG run SQL into bounded JDBC repositories in small behavior-preserving slices.
+
 ## [2026-05-29] Session Summary (Admin Console Nullable Domain SQL Fix)
 - What was done: Split Admin Console domain-optional list queries so no-domain calls no longer bind nullable `domainId` into `:domainId IS NULL` SQL predicates, and added targeted regression coverage for synthetic methods plus related list APIs.
 - Key decisions: Kept domain-scoped behavior by using separate non-null domain WHERE/EXISTS clauses instead of SQL-side nullable checks.

@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-05-29] Session Summary (JDBC Repository Consolidation)
+- What was done: Converted `PipelineAdminRepository` from JPA/native `EntityManager` to `NamedParameterJdbcTemplate`, removed unused JPA entities/repositories/config/dependency, and extracted Admin Console domain/scope, synthetic-method, and eval-dataset queries into dedicated JDBC repositories.
+- Key decisions: Kept `AdminConsoleRepository` as the existing facade so service-layer call sites and business flow remain unchanged. Strategy raw-table writes still use the A-G allowlist and reads still use `synthetic_queries_raw_all`.
+- Issues encountered: Targeted validation passed: `.\gradlew.bat compileJava`, Admin Console domain regression tests, `PipelineAdminIntegrationTest`, and `AdminConsoleRagIntegrationTest`.
+- Next steps: Continue splitting the remaining Admin Console facade into synthetic batch, gating, eval dataset, and RAG run repositories without changing SQL semantics.
+
 ## [2026-05-29] Session Summary (Admin Console Nullable Domain SQL Fix)
 - What was done: Changed Admin Console repository method and list queries to avoid nullable `domainId` SQL predicates in no-domain calls, including synthetic methods, generation batches, gating batches, eval datasets, and RAG test runs.
 - Key decisions: `findGenerationMethods()` now uses a pure all-method query, while `findGenerationMethods(UUID)` delegates to it for null and applies domain-policy `EXISTS` only for non-null domain IDs.
