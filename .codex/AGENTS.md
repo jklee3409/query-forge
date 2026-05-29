@@ -12,11 +12,12 @@ Agents must follow these rules to ensure:
 ## 1. Project Goal
 
 The project is a research-driven RAG system with:
-- synthetic query generation (A/B/C/D/E strategies)
+- synthetic query generation (core A/B/C/D/E methods)
+- extended Korean-source corpus experiments (F/G methods)
 - quality gating pipeline
 - memory construction
 - evaluation dataset generation
-- RAG evaluation (retrieval + answer)
+- query rewrite and anchor-aware RAG evaluation (retrieval + answer)
 
 Agents must not change the fundamental pipeline flow.
 
@@ -32,16 +33,107 @@ collect → preprocess → chunk → glossary → import
 
 ### 3.1 Synthetic Query Separation
 
-Synthetic queries must be stored in separate tables for each strategy:
+Synthetic queries must be stored in separate tables for each core or extended method:
 - synthetic_queries_raw_a
 - synthetic_queries_raw_b
 - synthetic_queries_raw_c
 - synthetic_queries_raw_d
 - synthetic_queries_raw_e
+- synthetic_queries_raw_f
+- synthetic_queries_raw_g
 
 Agents must not merge these tables into a single structure.
 
 Any processing step must explicitly specify the target strategy table or target strategy set.
+
+### 3.1.1 Core Synthetic Query Method Definitions (A/B/C/D/E)
+
+The primary definition of A/B/C/D/E is the generation methodology, not the surface query style.
+Query style is a secondary outcome of each method's inputs and transformation path.
+
+A/B/C/D/E are the project's core strategy family.
+They do not change the core pipeline order, gating rules, evaluation rules, schema structure, or architecture constraints.
+
+A:
+- Generation flow: EN Document -> EN Extractive Summary -> EN Synthetic Query -> KO Synthetic Query
+- Generation inputs: English source chunk, English extractive summary, glossary / technical anchors.
+- Generation hypothesis: English-first intent formation preserves original technical meaning before Korean naturalization.
+- Retrieval objective: maximize semantic fidelity and anchor preservation for Korean retrieval against English-origin technical evidence.
+- Expected strengths: strong technical-anchor retention, clear grounding to source chunk, low semantic drift.
+- Expected weaknesses: Korean may read like a translated query; natural Korean developer phrasing can be weaker than Korean-first methods.
+
+B:
+- Generation flow: EN Document -> KO Translation -> KO Summary -> KO Synthetic Query
+- Generation inputs: English source chunk, Korean translation, Korean summary, glossary / technical anchors.
+- Generation hypothesis: Korean-first evidence comprehension produces more natural Korean developer queries.
+- Retrieval objective: test whether natural Korean phrasing improves retrieval usability despite translation-mediated information loss.
+- Expected strengths: high Korean naturalness, realistic developer wording, good fit for Korean user-query surfaces.
+- Expected weaknesses: critical anchors may be weakened, translated, or omitted during translation / summarization.
+
+C:
+- Generation flow: EN Document + KO Summary -> KO Synthetic Query
+- Generation inputs: English source chunk, English extractive summary, Korean summary context, glossary / technical anchors.
+- Generation hypothesis: simultaneous use of English evidence and Korean understanding balances anchor fidelity with Korean usability.
+- Retrieval objective: generate retrieval-oriented Korean queries that retain technical detail while matching Korean search intent.
+- Expected strengths: specific information need, strong semantic detail, good technical-anchor preservation, useful for chunk-level discrimination.
+- Expected weaknesses: can become more detailed or multi-condition than a typical user query; may over-specialize retrieval intent.
+
+D:
+- Generation flow: EN Document (+ summary context) -> KO Query -> Code-Mixed Query
+- Generation inputs: English source chunk, English / Korean summary context, glossary / technical anchors.
+- Generation hypothesis: Korean sentence frames with English technical terms better reflect real developer search behavior.
+- Retrieval objective: measure whether code-mixed wording improves anchor matching and retrieval discrimination.
+- Expected strengths: high technical-anchor retention, realistic Korean developer search style, useful lexical overlap with English technical corpora.
+- Expected weaknesses: style can become unnatural if English terms are forced; comparisons require semantic parity with the Korean variant.
+
+E:
+- Generation flow: EN Document -> EN Extractive Summary -> EN Synthetic Query
+- Generation inputs: English source chunk, English extractive summary, glossary / technical anchors.
+- Generation hypothesis: English-native query generation removes translation and cross-lingual effects.
+- Retrieval objective: provide the English-native baseline / upper-bound condition for English technical corpora.
+- Expected strengths: strongest lexical grounding to English corpus chunks, no cross-lingual information loss, direct English developer query.
+- Expected weaknesses: does not evaluate Korean user-query behavior or cross-lingual retrieval effects.
+
+### 3.1.2 Extended Methods (F/G)
+
+F/G are extended methods for Korean-source corpus experiments.
+They are not promoted to the first-class core strategy family, which remains A/B/C/D/E.
+
+Use F/G only when the source corpus itself is Korean or when an experiment explicitly studies Korean-origin query transfer.
+They must not replace A/B/C/D/E-centered experiment structure for English-origin technical corpora.
+
+F:
+- Generation flow: KR Document -> KR Summary -> KR Query -> EN Query
+- Research purpose: evaluate whether Korean-origin synthetic queries can be transferred into English retrieval environments.
+- Generation hypothesis: forming a Korean query first preserves Korean-source intent, then English rewriting tests cross-language transfer.
+- Retrieval objective: study bilingual query generation from Korean evidence into English retrieval settings.
+- Expected strengths: supports Korean-source corpora while producing English retrieval queries.
+- Expected weaknesses: semantic drift can occur during KR -> EN query transfer; not comparable as a core English-source A/B/C/D/E method without explicit controls.
+
+G:
+- Generation flow: KR Document -> KR Summary -> KR Query
+- Research purpose: provide a pure Korean baseline for Korean corpus environments.
+- Generation hypothesis: removing translation stages isolates Korean-source query generation quality.
+- Retrieval objective: measure Korean-source / Korean-query retrieval without cross-language transfer.
+- Expected strengths: no translation stage, natural Korean query path, direct Korean corpus grounding.
+- Expected weaknesses: does not test English retrieval transfer and is not part of the core English-origin A/B/C/D/E family.
+
+### 3.1.3 Synthetic Query, Memory, and Rewrite Relationship
+
+The current research interpretation is:
+
+Synthetic Query -> Quality Gating -> Memory -> Rewrite Example Retrieval -> Query Rewrite -> Retrieval
+
+Synthetic memory is not only a retrieval target.
+Its primary role in the current research direction is to provide retrieval-oriented examples and rewrite guidance for user-query rewriting.
+
+Agents MUST treat gated synthetic memory as:
+- a source of few-shot examples
+- a source of rewrite hints
+- a controlled snapshot for comparing rewrite and retrieval behavior
+
+Agents MAY also evaluate memory as direct retrieval memory in explicit retrieval or ablation experiments.
+Those experiments MUST be labeled as such and must not be confused with the default rewrite-guidance role.
 
 ### 3.2 Selective Quality Gating
 
@@ -78,7 +170,7 @@ Evaluation datasets must contain:
 Optional metadata may include:
 - purpose
 - evaluation intent
-- target strategy
+- target method / strategy metadata
 - query type
 
 Example:
@@ -88,7 +180,7 @@ Example:
   "query": "...",
   "answer": "...",
   "purpose": "comparison",
-  "target_strategy": ["A"]
+  "target_method": "A"
 }
 ```
 
@@ -96,11 +188,12 @@ The exact schema for purpose and evaluation intent is not fully fixed yet.
 
 Agents must not enforce a strict mandatory taxonomy for purpose until the user defines it explicitly.
 
-## 3.5 Evaluation Dataset (CRITICAL - RETRIEVAL AWARE)
+## 3.5 Evaluation Dataset (CRITICAL - RETRIEVAL / REWRITE / ANCHOR AWARE)
 
 Evaluation datasets in this project are NOT simple QA datasets.
 
-They MUST be retrieval-aware datasets that include document and chunk grounding.
+They MUST be grounded datasets that support retrieval evaluation.
+When appropriate, the same grounded samples MAY also support rewrite evaluation and anchor quality evaluation.
 
 Each evaluation item MUST include:
 
@@ -112,6 +205,7 @@ Each evaluation item MUST include:
 - expected_answer_key_points
 
 Agents MUST NOT generate evaluation datasets that only contain question and answer.
+Grounding is required so retrieval, rewrite, and anchor evaluations can be compared against the same expected evidence.
 
 ---
 
@@ -138,35 +232,63 @@ Each item MUST follow JSONL structure:
 
 ---
 
-### A/B/C/D/E Method-Aware Dataset (MANDATORY)
+### Core A/B/C/D/E and Extended F/G Method-Aware Dataset (MANDATORY)
 
-The dataset MUST support evaluation of A/B/C/D/E synthetic query generation methods.
+The dataset MUST support evaluation of the core A/B/C/D/E synthetic query generation methods.
+It MAY also support F/G when the experiment is explicitly a Korean-source corpus experiment.
 
 This means:
 
-- Same document/chunk MUST be used to generate DIFFERENT query styles
-- Queries MUST vary depending on A/B/C/D/E strategy
+- Same document/chunk MUST be used to generate different method outputs where the source-language corpus makes the comparison valid
+- Queries MUST vary according to method generation pipeline, inputs, and hypothesis
+- A/B/C/D/E MUST remain the core comparison family for English-origin technical corpora
+- F/G MUST be treated as extended Korean-source corpus conditions, not as replacements for core A/B/C/D/E methods
 
 ---
 
-### Method-Specific Query Characteristics
+### Method-Specific Dataset Interpretation
 
 A:
-- translated-style Korean queries (English-first artifacts allowed)
+- target method: A
+- query language: Korean
+- dataset role: tests English-first semantic preservation before Korean naturalization
+- expected retrieval behavior: high anchor fidelity and low semantic drift; possible translated-style Korean
 
 B:
-- natural Korean developer queries
+- target method: B
+- query language: Korean
+- dataset role: tests Korean-first understanding after translation and Korean summarization
+- expected retrieval behavior: natural Korean user-query surface; possible anchor loss through translation
 
 C:
-- structured, precise, multi-step queries
-- may require multi-chunk reasoning
+- target method: C
+- query language: Korean
+- dataset role: tests simultaneous English evidence and Korean understanding
+- expected retrieval behavior: specific retrieval-oriented Korean query with strong semantic detail and anchor retention
 
 D:
-- code-mixed queries (Korean + English + technical terms)
+- target method: D
+- query language: Korean with code-mixed language profile when applicable
+- dataset role: tests code-mixed developer search behavior while preserving the same information need
+- expected retrieval behavior: stronger lexical anchor overlap through English technical terms; risk of unnatural mixing
 
 E:
-- English-native developer queries
-- must preserve technical intent and grounding to corpus chunks
+- target method: E
+- query language: English
+- dataset role: English-native baseline / upper-bound for English technical corpora
+- expected retrieval behavior: direct English lexical grounding with no translation or cross-lingual effects
+
+F:
+- target method: F
+- query language: English
+- dataset role: extended Korean-source corpus transfer condition
+- expected retrieval behavior: English retrieval query transferred from Korean-source intent; possible KR -> EN semantic drift
+
+G:
+- target method: G
+- query language: Korean
+- dataset role: extended Korean-source pure baseline
+- expected retrieval behavior: direct Korean corpus grounding without translation stage
 
 ---
 
@@ -174,7 +296,7 @@ E:
 
 Each dataset item MUST include:
 
-- "target_method": "A | B | C | D | E"
+- "target_method": "A | B | C | D | E | F | G"
 
 Optional:
 - "evaluation_focus": ["translation", "grounding", "naturalness", ...]
@@ -209,7 +331,9 @@ Agents MUST NOT:
 
 - generate QA-only datasets
 - ignore chunk grounding
-- ignore A/B/C/D/E differences
+- treat query appearance as the primary method definition
+- ignore A/B/C/D/E method differences
+- mix F/G into core A/B/C/D/E comparisons unless the experiment explicitly targets Korean-source corpus extensions
 
 ---
 
@@ -226,11 +350,13 @@ Agents MUST follow this procedure to ensure:
 
 ### 3.6.1 Evaluation Scope
 
-RAG evaluation MUST be conducted at three levels:
+RAG evaluation MUST cover the following research levels when applicable:
 
 1. Synthetic Query Quality
-2. Retrieval Performance
-3. End-to-End RAG Performance
+2. Query Rewrite Behavior
+3. Anchor Preservation / Anchor Quality
+4. Retrieval Performance
+5. End-to-End RAG Performance
 
 ---
 
@@ -243,8 +369,10 @@ Agents MUST evaluate generated queries BEFORE gating using:
 - answerability
 - copy ratio
 - diversity
+- anchor preservation
 
-This stage validates whether queries are natural, grounded, and useful.
+This stage validates whether generated queries are grounded, useful, and aligned with each method's generation hypothesis.
+Fluency or query style alone is not sufficient to define method quality.
 
 ---
 
@@ -276,12 +404,16 @@ A snapshot is defined as:
 - a fixed set of synthetic queries
 - after a specific generation + gating pipeline
 - stored as a memory state
+- used primarily as rewrite examples / hints in the current research direction
+- optionally used as direct retrieval memory in explicit retrieval or ablation experiments
 
 Examples:
 
 - A-only snapshot
 - C-only snapshot
 - A+C mixed snapshot
+- extended F-only snapshot for Korean-source corpus experiments
+- extended G-only snapshot for Korean-source corpus experiments
 - gated vs ungated snapshot
 
 Agents MUST treat each snapshot as an independent experimental condition.
@@ -289,26 +421,42 @@ Agents MUST treat each snapshot as an independent experimental condition.
 Each snapshot MUST:
 
 - have a unique identifier
-- record generation strategy (A/B/C/D/E)
+- record generation strategy (core A/B/C/D/E, or extended F/G when explicitly applicable)
 - record gating configuration
 - record creation timestamp or batch id
 
 When running RAG evaluation, agents MUST:
 
 - explicitly select the snapshot
-- use the snapshot as retrieval memory
+- use the snapshot as rewrite-example memory by default
+- use the snapshot as direct retrieval memory only for explicit retrieval / ablation conditions
 - NOT mix snapshots unless explicitly intended
 
 ---
 
-### 3.6.5 Query Rewrite Evaluation
+### 3.6.5 Query Rewrite Architecture and Evaluation
 
-For each snapshot, agents MUST evaluate the current Admin GUI rewrite behavior as:
+Query Rewrite is an official research component of this project.
+It exists because Korean, short, or code-mixed user queries may omit technical anchors that are necessary for reliable retrieval from technical documentation.
 
-- raw query retrieval
-- snapshot-backed synthetic memory lookup used as LLM few-shot examples/context only
-- LLM-generated rewrite candidates
-- snapshot + selective rewrite final decision
+The intended rewrite flow is:
+
+Raw Query  
+-> Synthetic Memory Retrieval  
+-> Top Synthetic Query Retrieval  
+-> Few-shot Examples / Rewrite Hints  
+-> LLM Rewrite Candidate Generation  
+-> Raw vs Rewrite Retrieval Comparison  
+-> Selective Rewrite Decision  
+-> Final Retrieval
+
+Synthetic memory in this flow provides retrieval-oriented examples and rewrite guidance.
+Retrieved synthetic queries are examples / hints.
+They are NOT automatically used as final queries.
+
+The final evaluation query MUST be either:
+- the original raw query
+- one LLM-generated rewrite candidate
 
 Agents MAY evaluate the following legacy/ablation conditions only when explicitly intended:
 
@@ -318,28 +466,78 @@ Agents MAY evaluate the following legacy/ablation conditions only when explicitl
 Agents MUST:
 
 - compare rewrite vs non-rewrite
-- verify improvement through metrics
+- evaluate raw-query retrieval and rewrite-candidate retrieval under the same dataset / snapshot condition
+- verify rewrite effectiveness through retrieval metrics, answer metrics, latency / cost context, and anchor-quality analysis when applicable
 - NOT assume rewrite is always beneficial
-- treat synthetic queries as few-shot examples/context for the LLM in the current Admin GUI RAG test flow
+- treat synthetic queries as few-shot examples / rewrite hints for the LLM in the current Admin GUI RAG test flow
 - NOT replace the original user query directly with a retrieved synthetic query
 - NOT select a related synthetic query as the final query merely because its retrieval score exceeds the raw query
 - NOT merge synthetic-memory retrieval with raw or rewritten retrieval in the default rewrite evaluation path
 
-The final evaluation query MUST be either the raw query or one selected LLM-generated rewritten query.
+Selective rewrite is the official philosophy:
+- keep the raw query when rewriting does not improve retrieval evidence
+- adopt an LLM-generated rewrite only when it improves retrieval without losing required intent / anchors
+- treat rewrite as a controlled intervention, not a mandatory transformation
 
 Selective rewrite MUST be treated as the final strategy.
 
-Anchor extraction + injection policy (MANDATORY for rewrite-effect analysis):
+---
 
+### 3.6.6 Anchor Methodology
+
+Anchor is a core research concept in Query-Forge.
+Anchors are retrieval-critical terms that preserve technical intent across generation, translation, rewrite, and retrieval.
+Examples include annotations, class/interface names, config keys, commands, error codes, artifact/module/version terms, API names, file paths, protocol names, and source-specific technical entities.
+
+Anchor Lifecycle:
+
+User Query  
+-> Anchor Extraction  
+-> Anchor Normalization  
+-> Canonical Mapping  
+-> Multi-Source Anchor Aggregation  
+-> Anchor Injection  
+-> Rewrite Candidate Generation  
+-> Anchor Quality Evaluation
+
+Anchor Extraction:
+- identifies retrieval-critical technical terms from user queries, synthetic queries, and source-grounded context
+- separates technical anchors from generic wording
+
+Anchor Normalization:
+- resolves spelling, casing, spacing, punctuation, and language-surface variation
+- reduces accidental mismatch between equivalent technical expressions
+
+Canonical Mapping:
+- maps variants to a canonical anchor representation
+- allows consistent comparison across queries, generated examples, and corpus evidence
+
+Multi-Source Anchor Aggregation:
+- combines anchors from user query, synthetic memory examples, glossary / source evidence, and domain context
+- helps preserve source-specific technical meaning when one source surface is incomplete
+
+Anchor Injection:
+- provides selected technical anchors to rewrite generation as retrieval-grounding control
+- is not a writing-style optimization
+- must preserve original user intent rather than add unrelated technical terms
+
+Rewrite Candidate Generation:
+- uses anchor-aware guidance to generate candidate rewrites that recover retrieval-critical terms
+- must not mutate, over-expand, or invent anchors outside the supported evidence
+
+Anchor Quality Evaluation:
+- checks whether required anchors are preserved, normalized correctly, and useful for retrieval
+- identifies anchor loss, anchor drift, over-injection, and non-technical false anchors
+- SHOULD be evaluated alongside rewrite-effect metrics when rewrite is enabled
+
+Mandatory anchor controls:
 - In English technical-doc domains, Korean synthetic rewrites may omit critical technical anchors from the original Korean user query.
-- Anchor extraction/injection exists to preserve technical intent tokens during rewrite candidate generation (for example: annotations, class/interface names, config keys, artifact/module/version terms).
-- Agents MUST treat anchor injection as retrieval-grounding control, not writing-style optimization.
 - Agents SHOULD compare `rewrite_anchor_injection_enabled=true/false` under the same dataset and snapshot when analyzing rewrite impact.
 - Non-technical polite/functional phrases (for example: `부탁드립니다`, `수 있습니다`, `지원합니다`, `됩니다`, or equivalent generic English helper phrases) MUST NOT be treated as valid anchors.
 
 ---
 
-### 3.6.6 Final RAG Evaluation (END-TO-END)
+### 3.6.7 Final RAG Evaluation (END-TO-END)
 
 Agents MUST evaluate full pipeline configurations:
 
@@ -347,10 +545,11 @@ Baseline:
 - raw query + dense retrieval
 
 Experiments:
-- snapshot-based memory retrieval
-- gated memory retrieval
+- synthetic memory as rewrite examples / hints
+- gated vs ungated rewrite-example memory
 - rewrite strategies
 - selective rewrite
+- snapshot-based memory retrieval only when explicitly evaluating direct-memory retrieval or ablation behavior
 
 Evaluation MUST include:
 
@@ -366,7 +565,7 @@ Answer-level evaluation:
 
 ---
 
-### 3.6.7 Experiment Design Rules (MANDATORY)
+### 3.6.8 Experiment Design Rules (MANDATORY)
 
 Agents MUST:
 
@@ -385,7 +584,7 @@ Agents MUST NOT:
 
 ---
 
-### 3.6.8 Dataset Requirements
+### 3.6.9 Dataset Requirements
 
 Evaluation MUST use datasets defined in Section 3.5.
 
@@ -394,19 +593,22 @@ Agents MUST ensure:
 - all queries are answerable from corpus
 - expected_doc_ids are correct
 - expected_chunk_ids are correct
+- rewrite evaluation uses the same grounded expected evidence as raw-query retrieval
+- anchor evaluation is grounded in source-supported technical terms
 
 ---
 
-### 3.6.9 Logging and Reproducibility
+### 3.6.10 Logging and Reproducibility
 
 Each evaluation run MUST record:
 
 - snapshot_id
-- generation_strategy (A/B/C/D/E)
+- generation_strategy (core A/B/C/D/E, or extended F/G when explicitly applicable)
 - gating_config
 - memory_size
 - retrieval_config
 - rewrite_config
+- anchor_config / anchor evaluation context when anchor analysis is enabled
 - evaluation metrics
 
 All results MUST be reproducible and comparable.
@@ -665,6 +867,8 @@ For each directory, it lists core features, key methods (or entry points), and r
   - `configs/prompts/query_generation/gen_c_v1.md`
   - `configs/prompts/query_generation/gen_d_v1.md`
   - `configs/prompts/query_generation/gen_e_v1.md`
+  - `configs/prompts/query_generation/gen_f_v1.md`
+  - `configs/prompts/query_generation/gen_g_v1.md`
   - `configs/prompts/rewrite/selective_rewrite_v2.md`
   - `configs/prompts/rewrite/selective_rewrite_v1.md`
   - `configs/prompts/self_eval/quality_gate_v1.md`
