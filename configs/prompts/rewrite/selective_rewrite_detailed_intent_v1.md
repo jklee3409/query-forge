@@ -1,8 +1,8 @@
 ---
-prompt_asset_id: selective_rewrite_detailed_intent_v1
-prompt_family: query_rewrite
-prompt_name: selective_rewrite_detailed_intent
+id: selective_rewrite_detailed_intent_v1
+family: rewrite
 version: v1
+status: active
 description: Detailed intent rewrite profile for expanding short Korean/code-mixed developer queries before optional anchor injection.
 ---
 
