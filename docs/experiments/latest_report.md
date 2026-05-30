@@ -4,17 +4,17 @@
 
 | mode | recall@5 | hit@5 | mrr@10 | ndcg@10 | adoption_rate | bad_rewrite_rate |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: |
-| raw_only | 0.1125 | 0.1375 | 0.0986 | 0.1100 | 0.0000 | 0.0000 |
-| selective_rewrite | 0.1125 | 0.1250 | 0.0948 | 0.1154 | 0.8875 | 0.1408 |
+| raw_only | 0.8750 | 0.9375 | 0.8123 | 0.8198 | 0.0000 | 0.0000 |
+| selective_rewrite | 0.8750 | 0.9375 | 0.8060 | 0.8169 | 0.0375 | 0.3333 |
 
 ## Quick Graph (MRR@10)
 
-- raw_only: `██··················` 0.0986
-- selective_rewrite: `██··················` 0.0948
+- raw_only: `████████████████····` 0.8123
+- selective_rewrite: `████████████████····` 0.8060
 
 ## Category Summary
 
 | mode | category | recall@5 | hit@5 | mrr@10 | ndcg@10 |
 | --- | --- | ---: | ---: | ---: | ---: |
-| raw_only | short_user | 0.1125 | 0.1375 | 0.0986 | 0.1100 |
-| selective_rewrite | short_user | 0.1125 | 0.1250 | 0.0948 | 0.1154 |
+| raw_only | short_user | 0.8750 | 0.9375 | 0.8123 | 0.8198 |
+| selective_rewrite | short_user | 0.8750 | 0.9375 | 0.8060 | 0.8169 |

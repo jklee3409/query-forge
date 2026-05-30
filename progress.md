@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-05-30] Session Summary (Kubernetes C Generation and Full Gating)
+- What was done: Ran Kubernetes Method C synthetic generation with the same settings as A batch `b03213c5-0791-455e-a3f5-326cfd49c40b` except `generation_strategy=C`, creating batch `79b2bcb1-f8c4-4efa-8e00-03edc4ac9694` with 1,000 raw queries.
+- Key decisions: Used the existing running backend/Admin API and PostgreSQL container only; no Docker rebuild or container rebuild was performed. Ran full gating for the C batch with the same settings as gating batch `7793c399-5eea-45ca-befc-29d4f766ca9b`.
+- Issues encountered: Generation completed with zero retries. Full gating completed after one backend job retry and produced gating batch `d906f6ba-cd2d-44d3-85c8-05adb8a04824` / source gating run `53dde3db-fca2-4c2e-a67c-0db827c22493`, with 1,000 processed, 303 accepted, and 697 rejected.
+- Next steps: Use this C full-gating snapshot only with explicit `source_gating_batch_id=d906f6ba-cd2d-44d3-85c8-05adb8a04824` for snapshot-pinned Kubernetes RAG comparisons.
+
 ## [2026-05-30] Session Summary (PostgreSQL/Kubernetes Eval Repair and Cross-Domain Audit)
 - What was done: Repaired PostgreSQL and Kubernetes KR/EN short-user eval datasets in place, then ran a strict DB audit across Spring/PostgreSQL/Kubernetes eval pairs.
 - Key decisions: Preserved all dataset IDs, advanced PostgreSQL to `v2-2026-05-30` and Kubernetes to `v3-2026-05-30`, rebuilt expected answer key points from current corpus chunks, and enforced exact KR/EN grounding parity.
