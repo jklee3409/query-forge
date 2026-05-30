@@ -3,6 +3,12 @@
 ## Overview
 High-level progress tracking for the project.
 
+## [2026-05-30] Session Summary (PostgreSQL/Kubernetes Short-User Grounding Repair)
+- What was done: Updated existing PostgreSQL datasets `862642e6-10bd-538d-9ba8-5de7f1f26d3c` / `020a93c4-0465-5655-b681-a5799a98fd15` to `v2-2026-05-30`, updated existing Kubernetes datasets `87f74f10-1e61-5c56-84f9-f70a87fba424` / `e0445e9e-7ed3-58aa-8ce1-a32d06d44a11` to `v3-2026-05-30`, and wrote strictness reports under `data/reports/`.
+- Key decisions: KR remains authoritative for each domain; EN copies identical expected doc IDs, chunk IDs, and answer key points with English-only query fields. PostgreSQL query surfaces now include the expected section/title anchor to avoid fragment-only ambiguity.
+- Issues encountered: PostgreSQL/Kubernetes artifacts contained overlap-context answer key points and EN rows had non-empty `user_query_ko`; after repair, row counts, KR/EN grounding, missing chunk, doc mismatch, domain mismatch, and noisy key point checks all pass.
+- Next steps: Treat these versions as new evaluation baselines and keep prior metrics version-separated.
+
 ## [2026-05-30] Session Summary (Spring Short-User KR/EN Grounding Repair)
 - What was done: Updated existing DB datasets `b2d47254-8655-4c9c-81ac-7615677ec5bd` and `8f0d6e0f-6f9e-4d64-9b07-f4e8ce5ebec0` in place to version `v6-2026-05-30`, rewrote the EN JSONL companion, and wrote `data/reports/spring_short_user_eval_pair_repair_2026-05-30.json`.
 - Key decisions: KR is the authoritative repaired dataset; EN copies identical expected doc IDs, chunk IDs, and answer key points with only English query surfaces. Removed overlap-context and Spring Data version-boilerplate answer key points and repaired the 010/014/026 grounding targets after inspecting the current Spring corpus.

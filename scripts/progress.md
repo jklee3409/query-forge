@@ -3,6 +3,12 @@
 ## Overview
 High-level progress tracking for the project.
 
+## [2026-05-30] Session Summary (PostgreSQL/Kubernetes Eval Pair Repair and Strict Audit)
+- What was done: Added `scripts/repair_postgresql_kubernetes_eval_pairs.py` to repair existing PostgreSQL and Kubernetes KR/EN short-user datasets in place, and added `scripts/audit_eval_grounding_strictness.py` to validate Spring/PostgreSQL/Kubernetes active DB datasets together.
+- Key decisions: Kept all dataset IDs unchanged, rebuilt answer key points from current corpus chunks, forced EN rows to keep `user_query_ko` empty, paired KR/EN grounding exactly, and strengthened PostgreSQL low-signal queries by prefixing the expected chunk section/title anchor.
+- Issues encountered: PostgreSQL had 43 noisy overlap key point samples and EN rows with non-empty `user_query_ko`; Kubernetes had 21 noisy overlap key point samples and the same EN field issue. Both repairs passed hard validation after update.
+- Next steps: Use the generated strictness report before interpreting future RAG metrics; continuation chunk counts remain informational because the corpus chunk text itself contains overlap context.
+
 ## [2026-05-30] Session Summary (Spring KR/EN Short-User Eval Pair Repair)
 - What was done: Added `scripts/repair_spring_short_user_eval_pair.py` to repair the existing Spring KR/EN short-user datasets in place, rebuilding active KR rows from the refined `test-short-user-*` set, pairing EN rows with identical grounding, and regenerating answer key points without overlap/version boilerplate.
 - Key decisions: Kept dataset IDs unchanged (`b2d47254-8655-4c9c-81ac-7615677ec5bd` / `8f0d6e0f-6f9e-4d64-9b07-f4e8ce5ebec0`), updated active sample bindings/metadata instead of creating new datasets, and fixed high-risk samples 010/014/026 with inspected Spring-domain target chunks.

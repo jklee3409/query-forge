@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-05-30] Session Summary (PostgreSQL/Kubernetes Eval Repair and Cross-Domain Audit)
+- What was done: Repaired PostgreSQL and Kubernetes KR/EN short-user eval datasets in place, then ran a strict DB audit across Spring/PostgreSQL/Kubernetes eval pairs.
+- Key decisions: Preserved all dataset IDs, advanced PostgreSQL to `v2-2026-05-30` and Kubernetes to `v3-2026-05-30`, rebuilt expected answer key points from current corpus chunks, and enforced exact KR/EN grounding parity.
+- Issues encountered: PostgreSQL and Kubernetes EN rows carried non-empty `user_query_ko`, and both domains had overlap-context key points; these now validate cleanly. PostgreSQL query fragments were also prefixed with expected section/title anchors to reduce target ambiguity.
+- Next steps: Use `scripts/audit_eval_grounding_strictness.py` as the pre-run guard for future RAG comparisons involving these three domains.
+
 ## [2026-05-30] Session Summary (Spring KR/EN Short-User Eval Grounding Repair)
 - What was done: Repaired the existing Spring KR/EN short-user evaluation datasets in place (`b2d47254-8655-4c9c-81ac-7615677ec5bd` / `8f0d6e0f-6f9e-4d64-9b07-f4e8ce5ebec0`) and set both to version `v6-2026-05-30`.
 - Key decisions: Used the refined Spring KR artifact as the source of truth, paired EN rows with identical grounding and English-only query surfaces, removed noisy answer key points, and corrected inspected high-risk targets for projection, Kotlin support, and MockMvc HtmlUnit samples.
