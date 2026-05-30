@@ -3,6 +3,12 @@
 ## Overview
 High-level progress tracking for the project.
 
+## [2026-05-30] Session Summary (Spring Short-User KR/EN Grounding Repair)
+- What was done: Updated existing DB datasets `b2d47254-8655-4c9c-81ac-7615677ec5bd` and `8f0d6e0f-6f9e-4d64-9b07-f4e8ce5ebec0` in place to version `v6-2026-05-30`, rewrote the EN JSONL companion, and wrote `data/reports/spring_short_user_eval_pair_repair_2026-05-30.json`.
+- Key decisions: KR is the authoritative repaired dataset; EN copies identical expected doc IDs, chunk IDs, and answer key points with only English query surfaces. Removed overlap-context and Spring Data version-boilerplate answer key points and repaired the 010/014/026 grounding targets after inspecting the current Spring corpus.
+- Issues encountered: None after validation; active rows are 80/80, KR/EN grounding mismatch is 0, missing chunk count is 0, and chunk-to-doc mismatch is 0.
+- Next steps: Treat `v6-2026-05-30` as a new evaluation version when interpreting later RAG runs; do not compare directly to prior `v4`/`v5` metrics without calling out the dataset repair.
+
 ## [2026-05-27] Session Summary (Spring/PostgreSQL Anchor-Translated Eval Copies)
 - What was done: Added `data/eval/spring_kr_anchor_translated_short_user_test_80.jsonl` and `data/eval/postgresql_kr_anchor_translated_short_user_test_80.jsonl`, then upserted separate DB datasets `44282405-1ea1-5f78-bf85-6270724ee475` and `8a08c160-e4cd-5ce0-9f5c-640c51b6d887`.
 - Key decisions: Kept the original Spring/PostgreSQL KR datasets untouched while cloning grounding metadata and translating only English anchor tokens in Korean query text.

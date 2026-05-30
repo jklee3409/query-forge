@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-05-30] Session Summary (Spring KR/EN Short-User Eval Grounding Repair)
+- What was done: Repaired the existing Spring KR/EN short-user evaluation datasets in place (`b2d47254-8655-4c9c-81ac-7615677ec5bd` / `8f0d6e0f-6f9e-4d64-9b07-f4e8ce5ebec0`) and set both to version `v6-2026-05-30`.
+- Key decisions: Used the refined Spring KR artifact as the source of truth, paired EN rows with identical grounding and English-only query surfaces, removed noisy answer key points, and corrected inspected high-risk targets for projection, Kotlin support, and MockMvc HtmlUnit samples.
+- Issues encountered: The active KR dataset had older `v4-test-short-user-*` bindings; the repair replaced active bindings with `test-short-user-*` rows while preserving historical rows for old run references.
+- Next steps: Run the next Detailed Intent RAG test against this dataset version and separate its interpretation from prior runs that used noisier target chunks/key points.
+
 ## [2026-05-29] Session Summary (Detailed Rewrite Few-Shot Prompt)
 - What was done: Strengthened `selective_rewrite_detailed_intent_v1.md` wording so `top_memory_candidates` are explicitly treated as retrieved synthetic query examples and few-shot rewrite guidance.
 - Key decisions: Anchor payloads are described as optional hint-only grounding controls, not mandatory insertion targets, preserving raw-query intent in detailed rewrite mode.

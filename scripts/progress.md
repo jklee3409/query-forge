@@ -3,6 +3,12 @@
 ## Overview
 High-level progress tracking for the project.
 
+## [2026-05-30] Session Summary (Spring KR/EN Short-User Eval Pair Repair)
+- What was done: Added `scripts/repair_spring_short_user_eval_pair.py` to repair the existing Spring KR/EN short-user datasets in place, rebuilding active KR rows from the refined `test-short-user-*` set, pairing EN rows with identical grounding, and regenerating answer key points without overlap/version boilerplate.
+- Key decisions: Kept dataset IDs unchanged (`b2d47254-8655-4c9c-81ac-7615677ec5bd` / `8f0d6e0f-6f9e-4d64-9b07-f4e8ce5ebec0`), updated active sample bindings/metadata instead of creating new datasets, and fixed high-risk samples 010/014/026 with inspected Spring-domain target chunks.
+- Issues encountered: The current active KR dataset had reverted to older `v4-test-short-user-*` rows; the repair restored grounded `test-short-user-*` active rows while leaving historical sample rows available for old result references.
+- Next steps: Run snapshot-controlled RAG tests against dataset version `v6-2026-05-30` and keep comparisons to earlier `v4`/`v5` runs version-separated.
+
 ## [2026-05-27] Session Summary (Spring/PostgreSQL Anchor-Translated Builder)
 - What was done: Added `scripts/build_anchor_translated_eval_datasets.py` to clone active Spring/PostgreSQL KR short-user datasets into separate anchor-translated Korean variants and upsert them to DB.
 - Key decisions: The builder reads source datasets by fixed IDs, preserves grounding fields, writes deterministic JSONL artifacts, and fails if translated `user_query_ko` contains ASCII letters or duplicates.
