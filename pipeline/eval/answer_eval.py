@@ -369,6 +369,7 @@ def _evaluate_answer_sample(
             multi_source_anchor_max_per_seed=config.raw.get("multi_source_anchor_max_per_seed", 2),
             multi_source_anchor_max_total=config.raw.get("multi_source_anchor_max_total", 8),
             rewrite_failure_policy=str(config.raw.get("rewrite_failure_policy") or "fail_run"),
+            rewrite_retrieval_strategy=str(config.raw.get("rewrite_retrieval_strategy") or "replace"),
             rewrite_adoption_policy=config.rewrite_adoption_policy,
             retriever_config=config.retriever_config,
             retrieval_adapter=retrieval_adapter,

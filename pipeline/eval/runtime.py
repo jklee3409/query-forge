@@ -3972,6 +3972,7 @@ def _raw_retrieval_loss_metrics(
     raw_retrieval_score: float,
     confidence_floor: float,
     min_overlap_ratio: float,
+    require_top1_loss: bool = True,
     top_n: int = 5,
 ) -> dict[str, Any]:
     raw_ids = _top_chunk_ids(raw_retrieval, top_n=top_n)
@@ -3988,7 +3989,7 @@ def _raw_retrieval_loss_metrics(
     triggered = bool(
         raw_set
         and raw_retrieval_score >= confidence_floor
-        and not top1_preserved
+        and (not require_top1_loss or not top1_preserved)
         and overlap_ratio < min_overlap_ratio
     )
     return {
@@ -3998,6 +3999,7 @@ def _raw_retrieval_loss_metrics(
         "raw_loss_guard_topk_overlap_ratio": overlap_ratio,
         "raw_loss_guard_confidence_floor": confidence_floor,
         "raw_loss_guard_min_overlap_ratio": min_overlap_ratio,
+        "raw_loss_guard_require_top1_loss": require_top1_loss,
     }
 
 
@@ -4233,7 +4235,20 @@ def run_selective_rewrite(
         0.0,
         _float_value(bonuses.get("source_memory_target_hit_margin"), 0.0),
     )
+    source_memory_target_selection_bonus = max(
+        0.0,
+        _float_value(bonuses.get("source_memory_target_selection"), 0.0),
+    )
     query_profile = str(policy.get("query_profile") or "").strip().lower()
+    raw_loss_guard_allow_source_memory_improved = bool(
+        thresholds.get("raw_loss_guard_allow_source_memory_improved", True)
+    )
+    raw_loss_guard_require_top1_loss = bool(
+        thresholds.get("raw_loss_guard_require_top1_loss", True)
+    )
+    normalized_rewrite_retrieval_strategy = _normalize_rewrite_retrieval_strategy(
+        rewrite_retrieval_strategy
+    )
 
     raw_memory = _memory_alignment_score(
         raw_memory_similarity=raw_memory_affinity,
@@ -4429,6 +4444,7 @@ def run_selective_rewrite(
             raw_retrieval_score=raw_retrieval_score,
             confidence_floor=raw_loss_guard_confidence_floor,
             min_overlap_ratio=raw_loss_guard_min_overlap_ratio,
+            require_top1_loss=raw_loss_guard_require_top1_loss,
         )
         llm_anchor_metrics = _llm_anchor_coverage_metrics(
             raw_query=raw_query,
@@ -4438,6 +4454,11 @@ def run_selective_rewrite(
         )
         source_memory_target_margin_bonus = (
             source_memory_target_hit_margin_bonus
+            if source_memory_metrics["source_memory_target_improved"]
+            else 0.0
+        )
+        source_memory_target_score_bonus = (
+            source_memory_target_selection_bonus
             if source_memory_metrics["source_memory_target_improved"]
             else 0.0
         )
@@ -4464,6 +4485,7 @@ def run_selective_rewrite(
         final_candidate_score = _clamp01(
             weighted_score
             + memory_target_metrics["memory_target_presence_bonus"]
+            + source_memory_target_score_bonus
             - verbosity_penalty
             - preservation_penalty
             - memory_target_metrics["memory_target_missing_penalty"]
@@ -4498,7 +4520,10 @@ def run_selective_rewrite(
         elif (
             not force_rewrite
             and raw_loss_metrics["raw_loss_guard_triggered"]
-            and not source_memory_metrics["source_memory_target_improved"]
+            and (
+                not source_memory_metrics["source_memory_target_improved"]
+                or not raw_loss_guard_allow_source_memory_improved
+            )
         ):
             rejection_reason = raw_loss_metrics["raw_loss_guard_reason"]
         elif not force_rewrite and adoption_margin < effective_threshold:
@@ -4537,6 +4562,7 @@ def run_selective_rewrite(
             "memory_target_presence_bonus": memory_target_metrics["memory_target_presence_bonus"],
             "memory_target_missing_penalty": memory_target_metrics["memory_target_missing_penalty"],
             "source_memory_target_hit_margin_bonus": source_memory_target_margin_bonus,
+            "source_memory_target_selection_bonus": source_memory_target_score_bonus,
             **source_memory_metrics,
             **llm_anchor_metrics,
             "memory_target_tokens": memory_target_metrics["memory_target_tokens"],
@@ -4606,7 +4632,12 @@ def run_selective_rewrite(
     )
     final_query = selected_candidate["query"] if should_apply else raw_query
     if should_apply:
-        final_retrieval = selected_candidate["retrieval"]
+        final_retrieval = _merge_raw_and_rewrite_retrieval(
+            strategy=normalized_rewrite_retrieval_strategy,
+            raw_retrieval=raw_retrieval,
+            rewrite_retrieval=selected_candidate["retrieval"],
+            top_k=retrieval_top_k,
+        )
     else:
         final_retrieval = raw_retrieval
     reason = (

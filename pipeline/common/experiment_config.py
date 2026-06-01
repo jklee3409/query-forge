@@ -338,6 +338,12 @@ def resolve_rewrite_adoption_policy(raw_config: dict[str, Any] | None) -> dict[s
             min_value=0.0,
             max_value=0.5,
         )
+        bonuses["source_memory_target_selection"] = _clamp_float(
+            bonuses.get("source_memory_target_selection"),
+            default=0.0,
+            min_value=0.0,
+            max_value=0.5,
+        )
 
     merged["shift_bonus_weight"] = _clamp_float(
         merged.get("shift_bonus_weight"),

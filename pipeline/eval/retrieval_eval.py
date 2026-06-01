@@ -558,6 +558,7 @@ def _evaluate_mode(
         multi_source_anchor_max_total=config.raw.get("multi_source_anchor_max_total", 8),
         rewrite_query_profile=str(config.raw.get("rewrite_query_profile") or "compact_anchor"),
         rewrite_failure_policy=str(config.raw.get("rewrite_failure_policy") or "fail_run"),
+        rewrite_retrieval_strategy=str(config.raw.get("rewrite_retrieval_strategy") or "replace"),
         rewrite_adoption_policy=config.rewrite_adoption_policy,
         raw_config=config.raw,
         retriever_config=config.retriever_config,
