@@ -90,11 +90,15 @@ export function SelectDropdown({
         disabled={disabled}
       >
         <span className="custom-dropdown__trigger-label">{selected?.label || placeholder}</span>
-        {optionBadges(selected).map((badge) => (
-          <span key={badge.label} className="custom-dropdown__badge" data-tone={badge.tone || 'neutral'}>
-            {badge.label}
+        {optionBadges(selected).length > 0 && (
+          <span className="custom-dropdown__badges">
+            {optionBadges(selected).map((badge) => (
+              <span key={badge.label} className="custom-dropdown__badge" data-tone={badge.tone || 'neutral'}>
+                {badge.label}
+              </span>
+            ))}
           </span>
-        ))}
+        )}
         <span className="custom-dropdown__caret" aria-hidden="true">▾</span>
       </button>
       {open && (
@@ -127,11 +131,15 @@ export function SelectDropdown({
                 >
                   <span className="custom-dropdown__option-main">
                     <span className="custom-dropdown__option-label">{option.label}</span>
-                    {optionBadges(option).map((badge) => (
-                      <span key={badge.label} className="custom-dropdown__badge" data-tone={badge.tone || 'neutral'}>
-                        {badge.label}
+                    {optionBadges(option).length > 0 && (
+                      <span className="custom-dropdown__badges">
+                        {optionBadges(option).map((badge) => (
+                          <span key={badge.label} className="custom-dropdown__badge" data-tone={badge.tone || 'neutral'}>
+                            {badge.label}
+                          </span>
+                        ))}
                       </span>
-                    ))}
+                    )}
                   </span>
                   {option.meta && <span className="custom-dropdown__option-meta">{option.meta}</span>}
                 </button>

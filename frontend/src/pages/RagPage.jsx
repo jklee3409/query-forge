@@ -1145,7 +1145,6 @@ function EvalDatasetDetail({ dataset, items }) {
               <header className="eval-dataset-query-card__header">
                 <div>
                   <span className="eval-dataset-query-card__index">#{index + 1}</span>
-                  <strong>{row?.sampleId || `sample-${index + 1}`}</strong>
                 </div>
                 <div className="eval-dataset-query-card__badges">
                   <span>{row?.queryLanguage || 'ko'}</span>

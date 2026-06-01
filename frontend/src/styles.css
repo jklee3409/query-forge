@@ -1467,8 +1467,12 @@ textarea:focus-visible,
 }
 
 .custom-dropdown__option-label {
+  min-width: 0;
   font-size: 12px;
   font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .custom-dropdown__option-main {
@@ -1477,6 +1481,15 @@ textarea:focus-visible,
   justify-content: space-between;
   gap: 8px;
   min-width: 0;
+}
+
+.custom-dropdown__badges {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+  margin-left: auto;
 }
 
 .custom-dropdown__option-meta {

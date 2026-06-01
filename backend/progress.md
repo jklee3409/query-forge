@@ -706,3 +706,11 @@ High-level backend progress tracking.
 - Key decisions: Kept controller DTO/API paths unchanged and limited the no-limit behavior to the two Retrieval Eval Lab views that need full-list UX.
 - Issues encountered: None; `AdminConsoleRagIntegrationTest` passed.
 - Next steps: Verify live DB response size remains reasonable for the Admin GUI history and dataset detail views.
+
+---
+
+## [2026-06-01] Session Summary (Admin React Bundle Refresh - RAG Modal Polish)
+- What was done: Rebuilt the bundled Admin React assets after RAG detail dropdown badge spacing and eval dataset card header polish.
+- Key decisions: No backend Java/API changes were needed for this polish pass.
+- Issues encountered: None; frontend production build passed.
+- Next steps: Serve the backend static UI and visually confirm the updated modal spacing.

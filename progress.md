@@ -1346,3 +1346,11 @@ High-level progress tracking for the project.
 - Key decisions: Kept existing API paths and made `limit` omission mean full-list retrieval only for eval dataset items and RAG run history; refreshed the bundled React static assets.
 - Issues encountered: None; frontend production build and `AdminConsoleRagIntegrationTest` passed.
 - Next steps: Smoke-test the dataset detail and long RAG history pagination in the browser with a real Admin dataset/run set.
+
+---
+
+## [2026-06-01] Session Summary (Admin RAG Eval Lab Modal Polish)
+- What was done: Tightened RAG detail dropdown badge alignment so rewrite status and miss-target tags sit together on the right, and removed visible sample IDs from eval dataset detail query cards where numbered cards already provide the query order.
+- Key decisions: Kept `sampleId` as the React key only and preserved the existing dropdown option content model by grouping badges in CSS.
+- Issues encountered: None; frontend production build passed and targeted lint had only existing hook dependency warnings.
+- Next steps: Browser smoke-test the RAG detail dropdown against miss-target rows.

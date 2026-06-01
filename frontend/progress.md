@@ -519,6 +519,14 @@ High-level progress tracking for the project.
 
 ---
 
+## [2026-06-01] Session Summary (RAG Eval Lab Modal Polish)
+- What was done: Grouped custom dropdown badges so `skipped` and `miss target` align as a compact right-side cluster, and removed visible dataset sample IDs from eval dataset detail cards because the card number already identifies query order.
+- Key decisions: Kept `sampleId` available internally for stable React keys and changed only the displayed card header.
+- Issues encountered: `npx eslint src/components/SelectDropdown.jsx src/pages/RagPage.jsx` reports only the existing hook dependency warnings; `npm run build` passed.
+- Next steps: Verify the dropdown spacing in the browser using a miss-target detail row.
+
+---
+
 ## Notes
 - Keep this file concise
 - Only record important changes
