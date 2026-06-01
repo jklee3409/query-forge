@@ -6,6 +6,12 @@
 - Issues encountered: Script compile, skip-DB dry run, DB upsert, and bounded DB verification passed; each dataset has 80 active rows and zero ASCII-anchor Korean queries.
 - Next steps: Extend the builder with English 1:1 translated companion datasets.
 
+## [2026-06-01] Session Summary (Cross-Domain EN Rewrite Challenge 80)
+- What was done: Added and ran `scripts/build_rewrite_challenge_en_eval_datasets.py` to create Spring/PostgreSQL/Kubernetes EN rewrite challenge 80 companion datasets and DB records.
+- Key decisions: Translated only the KO challenge query surface into English, preserved expected doc/chunk IDs and answer key points exactly, and set English rows to target method `E`.
+- Issues encountered: Script compile, skip-DB dry run, DB upsert, KO/EN grounding parity validation, and bounded DB verification passed; each EN dataset has 80 active rows.
+- Next steps: Use these six challenge datasets for snapshot-pinned retrieval/answer evaluation.
+
 ## [2026-06-01] Session Summary (Spring Rewrite Probe Evaluation)
 - What was done: Ran C compact-anchor retrieval and answer evaluation on `spring_kr_rewrite_probe_c_9` with db-ann hybrid retrieval and `intfloat/multilingual-e5-small`.
 - Key decisions: Used the probe as a focused rewrite-effect slice while keeping V6 and the broader 30-item challenge as controls.

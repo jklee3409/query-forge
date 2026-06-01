@@ -17,6 +17,7 @@
 - `build_anchor_translated_eval_datasets.py`: Spring/PostgreSQL KO anchor-translated short-user dataset 생성
 - `build_spring_rewrite_challenge_dataset.py`: Spring KR V6 grounding을 복사해 영어/API anchor가 제거된 rewrite challenge/probe dataset 생성
 - `build_rewrite_challenge_eval_datasets.py`: Spring/PostgreSQL/Kubernetes grounded KO rewrite challenge 80 dataset 생성
+- `build_rewrite_challenge_en_eval_datasets.py`: KO rewrite challenge 80의 query만 영어로 번역한 paired EN dataset 생성
 - `build_method_compressed_eval_datasets.py`: A/B/C/D/E accepted synthetic queries to compressed Spring stress eval datasets
 - `repair_spring_short_user_eval_pair.py`: paired Spring KR/EN short-user eval dataset in-place grounding repair
 - `repair_postgresql_kubernetes_eval_pairs.py`: paired PostgreSQL/Kubernetes KR/EN short-user eval dataset in-place grounding repair
@@ -38,6 +39,7 @@
 - Spring KR rewrite challenge dataset 생성: `python scripts/build_spring_rewrite_challenge_dataset.py --variant challenge_30`
 - Spring KR C-memory rewrite probe dataset 생성: `python scripts/build_spring_rewrite_challenge_dataset.py --variant probe_c_9`
 - Spring/PostgreSQL/Kubernetes KO rewrite challenge 80 dataset 생성: `python scripts/build_rewrite_challenge_eval_datasets.py`
+- Spring/PostgreSQL/Kubernetes EN rewrite challenge 80 companion 생성: `python scripts/build_rewrite_challenge_en_eval_datasets.py`
 - Spring method-compressed stress eval dataset generation: `python scripts/build_method_compressed_eval_datasets.py`
 - Spring paired KR/EN short-user grounding repair: `python scripts/repair_spring_short_user_eval_pair.py`
 - PostgreSQL/Kubernetes paired KR/EN short-user grounding repair: `python scripts/repair_postgresql_kubernetes_eval_pairs.py`

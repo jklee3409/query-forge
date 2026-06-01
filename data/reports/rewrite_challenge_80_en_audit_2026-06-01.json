@@ -1,0 +1,86 @@
+{
+  "version": "v1-2026-06-01",
+  "dataset_profile": "rewrite_challenge_anchor_gap_80",
+  "skip_db": false,
+  "built_at": "2026-06-01T08:38:05.789564+00:00",
+  "results": [
+    {
+      "domain": "spring",
+      "language": "en",
+      "dataset_key": "spring_en_rewrite_challenge_80",
+      "dataset_id": "0d95322e-69e2-5dc9-93a8-5cf857a1db78",
+      "output_file": "data/eval/spring_en_rewrite_challenge_80.jsonl",
+      "paired_ko_dataset_id": "57f313dd-461d-561d-9453-0f8e2e179b27",
+      "paired_ko_dataset_key": "spring_kr_rewrite_challenge_80",
+      "validation": {
+        "status": "pass",
+        "issues": [],
+        "dataset_key": "spring_en_rewrite_challenge_80",
+        "dataset_id": "0d95322e-69e2-5dc9-93a8-5cf857a1db78",
+        "paired_ko_dataset_key": "spring_kr_rewrite_challenge_80",
+        "paired_ko_dataset_id": "57f313dd-461d-561d-9453-0f8e2e179b27",
+        "row_count": 80,
+        "hangul_query_count": 0,
+        "single_multi_distribution": {
+          "single": 59,
+          "multi": 21
+        },
+        "target_method_distribution": {
+          "E": 80
+        }
+      }
+    },
+    {
+      "domain": "postgresql",
+      "language": "en",
+      "dataset_key": "postgresql_en_rewrite_challenge_80",
+      "dataset_id": "96c55e78-3288-5c1e-9e98-1471495da8cc",
+      "output_file": "data/eval/postgresql_en_rewrite_challenge_80.jsonl",
+      "paired_ko_dataset_id": "0a8a0077-7f63-5f6d-b19d-71ae3f137733",
+      "paired_ko_dataset_key": "postgresql_kr_rewrite_challenge_80",
+      "validation": {
+        "status": "pass",
+        "issues": [],
+        "dataset_key": "postgresql_en_rewrite_challenge_80",
+        "dataset_id": "96c55e78-3288-5c1e-9e98-1471495da8cc",
+        "paired_ko_dataset_key": "postgresql_kr_rewrite_challenge_80",
+        "paired_ko_dataset_id": "0a8a0077-7f63-5f6d-b19d-71ae3f137733",
+        "row_count": 80,
+        "hangul_query_count": 0,
+        "single_multi_distribution": {
+          "single": 59,
+          "multi": 21
+        },
+        "target_method_distribution": {
+          "E": 80
+        }
+      }
+    },
+    {
+      "domain": "kubernetes",
+      "language": "en",
+      "dataset_key": "kubernetes_en_rewrite_challenge_80",
+      "dataset_id": "d4ef4bd3-2eb0-5178-b794-f69f921de541",
+      "output_file": "data/eval/kubernetes_en_rewrite_challenge_80.jsonl",
+      "paired_ko_dataset_id": "c61421b4-6154-563a-b71a-fdef5f254b6e",
+      "paired_ko_dataset_key": "kubernetes_kr_rewrite_challenge_80",
+      "validation": {
+        "status": "pass",
+        "issues": [],
+        "dataset_key": "kubernetes_en_rewrite_challenge_80",
+        "dataset_id": "d4ef4bd3-2eb0-5178-b794-f69f921de541",
+        "paired_ko_dataset_key": "kubernetes_kr_rewrite_challenge_80",
+        "paired_ko_dataset_id": "c61421b4-6154-563a-b71a-fdef5f254b6e",
+        "row_count": 80,
+        "hangul_query_count": 0,
+        "single_multi_distribution": {
+          "multi": 21,
+          "single": 59
+        },
+        "target_method_distribution": {
+          "E": 80
+        }
+      }
+    }
+  ]
+}

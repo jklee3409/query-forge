@@ -11,6 +11,9 @@
 - `spring_kr_rewrite_challenge_80.jsonl`: Spring grounded short-user 80을 기반으로 영어/API anchor를 제거한 별도 KO rewrite challenge 80문항
 - `postgresql_kr_rewrite_challenge_80.jsonl`: PostgreSQL grounded short-user 80을 기반으로 영어/SQL anchor를 제거한 별도 KO rewrite challenge 80문항
 - `kubernetes_kr_rewrite_challenge_80.jsonl`: Kubernetes grounded short-user 80을 기반으로 영어/API anchor를 제거한 별도 KO rewrite challenge 80문항
+- `spring_en_rewrite_challenge_80.jsonl`: Spring KO rewrite challenge 80의 한글 질의만 영어로 번역한 1대1 companion 80문항
+- `postgresql_en_rewrite_challenge_80.jsonl`: PostgreSQL KO rewrite challenge 80의 한글 질의만 영어로 번역한 1대1 companion 80문항
+- `kubernetes_en_rewrite_challenge_80.jsonl`: Kubernetes KO rewrite challenge 80의 한글 질의만 영어로 번역한 1대1 companion 80문항
 - `python_kr_short_user_test_80_ko.jsonl`: 한국어 Python 문서 도메인의 한국어 short-user 80문항
 - `python_kr_short_user_test_80_en.jsonl`: 한국어 Python 문서 도메인의 영어 short-user 80문항
 - `postgresql_kr_short_user_test_80.jsonl`: PostgreSQL 도메인의 현재 영어 기술문서 청크에 grounded 된 한국어 short-user 80문항

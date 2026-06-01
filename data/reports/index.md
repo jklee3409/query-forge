@@ -10,6 +10,7 @@
 - `spring_kr_rewrite_challenge_30_audit_2026-06-01.json`: Spring KR rewrite challenge 30 생성 audit
 - `spring_kr_rewrite_probe_c_9_audit_2026-06-01.json`: Spring KR C-memory rewrite probe 9 생성 audit
 - `rewrite_challenge_80_ko_audit_2026-06-01.json`: Spring/PostgreSQL/Kubernetes KO rewrite challenge 80 생성 audit
+- `rewrite_challenge_80_en_audit_2026-06-01.json`: Spring/PostgreSQL/Kubernetes EN rewrite challenge 80 생성 audit
 - `answer_*`, `retrieval_*`: RAG 실행별 answer/retrieval 결과 산출물
 
 ## Responsibilities

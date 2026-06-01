@@ -14,6 +14,9 @@
 - `spring_kr_rewrite_challenge_80.jsonl`: Spring grounded KO anchor-gap rewrite challenge 80문항
 - `postgresql_kr_rewrite_challenge_80.jsonl`: PostgreSQL grounded KO anchor-gap rewrite challenge 80문항
 - `kubernetes_kr_rewrite_challenge_80.jsonl`: Kubernetes grounded KO anchor-gap rewrite challenge 80문항
+- `spring_en_rewrite_challenge_80.jsonl`: Spring KO rewrite challenge 80과 1대1 대응되는 영어 번역 companion
+- `postgresql_en_rewrite_challenge_80.jsonl`: PostgreSQL KO rewrite challenge 80과 1대1 대응되는 영어 번역 companion
+- `kubernetes_en_rewrite_challenge_80.jsonl`: Kubernetes KO rewrite challenge 80과 1대1 대응되는 영어 번역 companion
 - `python_kr_short_user_test_80_ko.jsonl`: Python KR 도메인 한글 short-user 80문항
 - `python_kr_short_user_test_80_en.jsonl`: Python KR 도메인 영어 short-user 80문항
 - `postgresql_kr_short_user_test_80.jsonl`: PostgreSQL 도메인 영어 기술문서 청크 기반 한국어 short-user 80문항

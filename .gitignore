@@ -82,6 +82,9 @@ data/eval/*
 !data/eval/spring_kr_rewrite_challenge_80.jsonl
 !data/eval/postgresql_kr_rewrite_challenge_80.jsonl
 !data/eval/kubernetes_kr_rewrite_challenge_80.jsonl
+!data/eval/spring_en_rewrite_challenge_80.jsonl
+!data/eval/postgresql_en_rewrite_challenge_80.jsonl
+!data/eval/kubernetes_en_rewrite_challenge_80.jsonl
 !data/eval/kubernetes_kr_short_user_test_80.jsonl
 !data/eval/kubernetes_en_short_user_test_80.jsonl
 !data/eval/spring_method_a_compressed_eval_80_ko.jsonl
@@ -99,6 +102,7 @@ data/reports/*
 !data/reports/spring_kr_rewrite_challenge_30_audit_2026-06-01.json
 !data/reports/spring_kr_rewrite_probe_c_9_audit_2026-06-01.json
 !data/reports/rewrite_challenge_80_ko_audit_2026-06-01.json
+!data/reports/rewrite_challenge_80_en_audit_2026-06-01.json
 data/artifacts/*
 !data/artifacts/.gitkeep
 !data/artifacts/README.md
