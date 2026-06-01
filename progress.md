@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-06-01] Session Summary (Spring Rewrite Probe Evaluation)
+- What was done: Ran C compact-anchor retrieval and answer evaluation on `spring_kr_rewrite_probe_c_9` with db-ann hybrid retrieval and `intfloat/multilingual-e5-small`.
+- Key decisions: Used the probe as a focused rewrite-effect slice while keeping V6 and the broader 30-item challenge as controls.
+- Issues encountered: Retrieval met the required large improvement target: selective rewrite MRR@10 `0.1688 -> 0.5343`, nDCG@10 `0.2371 -> 0.5229`, Hit@5 `0.4444 -> 0.7778`, adoption `1.0`, bad rewrite `0.0`. Answer-side context recall improved `0.3889 -> 0.5926` and correctness `0.1605 -> 0.2311`.
+- Next steps: Preserve the probe for rewrite-effect validation and keep full V6/challenge runs as external-validity controls.
+
 ## [2026-06-01] Session Summary (Spring Rewrite Probe Dataset)
 - What was done: Added a `probe_c_9` variant to the Spring rewrite dataset builder and upserted dataset `spring_kr_rewrite_probe_c_9` (`87ad7e4b-a5d8-5ef1-a20a-7e4cb1b2f486`) to isolate C-memory-aligned Korean-only anchor-gap queries.
 - Key decisions: Preserved V6 grounding and kept this as an additive probe slice, not a replacement for V6 or the broader 30-item challenge dataset.
