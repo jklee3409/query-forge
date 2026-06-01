@@ -9,6 +9,12 @@ High-level progress tracking for the project.
 - Issues encountered: Current raw hit@5 probe found Spring KR 4/80, Spring EN 15/80, PostgreSQL KR 11/80, PostgreSQL EN 36/80, Kubernetes KR 20/80, and Kubernetes EN 50/80.
 - Next steps: Use the variant matrix to calibrate query surfaces while preserving expected doc/chunk IDs.
 
+## [2026-06-01] Session Summary (Rewrite Challenge Calibration Tool)
+- What was done: Added `scripts/apply_rewrite_challenge_calibration.py` to apply probe-selected query variants to rewrite challenge JSONL/DB rows while preserving expected doc/chunk IDs and answer key points.
+- Key decisions: Calibration changes only `user_query_*`, difficulty, and audit metadata; dataset grounding remains unchanged.
+- Issues encountered: `py_compile` passed, and Spring KR dry-run selected 55 `memory_c_ko_anchorless`, 10 `section`, and 15 `current` rows for a probe raw hit target of 36/80.
+- Next steps: Apply the Spring KR calibration, verify raw hit@5 directly, then run C compact/detail rewrite evaluation with anchor injection.
+
 ## [2026-06-01] Session Summary (Cross-Domain KO Rewrite Challenge 80)
 - What was done: Added `scripts/build_rewrite_challenge_eval_datasets.py` to build Spring/PostgreSQL/Kubernetes KO rewrite challenge 80 datasets from grounded anchor-gap short-user sources.
 - Key decisions: Preserved expected doc/chunk IDs and answer key points, kept this as additive `rewrite_challenge_anchor_gap_80` data, and upserted the three KO datasets to DB with explicit dataset keys.
