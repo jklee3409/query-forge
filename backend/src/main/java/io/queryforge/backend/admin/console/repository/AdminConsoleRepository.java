@@ -2819,6 +2819,8 @@ public class AdminConsoleRepository {
 
     public List<AdminConsoleDtos.RagTestRunRow> findRagTestRuns(Integer limit, UUID domainId) {
         String domainWhereClause = domainId == null ? "" : "WHERE r.domain_id = :domainId";
+        boolean bounded = limit != null && limit > 0;
+        String limitClause = bounded ? "LIMIT :limit" : "";
         String sql = """
                 SELECT r.rag_test_run_id,
                        r.run_label,
@@ -2901,10 +2903,12 @@ public class AdminConsoleRepository {
                 ) rate ON TRUE
                 %s
                 ORDER BY r.created_at DESC
-                LIMIT :limit
-                """.formatted(domainWhereClause);
-        MapSqlParameterSource params = new MapSqlParameterSource()
-                .addValue("limit", normalizeLimit(limit, 100));
+                %s
+                """.formatted(domainWhereClause, limitClause);
+        MapSqlParameterSource params = new MapSqlParameterSource();
+        if (bounded) {
+            params.addValue("limit", normalizeLimit(limit, 1000));
+        }
         if (domainId != null) {
             params.addValue("domainId", domainId);
         }

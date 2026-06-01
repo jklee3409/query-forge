@@ -698,3 +698,11 @@ High-level backend progress tracking.
 - Key decisions: Auto-managed `human_eval_default` is not deletable; custom dataset deletion cascades through existing RAG run cleanup for linked terminal histories and blocks active RAG runs.
 - Issues encountered: None; `AdminConsoleRagIntegrationTest` passed.
 - Next steps: Verify deletion from the live Admin GUI against a non-default dataset after backend reload.
+
+---
+
+## [2026-06-01] Session Summary (RAG Eval Lab Full List Reads)
+- What was done: Adjusted Admin RAG dataset-item and run-history repository reads so omitting `limit` returns the full relevant list, while positive `limit` values remain bounded.
+- Key decisions: Kept controller DTO/API paths unchanged and limited the no-limit behavior to the two Retrieval Eval Lab views that need full-list UX.
+- Issues encountered: None; `AdminConsoleRagIntegrationTest` passed.
+- Next steps: Verify live DB response size remains reasonable for the Admin GUI history and dataset detail views.

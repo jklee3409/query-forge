@@ -1338,3 +1338,11 @@ High-level progress tracking for the project.
 - Key decisions: Documented source presets separately from actual synthetic-generation allowlists, removed stale JPA wording, and emphasized explicit snapshot identity, runtime catalog governance, domain scope, DB ANN, anchor normalization/multi-source hints, and synthetic memory as rewrite guidance rather than direct final-query replacement.
 - Issues encountered: Existing README was already modified in the working tree; the update preserved the intent of that rewrite while aligning details to implementation.
 - Next steps: Keep README synchronized when domain policies, runtime catalog options, or Admin RAG evaluation behavior changes.
+
+---
+
+## [2026-06-01] Session Summary (Admin RAG Eval Lab Dataset/History Detail UX)
+- What was done: Updated `/admin/rag-tests` so eval dataset detail shows the dataset name and all queries as structured cards, RAG run history loads the full list with first/last/direct page navigation, and RAG detail modal exposes miss-target dropdown tags, second-based latency display, and color-coded raw-query deltas.
+- Key decisions: Kept existing API paths and made `limit` omission mean full-list retrieval only for eval dataset items and RAG run history; refreshed the bundled React static assets.
+- Issues encountered: None; frontend production build and `AdminConsoleRagIntegrationTest` passed.
+- Next steps: Smoke-test the dataset detail and long RAG history pagination in the browser with a real Admin dataset/run set.

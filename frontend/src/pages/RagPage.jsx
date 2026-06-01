@@ -197,6 +197,8 @@ const PERFORMANCE_METRIC_DEFS = [
     label: '질의 전체 평가 평균 시간',
     precision: 2,
     unit: 'ms',
+    displayUnit: 's',
+    displayScale: 0.001,
     trend: 'lower',
     priority: 'core',
     sampleCountKey: 'eval_sample_count',
@@ -208,6 +210,8 @@ const PERFORMANCE_METRIC_DEFS = [
     label: '최종 재작성 확정 평균 시간',
     precision: 2,
     unit: 'ms',
+    displayUnit: 's',
+    displayScale: 0.001,
     trend: 'lower',
     priority: 'core',
     sampleCountKey: 'rewrite_sample_count',
@@ -219,6 +223,8 @@ const PERFORMANCE_METRIC_DEFS = [
     label: '순수 질의 재작성 평균 시간',
     precision: 2,
     unit: 'ms',
+    displayUnit: 's',
+    displayScale: 0.001,
     trend: 'lower',
     priority: 'core',
     sampleCountKey: 'pure_rewrite_sample_count',
@@ -745,8 +751,8 @@ function renderMetricContributionDetail(value) {
     { label: '신뢰도', raw: payload.raw_confidence, mode: payload.best_candidate_confidence, delta: payload.confidence_delta },
   ]
   const latencyItems = [
-    { label: '최종 재작성', value: payload.final_rewrite_latency_ms },
-    { label: '순수 재작성', value: payload.pure_rewrite_latency_ms },
+    { label: '최종 재작성', value: payload.final_rewrite_latency_ms, metricDef: PERFORMANCE_METRIC_DEFS[1] },
+    { label: '순수 재작성', value: payload.pure_rewrite_latency_ms, metricDef: PERFORMANCE_METRIC_DEFS[2] },
   ].filter((item) => item.value != null)
 
   return (
@@ -774,7 +780,7 @@ function renderMetricContributionDetail(value) {
           {latencyItems.map((item) => (
             <div key={item.label} className="rag-detail-kv">
               <span>{item.label}</span>
-              <strong>{formatDurationDisplay(item.value, { precisionMs: 1 }).primary}</strong>
+              <strong>{formatTableMetricValue(item.value, item.metricDef).main}</strong>
             </div>
           ))}
         </div>
@@ -976,6 +982,198 @@ function renderAnchorEvaluationSummary(value) {
   )
 }
 
+function renderPerformanceMetricDetail(value) {
+  const payload = parseMetricsNode(value)
+  const hasMetrics = PERFORMANCE_METRIC_DEFS.some((metricDef) => payload?.[metricDef.key] != null)
+  if (!hasMetrics) return renderGenericDetailValue(value)
+  return (
+    <div className="rag-performance-detail">
+      {PERFORMANCE_METRIC_DEFS.map((metricDef) => {
+        const formatted = formatTableMetricValue(payload?.[metricDef.key], metricDef)
+        return (
+          <article key={metricDef.key} className="rag-performance-detail__card">
+            <span>{metricDef.key}</span>
+            <strong>{formatted.main}</strong>
+            <small>{metricDef.description}</small>
+            <em>{formatMetricSampleBasis(metricDef, payload)}</em>
+          </article>
+        )
+      })}
+    </div>
+  )
+}
+
+function displayRetrievalModeName(mode) {
+  return mode === 'raw_only' ? 'raw_query' : mode
+}
+
+function renderRetrievalSummaryDetail(value) {
+  const rows = Array.isArray(value) ? value : []
+  if (!rows.length) return renderGenericDetailValue(value)
+  const rawRow = rows.find((row) => normalizeModeName(row) === 'raw_only') || null
+  const metricDefs = [
+    { label: 'Recall@5', aliases: ['recall@5', 'recall_at_5'], precision: 4 },
+    { label: 'Hit@5', aliases: ['hit@5', 'hit_at_5'], precision: 4 },
+    { label: 'MRR@10', aliases: ['mrr@10', 'mrr_at_10'], precision: 4 },
+    { label: 'nDCG@10', aliases: ['ndcg@10', 'ndcg_at_10'], precision: 4 },
+  ]
+  return (
+    <div className="rag-retrieval-mode-list">
+      {rows.map((row, index) => {
+        const mode = normalizeModeName(row) || `mode_${index + 1}`
+        const isRaw = mode === 'raw_only'
+        return (
+          <article key={`${mode}-${index}`} className={`rag-retrieval-mode-card ${isRaw ? 'is-raw' : ''}`}>
+            <header className="rag-retrieval-mode-card__header">
+              <span className="rag-detail-mode-chip">{displayRetrievalModeName(mode)}</span>
+              <small>{isRaw ? '비교 기준' : 'raw_query 대비'}</small>
+            </header>
+            <div className="rag-retrieval-mode-card__metrics">
+              {metricDefs.map((metric) => {
+                const current = metricFromRow(row, metric.aliases)
+                const raw = rawRow ? metricFromRow(rawRow, metric.aliases) : null
+                const delta = !isRaw && current != null && raw != null ? current - raw : null
+                const tone = delta == null || delta === 0 ? 'neutral' : delta > 0 ? 'positive' : 'negative'
+                return (
+                  <div key={metric.label} className="rag-retrieval-mode-metric">
+                    <span>{metric.label}</span>
+                    <strong>{current == null ? '-' : Number(current).toFixed(metric.precision)}</strong>
+                    {!isRaw && (
+                      <em data-tone={tone}>
+                        {delta == null ? '-' : formatDelta(delta, { precision: metric.precision })}
+                      </em>
+                    )}
+                    {!isRaw && raw != null && <small>raw {Number(raw).toFixed(metric.precision)}</small>}
+                  </div>
+                )
+              })}
+            </div>
+          </article>
+        )
+      })}
+    </div>
+  )
+}
+
+function datasetQueryText(row) {
+  const language = String(row?.queryLanguage || 'ko').toLowerCase()
+  if (language === 'en') return normalizeQueryText(row?.userQueryEn || row?.userQueryKo)
+  return normalizeQueryText(row?.userQueryKo || row?.userQueryEn)
+}
+
+function datasetAlternateQuery(row) {
+  const language = String(row?.queryLanguage || 'ko').toLowerCase()
+  const primary = datasetQueryText(row)
+  const alternate = language === 'en' ? row?.userQueryKo : row?.userQueryEn
+  const normalized = normalizeQueryText(alternate)
+  return normalized === '-' || normalized === primary ? '' : normalized
+}
+
+function datasetFocusItems(value) {
+  const payload = parseDetailPayload(value)
+  if (Array.isArray(payload)) {
+    return payload.map((item) => String(item || '').trim()).filter(Boolean)
+  }
+  return []
+}
+
+function distributionEntries(value) {
+  const payload = parseDetailPayload(value)
+  if (!isPlainDetailObject(payload)) return []
+  return Object.entries(payload)
+    .filter(([, item]) => item != null && item !== '')
+    .map(([key, item]) => ({ key, value: item }))
+}
+
+function EvalDatasetDetail({ dataset, items }) {
+  const rows = Array.isArray(items) ? items : []
+  const categoryEntries = distributionEntries(dataset?.categoryDistribution)
+  const splitEntries = distributionEntries(dataset?.singleMultiDistribution)
+  return (
+    <div className="eval-dataset-detail">
+      <section className="eval-dataset-detail__summary">
+        <article>
+          <span>데이터셋</span>
+          <strong>{dataset?.datasetName || '-'}</strong>
+        </article>
+        <article>
+          <span>전체 질의</span>
+          <strong>{formatTableNumber(rows.length, 0)}개</strong>
+          {dataset?.totalItems != null && <small>등록 {formatTableNumber(dataset.totalItems, 0)}개</small>}
+        </article>
+        <article>
+          <span>언어</span>
+          <strong>{dataset?.queryLanguage || '-'}</strong>
+        </article>
+        <article>
+          <span>버전</span>
+          <strong>{dataset?.version || '-'}</strong>
+        </article>
+      </section>
+
+      {(categoryEntries.length > 0 || splitEntries.length > 0) && (
+        <section className="eval-dataset-detail__distribution">
+          {categoryEntries.length > 0 && (
+            <div>
+              <span className="eval-dataset-detail__section-label">카테고리 분포</span>
+              <div className="eval-dataset-detail__chips">
+                {categoryEntries.map((entry) => (
+                  <span key={entry.key}>{entry.key} <strong>{String(entry.value)}</strong></span>
+                ))}
+              </div>
+            </div>
+          )}
+          {splitEntries.length > 0 && (
+            <div>
+              <span className="eval-dataset-detail__section-label">단일/복합 청크</span>
+              <div className="eval-dataset-detail__chips">
+                {splitEntries.map((entry) => (
+                  <span key={entry.key}>{entry.key} <strong>{String(entry.value)}</strong></span>
+                ))}
+              </div>
+            </div>
+          )}
+        </section>
+      )}
+
+      <section className="eval-dataset-query-list">
+        {rows.map((row, index) => {
+          const focusItems = datasetFocusItems(row?.evaluationFocus)
+          const alternate = datasetAlternateQuery(row)
+          return (
+            <article key={`${row?.sampleId || index}`} className="eval-dataset-query-card">
+              <header className="eval-dataset-query-card__header">
+                <div>
+                  <span className="eval-dataset-query-card__index">#{index + 1}</span>
+                  <strong>{row?.sampleId || `sample-${index + 1}`}</strong>
+                </div>
+                <div className="eval-dataset-query-card__badges">
+                  <span>{row?.queryLanguage || 'ko'}</span>
+                  {row?.targetMethod && <span>method {row.targetMethod}</span>}
+                  {row?.split && <span>{row.split}</span>}
+                </div>
+              </header>
+              <p className="eval-dataset-query-card__query">{datasetQueryText(row)}</p>
+              {alternate && (
+                <div className="eval-dataset-query-card__alternate">
+                  <span>다른 언어 질의</span>
+                  <p>{alternate}</p>
+                </div>
+              )}
+              <footer className="eval-dataset-query-card__meta">
+                {row?.queryCategory && <span>{row.queryCategory}</span>}
+                {row?.singleOrMultiChunk && <span>{row.singleOrMultiChunk}</span>}
+                {focusItems.map((focus) => <span key={focus}>{focus}</span>)}
+              </footer>
+            </article>
+          )
+        })}
+        {rows.length === 0 && <div className="empty-state">표시할 평가 질의가 없습니다.</div>}
+      </section>
+    </div>
+  )
+}
+
 function renderRagDetailJsonDisclosure(label, value, renderer = renderGenericDetailValue, defaultOpen = false) {
   const parsed = parseDetailPayload(value)
   const isEmpty = !hasDetailPayload(parsed)
@@ -1030,12 +1228,20 @@ function dedupeRagDetailRows(details) {
 function buildQueryDetailOption(row, index) {
   const queryText = compactText(row?.rawQuery || row?.rewriteQuery || '-', 96)
   const rewriteApplied = Boolean(row?.rewriteApplied)
+  const badges = [
+    {
+      label: rewriteApplied ? 'applied' : 'skipped',
+      tone: rewriteApplied ? 'success' : 'warning',
+    },
+  ]
+  if (row?.hitTarget === false) {
+    badges.push({ label: 'miss target', tone: 'danger' })
+  }
   return {
     value: detailRowKey(row, index),
     label: `#${index + 1} · ${row?.sampleId || `sample-${index + 1}`}`,
     meta: `${row?.queryCategory || '-'} · ${queryText}`,
-    badgeLabel: rewriteApplied ? 'applied' : 'skipped',
-    badgeTone: rewriteApplied ? 'success' : 'warning',
+    badges,
   }
 }
 
@@ -1148,8 +1354,8 @@ function RagRunDetailModalBody({
             rewrite_anchor_injection_enabled: anchorEnabled,
             multi_source_anchor_expansion_enabled: multiSourceEnabled,
           })}
-          {renderRagDetailJsonDisclosure('성능 지표', performance)}
-          {renderRagDetailJsonDisclosure('모드별 검색 지표', retrievalSummaryRows)}
+          {renderRagDetailJsonDisclosure('성능 지표', performance, renderPerformanceMetricDetail)}
+          {renderRagDetailJsonDisclosure('모드별 검색 지표', retrievalSummaryRows, renderRetrievalSummaryDetail)}
         </div>
       </details>
     </div>
@@ -1162,6 +1368,35 @@ function formatDelta(value, def) {
   const sign = value > 0 ? '+' : ''
   const text = `${sign}${Number(value).toFixed(precision)}`
   return def?.unit ? `${text} ${def.unit}` : text
+}
+
+function metricDisplayUnit(def) {
+  return def?.displayUnit || def?.unit || ''
+}
+
+function metricDisplayScale(def) {
+  return Number.isFinite(def?.displayScale) ? def.displayScale : 1
+}
+
+function hasScaledMetricDisplay(def) {
+  return def?.displayUnit && Number.isFinite(def?.displayScale)
+}
+
+function formatMetricDisplayNumber(value, def, { signed = false, absolute = false } = {}) {
+  if (value == null || !Number.isFinite(Number(value))) return '-'
+  const precision = Number.isFinite(def?.precision) ? def.precision : 3
+  const scaled = Number(value) * metricDisplayScale(def)
+  const displayValue = absolute ? Math.abs(scaled) : scaled
+  return signed
+    ? formatSignedTableNumber(displayValue, precision)
+    : formatTableNumber(displayValue, precision)
+}
+
+function formatMetricDisplayWithUnit(value, def, options = {}) {
+  const numberText = formatMetricDisplayNumber(value, def, options)
+  if (numberText === '-') return '-'
+  const unit = metricDisplayUnit(def)
+  return unit ? `${numberText} ${unit}` : numberText
 }
 
 function resolveTableNumberFormatter(precision) {
@@ -1227,6 +1462,12 @@ function formatTableDurationDisplay(value, options = {}) {
 function formatTableMetricValue(value, def) {
   if (value == null) return { main: '-', sub: '' }
   const precision = Number.isFinite(def?.precision) ? def.precision : 3
+  if (hasScaledMetricDisplay(def)) {
+    return {
+      main: formatMetricDisplayWithUnit(value, def),
+      sub: '',
+    }
+  }
   if (def?.unit === 'ms') {
     return formatTableDurationDisplay(value, {
       signed: false,
@@ -1244,6 +1485,9 @@ function formatTableMetricValue(value, def) {
 function formatTableDeltaRaw(value, def) {
   if (value == null) return '-'
   const precision = Number.isFinite(def?.precision) ? def.precision : 3
+  if (hasScaledMetricDisplay(def)) {
+    return formatMetricDisplayWithUnit(value, def, { signed: true })
+  }
   if (def?.unit === 'ms') {
     return formatTableDurationDisplay(value, {
       signed: true,
@@ -1264,6 +1508,9 @@ function formatTableDeltaRate(value) {
 function formatTableDeltaMagnitude(row) {
   if (row?.deltaRate != null) return `${formatTableNumber(Math.abs(row.deltaRate), 1)}%`
   if (row?.delta == null) return '-'
+  if (hasScaledMetricDisplay(row)) {
+    return formatMetricDisplayWithUnit(row.delta, row, { absolute: true })
+  }
   if (row?.unit === 'ms') {
     return formatTableDurationDisplay(Math.abs(row.delta), {
       signed: false,
@@ -1280,6 +1527,12 @@ function formatTableDeltaMagnitude(row) {
 function formatTableDeltaDisplay(row) {
   if (!row || row.delta == null) return { main: '-', sub: '' }
   const precision = Number.isFinite(row?.precision) ? row.precision : 3
+  if (hasScaledMetricDisplay(row)) {
+    return {
+      main: formatMetricDisplayWithUnit(row.delta, row, { signed: true }),
+      sub: '',
+    }
+  }
   if (row.unit === 'ms') {
     return formatTableDurationDisplay(row.delta, {
       signed: true,
@@ -1329,6 +1582,9 @@ function formatSignedDurationDisplay(value, options = {}) {
 function formatWorkspaceMetricValue(value, row) {
   if (value == null) return { primary: '-', secondary: '' }
   const precision = Number.isFinite(row?.precision) ? row.precision : 3
+  if (hasScaledMetricDisplay(row)) {
+    return { primary: formatMetricDisplayWithUnit(value, row), secondary: '' }
+  }
   if (row?.unit === 'ms') {
     return formatDurationDisplay(value, { precisionMs: precision, precisionSeconds: 2, includeRawMs: false })
   }
@@ -1339,6 +1595,9 @@ function formatWorkspaceMetricValue(value, row) {
 function formatWorkspaceDeltaValue(row) {
   if (!row || row.delta == null) return { primary: '-', secondary: '' }
   const precision = Number.isFinite(row.precision) ? row.precision : 3
+  if (hasScaledMetricDisplay(row)) {
+    return { primary: formatMetricDisplayWithUnit(row.delta, row, { signed: true }), secondary: '' }
+  }
   if (row.unit === 'ms') {
     return formatSignedDurationDisplay(row.delta, { precisionMs: precision, precisionSeconds: 2, includeRawMs: false })
   }
@@ -1627,11 +1886,10 @@ function buildRewriteTags(run) {
 }
 
 function buildCoreMetricTags(metrics) {
-  const queryEvalLatency = formatDurationDisplay(metrics?.avg_query_eval_total_latency_ms, {
-    precisionMs: 2,
-    precisionSeconds: 2,
-    includeRawMs: false,
-  }).primary
+  const queryEvalLatency = formatTableMetricValue(
+    metrics?.avg_query_eval_total_latency_ms,
+    PERFORMANCE_METRIC_DEFS[0],
+  ).main
   return [
     toHistoryTag('metric', 'R5', `Recall@5 ${formatMetric(metrics?.recall_at_5)}`),
     toHistoryTag('metric', 'ND', `nDCG@10 ${formatMetric(metrics?.ndcg_at_10)}`),
@@ -1666,16 +1924,12 @@ function renderPerformanceCards(metrics) {
       </div>
       <div className="summary-grid">
         {PERFORMANCE_METRIC_DEFS.map((metricDef) => {
-          const value = formatDurationDisplay(metrics?.[metricDef.key], {
-            precisionMs: metricDef.precision,
-            precisionSeconds: 2,
-            includeRawMs: true,
-          })
+          const value = formatTableMetricValue(metrics?.[metricDef.key], metricDef)
           return (
             <article key={metricDef.key} className="summary-card" title={metricDef.description}>
               <div className="summary-card__label">{metricDef.label}</div>
-              <div className="summary-card__value">{value.primary}</div>
-              <div className="summary-card__meta">{value.secondary || metricDef.description}</div>
+              <div className="summary-card__value">{value.main}</div>
+              <div className="summary-card__meta">{metricDef.description}</div>
               <div className="summary-card__meta">{formatMetricSampleBasis(metricDef, metrics)}</div>
             </article>
           )
@@ -1889,7 +2143,7 @@ export function RagPage({ notify, domainId = null }) {
   }
 
   const loadTests = async () => {
-    const rows = await requestJson(appendQuery('/api/admin/console/rag/tests?limit=50', { domain_id: domainId }))
+    const rows = await requestJson(appendQuery('/api/admin/console/rag/tests', { domain_id: domainId }))
     setTests(Array.isArray(rows) ? rows : [])
   }
 
@@ -2471,22 +2725,16 @@ export function RagPage({ notify, domainId = null }) {
     }
   }
 
-  const openDatasetItems = async (datasetId) => {
+  const openDatasetItems = async (datasetOrId) => {
+    const datasetId = typeof datasetOrId === 'object' ? datasetOrId?.datasetId : datasetOrId
+    const dataset = typeof datasetOrId === 'object'
+      ? datasetOrId
+      : datasets.find((item) => item.datasetId === datasetId)
     try {
-      const rows = await requestJson(`/api/admin/console/rag/datasets/${datasetId}/items?limit=30`)
-      const preview = (Array.isArray(rows) ? rows : [])
-        .map((row) => {
-          const method = row.targetMethod ? `[${row.targetMethod}] ` : ''
-          const focus = Array.isArray(row.evaluationFocus) && row.evaluationFocus.length > 0 ? ` (${row.evaluationFocus.join(',')})` : ''
-          const queryText = row.queryLanguage === 'en'
-            ? (row.userQueryEn || row.userQueryKo || '')
-            : (row.userQueryKo || row.userQueryEn || '')
-          return `[${row.sampleId}] [${row.queryLanguage || 'ko'}] ${method}${row.queryCategory} - ${queryText}${focus}`
-        })
-        .join('\n')
+      const rows = await requestJson(`/api/admin/console/rag/datasets/${datasetId}/items`)
       setModal({
-        title: `평가 문항 미리보기 · ${shortId(datasetId)}`,
-        body: <DetailCard label="samples" value={preview} />,
+        title: `평가 데이터셋 상세 · ${dataset?.datasetName || '이름 없음'}`,
+        body: <EvalDatasetDetail dataset={dataset} items={Array.isArray(rows) ? rows : []} />,
       })
     } catch (error) {
       notify(error.message, 'error')
@@ -2743,16 +2991,8 @@ export function RagPage({ notify, domainId = null }) {
     const completedRuns = tests.filter((run) => String(run.status || '').toLowerCase() === 'completed')
     const lastRun = completedRuns[0]
     const lastMetrics = lastRun ? extractRunMetrics(lastRun.metricsJson) : {}
-    const latestQueryEval = formatDurationDisplay(lastMetrics.avg_query_eval_total_latency_ms, {
-      precisionMs: 2,
-      precisionSeconds: 2,
-      includeRawMs: false,
-    }).primary
-    const latestFinalRewrite = formatDurationDisplay(lastMetrics.avg_final_rewrite_latency_ms, {
-      precisionMs: 2,
-      precisionSeconds: 2,
-      includeRawMs: false,
-    }).primary
+    const latestQueryEval = formatTableMetricValue(lastMetrics.avg_query_eval_total_latency_ms, PERFORMANCE_METRIC_DEFS[0]).main
+    const latestFinalRewrite = formatTableMetricValue(lastMetrics.avg_final_rewrite_latency_ms, PERFORMANCE_METRIC_DEFS[1]).main
     const latestQueryEvalMeta = lastRun
       ? (lastMetrics.legacy_performance ? LEGACY_PERFORMANCE_MESSAGE : formatMetricSampleBasis(PERFORMANCE_METRIC_DEFS[0], lastMetrics))
       : '-'
@@ -2760,7 +3000,7 @@ export function RagPage({ notify, domainId = null }) {
       ? (lastMetrics.legacy_performance ? LEGACY_PERFORMANCE_MESSAGE : formatMetricSampleBasis(PERFORMANCE_METRIC_DEFS[1], lastMetrics))
       : '-'
     return [
-      { label: '완료 실행', value: String(completedRuns.length), meta: '최근 50개' },
+      { label: '완료 실행', value: String(completedRuns.length), meta: '전체 이력' },
       { label: '비교 선택', value: String(compareRunIds.length), meta: compareRunIds.length === 2 ? '비교 가능' : '2개 선택 필요' },
       { label: '최근 Recall@5', value: formatMetric(lastMetrics.recall_at_5), meta: lastRun ? `run ${shortId(lastRun.ragTestRunId)}` : '완료 실행 없음' },
       { label: '최근 nDCG@10', value: formatMetric(lastMetrics.ndcg_at_10), meta: lastRun ? fmtTime(lastRun.finishedAt || lastRun.startedAt) : '-' },
@@ -3471,7 +3711,7 @@ export function RagPage({ notify, domainId = null }) {
                   <td>{dataset.version || '-'}</td>
                   <td>{dataset.totalItems ?? 0}</td>
                   <td>{fmtTime(dataset.createdAt)}</td>
-                  <td><button type="button" className="button button--ghost" onClick={() => openDatasetItems(dataset.datasetId)}>상세 조회</button></td>
+                  <td><button type="button" className="button button--ghost" onClick={() => openDatasetItems(dataset)}>상세 조회</button></td>
                   <td>
                     <button
                       type="button"
@@ -3628,15 +3868,41 @@ export function RagPage({ notify, domainId = null }) {
             type="button"
             className="button"
             disabled={currentHistoryPage === 0}
+            onClick={() => setHistoryPage(0)}
+          >처음</button>
+          <button
+            type="button"
+            className="button"
+            disabled={currentHistoryPage === 0}
             onClick={() => setHistoryPage((prev) => Math.max(0, prev - 1))}
           >이전</button>
-          <div className="pagination__label">페이지 {currentHistoryPage + 1}</div>
+          <label className="pagination__jump">
+            <span>페이지</span>
+            <input
+              type="number"
+              min="1"
+              max={historyTotalPages}
+              value={currentHistoryPage + 1}
+              onChange={(event) => {
+                const nextPage = Number(event.target.value)
+                if (!Number.isFinite(nextPage)) return
+                setHistoryPage(Math.min(historyTotalPages - 1, Math.max(0, nextPage - 1)))
+              }}
+            />
+            <span>/ {historyTotalPages}</span>
+          </label>
           <button
             type="button"
             className="button"
             disabled={currentHistoryPage + 1 >= historyTotalPages}
             onClick={() => setHistoryPage((prev) => Math.min(historyTotalPages - 1, prev + 1))}
           >다음</button>
+          <button
+            type="button"
+            className="button"
+            disabled={currentHistoryPage + 1 >= historyTotalPages}
+            onClick={() => setHistoryPage(historyTotalPages - 1)}
+          >마지막</button>
         </div>
       </section>
 

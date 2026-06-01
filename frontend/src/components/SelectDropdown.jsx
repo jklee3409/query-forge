@@ -21,6 +21,14 @@ export function SelectDropdown({
     [options, value]
   )
 
+  const optionBadges = (option) => {
+    if (!option) return []
+    if (Array.isArray(option.badges)) {
+      return option.badges.filter((badge) => badge && badge.label)
+    }
+    return option.badgeLabel ? [{ label: option.badgeLabel, tone: option.badgeTone || 'neutral' }] : []
+  }
+
   const filteredOptions = useMemo(() => {
     const normalized = query.trim().toLowerCase()
     if (!normalized) return options
@@ -82,11 +90,11 @@ export function SelectDropdown({
         disabled={disabled}
       >
         <span className="custom-dropdown__trigger-label">{selected?.label || placeholder}</span>
-        {selected?.badgeLabel && (
-          <span className="custom-dropdown__badge" data-tone={selected.badgeTone || 'neutral'}>
-            {selected.badgeLabel}
+        {optionBadges(selected).map((badge) => (
+          <span key={badge.label} className="custom-dropdown__badge" data-tone={badge.tone || 'neutral'}>
+            {badge.label}
           </span>
-        )}
+        ))}
         <span className="custom-dropdown__caret" aria-hidden="true">▾</span>
       </button>
       {open && (
@@ -119,11 +127,11 @@ export function SelectDropdown({
                 >
                   <span className="custom-dropdown__option-main">
                     <span className="custom-dropdown__option-label">{option.label}</span>
-                    {option.badgeLabel && (
-                      <span className="custom-dropdown__badge" data-tone={option.badgeTone || 'neutral'}>
-                        {option.badgeLabel}
+                    {optionBadges(option).map((badge) => (
+                      <span key={badge.label} className="custom-dropdown__badge" data-tone={badge.tone || 'neutral'}>
+                        {badge.label}
                       </span>
-                    )}
+                    ))}
                   </span>
                   {option.meta && <span className="custom-dropdown__option-meta">{option.meta}</span>}
                 </button>

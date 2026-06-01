@@ -34,6 +34,7 @@
 ---
 
 ## Recent Update
+- `/admin/rag-tests` eval dataset detail modal now uses the dataset name as the title and renders every query as structured cards. RAG run history loads the full list and supports first/previous/direct/next/last page movement; RAG run detail dropdowns show miss-target badges, latency metrics are displayed in seconds, and raw-query metric deltas use green/red emphasis.
 - `/admin/rag-tests` now exposes rewrite-only LLM model selection and a runtime-driven rewrite profile selector. `compact_anchor` keeps the existing compact anchor path, while `detailed_intent` requests self-contained detailed query expansion before optional anchor injection.
 - `/admin/pipeline` no longer renders the Anchor Eval section. `/admin/synthetic-queries` domain workspaces use domain source language for method availability (`en` -> A/B/C/D/E, `ko` -> F/G), and `/admin/rag-tests` detail query dropdowns show rewrite applied/skipped badges while de-duplicating repeated sample rows.
 - `/admin/rag-tests` RAG run detail modal now uses the configured test name in the title instead of a shortened DB UUID, uses the shared custom searchable dropdown for `질의 분석 보기`, and no longer renders the sticky `최상단으로` action.

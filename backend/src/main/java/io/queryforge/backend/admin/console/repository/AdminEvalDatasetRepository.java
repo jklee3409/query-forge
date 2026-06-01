@@ -252,6 +252,8 @@ public class AdminEvalDatasetRepository {
     }
 
     public List<AdminConsoleDtos.EvalDatasetItemRow> findEvalDatasetItems(UUID datasetId, Integer limit, Integer offset) {
+        boolean bounded = limit != null && limit > 0;
+        String pagingClause = bounded ? "LIMIT :limit OFFSET :offset" : "";
         String sql = """
                 SELECT i.dataset_id,
                        s.sample_id,
@@ -272,14 +274,17 @@ public class AdminEvalDatasetRepository {
                 WHERE i.dataset_id = :datasetId
                   AND i.active = TRUE
                 ORDER BY s.sample_id
-                LIMIT :limit OFFSET :offset
-                """;
+                %s
+                """.formatted(pagingClause);
+        MapSqlParameterSource params = new MapSqlParameterSource()
+                .addValue("datasetId", datasetId);
+        if (bounded) {
+            params.addValue("limit", normalizeLimit(limit, 1000))
+                    .addValue("offset", normalizeOffset(offset));
+        }
         return jdbcTemplate.query(
                 sql,
-                new MapSqlParameterSource()
-                        .addValue("datasetId", datasetId)
-                        .addValue("limit", normalizeLimit(limit, 500))
-                        .addValue("offset", normalizeOffset(offset)),
+                params,
                 (rs, rowNum) -> new AdminConsoleDtos.EvalDatasetItemRow(
                         readUuid(rs, "dataset_id"),
                         rs.getString("sample_id"),

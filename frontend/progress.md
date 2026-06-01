@@ -511,6 +511,14 @@ High-level progress tracking for the project.
 
 ---
 
+## [2026-06-01] Session Summary (RAG Eval Lab Dataset/History Detail UX)
+- What was done: Reworked eval dataset detail into a named modal with all query cards, removed the 50-run RAG history cap, added first/last/direct page controls, added miss-target badges to the query-analysis dropdown, converted RAG performance latency displays from ms to s, and rendered raw-query retrieval deltas with green/red emphasis.
+- Key decisions: Extended `SelectDropdown` with optional multi-badge support while preserving existing single-badge callers, and reused current Admin theme tokens for the new dataset/detail cards.
+- Issues encountered: None; `npm run build` passed and refreshed the backend React bundle.
+- Next steps: Browser smoke-test long histories and dataset detail cards in light/dark mode.
+
+---
+
 ## Notes
 - Keep this file concise
 - Only record important changes
