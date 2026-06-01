@@ -1330,3 +1330,11 @@ High-level progress tracking for the project.
 - Key decisions: Dataset deletion reuses existing RAG run cleanup for linked terminal histories, blocks the auto-managed default dataset, and rejects deletion while active RAG runs exist.
 - Issues encountered: None; targeted Admin RAG integration test and frontend production build passed.
 - Next steps: Smoke-test `/admin/rag-tests` in the running backend with a real custom eval dataset and completed rewrite-skipped run.
+
+---
+
+## [2026-06-01] Session Summary (Root README Current-State Sync)
+- What was done: Rewrote the root `README.md` against the current backend/frontend/pipeline/config/data state, covering research goal, strategy A-G definitions, quality gating, memory/rewrite, evaluation, source scope, architecture, implemented features, tech stack, project structure, and local startup flow.
+- Key decisions: Documented source presets separately from actual synthetic-generation allowlists, removed stale JPA wording, and emphasized explicit snapshot identity, runtime catalog governance, domain scope, DB ANN, anchor normalization/multi-source hints, and synthetic memory as rewrite guidance rather than direct final-query replacement.
+- Issues encountered: Existing README was already modified in the working tree; the update preserved the intent of that rewrite while aligning details to implementation.
+- Next steps: Keep README synchronized when domain policies, runtime catalog options, or Admin RAG evaluation behavior changes.
