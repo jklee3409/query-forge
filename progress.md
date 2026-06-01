@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-06-01] Session Summary (Spring KR C Rewrite Challenge Calibration)
+- What was done: Calibrated `spring_kr_rewrite_challenge_80` to raw hit@5 `36/80` using C trusted-memory-aware query-surface selection, tightened compact rewrite prompting, and validated C compact selective rewrite at `40/80` hit@5.
+- Key decisions: Kept `gemini-2.5-flash-lite`, db-ann hybrid retrieval, `intfloat/multilingual-e5-small`, C full-gating snapshot `73b5bfc1-73b5-4cfe-ab64-daf94729578b`, and anchor injection enabled; no core pipeline logic was changed.
+- Issues encountered: Prompt-only tuning could not pass the 10% target because candidate adoption gates rejected useful expanded candidates; the final run used existing runtime adoption policy knobs to lower rewrite threshold while preserving memory-target penalties.
+- Next steps: Apply the same memory-aware probe/calibration workflow to PostgreSQL and Kubernetes only after building matching C/A memory snapshots immediately before each eval.
+
 ## [2026-06-01] Session Summary (Cross-Domain KO Rewrite Challenge 80)
 - What was done: Added and ran `scripts/build_rewrite_challenge_eval_datasets.py` to create Spring/PostgreSQL/Kubernetes KO rewrite challenge 80 datasets and DB records.
 - Key decisions: Built additive `rewrite_challenge_anchor_gap_80` datasets from grounded Korean anchor-gap short-user sources, preserving expected doc/chunk IDs and answer key points while changing only dataset identity/profile.

@@ -3,6 +3,12 @@
 ## Overview
 Evaluation dataset artifact changes for `data/eval/`.
 
+## [2026-06-01] Session Summary (Spring KR Rewrite Challenge C-Trusted Calibration)
+- What was done: Updated `spring_kr_rewrite_challenge_80.jsonl` with C trusted-memory-aware calibrated query surfaces.
+- Key decisions: Preserved all expected doc/chunk IDs and answer key points while targeting raw hit@5 `36/80`; selected variants are mostly `current`, with targeted `memory_c_ko_anchorless` and `current_glossary_c` rows.
+- Issues encountered: A raw `35/80` trial reduced baseline as intended but hurt MRR/nDCG, so the final retained dataset is the raw `36/80` C-trusted profile.
+- Next steps: Use the final profile `spring_kr_raw36_c_trusted_memory_target` for Spring KR C compact rewrite comparisons.
+
 ## [2026-06-01] Session Summary (Cross-Domain KO Rewrite Challenge 80)
 - What was done: Added `spring_kr_rewrite_challenge_80.jsonl`, `postgresql_kr_rewrite_challenge_80.jsonl`, and `kubernetes_kr_rewrite_challenge_80.jsonl`.
 - Key decisions: Reused grounded anchor-gap Korean query surfaces from the existing domain-specific short-user artifacts and preserved all expected doc/chunk IDs and answer key points.

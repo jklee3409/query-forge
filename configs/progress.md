@@ -3,6 +3,12 @@
 ## Overview
 High-level progress tracking for the project.
 
+## [2026-06-01] Session Summary (Compact Rewrite Prompt Calibration)
+- What was done: Tightened `prompts/rewrite/selective_rewrite_v3.md` so `memory_expanded` candidates use short exact anchors from trusted memory and `raw_standalone` avoids broad domain-only rewrites.
+- Key decisions: Preserved the prompt schema and LLM model; changes are prompt-only controls for compact anchor-bearing retrieval queries.
+- Issues encountered: Prompt-only tuning improved candidate shape but still required existing adoption-policy runtime settings to meet the Spring KR hit@5 improvement target.
+- Next steps: Keep future prompt tuning tied to fixed dataset/snapshot reports so raw-vs-rewrite comparisons remain reproducible.
+
 ## [2026-05-29] Session Summary (Detailed Rewrite Few-Shot Prompt)
 - What was done: Updated `prompts/rewrite/selective_rewrite_detailed_intent_v1.md` to explicitly call `top_memory_candidates` retrieved synthetic query examples and few-shot rewrite guidance.
 - Key decisions: Anchor candidates/terms/terminology/canonical/multi-source hints are now described as optional grounding hints, not terms the LLM must insert.
