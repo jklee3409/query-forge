@@ -15,6 +15,7 @@
 - `build_python_kr_eval_datasets.py`: Python KR KO/EN paired short-user dataset 생성
 - `build_kubernetes_eval_datasets.py`: Kubernetes KO anchor-translated / EN paired short-user dataset 생성
 - `build_anchor_translated_eval_datasets.py`: Spring/PostgreSQL KO anchor-translated short-user dataset 생성
+- `build_spring_rewrite_challenge_dataset.py`: Spring KR V6 grounding을 복사해 영어/API anchor가 제거된 rewrite challenge dataset 생성
 - `build_method_compressed_eval_datasets.py`: A/B/C/D/E accepted synthetic queries to compressed Spring stress eval datasets
 - `repair_spring_short_user_eval_pair.py`: paired Spring KR/EN short-user eval dataset in-place grounding repair
 - `repair_postgresql_kubernetes_eval_pairs.py`: paired PostgreSQL/Kubernetes KR/EN short-user eval dataset in-place grounding repair
@@ -33,6 +34,7 @@
 - Python KR KO/EN paired dataset 생성: `python scripts/build_python_kr_eval_datasets.py`
 - Kubernetes KO anchor-translated / EN paired dataset 생성: `python scripts/build_kubernetes_eval_datasets.py`
 - Spring/PostgreSQL KO anchor-translated dataset 생성: `python scripts/build_anchor_translated_eval_datasets.py`
+- Spring KR rewrite challenge dataset 생성: `python scripts/build_spring_rewrite_challenge_dataset.py`
 - Spring method-compressed stress eval dataset generation: `python scripts/build_method_compressed_eval_datasets.py`
 - Spring paired KR/EN short-user grounding repair: `python scripts/repair_spring_short_user_eval_pair.py`
 - PostgreSQL/Kubernetes paired KR/EN short-user grounding repair: `python scripts/repair_postgresql_kubernetes_eval_pairs.py`

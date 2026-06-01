@@ -1,0 +1,99 @@
+{
+  "dataset_id": "a9e9fc4b-7060-569d-8b23-9f51a4f29f64",
+  "dataset_key": "spring_kr_rewrite_challenge_30",
+  "version": "v1-2026-06-01",
+  "source_dataset_id": "b2d47254-8655-4c9c-81ac-7615677ec5bd",
+  "source_dataset_version": "v6-2026-05-30",
+  "output_file": "data/eval/spring_kr_rewrite_challenge_30.jsonl",
+  "skip_db": false,
+  "built_at": "2026-06-01T06:29:45.754981+00:00",
+  "validation": {
+    "status": "pass",
+    "issues": [],
+    "row_count": 30,
+    "ascii_anchor_query_count": 0,
+    "single_multi_distribution": {
+      "single": 20,
+      "multi": 10
+    }
+  },
+  "sample_preview": [
+    {
+      "sample_id": "spring-rewrite-challenge-001",
+      "query": "다이제스트 인증 필터 설정 방법?",
+      "source_sample_id": "test-short-user-001",
+      "source_query": "DigestAuthenticationFilter Digest Authentication 설정?",
+      "expected_chunk_ids": [
+        "chk_8a586fb9a020a935"
+      ]
+    },
+    {
+      "sample_id": "spring-rewrite-challenge-002",
+      "query": "인증서 로그인 후 로그아웃 세션 관리?",
+      "source_sample_id": "test-short-user-002",
+      "source_query": "X.509 로그아웃 세션관리?",
+      "expected_chunk_ids": [
+        "chk_48ed67233154801a",
+        "chk_dc783d2192b9a2b6",
+        "chk_5bb7bb07fe00b990"
+      ]
+    },
+    {
+      "sample_id": "spring-rewrite-challenge-003",
+      "query": "프록시 전달 헤더 접두사와 보안 표시 역할?",
+      "source_sample_id": "test-short-user-003",
+      "source_query": "X-Forwarded-Ssl X-Forwarded-Prefix 역할?",
+      "expected_chunk_ids": [
+        "chk_1d33f5ba6950a010"
+      ]
+    },
+    {
+      "sample_id": "spring-rewrite-challenge-004",
+      "query": "자바 영속성 속성 경로 밑줄 탐색 기준?",
+      "source_sample_id": "test-short-user-004",
+      "source_query": "JPA traversal point _ 사용?",
+      "expected_chunk_ids": [
+        "chk_c67b27f4d71b9b9a"
+      ]
+    },
+    {
+      "sample_id": "spring-rewrite-challenge-005",
+      "query": "관점 지향 스키마와 어노테이션 방식 차이?",
+      "source_sample_id": "test-short-user-005",
+      "source_query": "@AspectJ aop namespace?",
+      "expected_chunk_ids": [
+        "chk_dfc7d7b7a123bf4c",
+        "chk_7975e4dfe69cec70"
+      ]
+    },
+    {
+      "sample_id": "spring-rewrite-challenge-006",
+      "query": "동기 요청 클라이언트를 새 요청 클라이언트로 옮기는 방법?",
+      "source_sample_id": "test-short-user-006",
+      "source_query": "RestClient RestTemplate migration?",
+      "expected_chunk_ids": [
+        "chk_dc7039c3af2da1bf",
+        "chk_8e06e56857b6cad8"
+      ]
+    },
+    {
+      "sample_id": "spring-rewrite-challenge-007",
+      "query": "외부 인증 로그인 페이지와 리디렉션 끝점 설정?",
+      "source_sample_id": "test-short-user-007",
+      "source_query": "oauth2Login loginPage redirectionEndpoint?",
+      "expected_chunk_ids": [
+        "chk_44fa7695b128233a",
+        "chk_c253dac622600da1"
+      ]
+    },
+    {
+      "sample_id": "spring-rewrite-challenge-008",
+      "query": "접근 토큰 응답 변환기 커스터마이징 방법?",
+      "source_sample_id": "test-short-user-008",
+      "source_query": "OAuth2AccessTokenResponseHttpMessageConverter 커스터마이징?",
+      "expected_chunk_ids": [
+        "chk_8db418a9574e2183"
+      ]
+    }
+  ]
+}

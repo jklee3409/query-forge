@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-06-01] Session Summary (Spring Rewrite Challenge Planning)
+- What was done: Began additive rewrite-challenge implementation without changing core RAG pipeline logic, adding a Spring KR dataset builder that preserves V6 grounding while removing English/API anchor surfaces.
+- Key decisions: Keep V6 as the control dataset and evaluate the new challenge dataset only under explicit A/C full-gating snapshots.
+- Issues encountered: Dataset generation/upsert validation passed; retrieval/answer evaluation still pending.
+- Next steps: Commit the dataset stage, then run retrieval/answer evaluation and iterate only if raw-vs-rewrite improvement is not substantial.
+
 ## [2026-05-30] Session Summary (Kubernetes C Generation and Full Gating)
 - What was done: Ran Kubernetes Method C synthetic generation with the same settings as A batch `b03213c5-0791-455e-a3f5-326cfd49c40b` except `generation_strategy=C`, creating batch `79b2bcb1-f8c4-4efa-8e00-03edc4ac9694` with 1,000 raw queries.
 - Key decisions: Used the existing running backend/Admin API and PostgreSQL container only; no Docker rebuild or container rebuild was performed. Ran full gating for the C batch with the same settings as gating batch `7793c399-5eea-45ca-befc-29d4f766ca9b`.

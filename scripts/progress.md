@@ -3,6 +3,12 @@
 ## Overview
 High-level progress tracking for the project.
 
+## [2026-06-01] Session Summary (Spring Rewrite Challenge Builder)
+- What was done: Added `scripts/build_spring_rewrite_challenge_dataset.py` to create a separate 30-item Spring KR rewrite challenge dataset from active V6 grounding while removing English/API anchor surfaces from the user query.
+- Key decisions: Preserved the source V6 expected doc/chunk IDs and answer key points; the new dataset is additive and does not replace canonical V6.
+- Issues encountered: Script py_compile, dry-run validation, DB upsert, and bounded DB verification passed.
+- Next steps: Run snapshot-pinned A/C rewrite evaluation against dataset `spring_kr_rewrite_challenge_30`.
+
 ## [2026-05-30] Session Summary (PostgreSQL/Kubernetes Eval Pair Repair and Strict Audit)
 - What was done: Added `scripts/repair_postgresql_kubernetes_eval_pairs.py` to repair existing PostgreSQL and Kubernetes KR/EN short-user datasets in place, and added `scripts/audit_eval_grounding_strictness.py` to validate Spring/PostgreSQL/Kubernetes active DB datasets together.
 - Key decisions: Kept all dataset IDs unchanged, rebuilt answer key points from current corpus chunks, forced EN rows to keep `user_query_ko` empty, paired KR/EN grounding exactly, and strengthened PostgreSQL low-signal queries by prefixing the expected chunk section/title anchor.

@@ -3,6 +3,12 @@
 ## Overview
 Evaluation dataset artifact changes for `data/eval/`.
 
+## [2026-06-01] Session Summary (Spring KR Rewrite Challenge 30)
+- What was done: Prepared `spring_kr_rewrite_challenge_30.jsonl` as an additive dataset generated from Spring KR V6 grounding with English/API anchors removed from the Korean query surface.
+- Key decisions: This is a rewrite-effect challenge set, not a replacement for the canonical V6 short-user control dataset.
+- Issues encountered: Generated artifact validation passed with 30 rows, zero ASCII-anchor query surfaces, and `single:20` / `multi:10`.
+- Next steps: Use explicit A/C Spring full-gating snapshots for retrieval and answer evaluation.
+
 ## [2026-05-27] Session Summary (Spring/PostgreSQL Anchor-Translated Short-User 80)
 - What was done: Added separate anchor-translated KR short-user artifacts for Spring and PostgreSQL: `spring_kr_anchor_translated_short_user_test_80.jsonl` and `postgresql_kr_anchor_translated_short_user_test_80.jsonl`.
 - Key decisions: Preserved the existing source artifacts/datasets and copied retrieval-aware grounding unchanged; only `sample_id`, `user_query_ko`, and audit metadata were changed for the new variants.
