@@ -3,6 +3,12 @@
 ## Overview
 Evaluation dataset artifact changes for `data/eval/`.
 
+## [2026-06-01] Session Summary (Spring KR Rewrite Probe C 9)
+- What was done: Added `spring_kr_rewrite_probe_c_9.jsonl` as a 9-item C-memory-aligned probe slice generated from Spring KR V6 grounding.
+- Key decisions: Kept all expected doc/chunk IDs and answer key points from the source V6 rows; only the user query surface is Korean-only with English/API anchors removed.
+- Issues encountered: Validation passed with 9 rows, zero ASCII-anchor query surfaces, and `single:5` / `multi:4`.
+- Next steps: Use dataset key `spring_kr_rewrite_probe_c_9` for C compact-anchor rewrite evaluation.
+
 ## [2026-06-01] Session Summary (Spring KR Rewrite Challenge 30)
 - What was done: Prepared `spring_kr_rewrite_challenge_30.jsonl` as an additive dataset generated from Spring KR V6 grounding with English/API anchors removed from the Korean query surface.
 - Key decisions: This is a rewrite-effect challenge set, not a replacement for the canonical V6 short-user control dataset.

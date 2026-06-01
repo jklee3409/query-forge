@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-06-01] Session Summary (Spring Rewrite Probe Dataset)
+- What was done: Added a `probe_c_9` variant to the Spring rewrite dataset builder and upserted dataset `spring_kr_rewrite_probe_c_9` (`87ad7e4b-a5d8-5ef1-a20a-7e4cb1b2f486`) to isolate C-memory-aligned Korean-only anchor-gap queries.
+- Key decisions: Preserved V6 grounding and kept this as an additive probe slice, not a replacement for V6 or the broader 30-item challenge dataset.
+- Issues encountered: Script compile, dry-run validation, DB upsert, and bounded DB verification passed.
+- Next steps: Run C compact-anchor retrieval evaluation on the probe dataset and require a large raw-only vs rewrite improvement before moving to answer evaluation.
+
 ## [2026-06-01] Session Summary (Spring Rewrite Challenge Planning)
 - What was done: Began additive rewrite-challenge implementation without changing core RAG pipeline logic, adding a Spring KR dataset builder that preserves V6 grounding while removing English/API anchor surfaces.
 - Key decisions: Keep V6 as the control dataset and evaluate the new challenge dataset only under explicit A/C full-gating snapshots.

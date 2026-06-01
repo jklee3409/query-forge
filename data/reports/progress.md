@@ -3,6 +3,12 @@
 ## Overview
 Report artifact changes for `data/reports/`.
 
+## [2026-06-01] Session Summary (Spring Rewrite Probe C Audit)
+- What was done: Added `spring_kr_rewrite_probe_c_9_audit_2026-06-01.json` for structural validation of the C-memory-aligned rewrite probe dataset.
+- Key decisions: Stored this as a dataset-generation audit, not a RAG result report; retrieval metrics remain run-specific under `retrieval_*`.
+- Issues encountered: Generated audit status is `pass`; DB verification found 9 active rows, zero ASCII-anchor query surfaces, and no missing grounding.
+- Next steps: Compare raw-only and selective rewrite retrieval summaries for the probe dataset.
+
 ## [2026-06-01] Session Summary (Spring Rewrite Challenge Audit)
 - What was done: Reserved `spring_kr_rewrite_challenge_30_audit_2026-06-01.json` for structural validation of the additive Spring KR rewrite challenge dataset.
 - Key decisions: The audit records source V6 sample mapping, no-ASCII query validation, and grounding integrity before any RAG interpretation.

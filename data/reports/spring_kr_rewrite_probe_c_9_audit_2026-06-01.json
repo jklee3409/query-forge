@@ -1,0 +1,100 @@
+{
+  "variant": "probe_c_9",
+  "dataset_id": "87ad7e4b-a5d8-5ef1-a20a-7e4cb1b2f486",
+  "dataset_key": "spring_kr_rewrite_probe_c_9",
+  "version": "v1-2026-06-01",
+  "source_dataset_id": "b2d47254-8655-4c9c-81ac-7615677ec5bd",
+  "source_dataset_version": "v6-2026-05-30",
+  "output_file": "data/eval/spring_kr_rewrite_probe_c_9.jsonl",
+  "skip_db": false,
+  "built_at": "2026-06-01T06:58:15.406728+00:00",
+  "validation": {
+    "status": "pass",
+    "issues": [],
+    "row_count": 9,
+    "ascii_anchor_query_count": 0,
+    "single_multi_distribution": {
+      "multi": 4,
+      "single": 5
+    }
+  },
+  "sample_preview": [
+    {
+      "sample_id": "spring-rewrite-probe-c-001",
+      "query": "인증서 로그인 후 로그아웃 세션 관리?",
+      "source_sample_id": "test-short-user-002",
+      "source_query": "X.509 로그아웃 세션관리?",
+      "expected_chunk_ids": [
+        "chk_48ed67233154801a",
+        "chk_dc783d2192b9a2b6",
+        "chk_5bb7bb07fe00b990"
+      ]
+    },
+    {
+      "sample_id": "spring-rewrite-probe-c-002",
+      "query": "표현식 언어 가변 인자 타입 변환?",
+      "source_sample_id": "test-short-user-011",
+      "source_query": "SpEL varargs type conversion?",
+      "expected_chunk_ids": [
+        "chk_c8003d0236c9bf8e"
+      ]
+    },
+    {
+      "sample_id": "spring-rewrite-probe-c-003",
+      "query": "속성 경로 팩토리 빈 값 참조 방법?",
+      "source_sample_id": "test-short-user-016",
+      "source_query": "PropertyPathFactoryBean 값 참조?",
+      "expected_chunk_ids": [
+        "chk_7caa164eeb69f02f"
+      ]
+    },
+    {
+      "sample_id": "spring-rewrite-probe-c-004",
+      "query": "엔티티 콜백 동기식과 반응형 차이?",
+      "source_sample_id": "test-short-user-018",
+      "source_query": "EntityCallback sync reactive 차이?",
+      "expected_chunk_ids": [
+        "chk_2fc71f2da6e21e3b",
+        "chk_a4d54733af9cd78b"
+      ]
+    },
+    {
+      "sample_id": "spring-rewrite-probe-c-005",
+      "query": "자바 메시징 템플릿 수신 메서드?",
+      "source_sample_id": "test-short-user-023",
+      "source_query": "JmsTemplate JmsClient receive?",
+      "expected_chunk_ids": [
+        "chk_8e1a43633d875740"
+      ]
+    },
+    {
+      "sample_id": "spring-rewrite-probe-c-006",
+      "query": "모의 웹 테스트와 브라우저 테스트 통합 이유?",
+      "source_sample_id": "test-short-user-026",
+      "source_query": "MockMvc HtmlUnit 통합이 왜 필요함?",
+      "expected_chunk_ids": [
+        "chk_a12a2c7e6a0f891f",
+        "chk_5e1aedda768e3f0b"
+      ]
+    },
+    {
+      "sample_id": "spring-rewrite-probe-c-007",
+      "query": "사전 컴파일 실행 힌트가 필요한 이유?",
+      "source_sample_id": "test-short-user-040",
+      "source_query": "AOT runtime hints 이유?",
+      "expected_chunk_ids": [
+        "chk_ed391445ff1a1bd7",
+        "chk_2fe1f52a6af84a9d"
+      ]
+    },
+    {
+      "sample_id": "spring-rewrite-probe-c-008",
+      "query": "여러 부분 요청 처리기와 양식 데이터 파라미터?",
+      "source_sample_id": "test-short-user-064",
+      "source_query": "MultipartResolver multipart/form-data 파라미터?",
+      "expected_chunk_ids": [
+        "chk_2f3720cc26c8d92f"
+      ]
+    }
+  ]
+}

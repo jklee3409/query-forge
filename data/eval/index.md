@@ -10,6 +10,7 @@
 - `human_eval_short_user_test_80_en.jsonl`: Spring 도메인 영어 short-user 80문항
 - `spring_kr_anchor_translated_short_user_test_80.jsonl`: Spring 도메인 한글 anchor-translated short-user 80문항
 - `spring_kr_rewrite_challenge_30.jsonl`: Spring KR V6 grounding 기반 rewrite challenge 30문항
+- `spring_kr_rewrite_probe_c_9.jsonl`: Spring KR V6 grounding 기반 C-memory-aligned rewrite probe 9문항
 - `python_kr_short_user_test_80_ko.jsonl`: Python KR 도메인 한글 short-user 80문항
 - `python_kr_short_user_test_80_en.jsonl`: Python KR 도메인 영어 short-user 80문항
 - `postgresql_kr_short_user_test_80.jsonl`: PostgreSQL 도메인 영어 기술문서 청크 기반 한국어 short-user 80문항

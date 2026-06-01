@@ -1,12 +1,13 @@
 {
+  "variant": "challenge_30",
   "dataset_id": "a9e9fc4b-7060-569d-8b23-9f51a4f29f64",
   "dataset_key": "spring_kr_rewrite_challenge_30",
   "version": "v1-2026-06-01",
   "source_dataset_id": "b2d47254-8655-4c9c-81ac-7615677ec5bd",
   "source_dataset_version": "v6-2026-05-30",
   "output_file": "data/eval/spring_kr_rewrite_challenge_30.jsonl",
-  "skip_db": false,
-  "built_at": "2026-06-01T06:29:45.754981+00:00",
+  "skip_db": true,
+  "built_at": "2026-06-01T06:58:05.952148+00:00",
   "validation": {
     "status": "pass",
     "issues": [],

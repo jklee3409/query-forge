@@ -78,6 +78,7 @@ data/eval/*
 !data/eval/postgresql_kr_anchor_translated_short_user_test_80.jsonl
 !data/eval/spring_kr_anchor_translated_short_user_test_80.jsonl
 !data/eval/spring_kr_rewrite_challenge_30.jsonl
+!data/eval/spring_kr_rewrite_probe_c_9.jsonl
 !data/eval/kubernetes_kr_short_user_test_80.jsonl
 !data/eval/kubernetes_en_short_user_test_80.jsonl
 !data/eval/spring_method_a_compressed_eval_80_ko.jsonl
@@ -93,6 +94,7 @@ data/reports/*
 !data/reports/python_kr_eval_dataset_80_audit_2026-05-12.json
 !data/reports/spring_method_compressed_eval_80_audit_2026-05-20.json
 !data/reports/spring_kr_rewrite_challenge_30_audit_2026-06-01.json
+!data/reports/spring_kr_rewrite_probe_c_9_audit_2026-06-01.json
 data/artifacts/*
 !data/artifacts/.gitkeep
 !data/artifacts/README.md

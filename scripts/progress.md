@@ -3,6 +3,12 @@
 ## Overview
 High-level progress tracking for the project.
 
+## [2026-06-01] Session Summary (Spring Rewrite Probe Variant)
+- What was done: Extended `scripts/build_spring_rewrite_challenge_dataset.py` with `--variant challenge_30|probe_c_9` and added a 9-item C-memory-aligned rewrite probe dataset variant.
+- Key decisions: Kept the probe additive and grounded to Spring KR V6 expected docs/chunks; it isolates Korean-only anchor-gap queries where C synthetic memory should be able to recover removed English/API anchors.
+- Issues encountered: `py_compile`, challenge dry-run validation, probe dry-run validation, probe DB upsert, and bounded DB verification passed.
+- Next steps: Run C compact-anchor retrieval evaluation against dataset `spring_kr_rewrite_probe_c_9` and compare raw-only vs selective rewrite.
+
 ## [2026-06-01] Session Summary (Spring Rewrite Challenge Builder)
 - What was done: Added `scripts/build_spring_rewrite_challenge_dataset.py` to create a separate 30-item Spring KR rewrite challenge dataset from active V6 grounding while removing English/API anchor surfaces from the user query.
 - Key decisions: Preserved the source V6 expected doc/chunk IDs and answer key points; the new dataset is additive and does not replace canonical V6.

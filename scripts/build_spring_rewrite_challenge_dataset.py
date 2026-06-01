@@ -18,11 +18,7 @@ from psycopg.types.json import Jsonb
 REPO_ROOT = Path(__file__).resolve().parents[1]
 
 SOURCE_DATASET_ID = "b2d47254-8655-4c9c-81ac-7615677ec5bd"
-DATASET_KEY = "spring_kr_rewrite_challenge_30"
-DATASET_ID = str(uuid.uuid5(uuid.NAMESPACE_URL, f"query-forge:{DATASET_KEY}:v1-2026-06-01"))
-VERSION_LABEL = "v1-2026-06-01"
-OUTPUT_FILE = REPO_ROOT / "data" / "eval" / "spring_kr_rewrite_challenge_30.jsonl"
-REPORT_FILE = REPO_ROOT / "data" / "reports" / "spring_kr_rewrite_challenge_30_audit_2026-06-01.json"
+SOURCE_DATASET_VERSION = "v6-2026-05-30"
 
 ASCII_ANCHOR_RE = re.compile(r"[A-Za-z@._-]")
 
@@ -33,7 +29,27 @@ class QuerySpec:
     query: str
 
 
-QUERY_SPECS: tuple[QuerySpec, ...] = (
+@dataclass(frozen=True)
+class DatasetSpec:
+    variant: str
+    dataset_key: str
+    dataset_name: str
+    description: str
+    version: str
+    output_file: Path
+    report_file: Path
+    dataset_profile: str
+    sample_prefix: str
+    target_method: str
+    evaluation_focus: tuple[str, ...]
+    query_specs: tuple[QuerySpec, ...]
+
+    @property
+    def dataset_id(self) -> str:
+        return str(uuid.uuid5(uuid.NAMESPACE_URL, f"query-forge:{self.dataset_key}:{self.version}"))
+
+
+CHALLENGE_QUERY_SPECS: tuple[QuerySpec, ...] = (
     QuerySpec("test-short-user-001", "다이제스트 인증 필터 설정 방법?"),
     QuerySpec("test-short-user-002", "인증서 로그인 후 로그아웃 세션 관리?"),
     QuerySpec("test-short-user-003", "프록시 전달 헤더 접두사와 보안 표시 역할?"),
@@ -65,6 +81,56 @@ QUERY_SPECS: tuple[QuerySpec, ...] = (
     QuerySpec("test-short-user-064", "여러 부분 요청 처리기와 양식 데이터 파라미터?"),
     QuerySpec("test-short-user-072", "전통 웹 모형과 반응형 웹 선택 기준?"),
 )
+
+PROBE_C_QUERY_SPECS: tuple[QuerySpec, ...] = (
+    QuerySpec("test-short-user-002", "인증서 로그인 후 로그아웃 세션 관리?"),
+    QuerySpec("test-short-user-011", "표현식 언어 가변 인자 타입 변환?"),
+    QuerySpec("test-short-user-016", "속성 경로 팩토리 빈 값 참조 방법?"),
+    QuerySpec("test-short-user-018", "엔티티 콜백 동기식과 반응형 차이?"),
+    QuerySpec("test-short-user-023", "자바 메시징 템플릿 수신 메서드?"),
+    QuerySpec("test-short-user-026", "모의 웹 테스트와 브라우저 테스트 통합 이유?"),
+    QuerySpec("test-short-user-040", "사전 컴파일 실행 힌트가 필요한 이유?"),
+    QuerySpec("test-short-user-064", "여러 부분 요청 처리기와 양식 데이터 파라미터?"),
+    QuerySpec("test-short-user-072", "전통 웹 모형과 반응형 웹 선택 기준?"),
+)
+
+DATASET_SPECS: dict[str, DatasetSpec] = {
+    "challenge_30": DatasetSpec(
+        variant="challenge_30",
+        dataset_key="spring_kr_rewrite_challenge_30",
+        dataset_name="Spring KR Rewrite Challenge 30",
+        description="Korean-only anchor-gap rewrite challenge copied from Spring KR V6 grounding.",
+        version="v1-2026-06-01",
+        output_file=REPO_ROOT / "data" / "eval" / "spring_kr_rewrite_challenge_30.jsonl",
+        report_file=REPO_ROOT
+        / "data"
+        / "reports"
+        / "spring_kr_rewrite_challenge_30_audit_2026-06-01.json",
+        dataset_profile="rewrite_challenge_anchor_gap",
+        sample_prefix="spring-rewrite-challenge",
+        target_method="A/C",
+        evaluation_focus=("rewrite", "anchor_recovery", "retrieval_stress"),
+        query_specs=CHALLENGE_QUERY_SPECS,
+    ),
+    "probe_c_9": DatasetSpec(
+        variant="probe_c_9",
+        dataset_key="spring_kr_rewrite_probe_c_9",
+        dataset_name="Spring KR Rewrite Probe C 9",
+        description=(
+            "C-memory-aligned Korean-only rewrite probe slice copied from Spring KR V6 grounding. "
+            "The slice isolates short Korean queries whose removed English/API anchors are expected "
+            "to be recoverable from C synthetic memory."
+        ),
+        version="v1-2026-06-01",
+        output_file=REPO_ROOT / "data" / "eval" / "spring_kr_rewrite_probe_c_9.jsonl",
+        report_file=REPO_ROOT / "data" / "reports" / "spring_kr_rewrite_probe_c_9_audit_2026-06-01.json",
+        dataset_profile="rewrite_probe_c_memory_aligned_anchor_gap",
+        sample_prefix="spring-rewrite-probe-c",
+        target_method="C",
+        evaluation_focus=("rewrite", "anchor_recovery", "retrieval_probe", "c_memory_alignment"),
+        query_specs=PROBE_C_QUERY_SPECS,
+    ),
+}
 
 
 def _json_list(value: Any) -> list[Any]:
@@ -126,29 +192,29 @@ def _fetch_chunk_docs(connection: psycopg.Connection[Any], chunk_ids: set[str]) 
     return {str(row["chunk_id"]): str(row["document_id"]) for row in rows}
 
 
-def _build_rows(source_rows: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
+def _build_rows(source_rows: dict[str, dict[str, Any]], dataset: DatasetSpec) -> list[dict[str, Any]]:
     rows: list[dict[str, Any]] = []
-    for index, spec in enumerate(QUERY_SPECS, start=1):
+    for index, spec in enumerate(dataset.query_specs, start=1):
         source = source_rows.get(spec.source_sample_id)
         if source is None:
             raise RuntimeError(f"source sample is not active in V6 dataset: {spec.source_sample_id}")
         metadata = dict(source.get("metadata") or {})
         metadata.update(
             {
-                "dataset_key": DATASET_KEY,
-                "dataset_profile": "rewrite_challenge_anchor_gap",
+                "dataset_key": dataset.dataset_key,
+                "dataset_profile": dataset.dataset_profile,
                 "query_language": "ko",
-                "target_method": "A/C",
+                "target_method": dataset.target_method,
                 "source_dataset_id": SOURCE_DATASET_ID,
                 "source_sample_id": spec.source_sample_id,
                 "source_user_query_ko": source.get("user_query_ko"),
                 "query_surface_policy": "Korean-only technical paraphrase with English/API anchors removed",
-                "evaluation_focus": ["rewrite", "anchor_recovery", "retrieval_stress"],
+                "evaluation_focus": list(dataset.evaluation_focus),
             }
         )
         rows.append(
             {
-                "sample_id": f"spring-rewrite-challenge-{index:03d}",
+                "sample_id": f"{dataset.sample_prefix}-{index:03d}",
                 "split": source.get("split") or "test",
                 "query_language": "ko",
                 "user_query_ko": spec.query,
@@ -162,7 +228,7 @@ def _build_rows(source_rows: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
                 "single_or_multi_chunk": source.get("single_or_multi_chunk") or "single",
                 "source_product": source.get("source_product"),
                 "source_version_if_available": source.get("source_version_if_available"),
-                "target_method": "A/C",
+                "target_method": dataset.target_method,
                 "metadata": metadata,
                 "_domain_id": source.get("domain_id"),
             }
@@ -170,10 +236,14 @@ def _build_rows(source_rows: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
     return rows
 
 
-def _validate_rows(connection: psycopg.Connection[Any], rows: list[dict[str, Any]]) -> dict[str, Any]:
+def _validate_rows(
+    connection: psycopg.Connection[Any],
+    rows: list[dict[str, Any]],
+    dataset: DatasetSpec,
+) -> dict[str, Any]:
     issues: list[str] = []
-    if len(rows) != len(QUERY_SPECS):
-        issues.append(f"row count mismatch: {len(rows)} != {len(QUERY_SPECS)}")
+    if len(rows) != len(dataset.query_specs):
+        issues.append(f"row count mismatch: {len(rows)} != {len(dataset.query_specs)}")
 
     queries = [str(row["user_query_ko"]) for row in rows]
     duplicates = [query for query, count in Counter(queries).items() if count > 1]
@@ -223,7 +293,12 @@ def _write_jsonl(rows: list[dict[str, Any]], output_file: Path) -> None:
     )
 
 
-def _upsert_db(connection: psycopg.Connection[Any], rows: list[dict[str, Any]], output_file: Path) -> None:
+def _upsert_db(
+    connection: psycopg.Connection[Any],
+    rows: list[dict[str, Any]],
+    output_file: Path,
+    dataset: DatasetSpec,
+) -> None:
     now = datetime.now(timezone.utc).isoformat()
     domain_ids = {str(row["_domain_id"]) for row in rows if row.get("_domain_id")}
     domain_id = sorted(domain_ids)[0] if len(domain_ids) == 1 else None
@@ -256,24 +331,24 @@ def _upsert_db(connection: psycopg.Connection[Any], rows: list[dict[str, Any]], 
                 updated_at = NOW()
             """,
             (
-                DATASET_ID,
-                DATASET_KEY,
-                "Spring KR Rewrite Challenge 30",
-                "Korean-only anchor-gap rewrite challenge copied from Spring KR V6 grounding.",
-                VERSION_LABEL,
+                dataset.dataset_id,
+                dataset.dataset_key,
+                dataset.dataset_name,
+                dataset.description,
+                dataset.version,
                 "test_only",
                 len(rows),
                 Jsonb(dict(Counter(str(row["query_category"]) for row in rows))),
                 Jsonb(dict(Counter(str(row["single_or_multi_chunk"]) for row in rows))),
                 Jsonb(
                     {
-                        "dataset_profile": "rewrite_challenge_anchor_gap",
+                        "dataset_profile": dataset.dataset_profile,
                         "query_language": "ko",
                         "source_dataset_id": SOURCE_DATASET_ID,
-                        "source_dataset_version": "v6-2026-05-30",
+                        "source_dataset_version": SOURCE_DATASET_VERSION,
                         "source_file": str(output_file.relative_to(REPO_ROOT)).replace("\\", "/"),
                         "query_surface_policy": "Korean-only technical paraphrase with English/API anchors removed",
-                        "evaluation_focus": ["rewrite", "anchor_recovery", "retrieval_stress"],
+                        "evaluation_focus": list(dataset.evaluation_focus),
                         "updated_at": now,
                     }
                 ),
@@ -339,7 +414,7 @@ def _upsert_db(connection: psycopg.Connection[Any], rows: list[dict[str, Any]], 
                 ),
             )
 
-        cursor.execute("DELETE FROM eval_dataset_item WHERE dataset_id = %s", (DATASET_ID,))
+        cursor.execute("DELETE FROM eval_dataset_item WHERE dataset_id = %s", (dataset.dataset_id,))
         for row in rows:
             cursor.execute(
                 """
@@ -353,7 +428,7 @@ def _upsert_db(connection: psycopg.Connection[Any], rows: list[dict[str, Any]], 
                 ) VALUES (%s, %s, %s, %s, TRUE, %s)
                 """,
                 (
-                    DATASET_ID,
+                    dataset.dataset_id,
                     row["sample_id"],
                     row["query_category"],
                     row["single_or_multi_chunk"],
@@ -364,6 +439,7 @@ def _upsert_db(connection: psycopg.Connection[Any], rows: list[dict[str, Any]], 
 
 def run(
     *,
+    dataset: DatasetSpec,
     output_file: Path,
     report_file: Path,
     skip_db: bool,
@@ -381,8 +457,8 @@ def run(
         password=db_password,
         autocommit=False,
     ) as connection:
-        rows = _build_rows(_source_rows(connection))
-        validation = _validate_rows(connection, rows)
+        rows = _build_rows(_source_rows(connection), dataset)
+        validation = _validate_rows(connection, rows, dataset)
         if validation["status"] != "pass":
             connection.rollback()
             raise RuntimeError(json.dumps(validation, ensure_ascii=False, indent=2))
@@ -390,15 +466,16 @@ def run(
         if skip_db:
             connection.rollback()
         else:
-            _upsert_db(connection, rows, output_file)
+            _upsert_db(connection, rows, output_file, dataset)
             connection.commit()
 
     report = {
-        "dataset_id": DATASET_ID,
-        "dataset_key": DATASET_KEY,
-        "version": VERSION_LABEL,
+        "variant": dataset.variant,
+        "dataset_id": dataset.dataset_id,
+        "dataset_key": dataset.dataset_key,
+        "version": dataset.version,
         "source_dataset_id": SOURCE_DATASET_ID,
-        "source_dataset_version": "v6-2026-05-30",
+        "source_dataset_version": SOURCE_DATASET_VERSION,
         "output_file": str(output_file.relative_to(REPO_ROOT)).replace("\\", "/"),
         "skip_db": skip_db,
         "built_at": datetime.now(timezone.utc).isoformat(),
@@ -421,8 +498,9 @@ def run(
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Build the Spring KR rewrite challenge dataset.")
-    parser.add_argument("--output-file", default=str(OUTPUT_FILE))
-    parser.add_argument("--report-file", default=str(REPORT_FILE))
+    parser.add_argument("--variant", choices=sorted(DATASET_SPECS), default="challenge_30")
+    parser.add_argument("--output-file", default=None)
+    parser.add_argument("--report-file", default=None)
     parser.add_argument("--skip-db", action="store_true")
     parser.add_argument("--db-host", default="localhost")
     parser.add_argument("--db-port", type=int, default=5432)
@@ -430,10 +508,14 @@ def main() -> int:
     parser.add_argument("--db-user", default="query_forge")
     parser.add_argument("--db-password", default="query_forge")
     args = parser.parse_args()
+    dataset = DATASET_SPECS[args.variant]
+    output_file = Path(args.output_file) if args.output_file else dataset.output_file
+    report_file = Path(args.report_file) if args.report_file else dataset.report_file
 
     report = run(
-        output_file=Path(args.output_file),
-        report_file=Path(args.report_file),
+        dataset=dataset,
+        output_file=output_file,
+        report_file=report_file,
         skip_db=args.skip_db,
         db_host=args.db_host,
         db_port=args.db_port,
