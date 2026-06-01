@@ -3,6 +3,12 @@
 ## Overview
 High-level progress tracking for the project.
 
+## [2026-06-01] Session Summary (Rewrite Challenge Retrieval Probe)
+- What was done: Added `scripts/rewrite_challenge_retrieval_probe.py` to score raw DB-ANN retrieval hit@5 for rewrite challenge datasets and candidate query-surface variants using the same hybrid `intfloat/multilingual-e5-small` retrieval settings as Admin RAG tests.
+- Key decisions: Kept this as a diagnostic script only; it does not alter pipeline behavior, synthetic query batches, or eval grounding.
+- Issues encountered: Current raw hit@5 probe found Spring KR 4/80, Spring EN 15/80, PostgreSQL KR 11/80, PostgreSQL EN 36/80, Kubernetes KR 20/80, and Kubernetes EN 50/80.
+- Next steps: Use the variant matrix to calibrate query surfaces while preserving expected doc/chunk IDs.
+
 ## [2026-06-01] Session Summary (Cross-Domain KO Rewrite Challenge 80)
 - What was done: Added `scripts/build_rewrite_challenge_eval_datasets.py` to build Spring/PostgreSQL/Kubernetes KO rewrite challenge 80 datasets from grounded anchor-gap short-user sources.
 - Key decisions: Preserved expected doc/chunk IDs and answer key points, kept this as additive `rewrite_challenge_anchor_gap_80` data, and upserted the three KO datasets to DB with explicit dataset keys.
