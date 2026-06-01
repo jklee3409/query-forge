@@ -3,6 +3,12 @@
 ## Overview
 High-level progress tracking for the project.
 
+## [2026-06-01] Session Summary (Cross-Domain KO Rewrite Challenge 80)
+- What was done: Added `scripts/build_rewrite_challenge_eval_datasets.py` to build Spring/PostgreSQL/Kubernetes KO rewrite challenge 80 datasets from grounded anchor-gap short-user sources.
+- Key decisions: Preserved expected doc/chunk IDs and answer key points, kept this as additive `rewrite_challenge_anchor_gap_80` data, and upserted the three KO datasets to DB with explicit dataset keys.
+- Issues encountered: `py_compile`, skip-DB dry run, DB upsert, and bounded DB active-row verification passed.
+- Next steps: Add 1:1 English translated companion datasets while preserving grounding and row order.
+
 ## [2026-06-01] Session Summary (Spring Rewrite Probe Variant)
 - What was done: Extended `scripts/build_spring_rewrite_challenge_dataset.py` with `--variant challenge_30|probe_c_9` and added a 9-item C-memory-aligned rewrite probe dataset variant.
 - Key decisions: Kept the probe additive and grounded to Spring KR V6 expected docs/chunks; it isolates Korean-only anchor-gap queries where C synthetic memory should be able to recover removed English/API anchors.

@@ -3,6 +3,12 @@
 ## Overview
 Report artifact changes for `data/reports/`.
 
+## [2026-06-01] Session Summary (Cross-Domain KO Rewrite Challenge 80 Audit)
+- What was done: Added `rewrite_challenge_80_ko_audit_2026-06-01.json` for the Spring/PostgreSQL/Kubernetes KO rewrite challenge 80 generation run.
+- Key decisions: Stored dataset-generation validation only; RAG retrieval/answer result reports remain separate run artifacts.
+- Issues encountered: Audit status is pass for all three datasets; DB verification found 80 active rows per dataset.
+- Next steps: Add the English companion audit after 1:1 query translation.
+
 ## [2026-06-01] Session Summary (Spring Rewrite Probe C Audit)
 - What was done: Added `spring_kr_rewrite_probe_c_9_audit_2026-06-01.json` for structural validation of the C-memory-aligned rewrite probe dataset.
 - Key decisions: Stored this as a dataset-generation audit, not a RAG result report; retrieval metrics remain run-specific under `retrieval_*`.

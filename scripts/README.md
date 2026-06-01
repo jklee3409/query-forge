@@ -14,6 +14,7 @@
 - `build_python_kr_eval_datasets.py`: 한글 Python 문서 도메인의 KO/EN paired short-user 80 평가셋을 생성하고 DB에 등록합니다.
 - `build_kubernetes_eval_datasets.py`: Kubernetes 문서 도메인의 KO/EN paired short-user 80 평가셋을 생성하고 DB에 등록합니다.
 - `build_anchor_translated_eval_datasets.py`: 기존 Spring/PostgreSQL KR short-user 80문항을 유지한 채 영어 anchor를 한국어로 의도 번역한 별도 평가셋을 생성하고 DB에 등록합니다.
+- `build_rewrite_challenge_eval_datasets.py`: Spring/PostgreSQL/Kubernetes grounded short-user 80을 복사해 영어/API anchor가 제거된 별도 KO rewrite challenge dataset을 생성하고 DB에 등록합니다.
 - `verify_eval_dataset_origin.py`: 지정한 eval dataset의 출처와 chunk grounding을 점검합니다.
 
 새 스크립트를 추가할 때는 실행 목적, 입력/출력, DB 쓰기 여부를 이 문서와 `index.md`에 함께 기록합니다.

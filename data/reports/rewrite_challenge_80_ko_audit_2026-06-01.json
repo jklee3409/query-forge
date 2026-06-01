@@ -1,0 +1,80 @@
+{
+  "version": "v1-2026-06-01",
+  "dataset_profile": "rewrite_challenge_anchor_gap_80",
+  "skip_db": false,
+  "built_at": "2026-06-01T08:29:43.990073+00:00",
+  "results": [
+    {
+      "domain": "spring",
+      "language": "ko",
+      "dataset_key": "spring_kr_rewrite_challenge_80",
+      "dataset_id": "57f313dd-461d-561d-9453-0f8e2e179b27",
+      "output_file": "data/eval/spring_kr_rewrite_challenge_80.jsonl",
+      "source_dataset_id": "44282405-1ea1-5f78-bf85-6270724ee475",
+      "source_dataset_key": "spring_kr_anchor_translated_short_user_80",
+      "validation": {
+        "status": "pass",
+        "issues": [],
+        "dataset_key": "spring_kr_rewrite_challenge_80",
+        "dataset_id": "57f313dd-461d-561d-9453-0f8e2e179b27",
+        "row_count": 80,
+        "ascii_anchor_query_count": 0,
+        "single_multi_distribution": {
+          "single": 59,
+          "multi": 21
+        },
+        "target_method_distribution": {
+          "A/C": 80
+        }
+      }
+    },
+    {
+      "domain": "postgresql",
+      "language": "ko",
+      "dataset_key": "postgresql_kr_rewrite_challenge_80",
+      "dataset_id": "0a8a0077-7f63-5f6d-b19d-71ae3f137733",
+      "output_file": "data/eval/postgresql_kr_rewrite_challenge_80.jsonl",
+      "source_dataset_id": "8a08c160-e4cd-5ce0-9f5c-640c51b6d887",
+      "source_dataset_key": "postgresql_kr_anchor_translated_short_user_80",
+      "validation": {
+        "status": "pass",
+        "issues": [],
+        "dataset_key": "postgresql_kr_rewrite_challenge_80",
+        "dataset_id": "0a8a0077-7f63-5f6d-b19d-71ae3f137733",
+        "row_count": 80,
+        "ascii_anchor_query_count": 0,
+        "single_multi_distribution": {
+          "single": 59,
+          "multi": 21
+        },
+        "target_method_distribution": {
+          "A/C": 80
+        }
+      }
+    },
+    {
+      "domain": "kubernetes",
+      "language": "ko",
+      "dataset_key": "kubernetes_kr_rewrite_challenge_80",
+      "dataset_id": "c61421b4-6154-563a-b71a-fdef5f254b6e",
+      "output_file": "data/eval/kubernetes_kr_rewrite_challenge_80.jsonl",
+      "source_dataset_id": "87f74f10-1e61-5c56-84f9-f70a87fba424",
+      "source_dataset_key": "kubernetes_kr_short_user_80",
+      "validation": {
+        "status": "pass",
+        "issues": [],
+        "dataset_key": "kubernetes_kr_rewrite_challenge_80",
+        "dataset_id": "c61421b4-6154-563a-b71a-fdef5f254b6e",
+        "row_count": 80,
+        "ascii_anchor_query_count": 0,
+        "single_multi_distribution": {
+          "multi": 21,
+          "single": 59
+        },
+        "target_method_distribution": {
+          "A/C": 80
+        }
+      }
+    }
+  ]
+}

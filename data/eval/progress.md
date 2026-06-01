@@ -3,6 +3,12 @@
 ## Overview
 Evaluation dataset artifact changes for `data/eval/`.
 
+## [2026-06-01] Session Summary (Cross-Domain KO Rewrite Challenge 80)
+- What was done: Added `spring_kr_rewrite_challenge_80.jsonl`, `postgresql_kr_rewrite_challenge_80.jsonl`, and `kubernetes_kr_rewrite_challenge_80.jsonl`.
+- Key decisions: Reused grounded anchor-gap Korean query surfaces from the existing domain-specific short-user artifacts and preserved all expected doc/chunk IDs and answer key points.
+- Issues encountered: Validation passed for all three files with 80 rows each, zero ASCII-anchor Korean queries, and 59/21 single/multi distribution.
+- Next steps: Generate paired English challenge files by translating only the Korean query surfaces.
+
 ## [2026-06-01] Session Summary (Spring KR Rewrite Probe C 9)
 - What was done: Added `spring_kr_rewrite_probe_c_9.jsonl` as a 9-item C-memory-aligned probe slice generated from Spring KR V6 grounding.
 - Key decisions: Kept all expected doc/chunk IDs and answer key points from the source V6 rows; only the user query surface is Korean-only with English/API anchors removed.
