@@ -27,7 +27,7 @@ CrashLoopBackOff
 
 ---
 
-## 연구 목표
+## Research Goal
 
 프로젝트는 production chatbot보다 **통제 가능한 RAG 실험 환경**에 가깝습니다. 목표는 하나의 corpus, dataset, gating snapshot, retrieval config를 고정한 상태에서 다음 질문을 반복 측정하는 것입니다.
 
@@ -40,7 +40,7 @@ CrashLoopBackOff
 
 ---
 
-## 고정 파이프라인
+## System Pipeline
 
 프로젝트의 핵심 pipeline 순서는 다음과 같이 고정되어 있습니다.
 
@@ -101,7 +101,7 @@ Admin GUI는 gating stage flag, rule threshold, gating weight, utility weight, r
 
 ---
 
-## Memory와 Query Rewrite
+## Memory / Query Rewrite
 
 Accepted synthetic query는 `memory_entries`로 materialize됩니다. Memory row에는 원 synthetic query, target document/chunk, generation strategy, gating snapshot, score, glossary/canonical anchor metadata, embedding 정보가 함께 저장됩니다. Snapshot은 실험 조건입니다. 같은 dataset이라도 A-only snapshot, C-only snapshot, ungated snapshot, full-gating snapshot은 서로 다른 실험 조건으로 취급합니다.
 
@@ -166,7 +166,7 @@ Anchor는 이 과정의 핵심 분석 단위입니다. Query-Forge는 user query
 
 ---
 
-## 대상 Corpus와 Source Scope
+## Target Corpus
 
 `configs/app/sources/`에는 다음 source preset이 있습니다.
 
@@ -217,7 +217,7 @@ Backend runtime은 Spring Data JPA가 아니라 Spring Web/JDBC/Flyway 중심입
 
 ---
 
-## 구현된 기능
+## Features
 
 | 영역 | 구현 상태 |
 | --- | --- |
@@ -239,7 +239,7 @@ Backend runtime은 Spring Data JPA가 아니라 Spring Web/JDBC/Flyway 중심입
 
 ---
 
-## 기술 스택
+## Tech Stack
 
 | Layer | Technology |
 | --- | --- |
@@ -380,28 +380,22 @@ PowerShell wrapper:
 4. `/admin/rag-tests`에서 eval dataset, explicit gating snapshot, retrieval backend, rewrite profile을 선택해 RAG test를 실행합니다.
 5. Compare view와 detail modal에서 raw vs rewrite, retrieved chunks, memory candidates, anchor quality, latency payload를 함께 확인합니다.
 
-공식 비교 run은 명시적인 snapshot identity가 필요합니다. Synthetic-backed run에서 auto-latest snapshot에 기대는 방식은 현재 연구 규칙과 맞지 않습니다.
+---
+
+## Research Positioning
+
+Query-Forge is not a production chatbot project. It is a research-oriented framework for studying how Korean user queries can be aligned with English technical documentation in RAG systems.
+
+Most RAG systems focus on improving the retriever or changing the embedding model. Query-Forge instead focuses on the query side:
+
+> How should a compressed Korean developer query be transformed so that it retrieves the right English technical evidence without losing the user's original intent?
+
+The project treats synthetic queries not as a one-time data generation artifact, but as a reusable memory layer for retrieval-aware query rewriting. This makes it possible to compare generation strategy, memory quality, gating policy, rewrite adoption, retrieval performance, and answer quality in a single reproducible pipeline.
 
 ---
 
-## 연구 포지셔닝
+## Project Context
 
-Query-Forge의 초점은 더 좋은 chatbot UI가 아니라 **검색 질의를 어떻게 바꿔야 영어 기술 문서 근거를 더 안정적으로 찾는가**입니다. 그래서 구현은 retriever, synthetic generation, gating, rewrite, anchor preservation, answer grounding, latency를 한 pipeline에서 함께 기록하도록 설계되어 있습니다.
+This repository was developed as a graduation research project at Kyung Hee University.
 
-실험 결과를 해석할 때는 항상 다음 조건을 함께 봐야 합니다.
-
-- corpus source와 domain
-- eval dataset key/version/query language
-- generation strategy와 raw table
-- gating preset과 `source_gating_batch_id`
-- retrieval backend와 retriever mode
-- rewrite profile, threshold, anchor injection 여부
-- answer-eval 및 latency metric 생성 시점
-
-이 조건이 다르면 같은 strategy 이름을 사용하더라도 직접 비교할 수 없습니다.
-
----
-
-## 프로젝트 맥락
-
-이 저장소는 경희대학교 졸업 연구 프로젝트로 개발되었습니다. 구현은 통제된 실험과 failure case 분석을 지원하기 위한 연구용 prototype이며, 운영 최적화가 완료된 production RAG service라고 주장하지 않습니다.
+The implementation is intended to support controlled experiments rather than claim a fully optimized production RAG service. Experimental results should be interpreted together with the selected corpus, evaluation dataset, gating snapshot, retriever mode, and model configuration.
