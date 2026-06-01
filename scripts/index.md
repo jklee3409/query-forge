@@ -18,6 +18,9 @@
 - `build_spring_rewrite_challenge_dataset.py`: Spring KR V6 grounding을 복사해 영어/API anchor가 제거된 rewrite challenge/probe dataset 생성
 - `build_rewrite_challenge_eval_datasets.py`: Spring/PostgreSQL/Kubernetes grounded KO rewrite challenge 80 dataset 생성
 - `build_rewrite_challenge_en_eval_datasets.py`: KO rewrite challenge 80의 query만 영어로 번역한 paired EN dataset 생성
+- `rewrite_challenge_retrieval_probe.py`: rewrite challenge query-surface raw DB-ANN hit@5 probe
+- `rewrite_challenge_memory_probe.py`: rewrite challenge query-surface synthetic-memory target overlap probe
+- `rewrite_case_candidate_probe.py`: rewrite case report candidates scored against expected eval targets
 - `build_method_compressed_eval_datasets.py`: A/B/C/D/E accepted synthetic queries to compressed Spring stress eval datasets
 - `repair_spring_short_user_eval_pair.py`: paired Spring KR/EN short-user eval dataset in-place grounding repair
 - `repair_postgresql_kubernetes_eval_pairs.py`: paired PostgreSQL/Kubernetes KR/EN short-user eval dataset in-place grounding repair
@@ -40,6 +43,9 @@
 - Spring KR C-memory rewrite probe dataset 생성: `python scripts/build_spring_rewrite_challenge_dataset.py --variant probe_c_9`
 - Spring/PostgreSQL/Kubernetes KO rewrite challenge 80 dataset 생성: `python scripts/build_rewrite_challenge_eval_datasets.py`
 - Spring/PostgreSQL/Kubernetes EN rewrite challenge 80 companion 생성: `python scripts/build_rewrite_challenge_en_eval_datasets.py`
+- Rewrite challenge raw retrieval probe: `python scripts/rewrite_challenge_retrieval_probe.py score-variants --dataset spring_kr --variant current`
+- Rewrite challenge memory-target probe: `python scripts/rewrite_challenge_memory_probe.py --dataset spring_kr --strategy C`
+- Rewrite candidate target probe: `python scripts/rewrite_case_candidate_probe.py --rewrite-cases <report.json> --dataset-id <dataset_id>`
 - Spring method-compressed stress eval dataset generation: `python scripts/build_method_compressed_eval_datasets.py`
 - Spring paired KR/EN short-user grounding repair: `python scripts/repair_spring_short_user_eval_pair.py`
 - PostgreSQL/Kubernetes paired KR/EN short-user grounding repair: `python scripts/repair_postgresql_kubernetes_eval_pairs.py`

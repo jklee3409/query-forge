@@ -3,6 +3,12 @@
 ## Overview
 High-level progress tracking for the project.
 
+## [2026-06-01] Session Summary (Rewrite Challenge Memory Diagnostics)
+- What was done: Added `rewrite_challenge_memory_probe.py` and `rewrite_case_candidate_probe.py`, and extended `apply_rewrite_challenge_calibration.py` with memory-probe-based variant selection.
+- Key decisions: Kept the tools diagnostic/calibration-only; they do not change pipeline runtime behavior and only update eval query surfaces when explicitly run with `--apply`.
+- Issues encountered: The initial memory-probe selection could exceed the target raw hit count during fallback fill; the selection now prefers raw-miss fallback variants after the target is reached.
+- Next steps: Reuse these probes to calibrate PostgreSQL/Kubernetes with bounded dataset-specific runs.
+
 ## [2026-06-01] Session Summary (Rewrite Challenge Retrieval Probe)
 - What was done: Added `scripts/rewrite_challenge_retrieval_probe.py` to score raw DB-ANN retrieval hit@5 for rewrite challenge datasets and candidate query-surface variants using the same hybrid `intfloat/multilingual-e5-small` retrieval settings as Admin RAG tests.
 - Key decisions: Kept this as a diagnostic script only; it does not alter pipeline behavior, synthetic query batches, or eval grounding.

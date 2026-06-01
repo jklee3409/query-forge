@@ -96,6 +96,113 @@ def _load_probe(path: Path, dataset_key: str) -> dict[str, dict[str, dict[str, A
     return matrix
 
 
+def _load_memory_probe(path: Path, dataset_key: str) -> dict[str, dict[str, dict[str, Any]]]:
+    payload = json.loads(path.read_text(encoding="utf-8"))
+    if payload.get("dataset_key") != dataset_key:
+        raise RuntimeError(f"Dataset {dataset_key} not found in memory probe report: {path}")
+    matrix: dict[str, dict[str, dict[str, Any]]] = {}
+    for row in payload.get("rows", []):
+        sample_id = str(row["sample_id"])
+        variant = str(row["variant"])
+        matrix.setdefault(sample_id, {})[variant] = {
+            "sample_id": sample_id,
+            "variant": variant,
+            "query": row.get("query"),
+            "hit@5": int(row.get("raw_hit@5") == 1),
+            "first_rank": row.get("raw_first_rank"),
+            "raw_found@10": int(row.get("raw_found@10") == 1),
+            "trusted_target_in_top_n": bool(row.get("trusted_target_in_top_n")),
+        }
+    return matrix
+
+
+def _variant_sort_key(row: dict[str, Any], priorities: list[str]) -> tuple[int, int, str]:
+    variant = str(row.get("variant") or "")
+    try:
+        priority = priorities.index(variant)
+    except ValueError:
+        priority = len(priorities) + 1
+    return priority, len(str(row.get("query") or "")), variant
+
+
+def _select_memory_probe_variants(
+    *,
+    rows: list[dict[str, Any]],
+    matrix: dict[str, dict[str, dict[str, Any]]],
+    target_hit_count: int,
+    hard_variant: str,
+    priorities: list[str],
+) -> dict[str, str]:
+    selected: dict[str, str] = {}
+    for row in rows:
+        sample_id = str(row["sample_id"])
+        variants = matrix.get(sample_id, {})
+        rawmiss_trusted = [
+            variant_row
+            for variant_row in variants.values()
+            if int(variant_row.get("hit@5") == 1) == 0 and bool(variant_row.get("trusted_target_in_top_n"))
+        ]
+        if rawmiss_trusted:
+            rawmiss_trusted.sort(key=lambda item: _variant_sort_key(item, priorities))
+            selected[sample_id] = str(rawmiss_trusted[0]["variant"])
+
+    current_hit_count = sum(
+        int(matrix.get(str(row["sample_id"]), {}).get(selected.get(str(row["sample_id"]), ""), {}).get("hit@5") == 1)
+        for row in rows
+    )
+    rawhit_fill_candidates: list[tuple[bool, str, dict[str, Any]]] = []
+    for row in rows:
+        sample_id = str(row["sample_id"])
+        if sample_id in selected:
+            continue
+        variants = matrix.get(sample_id, {})
+        rawhit_variants = [variant_row for variant_row in variants.values() if int(variant_row.get("hit@5") == 1) == 1]
+        if not rawhit_variants:
+            continue
+        rawmiss_available = any(int(variant_row.get("hit@5") == 1) == 0 for variant_row in variants.values())
+        rawhit_variants.sort(key=lambda item: _variant_sort_key(item, priorities))
+        rawhit_fill_candidates.append((rawmiss_available, sample_id, rawhit_variants[0]))
+    rawhit_fill_candidates.sort(key=lambda item: (item[0], item[1]))
+    for _, sample_id, variant_row in rawhit_fill_candidates:
+        if current_hit_count >= target_hit_count:
+            break
+        selected[sample_id] = str(variant_row["variant"])
+        current_hit_count += 1
+
+    for row in rows:
+        sample_id = str(row["sample_id"])
+        if sample_id in selected:
+            continue
+        variants = matrix.get(sample_id, {})
+        if current_hit_count >= target_hit_count:
+            rawmiss_variants = [
+                variant_row
+                for variant_row in variants.values()
+                if int(variant_row.get("hit@5") == 1) == 0 and str(variant_row.get("query") or "").strip()
+            ]
+            if rawmiss_variants:
+                rawmiss_variants.sort(key=lambda item: _variant_sort_key(item, priorities))
+                selected[sample_id] = str(rawmiss_variants[0]["variant"])
+            elif hard_variant in variants:
+                selected[sample_id] = hard_variant
+            elif variants:
+                fallback = sorted(variants.values(), key=lambda item: _variant_sort_key(item, priorities))[0]
+                selected[sample_id] = str(fallback["variant"])
+            else:
+                raise RuntimeError(f"No variants available for sample_id={sample_id}")
+        elif hard_variant in variants:
+            selected[sample_id] = hard_variant
+            current_hit_count += int(variants[hard_variant].get("hit@5") == 1)
+        elif variants:
+            fallback = sorted(variants.values(), key=lambda item: _variant_sort_key(item, priorities))[0]
+            selected[sample_id] = str(fallback["variant"])
+            current_hit_count += int(fallback.get("hit@5") == 1)
+        else:
+            raise RuntimeError(f"No variants available for sample_id={sample_id}")
+
+    return selected
+
+
 def _select_variants(
     *,
     rows: list[dict[str, Any]],
@@ -281,8 +388,7 @@ def _update_db(
                     user_query_en = %s,
                     query_language = %s,
                     difficulty = %s,
-                    metadata = %s,
-                    updated_at = NOW()
+                    metadata = %s
                 WHERE sample_id = %s
                 """,
                 (
@@ -301,15 +407,26 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
     rows = _load_jsonl(spec.path)
     if len(rows) != 80:
         raise RuntimeError(f"{spec.dataset_key} row count mismatch: {len(rows)}")
-    matrix = _load_probe(Path(args.probe), spec.dataset_key)
-    selected = _select_variants(
-        rows=rows,
-        matrix=matrix,
-        base_variant=args.base_variant,
-        easy_variant=args.easy_variant,
-        hard_variant=args.hard_variant,
-        target_hit_count=args.target_hit_count,
-    )
+    if args.memory_probe:
+        matrix = _load_memory_probe(Path(args.memory_probe), spec.dataset_key)
+        priorities = [item for item in args.priority_variants if str(item).strip()]
+        selected = _select_memory_probe_variants(
+            rows=rows,
+            matrix=matrix,
+            target_hit_count=args.target_hit_count,
+            hard_variant=args.hard_variant,
+            priorities=priorities,
+        )
+    else:
+        matrix = _load_probe(Path(args.probe), spec.dataset_key)
+        selected = _select_variants(
+            rows=rows,
+            matrix=matrix,
+            base_variant=args.base_variant,
+            easy_variant=args.easy_variant,
+            hard_variant=args.hard_variant,
+            target_hit_count=args.target_hit_count,
+        )
     updated_rows, summary = _apply_to_rows(
         rows=rows,
         matrix=matrix,
@@ -317,6 +434,13 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
         spec=spec,
         profile=args.profile,
         target_hit_count=args.target_hit_count,
+    )
+    summary["selected_rawmiss_trusted_target_count"] = sum(
+        int(
+            matrix[str(row["sample_id"])][selected[str(row["sample_id"])]].get("hit@5") != 1
+            and matrix[str(row["sample_id"])][selected[str(row["sample_id"])]].get("trusted_target_in_top_n") is True
+        )
+        for row in updated_rows
     )
     if args.apply:
         _write_jsonl(spec.path, updated_rows)
@@ -330,12 +454,28 @@ def run(args: argparse.Namespace) -> dict[str, Any]:
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Apply calibrated query surfaces from a rewrite challenge probe report.")
     parser.add_argument("--dataset", required=True, choices=sorted(DATASETS))
-    parser.add_argument("--probe", required=True)
-    parser.add_argument("--base-variant", required=True)
+    parser.add_argument("--probe", default=None)
+    parser.add_argument("--memory-probe", default=None)
+    parser.add_argument("--base-variant", default=None)
     parser.add_argument("--easy-variant", default="section")
     parser.add_argument("--hard-variant", default="current")
     parser.add_argument("--target-hit-count", type=int, default=36)
     parser.add_argument("--profile", default="raw36_memory_anchorless_c")
+    parser.add_argument(
+        "--priority-variants",
+        nargs="*",
+        default=[
+            "current",
+            "memory_a_ko_anchorless",
+            "memory_c_ko_anchorless",
+            "current_memory_a_ko_anchorless",
+            "current_memory_c_ko_anchorless",
+            "current_memory_a_code_anchorless",
+            "current_memory_c_code_anchorless",
+            "current_glossary_a",
+            "current_glossary_c",
+        ],
+    )
     parser.add_argument("--apply", action="store_true")
     parser.add_argument("--db-host", default="localhost")
     parser.add_argument("--db-port", type=int, default=5432)
@@ -347,6 +487,10 @@ def build_parser() -> argparse.ArgumentParser:
 
 def main() -> int:
     args = build_parser().parse_args()
+    if bool(args.memory_probe) == bool(args.probe):
+        raise SystemExit("Provide exactly one of --probe or --memory-probe")
+    if args.probe and not args.base_variant:
+        raise SystemExit("--base-variant is required with --probe")
     run(args)
     return 0
 
