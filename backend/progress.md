@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-06-02] Session Summary (Admin FINAL Rewrite Policy Alignment)
+- What was done: Aligned Admin-generated compact rewrite adoption policy with the promoted FINAL rewrite-challenge settings and made request `threshold` propagate into policy `min_improvement`.
+- Key decisions: Kept the Admin RAG pipeline structure unchanged; only config generation weights/guards were tuned so GUI/API-created runs can reproduce the FINAL C compact rewrite condition. The raw-loss overlap guard follows the Spring/Kubernetes promoted FINAL value (`0.5`) to avoid over-adopting weak rewrites.
+- Issues encountered: Earlier Admin API FINAL runs were visible in history but underperformed because generated `admin_eval_*` configs still used stricter default short-user adoption thresholds.
+- Next steps: Restart the active backend process and rerun FINAL KR C compact rewrite runs through `/api/admin/console/rag/tests/run`.
+
 ## [2026-05-29] Session Summary (RAG Rewrite Profile Controls)
 - What was done: Extended Admin RAG run requests/config generation with `rewriteQueryProfile`, `rewriteLlmModel`, runtime catalog profile allowlisting, detailed-intent adoption policy, and rewrite experiment-record metadata.
 - Key decisions: `compact_anchor` remains the default profile; `detailed_intent` uses a separate verbosity-tolerant adoption policy and optional rewrite-only LLM model override through `llm_rewrite_model`.

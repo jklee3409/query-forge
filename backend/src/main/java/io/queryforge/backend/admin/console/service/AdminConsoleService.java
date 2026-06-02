@@ -1086,7 +1086,7 @@ public class AdminConsoleService {
         config.put("multi_source_anchor_max_total", 8);
         config.put("multi_source_anchor_max_per_seed", 2);
         config.put("rewrite_failure_policy", rewriteFailurePolicy);
-        config.put("rewrite_adoption_policy", rewriteAdoptionPolicyForProfile(rewriteQueryProfile));
+        config.put("rewrite_adoption_policy", rewriteAdoptionPolicyForProfile(rewriteQueryProfile, threshold));
         config.put("rewrite_prompt_profile", resolveRewritePromptProfile(evalQueryLanguage));
         config.put("retrieval_top_k", retrievalTopK);
         config.put("rerank_top_n", rerankTopN);
@@ -3373,25 +3373,29 @@ public class AdminConsoleService {
     private Map<String, Object> relaxedShortUserRewriteAdoptionPolicy() {
         RuntimeCatalog runtimeCatalog = loadRuntimeCatalog();
         double rewriteDefault = runtimeDefaultDouble(runtimeCatalog, "rewrite_threshold", DEFAULT_REWRITE_THRESHOLD);
+        return relaxedShortUserRewriteAdoptionPolicy(rewriteDefault);
+    }
+
+    private Map<String, Object> relaxedShortUserRewriteAdoptionPolicy(double minImprovement) {
         Map<String, Object> shortUserThresholds = new LinkedHashMap<>();
-        shortUserThresholds.put("min_improvement", rewriteDefault);
-        shortUserThresholds.put("preservation_floor", 0.68d);
-        shortUserThresholds.put("max_length_ratio", 2.10d);
-        shortUserThresholds.put("max_compact_query_chars", 56);
+        shortUserThresholds.put("min_improvement", minImprovement);
+        shortUserThresholds.put("preservation_floor", 0.50d);
+        shortUserThresholds.put("max_length_ratio", 4.00d);
+        shortUserThresholds.put("max_compact_query_chars", 160);
         shortUserThresholds.put("underspecified_memory_norm_cutoff", 0.66d);
-        shortUserThresholds.put("raw_loss_guard_confidence_floor", 0.78d);
-        shortUserThresholds.put("raw_loss_guard_min_overlap_ratio", 0.20d);
+        shortUserThresholds.put("raw_loss_guard_confidence_floor", 0.86d);
+        shortUserThresholds.put("raw_loss_guard_min_overlap_ratio", 0.50d);
+        shortUserThresholds.put("raw_loss_guard_allow_source_memory_improved", true);
+        shortUserThresholds.put("raw_loss_guard_require_top1_loss", false);
 
         Map<String, Object> shortUserPenalties = new LinkedHashMap<>();
-        shortUserPenalties.put("verbosity_per_extra_ratio", 0.035d);
-        shortUserPenalties.put("memory_target_missing", 0.06d);
+        shortUserPenalties.put("verbosity_per_extra_ratio", 0.015d);
+        shortUserPenalties.put("memory_target_missing", 0.12d);
 
         Map<String, Object> shortUserBonuses = new LinkedHashMap<>();
-        shortUserBonuses.put("memory_target_presence", 0.10d);
-        shortUserBonuses.put(
-                "source_memory_target_hit_margin",
-                rewriteDefault
-        );
+        shortUserBonuses.put("memory_target_presence", 0.14d);
+        shortUserBonuses.put("source_memory_target_hit_margin", 0.12d);
+        shortUserBonuses.put("source_memory_target_selection", 0.22d);
 
         Map<String, Object> shortUserPolicy = new LinkedHashMap<>();
         shortUserPolicy.put("thresholds", shortUserThresholds);
@@ -3442,11 +3446,11 @@ public class AdminConsoleService {
         return policy;
     }
 
-    private Map<String, Object> rewriteAdoptionPolicyForProfile(String rewriteQueryProfile) {
+    private Map<String, Object> rewriteAdoptionPolicyForProfile(String rewriteQueryProfile, double minImprovement) {
         if (REWRITE_QUERY_PROFILE_DETAILED_INTENT.equals(rewriteQueryProfile)) {
             return detailedIntentRewriteAdoptionPolicy();
         }
-        return relaxedShortUserRewriteAdoptionPolicy();
+        return relaxedShortUserRewriteAdoptionPolicy(minImprovement);
     }
 
     private Map<String, Object> baseExperimentConfig(String experimentKey, String methodCode) {

@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-06-02] Session Summary (Admin GUI FINAL RAG Runs)
+- What was done: Ran FINAL EN baselines and KR C compact rewrite tests through the Admin Console RAG API so results are visible in `/admin/rag-tests` history.
+- Key decisions: Kept `gemini-2.5-flash-lite`, `db_ann` hybrid retrieval, `intfloat/multilingual-e5-small`, C full-gating snapshots, compact rewrite, and anchor injection. Admin-generated compact rewrite adoption policy was aligned to the promoted FINAL config so API-created runs reproduce the intended setting.
+- Issues encountered: Restarting backend through the helper script exposed the relative `.env` Python path; backend was restarted with absolute `QUERY_FORGE_PYTHON` and no Docker/container rebuild. One Kubernetes retry was needed to recover the prior FINAL-level result.
+- Next steps: Use the `FINAL_*` / `FINAL_GUI_*` run labels as the visible Admin history anchors for final reporting.
+
 ## [2026-06-01] Session Summary (Spring KR C Rewrite Challenge Calibration)
 - What was done: Calibrated `spring_kr_rewrite_challenge_80` to raw hit@5 `36/80` using C trusted-memory-aware query-surface selection, tightened compact rewrite prompting, and validated C compact selective rewrite at `40/80` hit@5.
 - Key decisions: Kept `gemini-2.5-flash-lite`, db-ann hybrid retrieval, `intfloat/multilingual-e5-small`, C full-gating snapshot `73b5bfc1-73b5-4cfe-ab64-daf94729578b`, and anchor injection enabled; no core pipeline logic was changed.
