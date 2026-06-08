@@ -1,26 +1,28 @@
 # Data
 
-`data/`는 수집 결과, 정제 산출물, 향후 생성 데이터셋과 리포트를 저장하는 작업 디렉터리다. 대부분의 산출물은 Git에 직접 포함하지 않고 `.gitkeep` 또는 최소 샘플만 유지한다.
+`data/`는 Query-Forge pipeline과 평가가 생성하거나 소비하는 artifact를 보관하는 작업 디렉터리입니다. 이 디렉터리는 DB의 전체 source of truth가 아니라, 수집/전처리/평가/리포트 재현을 위한 파일 기반 증거를 담습니다. 실제 runtime 상태는 PostgreSQL의 corpus, synthetic, gating, memory, eval, RAG table에 저장될 수 있으므로 README는 특정 row count를 고정된 사실로 주장하지 않습니다.
 
-## 디렉터리 구성
+## 구조
 
 ```text
-raw/        수집 직후의 HTML JSONL
-processed/  section, chunk, glossary 등 전처리 산출물
-synthetic/  합성 질의와 메모리 산출물 예정 위치
-eval/       평가용 샘플과 결과 예정 위치
-reports/    자동 생성 리포트 예정 위치
-logs/       실행 로그가 생성되는 위치
+raw/          collector가 저장한 원본 HTML JSONL
+processed/    section, chunk, glossary, chunk relation, visualization artifact
+synthetic/    synthetic query/gating/memory export를 둘 수 있는 작업 공간
+eval/         retrieval-aware JSONL 평가 데이터셋
+reports/      retrieval/answer/latency/audit/rewrite case report
+artifacts/    backend pipeline artifact store
+logs/         backend/pipeline 실행 로그
+tmp/          임시 작업 산출물
 ```
 
-## 사용 흐름
+## 데이터 흐름
 
-1. `raw/`에 수집 결과 저장
-2. `processed/`에 정제·chunking·glossary 결과 저장
-3. import 후에는 PostgreSQL이 주 조회 원본이 되지만, 재현성과 diff 검토를 위해 파일 산출물도 유지
+`collect-docs`는 `raw/`에 source별 HTML JSONL을 남깁니다. `preprocess`와 `chunk-docs`는 `processed/`에 section/chunk/glossary/relation artifact를 만들고, `import-corpus`가 이를 PostgreSQL에 적재합니다. Synthetic generation과 quality gating의 primary record는 DB에 저장되지만, 필요하면 `synthetic/` 아래에 export를 둘 수 있습니다. Retrieval-aware 평가 입력은 `eval/`에 JSONL로 보존하고, retrieval/answer 실행 결과와 audit 산출물은 `reports/`에 남깁니다.
 
-## 주의 사항
+## 현재 포함된 artifact 범위
 
-- 대용량 산출물은 기본적으로 Git에 포함하지 않는다.
-- 현재 저장소에는 빠른 검증용 dry-run 샘플이 일부 포함되어 있다.
-- `scripts/bootstrap-local.ps1`는 실제 산출물이 없을 때 dry-run 샘플을 자동으로 사용한다.
+현재 `raw/`와 `processed/`에는 Spring, Python Korean docs, Kubernetes 관련 artifact가 포함되어 있습니다. `eval/`에는 Spring short-user KR/EN, Spring method-compressed A/B/C/D/E stress dataset, Python KR-source KO/EN, PostgreSQL/Kubernetes KO/EN, anchor-translated variant, rewrite challenge/probe dataset이 있습니다. `reports/`에는 answer/retrieval summary/detail CSV/JSON, latency summary, dataset audit, rewrite case analysis가 누적됩니다.
+
+## 운영 원칙
+
+대용량 artifact는 로컬 상태와 실험 이력에 따라 달라질 수 있습니다. 새 dataset을 추가할 때는 JSONL 파일만 두는 것으로 끝내지 말고, 필요한 경우 DB `eval_dataset`, `eval_samples`, `eval_dataset_item` 등록 방식과 schema가 일치하는지 확인해야 합니다. RAG 결과를 해석할 때는 dataset key/version, source/gating snapshot, strategy, retriever config, rewrite profile, anchor config를 함께 확인합니다.

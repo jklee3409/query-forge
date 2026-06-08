@@ -273,7 +273,7 @@ infra/                    Docker, PostgreSQL, SQL operation notes
 scripts/                  local bootstrap, backend runner, pipeline wrappers, dataset build/audit/repair scripts
 ```
 
-각 주요 디렉터리는 `index.md`와 `progress.md`를 갖고 있으며, 구조나 역할이 바뀌면 해당 문서도 함께 갱신하는 것을 원칙으로 합니다.
+각 주요 디렉터리와 데이터/문서/인프라 하위 디렉터리에는 해당 영역의 구현 세부 사항을 설명하는 `README.md`가 작성되어 있습니다. 또한 주요 디렉터리는 `index.md`와 `progress.md`를 갖고 있으며, 구조나 역할이 바뀌면 해당 문서도 함께 갱신하는 것을 원칙으로 합니다.
 
 ---
 

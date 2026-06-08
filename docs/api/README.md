@@ -1,54 +1,24 @@
-# API 문서 안내
+# API Docs
 
-`docs/api/`는 현재 구현된 관리자 API와 이후 확장될 서비스 API 문서를 모아 두는 디렉터리다.
+`docs/api/`는 Query-Forge backend의 HTTP API 문서를 모아 둡니다. 실제 source of truth는 `backend/src/main/java/io/queryforge/backend/**/controller`이지만, 이 디렉터리는 운영자가 endpoint의 목적과 사용 맥락을 빠르게 찾기 위한 안내 역할을 합니다.
 
-## 현재 구현 범위
+## 문서와 구현 대응
 
-### Corpus Admin API
+| 영역 | 구현 controller | 문서 |
+| --- | --- | --- |
+| Corpus Admin | `CorpusAdminController` | `corpus_admin_api.md` |
+| Pipeline Admin | `PipelineAdminController` | `admin_pipeline_api.md` |
+| Online RAG / Experiment API | `RagController` | `rag_api.md` |
+| Admin Console | `AdminConsoleController` | 이 README와 backend README를 함께 참고 |
+| Domain Admin | `DomainAdminController` | 현재는 controller와 architecture/domain 문서를 기준으로 확인 |
+| Prompt Admin | `PromptAdminController` | 현재는 controller와 frontend Prompt Studio 구현을 기준으로 확인 |
 
-- `GET /api/admin/corpus/sources`
-- `GET /api/admin/corpus/runs`
-- `GET /api/admin/corpus/documents`
-- `GET /api/admin/corpus/chunks`
-- `GET /api/admin/corpus/glossary`
-- preview endpoint
-- source enable/disable
-- glossary patch, alias CRUD
+## 현재 API 표면
 
-상세 문서:
+Corpus Admin은 source, run, document, section, chunk, glossary, preview, anchor extraction, anchor normalization, multi-source anchor build, anchor eval을 제공합니다. Pipeline Admin은 collect, normalize, chunk, glossary, import, full-ingest, retry, cancel, run/step/log 조회를 제공합니다. Admin Console은 synthetic methods/batches/queries/stats, runtime options, chunk embedding status/materialization, gating batches/funnel/results, RAG datasets/tests/compare/details, rewrite logs, LLM jobs를 제공합니다.
 
-- `corpus_admin_api.md`
+Online RAG API는 `/api/chat/ask`, `/api/rewrite/preview`, `/api/queries/{id}/trace`, `/api/experiments/{runId}/summary`, `/api/eval/retrieval`, `/api/eval/answer`, `/api/admin/reindex`, `/api/admin/experiments/run`을 중심으로 합니다. React Admin bundle은 API 문서가 아니라 `backend/ui/ReactUiController`에서 `/admin/*` 경로로 서빙됩니다.
 
-### Pipeline Admin API
+## 작성 원칙
 
-- collect / normalize / chunk / glossary / import / full-ingest 실행
-- run retry / cancel
-- run / step / log 조회
-- dashboard 통계 조회
-
-상세 문서:
-
-- `admin_pipeline_api.md`
-
-### Admin Console API
-
-- synthetic batch 실행/조회, query 상세 조회
-- quality gating batch 실행/퍼널/결과 조회
-- RAG test 실행/상세/비교, llm job 상태 제어
-
-현재는 `backend/index.md`와 `backend/src/main/java/io/queryforge/backend/admin/console/controller/AdminConsoleController.java`를 기준으로 운영하며, 별도 상세 문서는 순차 확장한다.
-
-### RAG / Experiments API
-
-- `POST /api/chat/ask`
-- `POST /api/rewrite/preview`
-- `GET /api/queries/{id}/trace`
-- `GET /api/experiments/{runId}/summary`
-- `GET /api/eval/retrieval`
-- `GET /api/eval/answer`
-- `POST /api/admin/reindex`
-- `POST /api/admin/experiments/run`
-
-상세 문서:
-
-- `rag_api.md`
+API 문서를 갱신할 때는 endpoint 목록만 나열하지 말고, 어떤 실험 단계와 재현성 제약에 연결되는지 함께 설명해야 합니다. 특히 RAG test API는 dataset, query language, target method, explicit snapshot, retriever config, rewrite profile, synthetic-free baseline 여부가 결과 해석에 직접 영향을 주므로 request/response field의 의미를 분명히 남겨야 합니다.

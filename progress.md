@@ -1317,8 +1317,13 @@ High-level progress tracking for the project.
 - Issues encountered: The existing Admin pipeline page still has a pre-existing hook dependency lint warning; the touched page has no new lint errors.
 - Next steps: Restart the backend so Flyway applies `V34`, then review `anchor-normalize-255d113f` in `/admin/pipeline` by skipping the `http {` conflict or approving any safe candidates in future runs.
 
----
+## [2026-06-08] Session Summary (Directory README Current-State Sync)
+- What was done: Updated project-owned directory README files for backend, frontend, pipeline, configs, data subdirectories, docs subdirectories, infra subdirectories, and scripts to reflect the current implementation state, and added root README guidance that directory README files are available.
+- Key decisions: Kept root README content intact except for the directory README note; excluded third-party `frontend/node_modules` README files and left pre-existing generated experiment report modifications untouched.
+- Issues encountered: Initial bulk write hit Windows command-line length limits, so README updates were applied in smaller batches.
+- Next steps: Keep directory README files synchronized when API surfaces, pipeline commands, runtime catalog options, dataset artifacts, or operational scripts change.
 
+---
 ## Notes
 - Keep this file concise
 - Only record important changes
