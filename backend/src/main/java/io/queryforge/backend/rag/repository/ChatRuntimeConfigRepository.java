@@ -1,0 +1,379 @@
+package io.queryforge.backend.rag.repository;
+
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import io.queryforge.backend.rag.model.ChatRuntimeDtos;
+import lombok.RequiredArgsConstructor;
+import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
+import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
+import org.springframework.stereotype.Repository;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.sql.ResultSet;
+import java.sql.SQLException;
+import java.sql.Timestamp;
+import java.time.Instant;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Optional;
+import java.util.UUID;
+
+@Repository
+@RequiredArgsConstructor
+@Transactional(readOnly = true)
+public class ChatRuntimeConfigRepository {
+
+    private final NamedParameterJdbcTemplate jdbcTemplate;
+    private final ObjectMapper objectMapper;
+
+    public record GatingSnapshot(
+            UUID gatingBatchId,
+            UUID sourceGatingRunId,
+            UUID domainId,
+            String gatingPreset,
+            String methodCode,
+            String status
+    ) {
+    }
+
+    public record RagRunApplySnapshot(
+            UUID ragTestRunId,
+            UUID domainId,
+            String status,
+            JsonNode generationMethodCodes,
+            String gatingPreset,
+            Boolean rewriteEnabled,
+            Boolean selectiveRewrite,
+            Boolean useSessionContext,
+            Boolean rewriteAnchorInjectionEnabled,
+            Integer retrievalTopK,
+            Integer rerankTopN,
+            Double threshold,
+            JsonNode configJson
+    ) {
+    }
+
+    public List<ChatRuntimeDtos.ChatDomainOption> findActiveDomains() {
+        String sql = """
+                SELECT d.domain_id,
+                       d.domain_key,
+                       d.display_name,
+                       d.source_language,
+                       COALESCE(c.enabled, FALSE) AS chat_enabled
+                FROM tech_doc_domain d
+                LEFT JOIN chat_runtime_config c ON c.domain_id = d.domain_id
+                WHERE d.status = 'active'
+                ORDER BY d.display_name, d.domain_key
+                """;
+        return jdbcTemplate.query(sql, (rs, rowNum) -> new ChatRuntimeDtos.ChatDomainOption(
+                readUuid(rs, "domain_id"),
+                rs.getString("domain_key"),
+                rs.getString("display_name"),
+                rs.getString("source_language"),
+                rs.getBoolean("chat_enabled")
+        ));
+    }
+
+    public Optional<ChatRuntimeDtos.ChatRuntimeConfigResponse> findConfig(UUID domainId) {
+        String sql = """
+                SELECT d.domain_id,
+                       d.domain_key,
+                       d.display_name,
+                       d.source_language,
+                       COALESCE(c.enabled, TRUE) AS enabled,
+                       COALESCE(c.mode, 'selective_rewrite') AS mode,
+                       COALESCE(c.generation_strategies, methods.method_codes, '[]'::jsonb)::text AS generation_strategies,
+                       COALESCE(c.gating_preset, 'full_gating') AS gating_preset,
+                       c.source_gating_batch_id,
+                       c.source_gating_run_id,
+                       COALESCE(c.rewrite_query_profile, 'compact_anchor') AS rewrite_query_profile,
+                       COALESCE(c.rewrite_anchor_injection_enabled, FALSE) AS rewrite_anchor_injection_enabled,
+                       COALESCE(c.use_session_context, FALSE) AS use_session_context,
+                       COALESCE(c.retrieval_top_k, 10) AS retrieval_top_k,
+                       COALESCE(c.rerank_top_n, 5) AS rerank_top_n,
+                       COALESCE(c.memory_top_n, 5) AS memory_top_n,
+                       COALESCE(c.rewrite_candidate_count, 2) AS rewrite_candidate_count,
+                       COALESCE(c.rewrite_threshold, 0.05) AS rewrite_threshold,
+                       COALESCE(c.rewrite_failure_policy, 'heuristic_fallback') AS rewrite_failure_policy,
+                       COALESCE(c.metadata_json, '{}'::jsonb)::text AS metadata_json,
+                       COALESCE(c.updated_at, d.updated_at) AS updated_at
+                FROM tech_doc_domain d
+                LEFT JOIN chat_runtime_config c ON c.domain_id = d.domain_id
+                LEFT JOIN LATERAL (
+                    SELECT jsonb_agg(p.method_code ORDER BY p.method_code) AS method_codes
+                    FROM tech_doc_domain_method_policy p
+                    WHERE p.domain_id = d.domain_id
+                      AND p.enabled IS TRUE
+                ) methods ON TRUE
+                WHERE d.domain_id = :domainId
+                  AND d.status = 'active'
+                """;
+        return jdbcTemplate.query(sql, new MapSqlParameterSource("domainId", domainId), this::mapConfig)
+                .stream()
+                .findFirst();
+    }
+
+    public List<String> findEnabledMethodCodes(UUID domainId) {
+        String sql = """
+                SELECT method_code
+                FROM tech_doc_domain_method_policy
+                WHERE domain_id = :domainId
+                  AND enabled IS TRUE
+                ORDER BY method_code
+                """;
+        return jdbcTemplate.queryForList(sql, new MapSqlParameterSource("domainId", domainId), String.class);
+    }
+
+    public Optional<GatingSnapshot> findGatingSnapshot(UUID gatingBatchId) {
+        String sql = """
+                SELECT qb.gating_batch_id,
+                       qb.source_gating_run_id,
+                       qb.domain_id,
+                       qb.gating_preset,
+                       m.method_code,
+                       qb.status
+                FROM quality_gating_batch qb
+                LEFT JOIN synthetic_query_generation_method m
+                  ON m.generation_method_id = qb.generation_method_id
+                WHERE qb.gating_batch_id = :gatingBatchId
+                """;
+        return jdbcTemplate.query(
+                        sql,
+                        new MapSqlParameterSource("gatingBatchId", gatingBatchId),
+                        (rs, rowNum) -> new GatingSnapshot(
+                                readUuid(rs, "gating_batch_id"),
+                                readUuid(rs, "source_gating_run_id"),
+                                readUuid(rs, "domain_id"),
+                                rs.getString("gating_preset"),
+                                rs.getString("method_code"),
+                                rs.getString("status")
+                        )
+                )
+                .stream()
+                .findFirst();
+    }
+
+    public Optional<RagRunApplySnapshot> findRagRunApplySnapshot(UUID ragTestRunId) {
+        String sql = """
+                SELECT r.rag_test_run_id,
+                       r.domain_id,
+                       r.status,
+                       r.generation_method_codes::text AS generation_method_codes,
+                       r.gating_preset,
+                       r.rewrite_enabled,
+                       r.selective_rewrite,
+                       r.use_session_context,
+                       r.rewrite_anchor_injection_enabled,
+                       r.retrieval_top_k,
+                       r.rerank_top_n,
+                       r.threshold,
+                       COALESCE(rc.config_json, '{}'::jsonb)::text AS config_json
+                FROM rag_test_run r
+                LEFT JOIN rag_test_run_config rc
+                  ON rc.rag_test_run_id = r.rag_test_run_id
+                WHERE r.rag_test_run_id = :ragTestRunId
+                """;
+        return jdbcTemplate.query(
+                        sql,
+                        new MapSqlParameterSource("ragTestRunId", ragTestRunId),
+                        (rs, rowNum) -> new RagRunApplySnapshot(
+                                readUuid(rs, "rag_test_run_id"),
+                                readUuid(rs, "domain_id"),
+                                rs.getString("status"),
+                                readJson(rs.getString("generation_method_codes")),
+                                rs.getString("gating_preset"),
+                                rs.getObject("rewrite_enabled", Boolean.class),
+                                rs.getObject("selective_rewrite", Boolean.class),
+                                rs.getObject("use_session_context", Boolean.class),
+                                rs.getObject("rewrite_anchor_injection_enabled", Boolean.class),
+                                rs.getObject("retrieval_top_k", Integer.class),
+                                rs.getObject("rerank_top_n", Integer.class),
+                                rs.getObject("threshold", Double.class),
+                                readJson(rs.getString("config_json"))
+                        )
+                )
+                .stream()
+                .findFirst();
+    }
+
+    @Transactional
+    public void upsertConfig(
+            UUID domainId,
+            boolean enabled,
+            String mode,
+            List<String> generationStrategies,
+            String gatingPreset,
+            UUID sourceGatingBatchId,
+            UUID sourceGatingRunId,
+            String rewriteQueryProfile,
+            boolean rewriteAnchorInjectionEnabled,
+            boolean useSessionContext,
+            int retrievalTopK,
+            int rerankTopN,
+            int memoryTopN,
+            int rewriteCandidateCount,
+            double rewriteThreshold,
+            String rewriteFailurePolicy,
+            JsonNode metadata,
+            String updatedBy
+    ) {
+        String sql = """
+                INSERT INTO chat_runtime_config (
+                    domain_id,
+                    enabled,
+                    mode,
+                    generation_strategies,
+                    gating_preset,
+                    source_gating_batch_id,
+                    source_gating_run_id,
+                    rewrite_query_profile,
+                    rewrite_anchor_injection_enabled,
+                    use_session_context,
+                    retrieval_top_k,
+                    rerank_top_n,
+                    memory_top_n,
+                    rewrite_candidate_count,
+                    rewrite_threshold,
+                    rewrite_failure_policy,
+                    metadata_json,
+                    updated_by,
+                    updated_at
+                ) VALUES (
+                    :domainId,
+                    :enabled,
+                    :mode,
+                    CAST(:generationStrategies AS jsonb),
+                    :gatingPreset,
+                    :sourceGatingBatchId,
+                    :sourceGatingRunId,
+                    :rewriteQueryProfile,
+                    :rewriteAnchorInjectionEnabled,
+                    :useSessionContext,
+                    :retrievalTopK,
+                    :rerankTopN,
+                    :memoryTopN,
+                    :rewriteCandidateCount,
+                    :rewriteThreshold,
+                    :rewriteFailurePolicy,
+                    CAST(:metadata AS jsonb),
+                    :updatedBy,
+                    NOW()
+                )
+                ON CONFLICT (domain_id) DO UPDATE
+                SET enabled = EXCLUDED.enabled,
+                    mode = EXCLUDED.mode,
+                    generation_strategies = EXCLUDED.generation_strategies,
+                    gating_preset = EXCLUDED.gating_preset,
+                    source_gating_batch_id = EXCLUDED.source_gating_batch_id,
+                    source_gating_run_id = EXCLUDED.source_gating_run_id,
+                    rewrite_query_profile = EXCLUDED.rewrite_query_profile,
+                    rewrite_anchor_injection_enabled = EXCLUDED.rewrite_anchor_injection_enabled,
+                    use_session_context = EXCLUDED.use_session_context,
+                    retrieval_top_k = EXCLUDED.retrieval_top_k,
+                    rerank_top_n = EXCLUDED.rerank_top_n,
+                    memory_top_n = EXCLUDED.memory_top_n,
+                    rewrite_candidate_count = EXCLUDED.rewrite_candidate_count,
+                    rewrite_threshold = EXCLUDED.rewrite_threshold,
+                    rewrite_failure_policy = EXCLUDED.rewrite_failure_policy,
+                    metadata_json = EXCLUDED.metadata_json,
+                    updated_by = EXCLUDED.updated_by,
+                    updated_at = NOW()
+                """;
+        jdbcTemplate.update(
+                sql,
+                new MapSqlParameterSource()
+                        .addValue("domainId", domainId)
+                        .addValue("enabled", enabled)
+                        .addValue("mode", mode)
+                        .addValue("generationStrategies", objectMapper.valueToTree(generationStrategies).toString())
+                        .addValue("gatingPreset", gatingPreset)
+                        .addValue("sourceGatingBatchId", sourceGatingBatchId)
+                        .addValue("sourceGatingRunId", sourceGatingRunId)
+                        .addValue("rewriteQueryProfile", rewriteQueryProfile)
+                        .addValue("rewriteAnchorInjectionEnabled", rewriteAnchorInjectionEnabled)
+                        .addValue("useSessionContext", useSessionContext)
+                        .addValue("retrievalTopK", retrievalTopK)
+                        .addValue("rerankTopN", rerankTopN)
+                        .addValue("memoryTopN", memoryTopN)
+                        .addValue("rewriteCandidateCount", rewriteCandidateCount)
+                        .addValue("rewriteThreshold", rewriteThreshold)
+                        .addValue("rewriteFailurePolicy", rewriteFailurePolicy)
+                        .addValue("metadata", (metadata == null ? objectMapper.createObjectNode() : metadata).toString())
+                        .addValue("updatedBy", updatedBy)
+        );
+    }
+
+    private ChatRuntimeDtos.ChatRuntimeConfigResponse mapConfig(ResultSet rs, int rowNum) throws SQLException {
+        List<String> methods = readStringArray(rs.getString("generation_strategies"));
+        UUID sourceGatingBatchId = readUuid(rs, "source_gating_batch_id");
+        UUID sourceGatingRunId = readUuid(rs, "source_gating_run_id");
+        boolean memoryMode = !"raw_only".equalsIgnoreCase(rs.getString("mode"));
+        boolean ready = !memoryMode || (sourceGatingBatchId != null && sourceGatingRunId != null);
+        String readinessMessage = ready
+                ? "ready"
+                : "select a completed gating snapshot before enabling rewrite-backed chat";
+        return new ChatRuntimeDtos.ChatRuntimeConfigResponse(
+                readUuid(rs, "domain_id"),
+                rs.getString("domain_key"),
+                rs.getString("display_name"),
+                rs.getString("source_language"),
+                rs.getBoolean("enabled"),
+                rs.getString("mode"),
+                methods,
+                rs.getString("gating_preset"),
+                sourceGatingBatchId,
+                sourceGatingRunId,
+                rs.getString("rewrite_query_profile"),
+                rs.getBoolean("rewrite_anchor_injection_enabled"),
+                rs.getBoolean("use_session_context"),
+                rs.getInt("retrieval_top_k"),
+                rs.getInt("rerank_top_n"),
+                rs.getInt("memory_top_n"),
+                rs.getInt("rewrite_candidate_count"),
+                rs.getDouble("rewrite_threshold"),
+                rs.getString("rewrite_failure_policy"),
+                readJson(rs.getString("metadata_json")),
+                readInstant(rs, "updated_at"),
+                ready,
+                readinessMessage
+        );
+    }
+
+    private List<String> readStringArray(String raw) {
+        List<String> values = new ArrayList<>();
+        JsonNode node = readJson(raw);
+        if (node.isArray()) {
+            for (JsonNode item : node) {
+                String value = item.asText("").trim();
+                if (!value.isBlank()) {
+                    values.add(value);
+                }
+            }
+        }
+        return values;
+    }
+
+    private JsonNode readJson(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return objectMapper.createObjectNode();
+        }
+        try {
+            return objectMapper.readTree(raw);
+        } catch (Exception ignored) {
+            return objectMapper.createObjectNode();
+        }
+    }
+
+    private UUID readUuid(ResultSet rs, String column) throws SQLException {
+        Object value = rs.getObject(column);
+        if (value instanceof UUID uuid) {
+            return uuid;
+        }
+        return value == null ? null : UUID.fromString(value.toString());
+    }
+
+    private Instant readInstant(ResultSet rs, String column) throws SQLException {
+        Timestamp timestamp = rs.getTimestamp(column);
+        return timestamp == null ? null : timestamp.toInstant();
+    }
+}

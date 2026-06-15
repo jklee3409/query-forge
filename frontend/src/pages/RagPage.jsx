@@ -1990,6 +1990,7 @@ export function RagPage({ notify, domainId = null }) {
   const [compareRunIds, setCompareRunIds] = useState([])
   const [activeCompareMetricKey, setActiveCompareMetricKey] = useState('')
   const [deletingRunId, setDeletingRunId] = useState('')
+  const [applyingRunId, setApplyingRunId] = useState('')
   const [deletingDatasetId, setDeletingDatasetId] = useState('')
   const [chunkEmbeddingStatus, setChunkEmbeddingStatus] = useState(null)
   const [chunkEmbeddingStatusLoading, setChunkEmbeddingStatusLoading] = useState(false)
@@ -2698,6 +2699,47 @@ export function RagPage({ notify, domainId = null }) {
 
   const clearCompareRuns = () => {
     setCompareRunIds([])
+  }
+
+  const applyRunToChat = async (run) => {
+    const runId = run?.ragTestRunId
+    if (!runId) return
+    if (String(run.status || '').toLowerCase() !== 'completed') {
+      notify('Only completed RAG test runs can be applied to chat.', 'error')
+      return
+    }
+    setApplyingRunId(runId)
+    try {
+      const payload = await requestJson('/api/admin/chat/config/apply-rag-run', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ragTestRunId: runId, updatedBy: 'admin-ui' }),
+      })
+      const editHref = payload?.domainKey
+        ? `/admin/domains/${encodeURIComponent(payload.domainKey)}/chat-settings`
+        : ''
+      notify('RAG test settings applied to Chat.')
+      setModal({
+        title: `Chat config applied - ${shortId(runId)}`,
+        body: (
+          <div className="detail-grid detail-grid--single">
+            <DetailCard label="domain" value={`${payload.displayName || payload.domainKey || '-'} / ${payload.domainKey || '-'}`} />
+            <DetailCard label="mode / profile" value={`${payload.mode || '-'} / ${payload.rewriteQueryProfile || '-'}`} />
+            <DetailCard label="snapshot" value={payload.sourceGatingBatchId || '-'} />
+            <DetailCard label="strategies" value={(payload.generationStrategies || []).join(', ') || '-'} />
+            {editHref && (
+              <div className="form-actions">
+                <a className="button button--primary" href={editHref}>Edit Chat Settings</a>
+              </div>
+            )}
+          </div>
+        ),
+      })
+    } catch (error) {
+      notify(error.message, 'error')
+    } finally {
+      setApplyingRunId('')
+    }
   }
 
   const openJobDetail = async (jobId) => {
@@ -3744,6 +3786,7 @@ export function RagPage({ notify, domainId = null }) {
                 <th>스테이지 컷오프</th>
                 <th>재작성 모드</th>
                 <th>핵심 지표</th>
+                <th>Chat</th>
                 <th>상세</th>
                 <th>삭제</th>
               </tr>
@@ -3844,6 +3887,16 @@ export function RagPage({ notify, domainId = null }) {
                           </span>
                         ))}
                       </div>
+                    </td>
+                    <td>
+                      <button
+                        type="button"
+                        className="button button--ghost"
+                        disabled={String(run.status || '').toLowerCase() !== 'completed' || applyingRunId === run.ragTestRunId}
+                        onClick={() => applyRunToChat(run)}
+                      >
+                        {applyingRunId === run.ragTestRunId ? 'Applying...' : 'Apply to Chat'}
+                      </button>
                     </td>
                     <td><button type="button" className="button button--ghost" onClick={() => openRunDetail(run.ragTestRunId)}>상세 조회</button></td>
                     <td>

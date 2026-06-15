@@ -1,5 +1,17 @@
 # progress.md
 
+## [2026-06-15] Session Summary (RAG Apply to Chat UI)
+- What was done: Added an `Apply to Chat` action to completed `/admin/rag-tests` history rows. Applying a run calls the new backend API and opens a confirmation modal with the applied domain, mode/profile, snapshot, strategies, and an `Edit Chat Settings` link.
+- Key decisions: The UI keeps editing in the domain `Chat Settings` page so copied values are immediately adjustable through the same form used for manual chat runtime config changes.
+- Issues encountered: Targeted ESLint passed with the existing two `RagPage.jsx` hook dependency warnings, and `npm run build` passed with a refreshed backend-served React bundle.
+- Next steps: Browser-smoke the completed-run button and the edit link in a domain workspace.
+
+## [2026-06-15] Session Summary (Domain-Pinned Chat Settings)
+- What was done: Reworked the Chat surface to require domain selection, display active domain chat config, show raw vs rewritten/final queries, and added a domain workspace `Chat Settings` Admin page.
+- Key decisions: User chat no longer sends ad hoc mode/gating/threshold controls; the saved per-domain server config drives live RAG behavior. Chat Settings exposes strategy selection, completed snapshot selection, gating preset, compact/detailed rewrite profile, anchor injection, session context, and retrieval sizing.
+- Issues encountered: Existing chat controls were global and could not express domain-specific snapshot policy.
+- Next steps: Browser-smoke each domain after Flyway V44 and backend restart.
+
 ## [2026-05-29] Session Summary (RAG Rewrite Profile Controls)
 - What was done: Added `/admin/rag-tests` controls for rewrite-only LLM model selection and `rewriteQueryProfile` (`compact_anchor` / `detailed_intent`), included both in run payloads and summary preview, and refreshed the backend-served React bundle.
 - Key decisions: Blank Rewrite LLM inherits the common LLM model, so existing runs keep the previous behavior unless an operator selects a rewrite-specific model.

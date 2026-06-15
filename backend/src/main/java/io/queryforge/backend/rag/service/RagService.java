@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import io.queryforge.backend.rag.model.ChatRuntimeDtos;
 import io.queryforge.backend.rag.model.RagDtos;
 import io.queryforge.backend.rag.repository.RagRepository;
 import lombok.RequiredArgsConstructor;
@@ -36,6 +37,7 @@ public class RagService {
     private final HashEmbeddingService embeddingService;
     private final CohereRerankService cohereRerankService;
     private final RewriteCandidateService rewriteCandidateService;
+    private final ChatRuntimeConfigService chatRuntimeConfigService;
     private final ObjectMapper objectMapper;
 
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
@@ -44,44 +46,65 @@ public class RagService {
         if (rawQuery.isBlank()) {
             throw new IllegalArgumentException("query must not be blank");
         }
-        String mode = normalizedMode(request.mode());
-        int retrievalTopK = normalizedPositive(request.retrievalTopK(), 20);
-        int rerankTopN = normalizedPositive(request.rerankTopN(), 5);
-        int memoryTopN = normalizedPositive(request.memoryTopN(), 5);
-        int candidateCount = Math.min(normalizedPositive(request.rewriteCandidateCount(), 2), 2);
-        double threshold = request.rewriteThreshold() != null ? request.rewriteThreshold() : 0.05d;
-        String gatingPreset = request.gatingPreset();
-        if (gatingPreset == null || gatingPreset.isBlank()) {
-            gatingPreset = "full_gating";
+        if (request.domainId() == null) {
+            throw new IllegalArgumentException("domainId is required for chat");
         }
+        ChatRuntimeDtos.ChatRuntimeConfigResponse config = chatRuntimeConfigService.getConfig(request.domainId());
+        if (!config.enabled()) {
+            throw new IllegalArgumentException("chat is disabled for domain: " + config.displayName());
+        }
+        String mode = normalizedMode(config.mode());
+        if (!"raw_only".equals(mode) && !config.readyForRewrite()) {
+            throw new IllegalArgumentException(config.readinessMessage());
+        }
+        int retrievalTopK = normalizedPositive(config.retrievalTopK(), 10);
+        int rerankTopN = normalizedPositive(config.rerankTopN(), 5);
+        int memoryTopN = normalizedPositive(config.memoryTopN(), 5);
+        int candidateCount = Math.min(normalizedPositive(config.rewriteCandidateCount(), 2), 2);
+        double threshold = config.rewriteThreshold();
+        String gatingPreset = normalizedPreset(config.gatingPreset());
+        boolean useSessionContext = config.useSessionContext() || "selective_rewrite_with_session".equals(mode);
+        String rewriteQueryProfile = normalizedRewriteProfile(config.rewriteQueryProfile());
+        ObjectNode runtimeMetadata = runtimeMetadata(config);
 
         Instant started = Instant.now();
         long stageStart = System.nanoTime();
         UUID onlineQueryId = repository.createOnlineQuery(
+                config.domainId(),
                 request.sessionId(),
                 rawQuery,
-                nullSafeJson(request.sessionContext()),
+                useSessionContext ? nullSafeJson(request.sessionContext()) : objectMapper.createObjectNode(),
                 mode,
-                threshold
+                threshold,
+                runtimeMetadata
         );
         long createQueryLatency = elapsedMs(stageStart);
 
         stageStart = System.nanoTime();
         String rawEmbeddingLiteral = embeddingService.toHalfvecLiteral(embeddingService.embed(rawQuery));
+        String memoryPreset = switch (mode) {
+            case "memory_only_ungated" -> "ungated";
+            case "memory_only_gated" -> gatingPreset;
+            default -> gatingPreset;
+        };
         List<RagRepository.MemoryCandidate> memoryCandidates = repository.findMemoryTopN(
                 rawEmbeddingLiteral,
                 memoryTopN,
-                switch (mode) {
-                    case "memory_only_ungated" -> "ungated";
-                    case "memory_only_gated" -> gatingPreset;
-                    default -> gatingPreset;
-                }
+                memoryPreset,
+                config.domainId(),
+                config.generationStrategies(),
+                config.sourceGatingRunId(),
+                config.sourceGatingBatchId()
         );
         JsonNode memoryTopNJson = objectMapper.valueToTree(memoryCandidates);
         long memoryLatency = elapsedMs(stageStart);
 
         stageStart = System.nanoTime();
-        List<RagRepository.RetrievalDoc> rawRetrievedLocal = repository.findTopChunksByEmbedding(rawEmbeddingLiteral, retrievalTopK);
+        List<RagRepository.RetrievalDoc> rawRetrievedLocal = repository.findTopChunksByEmbedding(
+                rawEmbeddingLiteral,
+                retrievalTopK,
+                config.domainId()
+        );
         List<RagRepository.RetrievalDoc> rawRetrieved = cohereRerankService.rerank(rawQuery, rawRetrievedLocal, rerankTopN);
         double rawDense = memoryCandidates.isEmpty() ? 0.0 : memoryCandidates.getFirst().similarity();
         double rawConfidence = confidence(rawRetrieved, rawDense);
@@ -91,15 +114,22 @@ public class RagService {
         stageStart = System.nanoTime();
         List<RewriteCandidateService.CandidateTemplate> generatedCandidates = rewriteCandidateService.buildCandidates(
                 rawQuery,
-                nullSafeJson(request.sessionContext()),
+                useSessionContext ? nullSafeJson(request.sessionContext()) : objectMapper.createObjectNode(),
                 memoryCandidates,
-                candidateCount
+                candidateCount,
+                rewriteQueryProfile,
+                config.rewriteAnchorInjectionEnabled(),
+                domainContext(config)
         );
         List<GeneratedCandidate> scoredCandidates = new ArrayList<>();
         for (int index = 0; index < generatedCandidates.size(); index++) {
             RewriteCandidateService.CandidateTemplate generated = generatedCandidates.get(index);
             String embeddingLiteral = embeddingService.toHalfvecLiteral(embeddingService.embed(generated.query()));
-            List<RagRepository.RetrievalDoc> candidateRetrievedLocal = repository.findTopChunksByEmbedding(embeddingLiteral, retrievalTopK);
+            List<RagRepository.RetrievalDoc> candidateRetrievedLocal = repository.findTopChunksByEmbedding(
+                    embeddingLiteral,
+                    retrievalTopK,
+                    config.domainId()
+            );
             List<RagRepository.RetrievalDoc> candidateRetrieved = cohereRerankService.rerank(
                     generated.query(),
                     candidateRetrievedLocal,
@@ -129,7 +159,8 @@ public class RagService {
                 rawRetrieved,
                 memoryCandidates,
                 scoredCandidates,
-                threshold
+                threshold,
+                config.domainId()
         );
         if (decision.selectedCandidateId() != null) {
             for (GeneratedCandidate candidate : scoredCandidates) {
@@ -187,7 +218,6 @@ public class RagService {
         double selectedConfidence = confidence(decision.finalRetrieved(), rawDense);
         boolean gatingApplied = !"raw_only".equals(mode) && !"memory_only_ungated".equals(mode);
         boolean selectiveRewrite = mode.startsWith("selective_rewrite");
-        boolean useSessionContext = "selective_rewrite_with_session".equals(mode);
         UUID rewriteLogId = repository.createOnlineRewriteLog(
                 onlineQueryId,
                 null,
@@ -206,14 +236,7 @@ public class RagService {
                 selectedConfidence - rawConfidence,
                 decision.selectedReason(),
                 decision.rejectedReason(),
-                objectMapper.valueToTree(Map.of(
-                        "retrieval_top_k", retrievalTopK,
-                        "rerank_top_n", rerankTopN,
-                        "memory_top_n", memoryTopN,
-                        "rewrite_candidate_count", candidateCount,
-                        "rewrite_threshold", threshold,
-                        "latency_breakdown", latencyBreakdown
-                ))
+                rewriteLogMetadata(config, rewriteQueryProfile, retrievalTopK, rerankTopN, memoryTopN, candidateCount, threshold, latencyBreakdown)
         );
 
         for (int index = 0; index < memoryCandidates.size(); index++) {
@@ -225,7 +248,9 @@ public class RagService {
                     memoryCandidate,
                     objectMapper.valueToTree(Map.of(
                             "gating_preset", gatingPreset,
-                            "generation_batch_id", memoryCandidate.generationBatchId() == null ? "" : memoryCandidate.generationBatchId().toString()
+                            "generation_batch_id", memoryCandidate.generationBatchId() == null ? "" : memoryCandidate.generationBatchId().toString(),
+                            "source_gate_run_id", memoryCandidate.sourceGateRunId() == null ? "" : memoryCandidate.sourceGateRunId(),
+                            "source_gating_batch_id", memoryCandidate.sourceGatingBatchId() == null ? "" : memoryCandidate.sourceGatingBatchId()
                     ))
             );
         }
@@ -262,6 +287,7 @@ public class RagService {
                 toScoredDocs(decision.finalRetrieved()),
                 toScoredDocs(reranked),
                 memoryTopNJson,
+                config,
                 latencyBreakdown
         );
     }
@@ -278,12 +304,23 @@ public class RagService {
                 : request.gatingPreset();
 
         String queryEmbedding = embeddingService.toHalfvecLiteral(embeddingService.embed(rawQuery));
-        List<RagRepository.MemoryCandidate> memories = repository.findMemoryTopN(queryEmbedding, memoryTopN, gatingPreset);
+        List<RagRepository.MemoryCandidate> memories = repository.findMemoryTopN(
+                queryEmbedding,
+                memoryTopN,
+                gatingPreset,
+                null,
+                List.of(),
+                null,
+                null
+        );
         List<RewriteCandidateService.CandidateTemplate> candidates = rewriteCandidateService.buildCandidates(
                 rawQuery,
                 nullSafeJson(request.sessionContext()),
                 memories,
-                candidateCount
+                candidateCount,
+                "compact_anchor",
+                false,
+                objectMapper.createObjectNode()
         );
         List<RagDtos.RewriteCandidateDto> previewDtos = new ArrayList<>();
         for (RewriteCandidateService.CandidateTemplate candidate : candidates) {
@@ -465,7 +502,8 @@ public class RagService {
             List<RagRepository.RetrievalDoc> rawRetrieved,
             List<RagRepository.MemoryCandidate> memoryCandidates,
             List<GeneratedCandidate> candidates,
-            double threshold
+            double threshold,
+            UUID domainId
     ) {
         if ("raw_only".equals(mode)) {
             return new Decision(rawQuery, false, rawRetrieved, null, "raw_only", "mode=raw_only");
@@ -476,7 +514,11 @@ public class RagService {
             }
             String memoryQuery = memoryCandidates.getFirst().queryText();
             String embedding = embeddingService.toHalfvecLiteral(embeddingService.embed(memoryQuery));
-            List<RagRepository.RetrievalDoc> retrievedLocal = repository.findTopChunksByEmbedding(embedding, Math.max(20, rawRetrieved.size()));
+            List<RagRepository.RetrievalDoc> retrievedLocal = repository.findTopChunksByEmbedding(
+                    embedding,
+                    Math.max(20, rawRetrieved.size()),
+                    domainId
+            );
             List<RagRepository.RetrievalDoc> retrieved = cohereRerankService.rerank(memoryQuery, retrievedLocal, rawRetrieved.size());
             return new Decision(memoryQuery, true, retrieved, null, "memory_only", null);
         }
@@ -560,6 +602,64 @@ public class RagService {
         return array;
     }
 
+    private ObjectNode runtimeMetadata(ChatRuntimeDtos.ChatRuntimeConfigResponse config) {
+        ObjectNode node = objectMapper.createObjectNode();
+        node.put("domain_id", config.domainId().toString());
+        node.put("domain_key", config.domainKey());
+        node.put("domain_display_name", config.displayName());
+        node.put("mode", config.mode());
+        node.put("gating_preset", config.gatingPreset());
+        node.set("generation_strategies", objectMapper.valueToTree(config.generationStrategies()));
+        putNullableUuid(node, "source_gating_batch_id", config.sourceGatingBatchId());
+        putNullableUuid(node, "source_gating_run_id", config.sourceGatingRunId());
+        node.put("rewrite_query_profile", config.rewriteQueryProfile());
+        node.put("rewrite_anchor_injection_enabled", config.rewriteAnchorInjectionEnabled());
+        node.put("use_session_context", config.useSessionContext());
+        return node;
+    }
+
+    private ObjectNode rewriteLogMetadata(
+            ChatRuntimeDtos.ChatRuntimeConfigResponse config,
+            String rewriteQueryProfile,
+            int retrievalTopK,
+            int rerankTopN,
+            int memoryTopN,
+            int candidateCount,
+            double threshold,
+            Map<String, Long> latencyBreakdown
+    ) {
+        ObjectNode node = runtimeMetadata(config);
+        node.put("rewrite_query_profile", rewriteQueryProfile);
+        node.put("retrieval_top_k", retrievalTopK);
+        node.put("rerank_top_n", rerankTopN);
+        node.put("memory_top_n", memoryTopN);
+        node.put("rewrite_candidate_count", candidateCount);
+        node.put("rewrite_threshold", threshold);
+        node.set("latency_breakdown", objectMapper.valueToTree(latencyBreakdown));
+        return node;
+    }
+
+    private ObjectNode domainContext(ChatRuntimeDtos.ChatRuntimeConfigResponse config) {
+        ObjectNode node = objectMapper.createObjectNode();
+        node.put("current_technical_domain", config.displayName());
+        node.put("domain_key", config.domainKey());
+        node.put("source_language", config.sourceLanguage() == null ? "" : config.sourceLanguage());
+        node.put(
+                "rewrite_instruction",
+                "Keep the query inside the " + config.displayName()
+                        + " documentation domain and do not add anchors from other domains."
+        );
+        return node;
+    }
+
+    private void putNullableUuid(ObjectNode node, String fieldName, UUID value) {
+        if (value == null) {
+            node.putNull(fieldName);
+        } else {
+            node.put(fieldName, value.toString());
+        }
+    }
+
     private AnswerDraft buildAnswer(List<RagRepository.RetrievalDoc> reranked) {
         StringBuilder builder = new StringBuilder();
         Set<String> docs = new HashSet<>();
@@ -591,6 +691,21 @@ public class RagService {
             return "selective_rewrite";
         }
         return mode.trim().toLowerCase(Locale.ROOT);
+    }
+
+    private String normalizedPreset(String preset) {
+        if (preset == null || preset.isBlank()) {
+            return "full_gating";
+        }
+        return preset.trim().toLowerCase(Locale.ROOT);
+    }
+
+    private String normalizedRewriteProfile(String profile) {
+        if (profile == null || profile.isBlank()) {
+            return "compact_anchor";
+        }
+        String normalized = profile.trim().toLowerCase(Locale.ROOT);
+        return "detailed_intent".equals(normalized) ? normalized : "compact_anchor";
     }
 
     private int normalizedPositive(Integer value, int fallback) {

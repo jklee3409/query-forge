@@ -11,7 +11,7 @@
 - `public/favicon.svg`, `public/icons.svg`: 정적 자산
 - `src/main.jsx`: 앱 부트스트랩
 - `src/App.jsx`: 페이지 조합/라우팅 진입
-- `src/pages/ChatPage.jsx`, `PipelinePage.jsx`, `SyntheticPage.jsx`, `GatingPage.jsx`, `RagPage.jsx`: 관리자 화면 페이지
+- `src/pages/ChatPage.jsx`, `ChatSettingsPage.jsx`, `PipelinePage.jsx`, `SyntheticPage.jsx`, `GatingPage.jsx`, `RagPage.jsx`: 관리자 화면 페이지
 - `src/components/AdminUi.jsx`, `Common.jsx`, `LlmJobsTable.jsx`: admin card/section/metric/dialog primitives and shared UI components
 - `src/lib/api.js`, `format.js`, `hooks.js`: API 호출/포맷/커스텀 훅 유틸
 - `src/styles.css`: 전역 스타일
@@ -34,6 +34,8 @@
 ---
 
 ## Recent Update
+- `/admin/rag-tests` completed run rows now expose `Apply to Chat`, which copies the selected RAG run into the persistent per-domain chat runtime config and opens a result modal with an `Edit Chat Settings` link so the copied values remain directly editable.
+- `/` Chat surface now requires a domain selection, loads the persisted domain chat runtime config, and shows raw query, rewritten query, final query, applied config, rewrite candidates, retrieved chunks, and memory candidates. Domain workspace Admin navigation now includes `Chat Settings` for pinning live chat mode, generation strategies, completed snapshot, compact/detailed rewrite profile, anchor injection, session context, and retrieval sizing per domain.
 - `/admin/rag-tests` eval dataset detail modal now uses the dataset name as the title and renders every query as structured cards. RAG run history loads the full list and supports first/previous/direct/next/last page movement; RAG run detail dropdowns show miss-target badges, latency metrics are displayed in seconds, and raw-query metric deltas use green/red emphasis.
 - `/admin/rag-tests` now exposes rewrite-only LLM model selection and a runtime-driven rewrite profile selector. `compact_anchor` keeps the existing compact anchor path, while `detailed_intent` requests self-contained detailed query expansion before optional anchor injection.
 - `/admin/pipeline` no longer renders the Anchor Eval section. `/admin/synthetic-queries` domain workspaces use domain source language for method availability (`en` -> A/B/C/D/E, `ko` -> F/G), and `/admin/rag-tests` detail query dropdowns show rewrite applied/skipped badges while de-duplicating repeated sample rows.

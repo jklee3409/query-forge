@@ -50,11 +50,14 @@ public class RewriteCandidateService {
             String rawQuery,
             JsonNode sessionContext,
             List<RagRepository.MemoryCandidate> memories,
-            int candidateCount
+            int candidateCount,
+            String rewriteQueryProfile,
+            boolean anchorInjectionEnabled,
+            JsonNode domainContext
     ) {
         int limitedCount = Math.max(1, Math.min(candidateCount, 2));
         List<CandidateTemplate> fallback = heuristicCandidates(rawQuery, sessionContext, memories, limitedCount);
-        Optional<PromptAsset> promptAsset = resolvePromptAsset();
+        Optional<PromptAsset> promptAsset = resolvePromptAsset(rewriteQueryProfile);
         if (promptAsset.isEmpty()) {
             return fallback;
         }
@@ -63,12 +66,15 @@ public class RewriteCandidateService {
                 rawQuery,
                 sessionContext,
                 memories,
-                limitedCount
+                limitedCount,
+                rewriteQueryProfile,
+                anchorInjectionEnabled,
+                domainContext
         );
         return llmCandidates.orElse(fallback);
     }
 
-    private Optional<PromptAsset> resolvePromptAsset() {
+    private Optional<PromptAsset> resolvePromptAsset(String rewriteQueryProfile) {
         List<Path> roots = new ArrayList<>();
         String promptRootEnv = envOrDefault("PROMPT_ROOT", "").trim();
         if (!promptRootEnv.isBlank()) {
@@ -79,7 +85,7 @@ public class RewriteCandidateService {
         roots.add(Path.of("../../configs/prompts"));
 
         for (Path root : roots) {
-            for (String filename : PROMPT_FILENAMES) {
+            for (String filename : promptFilenames(rewriteQueryProfile)) {
                 Path path = root.resolve("rewrite").resolve(filename).toAbsolutePath().normalize();
                 if (!Files.exists(path)) {
                     continue;
@@ -95,18 +101,50 @@ public class RewriteCandidateService {
         return Optional.empty();
     }
 
+    private List<String> promptFilenames(String rewriteQueryProfile) {
+        String normalized = rewriteQueryProfile == null ? "" : rewriteQueryProfile.trim().toLowerCase(Locale.ROOT);
+        if ("detailed_intent".equals(normalized)) {
+            List<String> filenames = new ArrayList<>();
+            filenames.add("selective_rewrite_detailed_intent_v1.md");
+            filenames.addAll(PROMPT_FILENAMES);
+            return filenames;
+        }
+        return PROMPT_FILENAMES;
+    }
+
     private Optional<List<CandidateTemplate>> requestLlmCandidates(
             PromptAsset promptAsset,
             String rawQuery,
             JsonNode sessionContext,
             List<RagRepository.MemoryCandidate> memories,
-            int candidateCount
+            int candidateCount,
+            String rewriteQueryProfile,
+            boolean anchorInjectionEnabled,
+            JsonNode domainContext
     ) {
         String provider = envOrDefault("QUERY_FORGE_LLM_PROVIDER", "gemini").toLowerCase(Locale.ROOT);
         if (provider.startsWith("openai")) {
-            return requestOpenAiCandidates(promptAsset, rawQuery, sessionContext, memories, candidateCount);
+            return requestOpenAiCandidates(
+                    promptAsset,
+                    rawQuery,
+                    sessionContext,
+                    memories,
+                    candidateCount,
+                    rewriteQueryProfile,
+                    anchorInjectionEnabled,
+                    domainContext
+            );
         }
-        return requestGeminiCandidates(promptAsset, rawQuery, sessionContext, memories, candidateCount);
+        return requestGeminiCandidates(
+                promptAsset,
+                rawQuery,
+                sessionContext,
+                memories,
+                candidateCount,
+                rewriteQueryProfile,
+                anchorInjectionEnabled,
+                domainContext
+        );
     }
 
     private Optional<List<CandidateTemplate>> requestGeminiCandidates(
@@ -114,7 +152,10 @@ public class RewriteCandidateService {
             String rawQuery,
             JsonNode sessionContext,
             List<RagRepository.MemoryCandidate> memories,
-            int candidateCount
+            int candidateCount,
+            String rewriteQueryProfile,
+            boolean anchorInjectionEnabled,
+            JsonNode domainContext
     ) {
         String apiKey = firstNonBlank(
                 envOrDefault("QUERY_FORGE_GEMINI_API_KEY", ""),
@@ -140,7 +181,15 @@ public class RewriteCandidateService {
             ObjectNode userNode = contents.addObject();
             userNode.put("role", "user");
             ArrayNode userParts = userNode.putArray("parts");
-            userParts.addObject().put("text", buildRewriteUserPrompt(rawQuery, sessionContext, memories, candidateCount));
+            userParts.addObject().put("text", buildRewriteUserPrompt(
+                    rawQuery,
+                    sessionContext,
+                    memories,
+                    candidateCount,
+                    rewriteQueryProfile,
+                    anchorInjectionEnabled,
+                    domainContext
+            ));
 
             ObjectNode generationConfig = payload.putObject("generationConfig");
             generationConfig.put("responseMimeType", "application/json");
@@ -178,7 +227,10 @@ public class RewriteCandidateService {
             String rawQuery,
             JsonNode sessionContext,
             List<RagRepository.MemoryCandidate> memories,
-            int candidateCount
+            int candidateCount,
+            String rewriteQueryProfile,
+            boolean anchorInjectionEnabled,
+            JsonNode domainContext
     ) {
         String apiKey = envOrDefault("OPENAI_API_KEY", "").trim();
         if (apiKey.isBlank()) {
@@ -202,7 +254,15 @@ public class RewriteCandidateService {
                     .put("content", promptAsset.text());
             messages.addObject()
                     .put("role", "user")
-                    .put("content", buildRewriteUserPrompt(rawQuery, sessionContext, memories, candidateCount));
+                    .put("content", buildRewriteUserPrompt(
+                            rawQuery,
+                            sessionContext,
+                            memories,
+                            candidateCount,
+                            rewriteQueryProfile,
+                            anchorInjectionEnabled,
+                            domainContext
+                    ));
 
             HttpRequest request = HttpRequest.newBuilder()
                     .uri(URI.create(baseUrl.replaceAll("/+$", "") + "/chat/completions"))
@@ -231,13 +291,24 @@ public class RewriteCandidateService {
             String rawQuery,
             JsonNode sessionContext,
             List<RagRepository.MemoryCandidate> memories,
-            int candidateCount
+            int candidateCount,
+            String rewriteQueryProfile,
+            boolean anchorInjectionEnabled,
+            JsonNode domainContext
     ) {
         try {
             ObjectNode payload = objectMapper.createObjectNode();
             payload.put("raw_query", safeTrim(rawQuery));
+            payload.put("query_language", looksKorean(rawQuery) ? "ko" : "en");
             payload.set("session_context", safeSessionContext(sessionContext));
-            payload.set("top_memory_candidates", topMemoryCandidates(memories));
+            payload.set("domain_context", safeSessionContext(domainContext));
+            payload.set("top_memory_candidates", topMemoryCandidates(memories, anchorInjectionEnabled));
+            ObjectNode policy = payload.putObject("candidate_policy");
+            policy.put("mode", "memory_expanded");
+            policy.put("output_label", "expanded");
+            policy.put("memory_allowed", true);
+            policy.put("anchor_hints_allowed", anchorInjectionEnabled);
+            payload.put("rewrite_query_profile", safeTrim(rewriteQueryProfile));
             payload.put("candidate_count", candidateCount);
             return objectMapper.writerWithDefaultPrettyPrinter().writeValueAsString(payload);
         } catch (Exception ignored) {
@@ -252,7 +323,7 @@ public class RewriteCandidateService {
         return value;
     }
 
-    private ArrayNode topMemoryCandidates(List<RagRepository.MemoryCandidate> memories) {
+    private ArrayNode topMemoryCandidates(List<RagRepository.MemoryCandidate> memories, boolean anchorInjectionEnabled) {
         ArrayNode rows = objectMapper.createArrayNode();
         for (int index = 0; index < Math.min(MEMORY_CANDIDATE_LIMIT, memories.size()); index++) {
             RagRepository.MemoryCandidate memory = memories.get(index);
@@ -263,12 +334,27 @@ public class RewriteCandidateService {
                 row.put("memory_id", "");
             }
             row.put("query_text", safeTrim(memory.queryText()));
+            row.put("synthetic_query", safeTrim(memory.queryText()));
             row.put("target_doc_id", safeTrim(memory.targetDocId()));
             row.set("target_chunk_ids", memory.targetChunkIds() == null ? objectMapper.createArrayNode() : memory.targetChunkIds());
             row.put("generation_strategy", safeTrim(memory.generationStrategy()));
             row.put("similarity", memory.similarity());
+            row.put("source_gate_run_id", safeTrim(memory.sourceGateRunId()));
+            row.put("source_gating_batch_id", safeTrim(memory.sourceGatingBatchId()));
+            if (anchorInjectionEnabled) {
+                row.set("glossary_terms", memory.glossaryTerms() == null ? objectMapper.createArrayNode() : memory.glossaryTerms());
+                row.set("canonical_anchors", canonicalAnchors(memory.metadata()));
+            }
         }
         return rows;
+    }
+
+    private JsonNode canonicalAnchors(JsonNode metadata) {
+        if (metadata == null || !metadata.isObject()) {
+            return objectMapper.createArrayNode();
+        }
+        JsonNode canonicalAnchors = metadata.path("canonical_anchors");
+        return canonicalAnchors.isArray() ? canonicalAnchors : objectMapper.createArrayNode();
     }
 
     private Optional<List<CandidateTemplate>> parseCandidatePayload(String rawContent, int candidateCount) {
@@ -437,6 +523,10 @@ public class RewriteCandidateService {
             return "";
         }
         return value.replaceAll("\\s+", " ").trim();
+    }
+
+    private boolean looksKorean(String value) {
+        return value != null && value.matches(".*\\p{IsHangul}.*");
     }
 
     private int parseInt(String raw, int fallback) {

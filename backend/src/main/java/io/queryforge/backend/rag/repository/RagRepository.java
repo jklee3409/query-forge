@@ -41,9 +41,15 @@ public class RagRepository {
             String queryText,
             String targetDocId,
             JsonNode targetChunkIds,
+            JsonNode glossaryTerms,
+            JsonNode metadata,
             double similarity,
             String generationStrategy,
-            UUID generationBatchId
+            UUID generationBatchId,
+            UUID domainId,
+            String sourceGatedQueryId,
+            String sourceGateRunId,
+            String sourceGatingBatchId
     ) {
     }
 
@@ -133,15 +139,30 @@ public class RagRepository {
         );
     }
 
-    public List<MemoryCandidate> findMemoryTopN(String queryEmbeddingLiteral, int topN, String gatingPreset) {
+    public List<MemoryCandidate> findMemoryTopN(
+            String queryEmbeddingLiteral,
+            int topN,
+            String gatingPreset,
+            UUID domainId,
+            List<String> generationStrategies,
+            UUID sourceGatingRunId,
+            UUID sourceGatingBatchId
+    ) {
+        boolean strategyFilterEmpty = generationStrategies == null || generationStrategies.isEmpty();
         String sql = """
                 SELECT m.memory_id,
                        m.query_text,
                        m.target_doc_id,
                        m.target_chunk_ids::text AS target_chunk_ids,
+                       m.glossary_terms::text AS glossary_terms,
+                       m.metadata::text AS metadata_json,
                        1 - (qe.embedding <=> CAST(:embedding AS halfvec)) AS similarity,
                        m.generation_strategy,
-                       r.generation_batch_id
+                       r.generation_batch_id,
+                       m.domain_id,
+                       m.source_gated_query_id,
+                       m.metadata ->> 'source_gate_run_id' AS source_gate_run_id,
+                       m.metadata ->> 'source_gating_batch_id' AS source_gating_batch_id
                 FROM query_embeddings qe
                 JOIN memory_entries m
                   ON qe.owner_type = 'memory'
@@ -151,6 +172,10 @@ public class RagRepository {
                 LEFT JOIN synthetic_queries_raw_all r ON r.synthetic_query_id = g.synthetic_query_id
                 WHERE qe.embedding IS NOT NULL
                   AND (:gatingPreset IS NULL OR g.gating_preset = :gatingPreset)
+                  AND (:domainId IS NULL OR m.domain_id = :domainId)
+                  AND (:strategyFilterEmpty IS TRUE OR m.generation_strategy IN (:generationStrategies))
+                  AND (:sourceGatingRunId IS NULL OR m.metadata ->> 'source_gate_run_id' = :sourceGatingRunId)
+                  AND (:sourceGatingBatchId IS NULL OR m.metadata ->> 'source_gating_batch_id' = :sourceGatingBatchId)
                 ORDER BY qe.embedding <=> CAST(:embedding AS halfvec)
                 LIMIT :topN
                 """;
@@ -159,15 +184,26 @@ public class RagRepository {
                 new MapSqlParameterSource()
                         .addValue("embedding", queryEmbeddingLiteral)
                         .addValue("topN", topN)
-                        .addValue("gatingPreset", gatingPreset),
+                        .addValue("gatingPreset", gatingPreset)
+                        .addValue("domainId", domainId)
+                        .addValue("strategyFilterEmpty", strategyFilterEmpty)
+                        .addValue("generationStrategies", strategyFilterEmpty ? List.of("") : generationStrategies)
+                        .addValue("sourceGatingRunId", sourceGatingRunId == null ? null : sourceGatingRunId.toString())
+                        .addValue("sourceGatingBatchId", sourceGatingBatchId == null ? null : sourceGatingBatchId.toString()),
                 (rs, rowNum) -> new MemoryCandidate(
                         readUuid(rs, "memory_id"),
                         rs.getString("query_text"),
                         rs.getString("target_doc_id"),
                         readJson(rs, "target_chunk_ids"),
+                        readJson(rs, "glossary_terms"),
+                        readJson(rs, "metadata_json"),
                         rs.getDouble("similarity"),
                         rs.getString("generation_strategy"),
-                        readUuid(rs, "generation_batch_id")
+                        readUuid(rs, "generation_batch_id"),
+                        readUuid(rs, "domain_id"),
+                        rs.getString("source_gated_query_id"),
+                        rs.getString("source_gate_run_id"),
+                        rs.getString("source_gating_batch_id")
                 )
         );
     }
@@ -234,6 +270,10 @@ public class RagRepository {
     }
 
     public List<RetrievalDoc> findTopChunksByEmbedding(String queryEmbeddingLiteral, int topK) {
+        return findTopChunksByEmbedding(queryEmbeddingLiteral, topK, null);
+    }
+
+    public List<RetrievalDoc> findTopChunksByEmbedding(String queryEmbeddingLiteral, int topK, UUID domainId) {
         String sql = """
                 SELECT c.document_id,
                        c.chunk_id,
@@ -243,6 +283,7 @@ public class RagRepository {
                 JOIN corpus_chunks c ON c.chunk_id = qe.owner_id
                 WHERE qe.owner_type = 'chunk'
                   AND qe.embedding_model = 'hash-embedding-v1'
+                  AND (:domainId IS NULL OR c.domain_id = :domainId)
                 ORDER BY qe.embedding <=> CAST(:embedding AS halfvec)
                 LIMIT :topK
                 """;
@@ -250,7 +291,8 @@ public class RagRepository {
                 sql,
                 new MapSqlParameterSource()
                         .addValue("embedding", queryEmbeddingLiteral)
-                        .addValue("topK", topK),
+                        .addValue("topK", topK)
+                        .addValue("domainId", domainId),
                 (rs, rowNum) -> new RetrievalDoc(
                         rs.getString("document_id"),
                         rs.getString("chunk_id"),
@@ -262,39 +304,47 @@ public class RagRepository {
 
     @Transactional
     public UUID createOnlineQuery(
+            UUID domainId,
             String sessionId,
             String rawQuery,
             JsonNode sessionContextSnapshot,
             String rewriteStrategy,
-            double threshold
+            double threshold,
+            JsonNode metadata
     ) {
         UUID onlineQueryId = UUID.randomUUID();
         String sql = """
                 INSERT INTO online_queries (
                     online_query_id,
+                    domain_id,
                     session_id,
                     raw_query,
                     rewrite_strategy,
                     session_context_snapshot,
-                    threshold
+                    threshold,
+                    metadata
                 ) VALUES (
                     :onlineQueryId,
+                    :domainId,
                     :sessionId,
                     :rawQuery,
                     :rewriteStrategy,
                     CAST(:sessionContext AS jsonb),
-                    :threshold
+                    :threshold,
+                    CAST(:metadata AS jsonb)
                 )
                 """;
         jdbcTemplate.update(
                 sql,
                 new MapSqlParameterSource()
                         .addValue("onlineQueryId", onlineQueryId)
+                        .addValue("domainId", domainId)
                         .addValue("sessionId", sessionId)
                         .addValue("rawQuery", rawQuery)
                         .addValue("rewriteStrategy", rewriteStrategy)
                         .addValue("sessionContext", Objects.requireNonNullElse(sessionContextSnapshot, objectMapper.createObjectNode()).toString())
                         .addValue("threshold", threshold)
+                        .addValue("metadata", Objects.requireNonNullElse(metadata, objectMapper.createObjectNode()).toString())
         );
         return onlineQueryId;
     }

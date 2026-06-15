@@ -1,5 +1,6 @@
 import { Fragment, startTransition, useCallback, useDeferredValue, useEffect, useMemo, useState } from 'react'
 import { ChatPage } from './pages/ChatPage.jsx'
+import { ChatSettingsPage } from './pages/ChatSettingsPage.jsx'
 import { DomainHomePage } from './pages/DomainHomePage.jsx'
 import { GatingPage } from './pages/GatingPage.jsx'
 import { PipelinePage } from './pages/PipelinePage.jsx'
@@ -77,6 +78,12 @@ export const ADMIN_PAGE_META = {
     path: '/admin/prompts',
     icon: 'PR',
   },
+  chatSettings: {
+    title: 'Chat Settings',
+    subtitle: '도메인별 live chat rewrite, 합성 메모리, snapshot, anchor 정책을 고정합니다.',
+    path: '/admin/chat-settings',
+    icon: 'CH',
+  },
 }
 
 function parseAdminRoute(path) {
@@ -93,6 +100,9 @@ function parseAdminRoute(path) {
   }
   if (segments[0] === 'admin' && segments[1] === 'prompts') {
     return { pageKey: 'prompts', domainKey: null, domainBase: null }
+  }
+  if (segments[0] === 'admin' && segments[1] === 'chat-settings') {
+    return { pageKey: 'chat-settings', domainKey: null, domainBase: null }
   }
   if (path.startsWith('/admin/synthetic-queries')) return { pageKey: 'synthetic', domainKey: null, domainBase: null }
   if (path.startsWith('/admin/quality-gating')) return { pageKey: 'gating', domainKey: null, domainBase: null }
@@ -183,13 +193,15 @@ function AdminApp({ path, navigate, notify, theme, onToggleTheme }) {
   const metaKey = pageKey === 'synthetic-queries' ? 'synthetic'
     : pageKey === 'quality-gating' ? 'gating'
       : pageKey === 'rag-tests' ? 'rag'
-        : pageKey
+        : pageKey === 'chat-settings' ? 'chatSettings'
+          : pageKey
   const meta = ADMIN_PAGE_META[metaKey] || ADMIN_PAGE_META.pipeline
   const domainNavItems = [
     { key: 'pipeline', label: 'Pipeline Monitor', meta: '코퍼스 ingest', path: `${route.domainBase || '/admin'}/pipeline`, icon: ADMIN_PAGE_META.pipeline.icon },
     { key: 'synthetic-queries', label: 'Synthetic Query Studio', meta: 'A~G 전략 배치', path: `${route.domainBase || '/admin'}/synthetic-queries`, icon: ADMIN_PAGE_META.synthetic.icon },
     { key: 'quality-gating', label: 'Quality Gate', meta: '스냅샷 제어', path: `${route.domainBase || '/admin'}/quality-gating`, icon: ADMIN_PAGE_META.gating.icon },
     { key: 'rag-tests', label: 'Retrieval Eval', meta: '품질/latency', path: `${route.domainBase || '/admin'}/rag-tests`, icon: ADMIN_PAGE_META.rag.icon },
+    { key: 'chat-settings', label: 'Chat Settings', meta: 'live RAG config', path: `${route.domainBase || '/admin'}/chat-settings`, icon: ADMIN_PAGE_META.chatSettings.icon },
   ]
   const activeNavKey = pageKey === 'synthetic' ? 'synthetic-queries'
     : pageKey === 'gating' ? 'quality-gating'
@@ -325,6 +337,7 @@ function AdminApp({ path, navigate, notify, theme, onToggleTheme }) {
           {!workspacePending && pageKey === 'synthetic-queries' && <SyntheticPage key={pageInstanceKey} notify={notify} domainKey={route.domainKey} domainId={domainId} />}
           {!workspacePending && pageKey === 'quality-gating' && <GatingPage key={pageInstanceKey} notify={notify} domainKey={route.domainKey} domainId={domainId} />}
           {!workspacePending && pageKey === 'rag-tests' && <RagPage key={pageInstanceKey} notify={notify} domainKey={route.domainKey} domainId={domainId} />}
+          {!workspacePending && pageKey === 'chat-settings' && <ChatSettingsPage key={pageInstanceKey} notify={notify} domainKey={route.domainKey} domainId={domainId} />}
           {pageKey === 'synthetic' && <SyntheticPage notify={notify} />}
           {pageKey === 'gating' && <GatingPage notify={notify} />}
           {pageKey === 'rag' && <RagPage notify={notify} />}

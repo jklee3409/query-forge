@@ -14,15 +14,10 @@ public final class RagDtos {
 
     public record AskRequest(
             String query,
+            UUID domainId,
             String sessionId,
             JsonNode sessionContext,
-            String mode,
-            Integer retrievalTopK,
-            Integer rerankTopN,
-            Integer memoryTopN,
-            Integer rewriteCandidateCount,
-            Double rewriteThreshold,
-            String gatingPreset
+            String rewriteQueryProfile
     ) {
     }
 
@@ -65,6 +60,7 @@ public final class RagDtos {
             List<ScoredDocumentDto> retrievedDocs,
             List<ScoredDocumentDto> rerankedDocs,
             JsonNode memoryTopN,
+            ChatRuntimeDtos.ChatRuntimeConfigResponse appliedConfig,
             Map<String, Long> latencyBreakdown
     ) {
     }

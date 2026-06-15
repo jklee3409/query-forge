@@ -1,5 +1,17 @@
 # progress.md
 
+## [2026-06-15] Session Summary (Apply RAG Run to Chat Config)
+- What was done: Added `POST /api/admin/chat/config/apply-rag-run`, a RAG-run apply snapshot query, and service mapping that converts a completed Admin RAG test run into the per-domain `chat_runtime_config`.
+- Key decisions: The endpoint copies only the currently supported chat runtime fields and then calls the existing `updateConfig` validation path, so domain ownership, enabled strategies, completed gating snapshot, preset, and source gating run consistency are enforced exactly like manual saves.
+- Issues encountered: Historical/global RAG runs without `domain_id` cannot safely target a multi-domain chat config, so the endpoint rejects them with a rerun-in-domain message.
+- Next steps: Use a domain-scoped completed RAG run from the Admin UI and verify the resulting live chat rewrite trace.
+
+## [2026-06-15] Session Summary (Domain-Pinned Online Chat Runtime)
+- What was done: Added Flyway V44 `chat_runtime_config`, chat runtime config DTO/repository/service/controller APIs, and wired `RagService.ask` to load stored per-domain chat settings.
+- Key decisions: Live chat now filters chunk retrieval by `corpus_chunks.domain_id` and synthetic memory by `memory_entries.domain_id`, selected generation strategies, `gating_preset`, `metadata.source_gate_run_id`, and `metadata.source_gating_batch_id`. Rewrite prompts now support `compact_anchor` vs `detailed_intent` profile selection and include canonical/glossary anchor hints only when anchor injection is enabled.
+- Issues encountered: The former online memory lookup could mix full-gating memory across domains because it only used `gatingPreset`.
+- Next steps: Run Flyway on the active DB, select completed domain snapshots in Admin Chat Settings, and browser-smoke `/` chat for Spring/PostgreSQL/Python/Kubernetes.
+
 ## [2026-06-02] Session Summary (Admin FINAL Rewrite Policy Alignment)
 - What was done: Aligned Admin-generated compact rewrite adoption policy with the promoted FINAL rewrite-challenge settings and made request `threshold` propagate into policy `min_improvement`.
 - Key decisions: Kept the Admin RAG pipeline structure unchanged; only config generation weights/guards were tuned so GUI/API-created runs can reproduce the FINAL C compact rewrite condition. The raw-loss overlap guard follows the Spring/Kubernetes promoted FINAL value (`0.5`) to avoid over-adopting weak rewrites.

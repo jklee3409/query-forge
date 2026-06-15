@@ -1,5 +1,17 @@
 # progress.md
 
+## [2026-06-15] Session Summary (RAG Apply to Chat)
+- What was done: Added an `Apply to Chat` flow that copies a completed Admin RAG test run's domain, rewrite mode, strategy set, gating snapshot, rewrite profile, anchor/session flags, threshold, retrieval Top-K, and rerank Top-N into the persistent per-domain chat runtime config.
+- Key decisions: The apply path reuses the same chat config validation as manual Chat Settings saves, rejects non-completed/domainless RAG runs, and keeps the copied values editable through the existing domain Chat Settings page instead of creating a separate version/provenance system.
+- Issues encountered: Official gating-effect runs may store snapshots under `comparison_snapshots`; the apply mapper resolves the selected preset's single snapshot before saving.
+- Next steps: Browser-smoke applying one completed run per domain, then edit and save the resulting values in Chat Settings.
+
+## [2026-06-15] Session Summary (Domain-Pinned Online Chat Runtime)
+- What was done: Added persistent per-domain chat runtime config, Admin Chat Settings UI, and domain/snapshot/strategy filtering to the online chat RAG path.
+- Key decisions: Online chat now requires a selected domain and uses stored domain config for mode, gating preset, generation strategies, source gating snapshot, rewrite profile, anchor injection, and retrieval sizing; memory and chunk retrieval are filtered by domain, with memory additionally pinned by `source_gating_run_id/source_gating_batch_id`.
+- Issues encountered: The prior chat path only filtered memory by `gatingPreset`, which could mix Spring/PostgreSQL/Python/Kubernetes synthetic memory in a multi-domain DB.
+- Next steps: Apply Flyway V44, configure each domain's completed full-gating snapshot in Chat Settings, then smoke-test live chat rewrite traces per domain.
+
 ## [2026-06-02] Session Summary (Admin GUI FINAL RAG Runs)
 - What was done: Ran FINAL EN baselines and KR C compact rewrite tests through the Admin Console RAG API so results are visible in `/admin/rag-tests` history.
 - Key decisions: Kept `gemini-2.5-flash-lite`, `db_ann` hybrid retrieval, `intfloat/multilingual-e5-small`, C full-gating snapshots, compact rewrite, and anchor injection. Admin-generated compact rewrite adoption policy was aligned to the promoted FINAL config so API-created runs reproduce the intended setting.

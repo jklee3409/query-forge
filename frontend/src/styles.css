@@ -5048,6 +5048,12 @@ table.anchor-review-table {
   gap: 8px;
 }
 
+.chat-hero__actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
 .chat-hero__title {
   font-size: 28px;
   font-weight: 800;
@@ -5088,6 +5094,133 @@ table.anchor-review-table {
   min-height: 160px;
 }
 
+.chat-config-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  align-items: center;
+}
+
+.chat-config-strip span {
+  display: inline-flex;
+  min-height: 28px;
+  align-items: center;
+  padding: 4px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--surface-muted);
+  color: var(--text);
+  font-size: 12px;
+  font-weight: 750;
+}
+
+.chat-warning {
+  padding: 12px 14px;
+  border: 1px solid color-mix(in srgb, var(--warning) 44%, var(--border));
+  border-radius: 12px;
+  background: color-mix(in srgb, var(--warning) 12%, var(--surface));
+  color: var(--text);
+  font-weight: 750;
+}
+
+.rewrite-trace-card {
+  display: grid;
+  gap: 10px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  background: var(--surface-muted);
+}
+
+.rewrite-trace-card__row {
+  display: grid;
+  gap: 4px;
+}
+
+.rewrite-trace-card__row span {
+  color: var(--text-soft);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.rewrite-trace-card__row strong {
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+.experiment-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(260px, 320px);
+  gap: 16px;
+  align-items: start;
+}
+
+.experiment-layout__main {
+  display: grid;
+  gap: 16px;
+}
+
+.strategy-chip-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.strategy-chip {
+  display: inline-grid;
+  grid-template-columns: auto 1fr;
+  gap: 8px;
+  align-items: center;
+  min-height: 38px;
+  padding: 7px 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-muted);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.strategy-chip.is-selected {
+  border-color: var(--accent-primary);
+  background: color-mix(in srgb, var(--accent-primary) 14%, var(--surface));
+}
+
+.strategy-chip strong {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 26px;
+  min-height: 24px;
+  border-radius: 8px;
+  background: var(--surface);
+}
+
+.metadata-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 10px;
+}
+
+.metadata-grid > div {
+  display: grid;
+  gap: 4px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-muted);
+}
+
+.metadata-grid span {
+  color: var(--text-soft);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.metadata-grid strong {
+  color: var(--text);
+}
+
 @media (max-width: 1279px) {
   .detail-grid {
     grid-template-columns: 1fr;
@@ -5096,6 +5229,10 @@ table.anchor-review-table {
 
 @media (max-width: 1024px) {
   .admin-shell {
+    grid-template-columns: 1fr;
+  }
+
+  .experiment-layout {
     grid-template-columns: 1fr;
   }
 
