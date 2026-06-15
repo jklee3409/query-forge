@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-06-15] Session Summary (Chat Settings Label Spacing Fix)
+- What was done: Changed Chat Settings `full_gating` copy to `full gating`, rendered generation strategy toggles as concise labels such as `A안`, and tightened Domain Readiness / Selected Snapshots badge spacing.
+- Key decisions: Kept the existing Chat Settings API payload unchanged and scoped layout overrides to `.chat-settings-page`.
+- Issues encountered: None; targeted `npx eslint src/pages/ChatSettingsPage.jsx` and `npm run build` passed.
+- Next steps: Validate and browser-smoke the Chat Settings page in a domain workspace.
+
 ## [2026-06-15] Session Summary (Chat Settings UX Polish)
 - What was done: Added scroll behavior to the Admin sidebar, localized Chat Settings guidance copy, and replaced the large generic snapshot/strategy chips with compact page-specific toggles.
 - Key decisions: The UI polish keeps the saved payload unchanged and changes only presentation, spacing, labels, and helper copy for easier first-time setup.

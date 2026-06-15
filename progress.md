@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-06-15] Session Summary (Chat Settings Label Spacing Fix)
+- What was done: Adjusted Chat Settings display copy so `full_gating` renders as `full gating`, shortened generation strategy toggles to code-only labels such as `A안`, and tightened Domain Readiness / Selected Snapshots badge spacing.
+- Key decisions: Kept the saved Chat config payload and readiness API unchanged; this pass only changes UI labels, chip rendering, and page-scoped spacing.
+- Issues encountered: None; targeted frontend ESLint, backend `compileJava`, production build, and diff check passed.
+- Next steps: Browser-smoke `/admin/domains/{domainKey}/chat-settings` and confirm readiness/status badges align with headings in the served bundle.
+
 ## [2026-06-15] Session Summary (Chat Settings UX Polish)
 - What was done: Made the Admin sidebar scrollable, compacted Chat Settings snapshot/strategy toggles, rewrote setup guidance in Korean, and refreshed the backend-served React bundle.
 - Key decisions: Scoped the new visual treatment to Chat Settings-specific classes so other Admin strategy controls keep their existing layout.

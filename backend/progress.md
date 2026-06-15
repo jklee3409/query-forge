@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-06-15] Session Summary (Admin React Bundle Refresh - Chat Settings Labels)
+- What was done: Prepared a backend-served React bundle refresh for the Chat Settings label/spacing fix.
+- Key decisions: No backend API, repository, readiness, or schema code changed; the backend impact is limited to static React assets after the frontend build.
+- Issues encountered: None; backend `compileJava` and the frontend production build passed.
+- Next steps: Serve the refreshed static bundle and smoke-test the Chat Settings page.
+
 ## [2026-06-15] Session Summary (Admin React Bundle Refresh - Chat Settings UX)
 - What was done: Rebuilt the backend-served React bundle after Chat Settings UX polish and Admin sidebar scroll styling.
 - Key decisions: No backend API/schema changes were made in this polish pass; the bundle update carries the frontend presentation changes.

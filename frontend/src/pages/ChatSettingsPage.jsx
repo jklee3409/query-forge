@@ -29,7 +29,7 @@ const FAILURE_POLICY_LABELS = {
 }
 
 const GATING_PRESET_LABELS = {
-  full_gating: '전체 게이트 통과',
+  full_gating: 'full gating',
   rule_plus_llm: '규칙 + LLM',
   rule_only: '규칙만',
   ungated: '게이트 없음',
@@ -102,6 +102,12 @@ function readinessReasons(readiness) {
 
 function gatingPresetLabel(preset) {
   return GATING_PRESET_LABELS[preset] || preset || '-'
+}
+
+function generationMethodLabel(methodCode) {
+  const code = String(methodCode || '').trim().toUpperCase()
+  if (!code) return '-'
+  return /^[A-Z]$/.test(code) ? `${code}안` : code
 }
 
 function configSnapshotIds(configPayload) {
@@ -376,7 +382,7 @@ export function ChatSettingsPage({ notify, domainId, domainKey }) {
               </div>
               <span>{selectedStrategies.size}개 선택</span>
             </div>
-            <div className="chat-settings-chip-grid">
+            <div className="chat-settings-chip-grid chat-settings-chip-grid--methods">
               {methods.map((method) => {
                 const selected = selectedStrategies.has(method.methodCode)
                 return (
@@ -386,11 +392,7 @@ export function ChatSettingsPage({ notify, domainId, domainKey }) {
                     className={`chat-settings-chip chat-settings-chip--method ${selected ? 'is-selected' : ''}`}
                     onClick={() => toggleStrategy(method.methodCode)}
                   >
-                    <span className="chat-settings-chip__badge">{method.methodCode}</span>
-                    <span className="chat-settings-chip__body">
-                      <strong>{method.methodName || method.methodCode}</strong>
-                      <small>synthetic memory strategy</small>
-                    </span>
+                    <span className="chat-settings-chip__method-label">{generationMethodLabel(method.methodCode)}</span>
                   </button>
                 )
               })}
@@ -481,7 +483,7 @@ export function ChatSettingsPage({ notify, domainId, domainKey }) {
           items={[
             { label: '도메인', value: config?.displayName || domainKey || '-' },
             { label: '준비 상태', value: readiness?.readyForRewrite ? 'ready' : readinessBlockingReasons[0] || '-' },
-            { label: '생성 방식', value: (form.generationStrategies || []).join(', ') || '-' },
+            { label: '생성 방식', value: (form.generationStrategies || []).map(generationMethodLabel).join(', ') || '-' },
             { label: '배치', value: selectedBatchIds.length > 0 ? `${selectedBatchIds.length}개 선택` : '-' },
             { label: '검색', value: `${form.retrievalBackend} / ${retrieverModeLabel(form.retrieverMode)}` },
             { label: 'Embedding', value: form.denseEmbeddingModel || '-' },
@@ -539,13 +541,13 @@ export function ChatSettingsPage({ notify, domainId, domainKey }) {
       <section className="data-panel">
         <div className="data-panel__header">
           <h3>Selected Snapshots</h3>
-          {selectedSnapshots.length > 0 && <StatusBadge value="completed" label={`${selectedSnapshots.length} selected`} />}
+          {selectedSnapshots.length > 0 && <StatusBadge value="completed" label={`${selectedSnapshots.length}개 선택`} />}
         </div>
         {selectedSnapshots.length > 0 ? (
           <div className="metadata-grid">
             {selectedSnapshots.map((snapshot) => (
               <div key={snapshot.gatingBatchId}>
-                <span>{snapshot.methodCode || '-'} / accepted {snapshot.acceptedCount}</span>
+                <span>{generationMethodLabel(snapshot.methodCode)} / accepted {snapshot.acceptedCount}</span>
                 <strong><IdBadge value={snapshot.gatingBatchId} /></strong>
               </div>
             ))}
