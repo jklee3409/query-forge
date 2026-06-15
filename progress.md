@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-06-15] Session Summary (Chat Domain Readiness)
+- What was done: Added domain-scoped Chat readiness APIs and UI panels that report active config, selected gating snapshot, source gating run, domain/strategy/preset mismatches, domain chunk-embedding materialization, memory count, accepted gated query count, prompt binding, and retrieval tuple.
+- Key decisions: Readiness queries are bounded by `domain_id`, selected `source_gating_batch_id` / `source_gating_run_id`, and generation strategy; live chat now uses the same readiness result to block rewrite-backed requests before retrieval/rewrite execution.
+- Issues encountered: None; backend compile, targeted frontend lint, production frontend build, and diff check passed.
+- Next steps: Add explicit Chat config version labels and rollback using the existing provenance snapshots.
+
 ## [2026-06-15] Session Summary (Chat Retrieval Parity)
 - What was done: Added persistent per-domain Chat retrieval config for `retrieval_backend`, dense embedding model, retriever mode, candidate pool, and fusion weights, and wired Apply-to-Chat to copy those values from completed Admin RAG runs.
 - Key decisions: Live chat now records and executes the configured retrieval tuple; `db_ann` chat uses materialized `chunk_embeddings` and the same Python dense query embedding path as Admin evaluation, while retaining domain/snapshot/strategy memory isolation.

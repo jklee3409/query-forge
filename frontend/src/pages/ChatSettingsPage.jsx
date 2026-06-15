@@ -74,9 +74,22 @@ function provenanceChangedFields(row) {
   return Array.isArray(fields) ? fields.filter(Boolean) : []
 }
 
+function yesNo(value) {
+  return value ? 'yes' : 'no'
+}
+
+function formatCount(value) {
+  return Number(value || 0).toLocaleString()
+}
+
+function readinessReasons(readiness) {
+  return Array.isArray(readiness?.blockingReasons) ? readiness.blockingReasons.filter(Boolean) : []
+}
+
 export function ChatSettingsPage({ notify, domainId, domainKey }) {
   const [form, setForm] = useState(() => initialForm(domainId))
   const [config, setConfig] = useState(null)
+  const [readiness, setReadiness] = useState(null)
   const [methods, setMethods] = useState([])
   const [gatingBatches, setGatingBatches] = useState([])
   const [provenance, setProvenance] = useState([])
@@ -93,12 +106,13 @@ export function ChatSettingsPage({ notify, domainId, domainKey }) {
     if (!domainId) return
     setLoading(true)
     try {
-      const [configPayload, methodPayload, batchPayload, provenancePayload, runtimePayload] = await Promise.all([
+      const [configPayload, methodPayload, batchPayload, provenancePayload, runtimePayload, readinessPayload] = await Promise.all([
         requestJson(appendQuery('/api/admin/chat/config', { domain_id: domainId })),
         fetchSyntheticMethods({ domainId }),
         requestJson(appendQuery('/api/admin/console/gating/batches', { domain_id: domainId, limit: 100 })),
         requestJson(appendQuery('/api/admin/chat/config/provenance', { domain_id: domainId, limit: 10 })),
         requestJson('/api/admin/console/runtime/options'),
+        requestJson(appendQuery('/api/admin/chat/readiness', { domain_id: domainId })),
       ])
       const nextRuntimeOptions = {
         denseEmbeddingModels: Array.isArray(runtimePayload.denseEmbeddingModels) && runtimePayload.denseEmbeddingModels.length > 0
@@ -115,6 +129,7 @@ export function ChatSettingsPage({ notify, domainId, domainKey }) {
           : {},
       }
       setConfig(configPayload)
+      setReadiness(readinessPayload)
       setMethods(Array.isArray(methodPayload) ? methodPayload : [])
       setGatingBatches(Array.isArray(batchPayload) ? batchPayload : [])
       setProvenance(Array.isArray(provenancePayload) ? provenancePayload : [])
@@ -164,6 +179,7 @@ export function ChatSettingsPage({ notify, domainId, domainKey }) {
   }, [gatingBatches, form.gatingPreset, selectedStrategies])
   const selectedSnapshot = snapshotOptions.find((batch) => batch.gatingBatchId === form.sourceGatingBatchId)
   const memoryBacked = form.mode !== 'raw_only'
+  const readinessBlockingReasons = readinessReasons(readiness)
 
   const updateField = (field, value) => {
     setForm((prev) => ({ ...prev, [field]: value }))
@@ -369,7 +385,7 @@ export function ChatSettingsPage({ notify, domainId, domainKey }) {
           title="Active Chat Config"
           items={[
             { label: 'Domain', value: config?.displayName || domainKey || '-' },
-            { label: 'Ready', value: config?.readyForRewrite ? 'yes' : config?.readinessMessage || '-' },
+            { label: 'Ready', value: readiness?.readyForRewrite ? 'yes' : readinessBlockingReasons[0] || '-' },
             { label: 'Strategies', value: (form.generationStrategies || []).join(', ') || '-' },
             { label: 'Snapshot', value: form.sourceGatingBatchId ? form.sourceGatingBatchId.slice(0, 8) : '-' },
             { label: 'Retrieval', value: `${form.retrievalBackend} / ${retrieverModeLabel(form.retrieverMode)}` },
@@ -379,6 +395,50 @@ export function ChatSettingsPage({ notify, domainId, domainKey }) {
           ]}
         />
       </div>
+
+      <section className="data-panel">
+        <div className="data-panel__header">
+          <h3>Domain Readiness</h3>
+          {readiness && (
+            <StatusBadge
+              value={readiness.readyForRewrite ? 'completed' : 'failed'}
+              label={readiness.readyForRewrite ? 'ready' : 'blocked'}
+            />
+          )}
+        </div>
+        {readiness ? (
+          <>
+            <div className="metadata-grid">
+              <div><span>Active config</span><strong>{yesNo(readiness.activeConfigPresent)}</strong></div>
+              <div><span>Rewrite-backed mode</span><strong>{yesNo(readiness.rewriteBackedMode)}</strong></div>
+              <div><span>Snapshot exists</span><strong>{yesNo(readiness.snapshot?.selectedSnapshotPresent)}</strong></div>
+              <div><span>Source gating run</span><strong>{yesNo(readiness.snapshot?.sourceGatingRunPresent)}</strong></div>
+              <div><span>Snapshot domain mismatch</span><strong>{yesNo(readiness.snapshot?.domainMismatch)}</strong></div>
+              <div><span>Strategy mismatch</span><strong>{yesNo(readiness.snapshot?.generationStrategyMismatch)}</strong></div>
+              <div><span>Accepted gated queries</span><strong>{formatCount(readiness.acceptedGatedQueryCount)}</strong></div>
+              <div><span>Built memory</span><strong>{formatCount(readiness.memoryCount)}</strong></div>
+              <div>
+                <span>Chunk embeddings</span>
+                <strong>
+                  {formatCount(readiness.chunkEmbeddings?.materializedChunkCount)}
+                  {' / '}
+                  {formatCount(readiness.chunkEmbeddings?.domainChunkCount)}
+                </strong>
+              </div>
+              <div><span>Prompt binding</span><strong>{readiness.promptBinding?.active ? readiness.promptBinding.bindingKey : 'inactive'}</strong></div>
+              <div><span>Prompt version</span><strong>{readiness.promptBinding?.activePromptVersion || '-'}</strong></div>
+              <div><span>Retrieval</span><strong>{readiness.retrieval?.retrievalBackend || '-'} / {retrieverModeLabel(readiness.retrieval?.retrieverMode)}</strong></div>
+            </div>
+            {readinessBlockingReasons.length > 0 && (
+              <div className="chat-warning">
+                {readinessBlockingReasons.join('; ')}
+              </div>
+            )}
+          </>
+        ) : (
+          <div className="summary-card__meta">Readiness status is loading.</div>
+        )}
+      </section>
 
       <section className="data-panel">
         <div className="data-panel__header">

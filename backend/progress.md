@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-06-15] Session Summary (Chat Domain Readiness API)
+- What was done: Added `GET /api/chat/readiness` and `GET /api/admin/chat/readiness` with DTOs for active config presence, snapshot/source-run health, mismatch flags, domain chunk-embedding status, memory count, accepted gated query count, prompt binding, retrieval summary, and blocking reasons.
+- Key decisions: Repository checks stay bounded by `domain_id`, selected `source_gating_batch_id` / `source_gating_run_id`, and strategy filters; V47 adds supporting lookup indexes without changing data semantics.
+- Issues encountered: `RagService.ask` now uses the readiness result to reject rewrite-backed chat requests server-side when readiness is blocked.
+- Next steps: Build version/rollback operations on top of the existing config provenance table.
+
 ## [2026-06-15] Session Summary (Chat Retrieval Backend Parity)
 - What was done: Added Flyway V46 retrieval columns to `chat_runtime_config`, extended Chat config DTO/repository/service validation, copied completed RAG run retrieval settings through Apply-to-Chat, and routed live chat chunk/memory retrieval through the saved backend/model/mode/fusion tuple.
 - Key decisions: `db_ann` chat requires materialized chunk embeddings and uses the existing pipeline Python dense query embedding path for the configured model; local chat keeps the existing hash path. Runtime catalog options remain the allowlist for selectable backend/model/mode values.

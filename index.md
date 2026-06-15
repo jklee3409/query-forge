@@ -33,6 +33,7 @@ Root directory for the Query Forge project, which manages a research-oriented RA
 - Keep synthetic query strategies (A/B/C/D/E) separated and apply strategy-aware quality gating
 - Promote a completed domain-scoped Admin RAG test run into the persistent Chat runtime via `Apply to Chat`, then tune copied values in the domain Chat Settings page
 - Keep live chat retrieval parity with promoted Admin RAG runs by persisting backend/model/mode/fusion settings per domain
+- Check per-domain Chat readiness before operating rewrite-backed live chat, including selected snapshot identity, source gating run, memory/query counts, prompt binding, domain chunk embeddings, and retrieval tuple
 - Preserve Chat runtime change history in provenance rows so later version/rollback work can replay or inspect prior configs
 - Track major work decisions in root `progress.md`
 

@@ -12,6 +12,8 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Instant;
+import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
@@ -52,6 +54,187 @@ public class ChatRuntimeConfigService {
         }
         return repository.findConfig(domainId)
                 .orElseThrow(() -> new IllegalArgumentException("active domain not found: " + domainId));
+    }
+
+    public ChatRuntimeDtos.ChatDomainReadinessResponse getReadiness(UUID domainId) {
+        ChatRuntimeDtos.ChatRuntimeConfigResponse config = getConfig(domainId);
+        boolean activeConfigPresent = repository.existsConfig(domainId);
+        String mode = normalizeText(config.mode(), "selective_rewrite");
+        boolean rewriteBackedMode = !"raw_only".equals(mode);
+        List<String> generationStrategies = config.generationStrategies() == null
+                ? List.of()
+                : config.generationStrategies().stream()
+                .filter(value -> value != null && !value.isBlank())
+                .map(value -> value.trim().toUpperCase(Locale.ROOT))
+                .distinct()
+                .toList();
+
+        ChatRuntimeConfigRepository.GatingSnapshot snapshot = config.sourceGatingBatchId() == null
+                ? null
+                : repository.findGatingSnapshot(config.sourceGatingBatchId()).orElse(null);
+        boolean selectedSnapshotPresent = snapshot != null;
+        UUID snapshotSourceGatingRunId = snapshot == null ? null : snapshot.sourceGatingRunId();
+        boolean sourceGatingRunPresent = config.sourceGatingRunId() != null && snapshotSourceGatingRunId != null;
+        boolean sourceGatingRunMatchesConfig = sourceGatingRunPresent
+                && Objects.equals(config.sourceGatingRunId(), snapshotSourceGatingRunId);
+        boolean domainMismatch = selectedSnapshotPresent
+                && (snapshot.domainId() == null || !snapshot.domainId().equals(config.domainId()));
+        boolean gatingPresetMismatch = selectedSnapshotPresent
+                && !normalizeText(snapshot.gatingPreset(), "").equals(normalizeText(config.gatingPreset(), ""));
+        String snapshotMethod = snapshot == null || snapshot.methodCode() == null
+                ? null
+                : snapshot.methodCode().trim().toUpperCase(Locale.ROOT);
+        boolean generationStrategyMismatch = snapshotMethod != null
+                && !snapshotMethod.isBlank()
+                && !generationStrategies.contains(snapshotMethod);
+
+        String embeddingModel = firstNonBlank(config.denseEmbeddingModel(), DEFAULT_DENSE_EMBEDDING_MODEL);
+        ChatRuntimeConfigRepository.DomainChunkEmbeddingStatus embeddingStatus =
+                repository.findDomainChunkEmbeddingStatus(config.domainId(), embeddingModel);
+        long domainChunkCount = embeddingStatus == null ? 0L : embeddingStatus.domainChunkCount();
+        long materializedChunkCount = embeddingStatus == null ? 0L : embeddingStatus.materializedChunkCount();
+        long missingChunkCount = Math.max(0L, domainChunkCount - materializedChunkCount);
+        String retrievalBackend = normalizeText(config.retrievalBackend(), "local");
+        String retrieverMode = normalizeText(config.retrieverMode(), "hybrid");
+        boolean dbAnnRequired = "db_ann".equals(retrievalBackend);
+        boolean chunkEmbeddingsReady = !dbAnnRequired || (domainChunkCount > 0L && missingChunkCount == 0L);
+
+        long acceptedGatedQueryCount = rewriteBackedMode && selectedSnapshotPresent
+                ? repository.countAcceptedGatedQueries(config.domainId(), config.sourceGatingBatchId(), generationStrategies)
+                : 0L;
+        long memoryCount = rewriteBackedMode && selectedSnapshotPresent
+                ? repository.countReadyMemoryEntries(
+                config.domainId(),
+                config.gatingPreset(),
+                generationStrategies,
+                config.sourceGatingRunId(),
+                config.sourceGatingBatchId()
+        )
+                : 0L;
+
+        String promptBindingKey = promptBindingKey(config.rewriteQueryProfile());
+        ChatRuntimeDtos.PromptBindingReadiness promptBinding = repository.findPromptBinding(promptBindingKey)
+                .map(row -> new ChatRuntimeDtos.PromptBindingReadiness(
+                        row.bindingKey(),
+                        row.active(),
+                        row.activePromptAssetId(),
+                        row.activePromptName(),
+                        row.activePromptVersion(),
+                        row.activeContentHash()
+                ))
+                .orElseGet(() -> new ChatRuntimeDtos.PromptBindingReadiness(
+                        promptBindingKey,
+                        false,
+                        null,
+                        null,
+                        null,
+                        null
+                ));
+
+        List<String> blockingReasons = new ArrayList<>();
+        if (!activeConfigPresent) {
+            blockingReasons.add("active chat_runtime_config is missing");
+        }
+        if (!config.enabled()) {
+            blockingReasons.add("chat config is disabled");
+        }
+        if (generationStrategies.isEmpty()) {
+            blockingReasons.add("no generation strategy is selected for this domain");
+        }
+        if (dbAnnRequired && "bm25_only".equals(retrieverMode)) {
+            blockingReasons.add("db_ann retrieval backend requires dense_only or hybrid retriever mode");
+        }
+        if (dbAnnRequired && !chunkEmbeddingsReady) {
+            blockingReasons.add("domain chunk embeddings are not fully materialized for " + embeddingModel);
+        }
+        if (rewriteBackedMode) {
+            if (config.sourceGatingBatchId() == null) {
+                blockingReasons.add("source_gating_batch_id is required for rewrite-backed chat");
+            }
+            if (!selectedSnapshotPresent) {
+                blockingReasons.add("selected source gating snapshot was not found");
+            } else {
+                if (!"completed".equalsIgnoreCase(snapshot.status())) {
+                    blockingReasons.add("selected source gating snapshot is not completed");
+                }
+                if (!sourceGatingRunPresent) {
+                    blockingReasons.add("source_gating_run_id is missing");
+                } else if (!sourceGatingRunMatchesConfig) {
+                    blockingReasons.add("config source_gating_run_id does not match selected snapshot");
+                }
+                if (domainMismatch) {
+                    blockingReasons.add("selected snapshot belongs to another domain");
+                }
+                if (gatingPresetMismatch) {
+                    blockingReasons.add("selected snapshot gating preset differs from active config");
+                }
+                if (generationStrategyMismatch) {
+                    blockingReasons.add("selected snapshot generation strategy is not enabled in active config");
+                }
+            }
+            if (!promptBinding.active()) {
+                blockingReasons.add("active rewrite prompt binding is missing or inactive: " + promptBindingKey);
+            }
+            if (acceptedGatedQueryCount <= 0L) {
+                blockingReasons.add("selected snapshot has no accepted gated queries for this domain/config");
+            }
+            if (memoryCount <= 0L) {
+                blockingReasons.add("selected snapshot has no built synthetic memory for this domain/config");
+            }
+        }
+
+        boolean readyForRewrite = blockingReasons.isEmpty();
+        return new ChatRuntimeDtos.ChatDomainReadinessResponse(
+                config.domainId(),
+                config.domainKey(),
+                config.displayName(),
+                config.sourceLanguage(),
+                activeConfigPresent,
+                config.enabled(),
+                mode,
+                rewriteBackedMode,
+                generationStrategies,
+                config.gatingPreset(),
+                new ChatRuntimeDtos.SnapshotReadiness(
+                        config.sourceGatingBatchId(),
+                        config.sourceGatingRunId(),
+                        snapshotSourceGatingRunId,
+                        selectedSnapshotPresent,
+                        snapshot == null ? null : snapshot.status(),
+                        snapshot == null ? null : snapshot.domainId(),
+                        snapshot == null ? null : snapshot.gatingPreset(),
+                        snapshotMethod,
+                        sourceGatingRunPresent,
+                        sourceGatingRunMatchesConfig,
+                        domainMismatch,
+                        gatingPresetMismatch,
+                        generationStrategyMismatch
+                ),
+                new ChatRuntimeDtos.ChunkEmbeddingReadiness(
+                        dbAnnRequired,
+                        embeddingModel,
+                        domainChunkCount,
+                        materializedChunkCount,
+                        missingChunkCount,
+                        chunkEmbeddingsReady,
+                        embeddingStatus == null ? null : embeddingStatus.latestUpdatedAt()
+                ),
+                memoryCount,
+                acceptedGatedQueryCount,
+                promptBinding,
+                new ChatRuntimeDtos.RetrievalReadiness(
+                        config.retrievalBackend(),
+                        embeddingModel,
+                        config.retrieverMode(),
+                        config.retrieverCandidatePoolK(),
+                        config.retrieverDenseWeight(),
+                        config.retrieverBm25Weight(),
+                        config.retrieverTechnicalWeight()
+                ),
+                readyForRewrite,
+                List.copyOf(blockingReasons),
+                Instant.now()
+        );
     }
 
     public List<ChatRuntimeDtos.ChatRuntimeConfigProvenanceRow> listConfigProvenance(UUID domainId, Integer limit) {
@@ -433,6 +616,19 @@ public class ChatRuntimeConfigService {
                 && !generationStrategies.contains(snapshot.methodCode().toUpperCase(Locale.ROOT))) {
             throw new IllegalArgumentException("selected snapshot method is not included in generationStrategies");
         }
+    }
+
+    private String promptBindingKey(String rewriteQueryProfile) {
+        String profile = rewriteQueryProfile == null ? "" : rewriteQueryProfile.trim().toLowerCase(Locale.ROOT);
+        if ("detailed_intent".equals(profile)) {
+            return "rag_rewrite.detailed_intent.ko";
+        }
+        return "rag_rewrite.ko";
+    }
+
+    private String normalizeText(String value, String fallback) {
+        String normalized = value == null || value.isBlank() ? fallback : value;
+        return normalized == null ? "" : normalized.trim().toLowerCase(Locale.ROOT).replace("-", "_");
     }
 
     private String modeFromRagRun(boolean rewriteEnabled, boolean selectiveRewrite, boolean useSessionContext) {

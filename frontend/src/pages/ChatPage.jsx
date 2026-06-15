@@ -1,8 +1,16 @@
 import { useEffect, useMemo, useState } from 'react'
-import { DetailCard } from '../components/Common.jsx'
+import { DetailCard, StatusBadge } from '../components/Common.jsx'
 import { appendQuery, requestJson } from '../lib/api.js'
 
 const CHAT_DOMAIN_STORAGE_KEY = 'query-forge-chat-domain-id'
+
+function formatCount(value) {
+  return Number(value || 0).toLocaleString()
+}
+
+function readinessReasons(readiness) {
+  return Array.isArray(readiness?.blockingReasons) ? readiness.blockingReasons.filter(Boolean) : []
+}
 
 export function ChatPage({ navigate, notify }) {
   const [domains, setDomains] = useState([])
@@ -14,6 +22,7 @@ export function ChatPage({ navigate, notify }) {
     }
   })
   const [config, setConfig] = useState(null)
+  const [readiness, setReadiness] = useState(null)
   const [query, setQuery] = useState('')
   const [loading, setLoading] = useState(false)
   const [domainsLoading, setDomainsLoading] = useState(false)
@@ -51,6 +60,7 @@ export function ChatPage({ navigate, notify }) {
   useEffect(() => {
     if (!selectedDomainId) {
       setConfig(null)
+      setReadiness(null)
       return undefined
     }
     let cancelled = false
@@ -59,13 +69,20 @@ export function ChatPage({ navigate, notify }) {
     } catch {
       // Domain selection still works for the current session.
     }
-    requestJson(appendQuery('/api/chat/config', { domain_id: selectedDomainId }))
-      .then((payload) => {
-        if (!cancelled) setConfig(payload)
+    Promise.all([
+      requestJson(appendQuery('/api/chat/config', { domain_id: selectedDomainId })),
+      requestJson(appendQuery('/api/chat/readiness', { domain_id: selectedDomainId })),
+    ])
+      .then(([configPayload, readinessPayload]) => {
+        if (!cancelled) {
+          setConfig(configPayload)
+          setReadiness(readinessPayload)
+        }
       })
       .catch((error) => {
         if (!cancelled) {
           setConfig(null)
+          setReadiness(null)
           notify(error.message, 'error')
         }
       })
@@ -98,6 +115,11 @@ export function ChatPage({ navigate, notify }) {
   const adminSettingsPath = selectedDomain?.domainKey
     ? `/admin/domains/${selectedDomain.domainKey}/chat-settings`
     : '/admin'
+  const blockingReasons = readinessReasons(readiness)
+  const rewriteBlocked = Boolean(readiness?.rewriteBackedMode && !readiness?.readyForRewrite)
+  const baseBlocked = Boolean(readiness && (!readiness.activeConfigPresent || !readiness.configEnabled))
+  const chatBlocked = baseBlocked || rewriteBlocked
+  const chatDisabled = loading || !selectedDomainId || !config || !readiness || !config.enabled || chatBlocked
 
   return (
     <div className="chat-shell">
@@ -144,15 +166,35 @@ export function ChatPage({ navigate, notify }) {
         </div>
       </section>
 
-      {config && !config.readyForRewrite && config.mode !== 'raw_only' && (
+      {chatBlocked && (
         <section className="chat-warning">
-          {config.readinessMessage || 'Chat runtime config is incomplete.'}
+          {blockingReasons.join('; ') || 'Chat runtime config is incomplete.'}
         </section>
       )}
 
+      <section className="chat-controls">
+        <div className="chat-config-strip">
+          <StatusBadge
+            value={!readiness ? 'queued' : readiness.readyForRewrite ? 'completed' : 'failed'}
+            label={!readiness ? 'loading' : readiness.readyForRewrite ? 'ready' : 'blocked'}
+          />
+          <span>memory {formatCount(readiness?.memoryCount)}</span>
+          <span>accepted {formatCount(readiness?.acceptedGatedQueryCount)}</span>
+          <span>
+            embeddings {formatCount(readiness?.chunkEmbeddings?.materializedChunkCount)}
+            /
+            {formatCount(readiness?.chunkEmbeddings?.domainChunkCount)}
+          </span>
+          <span>{readiness?.promptBinding?.bindingKey || 'prompt binding'}</span>
+        </div>
+        {blockingReasons.length > 0 && (
+          <div className="summary-card__meta">{blockingReasons.join('; ')}</div>
+        )}
+      </section>
+
       <section className="chat-panel">
         <textarea value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Enter a question for the selected technical-doc domain." />
-        <button type="button" className="button button--primary" disabled={loading || !selectedDomainId} onClick={ask}>
+        <button type="button" className="button button--primary" disabled={chatDisabled} onClick={ask}>
           {loading ? 'Running...' : 'Ask'}
         </button>
       </section>

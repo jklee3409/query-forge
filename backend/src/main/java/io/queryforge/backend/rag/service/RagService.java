@@ -57,12 +57,16 @@ public class RagService {
             throw new IllegalArgumentException("domainId is required for chat");
         }
         ChatRuntimeDtos.ChatRuntimeConfigResponse config = chatRuntimeConfigService.getConfig(request.domainId());
+        ChatRuntimeDtos.ChatDomainReadinessResponse readiness = chatRuntimeConfigService.getReadiness(request.domainId());
+        if (!readiness.activeConfigPresent()) {
+            throw new IllegalArgumentException("active chat_runtime_config is missing for domain: " + config.displayName());
+        }
         if (!config.enabled()) {
             throw new IllegalArgumentException("chat is disabled for domain: " + config.displayName());
         }
         String mode = normalizedMode(config.mode());
-        if (!"raw_only".equals(mode) && !config.readyForRewrite()) {
-            throw new IllegalArgumentException(config.readinessMessage());
+        if (!"raw_only".equals(mode) && !readiness.readyForRewrite()) {
+            throw new IllegalArgumentException(String.join("; ", readiness.blockingReasons()));
         }
         int retrievalTopK = normalizedPositive(config.retrievalTopK(), 10);
         int rerankTopN = normalizedPositive(config.rerankTopN(), 5);

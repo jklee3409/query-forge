@@ -31,11 +31,25 @@ public class ChatRuntimeConfigController {
         return service.getConfig(domainId);
     }
 
+    @GetMapping("/api/chat/readiness")
+    public ChatRuntimeDtos.ChatDomainReadinessResponse chatReadiness(
+            @RequestParam(name = "domain_id") UUID domainId
+    ) {
+        return service.getReadiness(domainId);
+    }
+
     @GetMapping("/api/admin/chat/config")
     public ChatRuntimeDtos.ChatRuntimeConfigResponse adminChatConfig(
             @RequestParam(name = "domain_id") UUID domainId
     ) {
         return service.getConfig(domainId);
+    }
+
+    @GetMapping("/api/admin/chat/readiness")
+    public ChatRuntimeDtos.ChatDomainReadinessResponse adminChatReadiness(
+            @RequestParam(name = "domain_id") UUID domainId
+    ) {
+        return service.getReadiness(domainId);
     }
 
     @GetMapping("/api/admin/chat/config/provenance")

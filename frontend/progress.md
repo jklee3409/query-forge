@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-06-15] Session Summary (Chat Readiness UI)
+- What was done: Added read-only domain readiness panels to Chat Settings and the live Chat page, showing active config, snapshot/source-run status, mismatch flags, memory/query counts, chunk embeddings, prompt binding, retrieval tuple, and blocking reasons.
+- Key decisions: The Chat page reads the same readiness API as Admin and disables `Ask` when rewrite-backed chat is blocked, while `raw_only` remains governed by the active config state.
+- Issues encountered: Targeted ESLint for `ChatPage.jsx` and `ChatSettingsPage.jsx` passed.
+- Next steps: Add Chat config version labels and rollback controls once backend rollback semantics are implemented.
+
 ## [2026-06-15] Session Summary (Chat Retrieval Settings UI)
 - What was done: Extended domain `Chat Settings` with runtime-option-driven retrieval backend, dense embedding model, retriever mode, candidate pool, and fusion-weight controls, and showed the active retrieval tuple on the Chat page.
 - Key decisions: The UI reuses backend runtime options instead of local hardcoded allowlists when available; Apply-to-Chat values remain editable through the same Chat Settings form.
