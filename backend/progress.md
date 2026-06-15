@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-06-15] Session Summary (Admin React Bundle Refresh - Chat Settings UX)
+- What was done: Rebuilt the backend-served React bundle after Chat Settings UX polish and Admin sidebar scroll styling.
+- Key decisions: No backend API/schema changes were made in this polish pass; the bundle update carries the frontend presentation changes.
+- Issues encountered: None; frontend production build passed.
+- Next steps: Serve `/admin/domains/{domainKey}/chat-settings` and smoke-test long sidebar navigation.
+
 ## [2026-06-15] Session Summary (Chat Multi-Snapshot Runtime)
 - What was done: Added Flyway V48 array fields for Chat runtime source gating batch/run IDs, extended Chat config DTOs/provenance snapshots/readiness, and changed live synthetic-memory repository filters to accept multiple selected snapshot IDs.
 - Key decisions: Manual Chat config validation still resolves each selected batch through the existing completed/domain/preset/strategy/source-run checks; Apply-to-Chat remains a single-run promotion path and stores that run's snapshot as a one-item selected set.

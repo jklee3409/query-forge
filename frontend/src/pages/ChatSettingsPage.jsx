@@ -5,22 +5,35 @@ import { appendQuery, fetchSyntheticMethods, requestJson, toNumber } from '../li
 import { fmtTime } from '../lib/format.js'
 
 const MODE_OPTIONS = [
-  { value: 'selective_rewrite', label: 'Selective rewrite' },
-  { value: 'raw_only', label: 'Raw only' },
-  { value: 'selective_rewrite_with_session', label: 'Selective + session' },
-  { value: 'rewrite_always', label: 'Rewrite always' },
-  { value: 'memory_only_gated', label: 'Memory only gated' },
-  { value: 'memory_only_ungated', label: 'Memory only ungated' },
+  { value: 'selective_rewrite', label: '선택 재작성' },
+  { value: 'raw_only', label: '원문 전용' },
+  { value: 'selective_rewrite_with_session', label: '세션 포함 선택 재작성' },
+  { value: 'rewrite_always', label: '항상 재작성' },
+  { value: 'memory_only_gated', label: '게이트 메모리만' },
+  { value: 'memory_only_ungated', label: '비게이트 메모리만' },
 ]
 
 const GATING_PRESETS = ['full_gating', 'rule_plus_llm', 'rule_only', 'ungated']
 const REWRITE_PROFILES = [
-  { value: 'compact_anchor', label: 'Compact anchor' },
-  { value: 'detailed_intent', label: 'Detailed intent' },
+  { value: 'compact_anchor', label: '간결 anchor' },
+  { value: 'detailed_intent', label: '상세 intent' },
 ]
 const FAILURE_POLICIES = ['heuristic_fallback', 'skip_to_raw', 'fail_run']
 const RETRIEVAL_BACKENDS = ['local', 'db_ann']
 const RETRIEVER_MODES = ['bm25_only', 'dense_only', 'hybrid']
+
+const FAILURE_POLICY_LABELS = {
+  heuristic_fallback: '휴리스틱 fallback',
+  skip_to_raw: '원문으로 전환',
+  fail_run: '실패 처리',
+}
+
+const GATING_PRESET_LABELS = {
+  full_gating: '전체 게이트 통과',
+  rule_plus_llm: '규칙 + LLM',
+  rule_only: '규칙만',
+  ungated: '게이트 없음',
+}
 
 function retrieverModeLabel(mode) {
   if (mode === 'bm25_only') return 'BM25 Only'
@@ -85,6 +98,10 @@ function formatCount(value) {
 
 function readinessReasons(readiness) {
   return Array.isArray(readiness?.blockingReasons) ? readiness.blockingReasons.filter(Boolean) : []
+}
+
+function gatingPresetLabel(preset) {
+  return GATING_PRESET_LABELS[preset] || preset || '-'
 }
 
 function configSnapshotIds(configPayload) {
@@ -236,7 +253,7 @@ export function ChatSettingsPage({ notify, domainId, domainKey }) {
     if (!domainId) return
     const nextSourceGatingBatchIds = memoryBacked ? selectedBatchIds : []
     if (memoryBacked && nextSourceGatingBatchIds.length === 0) {
-      notify('Select one or more completed gating snapshots for rewrite-backed chat.', 'danger')
+      notify('rewrite-backed chat에는 완료된 합성 질의 배치가 하나 이상 필요합니다.', 'danger')
       return
     }
     setSaving(true)
@@ -264,7 +281,7 @@ export function ChatSettingsPage({ notify, domainId, domainKey }) {
         }),
       })
       setConfig(payload)
-      notify('Chat runtime config saved.')
+      notify('Chat runtime config를 저장했습니다.')
       await load()
     } catch (error) {
       notify(error.message, 'danger')
@@ -274,112 +291,150 @@ export function ChatSettingsPage({ notify, domainId, domainKey }) {
   }
 
   return (
-    <div className="page-stack">
+    <div className="page-stack chat-settings-page">
       <SectionHeader
         eyebrow={`Domain Chat / ${domainKey || config?.domainKey || '-'}`}
-        title="Chat Runtime Settings"
-        description="Pin the online chat RAG path to one domain, evaluated memory snapshots, and one rewrite policy."
-        actions={<button type="button" className="button button--primary" disabled={saving || loading} onClick={save}>{saving ? 'Saving...' : 'Save config'}</button>}
+        title="Chat Runtime 설정"
+        description="이 도메인의 live chat이 어떤 합성 질의 메모리, 재작성 정책, 검색 방식을 사용할지 고정합니다."
+        actions={<button type="button" className="button button--primary chat-settings-save" disabled={saving || loading} onClick={save}>{saving ? '저장 중...' : '설정 저장'}</button>}
       />
+
+      <section className="chat-settings-guide" aria-label="Chat 설정 흐름">
+        <div>
+          <span>1</span>
+          <strong>동작 모드 선택</strong>
+          <small>raw-only 또는 rewrite-backed chat을 정합니다.</small>
+        </div>
+        <div>
+          <span>2</span>
+          <strong>합성 질의 배치 선택</strong>
+          <small>선택한 배치의 built memory만 재작성 예시에 사용됩니다.</small>
+        </div>
+        <div>
+          <span>3</span>
+          <strong>검색·재작성 정책 확인</strong>
+          <small>Admin RAG 테스트와 같은 backend/model/mode를 유지합니다.</small>
+        </div>
+      </section>
 
       <div className="experiment-layout">
         <div className="experiment-layout__main">
-          <ExperimentSection title="Domain Guard" description="These values decide which synthetic memory can enter the chat rewrite prompt.">
+          <ExperimentSection title="도메인 실행 범위" description="live chat에 들어갈 도메인, 모드, gating preset을 먼저 고정합니다.">
             <div className="form-grid">
-              <label className="filter-field">Chat enabled
+              <label className="filter-field">Chat 사용
                 <select value={String(form.enabled)} onChange={(event) => updateField('enabled', event.target.value === 'true')}>
-                  <option value="true">Enabled</option>
-                  <option value="false">Disabled</option>
+                  <option value="true">사용</option>
+                  <option value="false">중지</option>
                 </select>
               </label>
-              <label className="filter-field">Mode
+              <label className="filter-field">동작 모드
                 <select value={form.mode} onChange={(event) => updateField('mode', event.target.value)}>
                   {MODE_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
                 </select>
               </label>
               <label className="filter-field">Gating preset
                 <select value={form.gatingPreset} onChange={(event) => setForm((prev) => ({ ...prev, gatingPreset: event.target.value, sourceGatingBatchId: '', sourceGatingBatchIds: [] }))}>
-                  {GATING_PRESETS.map((preset) => <option key={preset} value={preset}>{preset}</option>)}
+                  {GATING_PRESETS.map((preset) => <option key={preset} value={preset}>{gatingPresetLabel(preset)}</option>)}
                 </select>
               </label>
             </div>
 
-            <div className="summary-card__meta">
-              Completed snapshots {memoryBacked ? `${selectedBatchIds.length} selected` : 'not used in raw_only'}
+            <div className="chat-settings-option-header">
+              <div>
+                <strong>합성 질의 배치</strong>
+                <p>완료된 quality gating snapshot 중 live rewrite memory 후보로 사용할 배치를 선택합니다.</p>
+              </div>
+              <span>{memoryBacked ? `${selectedBatchIds.length}개 선택` : 'raw-only에서는 사용 안 함'}</span>
             </div>
-            <div className="strategy-chip-grid">
-              {snapshotOptions.map((batch) => {
+            <div className="chat-settings-chip-grid chat-settings-chip-grid--snapshots">
+              {snapshotOptions.length > 0 ? snapshotOptions.map((batch) => {
                 const selected = selectedBatchIdSet.has(batch.gatingBatchId)
                 return (
                   <button
                     key={batch.gatingBatchId}
                     type="button"
-                    className={`strategy-chip ${selected ? 'is-selected' : ''}`}
+                    className={`chat-settings-chip chat-settings-chip--snapshot ${selected ? 'is-selected' : ''}`}
                     disabled={!memoryBacked}
                     onClick={() => toggleSnapshot(batch.gatingBatchId)}
                   >
-                    <strong>{batch.methodCode || '-'}</strong>
-                    <span>{batch.gatingPreset} / accepted {batch.acceptedCount}</span>
-                    <span>{batch.gatingBatchId.slice(0, 8)}</span>
+                    <span className="chat-settings-chip__badge">{batch.methodCode || '-'}</span>
+                    <span className="chat-settings-chip__body">
+                      <strong>{gatingPresetLabel(batch.gatingPreset)} · accepted {formatCount(batch.acceptedCount)}</strong>
+                      <small>{batch.gatingBatchId.slice(0, 8)} · source {batch.sourceGatingRunId?.slice(0, 8) || '-'}</small>
+                    </span>
                   </button>
                 )
-              })}
+              }) : (
+                <div className="chat-settings-empty">현재 조건에 맞는 완료 배치가 없습니다.</div>
+              )}
             </div>
 
-            <div className="strategy-chip-grid">
+            <div className="chat-settings-option-header">
+              <div>
+                <strong>생성 방식</strong>
+                <p>선택한 strategy의 memory만 live rewrite 예시 후보에 포함됩니다.</p>
+              </div>
+              <span>{selectedStrategies.size}개 선택</span>
+            </div>
+            <div className="chat-settings-chip-grid">
               {methods.map((method) => {
                 const selected = selectedStrategies.has(method.methodCode)
                 return (
                   <button
                     key={method.methodCode}
                     type="button"
-                    className={`strategy-chip ${selected ? 'is-selected' : ''}`}
+                    className={`chat-settings-chip chat-settings-chip--method ${selected ? 'is-selected' : ''}`}
                     onClick={() => toggleStrategy(method.methodCode)}
                   >
-                    <strong>{method.methodCode}</strong>
-                    <span>{method.methodName || method.methodCode}</span>
+                    <span className="chat-settings-chip__badge">{method.methodCode}</span>
+                    <span className="chat-settings-chip__body">
+                      <strong>{method.methodName || method.methodCode}</strong>
+                      <small>synthetic memory strategy</small>
+                    </span>
                   </button>
                 )
               })}
             </div>
           </ExperimentSection>
 
-          <ExperimentSection title="Rewrite Policy" description="Use the same policy family validated in Retrieval Eval Lab, but apply it to live chat.">
+          <ExperimentSection title="재작성 정책" description="Admin RAG 품질 테스트에서 검증한 rewrite profile과 fallback 동작을 live chat에 적용합니다.">
             <div className="form-grid">
               <label className="filter-field">Rewrite profile
                 <select value={form.rewriteQueryProfile} onChange={(event) => updateField('rewriteQueryProfile', event.target.value)}>
                   {REWRITE_PROFILES.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}
                 </select>
               </label>
-              <label className="filter-field">Failure policy
+              <label className="filter-field">실패 처리
                 <select value={form.rewriteFailurePolicy} onChange={(event) => updateField('rewriteFailurePolicy', event.target.value)}>
-                  {FAILURE_POLICIES.map((policy) => <option key={policy} value={policy}>{policy}</option>)}
+                  {FAILURE_POLICIES.map((policy) => <option key={policy} value={policy}>{FAILURE_POLICY_LABELS[policy] || policy}</option>)}
                 </select>
               </label>
               <label className="filter-field">Rewrite threshold
                 <input type="number" min="0" max="1" step="0.01" value={form.rewriteThreshold} onChange={(event) => updateField('rewriteThreshold', event.target.value)} />
               </label>
-              <label className="check-pill">
+              <label className={`check-pill ${form.rewriteAnchorInjectionEnabled ? 'is-active' : ''}`}>
                 <input type="checkbox" checked={form.rewriteAnchorInjectionEnabled} onChange={(event) => updateField('rewriteAnchorInjectionEnabled', event.target.checked)} />
-                <span>Anchor injection</span>
+                <span className="check-pill__box" aria-hidden="true">✓</span>
+                <span className="check-pill__text">Anchor 보강</span>
               </label>
-              <label className="check-pill">
+              <label className={`check-pill ${form.useSessionContext ? 'is-active' : ''}`}>
                 <input type="checkbox" checked={form.useSessionContext} onChange={(event) => updateField('useSessionContext', event.target.checked)} />
-                <span>Session context</span>
+                <span className="check-pill__box" aria-hidden="true">✓</span>
+                <span className="check-pill__text">세션 문맥 사용</span>
               </label>
             </div>
           </ExperimentSection>
 
-          <ExperimentSection title="Retrieval Shape" description="Keep these values aligned with the Admin RAG test that promoted this chat config.">
+          <ExperimentSection title="검색 런타임" description="live chat 검색 backend/model/mode가 승격한 Admin RAG run과 맞는지 확인합니다.">
             <div className="form-grid">
-              <label className="filter-field">Retrieval backend
+              <label className="filter-field">검색 backend
                 <select value={form.retrievalBackend} onChange={(event) => updateField('retrievalBackend', event.target.value)}>
                   {(runtimeOptions.retrievalBackends.length > 0 ? runtimeOptions.retrievalBackends : RETRIEVAL_BACKENDS).map((backend) => (
                     <option key={backend} value={backend}>{backend}</option>
                   ))}
                 </select>
               </label>
-              <label className="filter-field">Retriever mode
+              <label className="filter-field">검색 mode
                 <select value={form.retrieverMode} onChange={(event) => updateRetrieverMode(event.target.value)}>
                   {(runtimeOptions.retrieverModes.length > 0 ? runtimeOptions.retrieverModes : RETRIEVER_MODES).map((mode) => (
                     <option key={mode} value={mode}>{retrieverModeLabel(mode)}</option>
@@ -393,7 +448,7 @@ export function ChatSettingsPage({ notify, domainId, domainKey }) {
                   ))}
                 </select>
               </label>
-              <label className="filter-field">Candidate pool
+              <label className="filter-field">후보 pool
                 <input type="number" min="1" max="500" value={form.retrieverCandidatePoolK} onChange={(event) => updateField('retrieverCandidatePoolK', event.target.value)} />
               </label>
               <label className="filter-field">Retrieval Top-K
@@ -424,14 +479,14 @@ export function ChatSettingsPage({ notify, domainId, domainKey }) {
         <ConfigSummaryCard
           title="Active Chat Config"
           items={[
-            { label: 'Domain', value: config?.displayName || domainKey || '-' },
-            { label: 'Ready', value: readiness?.readyForRewrite ? 'yes' : readinessBlockingReasons[0] || '-' },
-            { label: 'Strategies', value: (form.generationStrategies || []).join(', ') || '-' },
-            { label: 'Snapshots', value: selectedBatchIds.length > 0 ? `${selectedBatchIds.length} selected` : '-' },
-            { label: 'Retrieval', value: `${form.retrievalBackend} / ${retrieverModeLabel(form.retrieverMode)}` },
+            { label: '도메인', value: config?.displayName || domainKey || '-' },
+            { label: '준비 상태', value: readiness?.readyForRewrite ? 'ready' : readinessBlockingReasons[0] || '-' },
+            { label: '생성 방식', value: (form.generationStrategies || []).join(', ') || '-' },
+            { label: '배치', value: selectedBatchIds.length > 0 ? `${selectedBatchIds.length}개 선택` : '-' },
+            { label: '검색', value: `${form.retrievalBackend} / ${retrieverModeLabel(form.retrieverMode)}` },
             { label: 'Embedding', value: form.denseEmbeddingModel || '-' },
             { label: 'Profile', value: form.rewriteQueryProfile },
-            { label: 'Updated', value: config?.updatedAt ? fmtTime(config.updatedAt) : '-' },
+            { label: '수정 시각', value: config?.updatedAt ? fmtTime(config.updatedAt) : '-' },
           ]}
         />
       </div>

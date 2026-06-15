@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-06-15] Session Summary (Chat Settings UX Polish)
+- What was done: Made the Admin sidebar scrollable, compacted Chat Settings snapshot/strategy toggles, rewrote setup guidance in Korean, and refreshed the backend-served React bundle.
+- Key decisions: Scoped the new visual treatment to Chat Settings-specific classes so other Admin strategy controls keep their existing layout.
+- Issues encountered: None; targeted frontend lint and production build passed.
+- Next steps: Browser-smoke Chat Settings on a small viewport and confirm the left navigation remains scrollable.
+
 ## [2026-06-15] Session Summary (Chat Multi-Snapshot Memory)
 - What was done: Extended Chat runtime config so Chat Settings can save multiple completed source gating snapshots and live chat memory retrieval uses the selected snapshot set when building rewrite candidates.
 - Key decisions: Kept the existing singular `source_gating_batch_id` / `source_gating_run_id` as primary/backward-compatible fields, added array fields for the actual selected set, and capped manual selection to 20 snapshots while preserving domain/preset/strategy/source-run validation.

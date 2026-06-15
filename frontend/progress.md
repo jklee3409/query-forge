@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-06-15] Session Summary (Chat Settings UX Polish)
+- What was done: Added scroll behavior to the Admin sidebar, localized Chat Settings guidance copy, and replaced the large generic snapshot/strategy chips with compact page-specific toggles.
+- Key decisions: The UI polish keeps the saved payload unchanged and changes only presentation, spacing, labels, and helper copy for easier first-time setup.
+- Issues encountered: Targeted `npx eslint src/App.jsx src/pages/ChatSettingsPage.jsx` passed, and `npm run build` refreshed the backend-served bundle.
+- Next steps: Browser-smoke long side navigation and Chat Settings on desktop/mobile widths.
+
 ## [2026-06-15] Session Summary (Chat Multi-Snapshot Selection UI)
 - What was done: Replaced the single completed-snapshot selector in domain Chat Settings with multi-select snapshot chips, saved `sourceGatingBatchIds`, and showed selected snapshot counts in Chat Settings and the live Chat applied-config trace.
 - Key decisions: The UI still filters selectable snapshots by completed status, source gating run, gating preset, and selected generation strategies before allowing selection; the first selected snapshot is sent as `sourceGatingBatchId` for backward compatibility.
