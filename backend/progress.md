@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-06-15] Session Summary (Admin React Bundle Refresh - Chat Settings Option Labels)
+- What was done: Prepared a backend-served React bundle refresh for Chat Settings English option labels and accepted-count badge styling.
+- Key decisions: No backend API, repository, readiness, or schema code changed; only static React assets will change after build.
+- Issues encountered: None; backend `compileJava` and frontend production build passed.
+- Next steps: Serve the refreshed bundle and smoke-test Chat Settings.
+
 ## [2026-06-15] Session Summary (Admin React Bundle Refresh - Chat Settings Labels)
 - What was done: Prepared a backend-served React bundle refresh for the Chat Settings label/spacing fix.
 - Key decisions: No backend API, repository, readiness, or schema code changed; the backend impact is limited to static React assets after the frontend build.

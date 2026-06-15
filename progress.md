@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-06-15] Session Summary (Chat Settings Option Labels)
+- What was done: Restored Chat Settings enum option labels to English/canonical display text and split snapshot accepted counts into a highlighted badge.
+- Key decisions: Kept all saved config values/API payloads unchanged; only visible labels and page-scoped presentation changed.
+- Issues encountered: None; targeted frontend ESLint, backend `compileJava`, production build, and diff check passed.
+- Next steps: Browser-smoke `/admin/domains/{domainKey}/chat-settings` and confirm dropdown options stay English while accepted counts stand out.
+
 ## [2026-06-15] Session Summary (Chat Settings Label Spacing Fix)
 - What was done: Adjusted Chat Settings display copy so `full_gating` renders as `full gating`, shortened generation strategy toggles to code-only labels such as `A안`, and tightened Domain Readiness / Selected Snapshots badge spacing.
 - Key decisions: Kept the saved Chat config payload and readiness API unchanged; this pass only changes UI labels, chip rendering, and page-scoped spacing.

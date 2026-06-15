@@ -5,34 +5,34 @@ import { appendQuery, fetchSyntheticMethods, requestJson, toNumber } from '../li
 import { fmtTime } from '../lib/format.js'
 
 const MODE_OPTIONS = [
-  { value: 'selective_rewrite', label: '선택 재작성' },
-  { value: 'raw_only', label: '원문 전용' },
-  { value: 'selective_rewrite_with_session', label: '세션 포함 선택 재작성' },
-  { value: 'rewrite_always', label: '항상 재작성' },
-  { value: 'memory_only_gated', label: '게이트 메모리만' },
-  { value: 'memory_only_ungated', label: '비게이트 메모리만' },
+  { value: 'selective_rewrite', label: 'selective rewrite' },
+  { value: 'raw_only', label: 'raw only' },
+  { value: 'selective_rewrite_with_session', label: 'selective rewrite with session' },
+  { value: 'rewrite_always', label: 'rewrite always' },
+  { value: 'memory_only_gated', label: 'memory only gated' },
+  { value: 'memory_only_ungated', label: 'memory only ungated' },
 ]
 
 const GATING_PRESETS = ['full_gating', 'rule_plus_llm', 'rule_only', 'ungated']
 const REWRITE_PROFILES = [
-  { value: 'compact_anchor', label: '간결 anchor' },
-  { value: 'detailed_intent', label: '상세 intent' },
+  { value: 'compact_anchor', label: 'compact anchor' },
+  { value: 'detailed_intent', label: 'detailed intent' },
 ]
 const FAILURE_POLICIES = ['heuristic_fallback', 'skip_to_raw', 'fail_run']
 const RETRIEVAL_BACKENDS = ['local', 'db_ann']
 const RETRIEVER_MODES = ['bm25_only', 'dense_only', 'hybrid']
 
 const FAILURE_POLICY_LABELS = {
-  heuristic_fallback: '휴리스틱 fallback',
-  skip_to_raw: '원문으로 전환',
-  fail_run: '실패 처리',
+  heuristic_fallback: 'heuristic fallback',
+  skip_to_raw: 'skip to raw',
+  fail_run: 'fail run',
 }
 
 const GATING_PRESET_LABELS = {
   full_gating: 'full gating',
-  rule_plus_llm: '규칙 + LLM',
-  rule_only: '규칙만',
-  ungated: '게이트 없음',
+  rule_plus_llm: 'rule + LLM',
+  rule_only: 'rule only',
+  ungated: 'ungated',
 }
 
 function retrieverModeLabel(mode) {
@@ -365,7 +365,8 @@ export function ChatSettingsPage({ notify, domainId, domainKey }) {
                   >
                     <span className="chat-settings-chip__badge">{batch.methodCode || '-'}</span>
                     <span className="chat-settings-chip__body">
-                      <strong>{gatingPresetLabel(batch.gatingPreset)} · accepted {formatCount(batch.acceptedCount)}</strong>
+                      <span className="chat-settings-chip__title">{gatingPresetLabel(batch.gatingPreset)}</span>
+                      <span className="chat-settings-chip__accepted">accepted <b>{formatCount(batch.acceptedCount)}</b></span>
                       <small>{batch.gatingBatchId.slice(0, 8)} · source {batch.sourceGatingRunId?.slice(0, 8) || '-'}</small>
                     </span>
                   </button>

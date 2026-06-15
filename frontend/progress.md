@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-06-15] Session Summary (Chat Settings Option Labels)
+- What was done: Restored Chat Settings runtime option labels to English display text and made each synthetic batch accepted count a highlighted badge.
+- Key decisions: Kept the Chat Settings save payload unchanged and scoped the new badge styling to Chat Settings snapshot chips.
+- Issues encountered: None; targeted `npx eslint src/pages/ChatSettingsPage.jsx` and `npm run build` passed.
+- Next steps: Validate the page in a domain workspace and confirm selected snapshot counts remain readable.
+
 ## [2026-06-15] Session Summary (Chat Settings Label Spacing Fix)
 - What was done: Changed Chat Settings `full_gating` copy to `full gating`, rendered generation strategy toggles as concise labels such as `A안`, and tightened Domain Readiness / Selected Snapshots badge spacing.
 - Key decisions: Kept the existing Chat Settings API payload unchanged and scoped layout overrides to `.chat-settings-page`.

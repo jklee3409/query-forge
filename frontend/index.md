@@ -34,6 +34,7 @@
 ---
 
 ## Recent Update
+- Domain `Chat Settings` keeps runtime option labels in English and highlights each synthetic batch's accepted query count as a badge.
 - Domain `Chat Settings` now displays `full gating`, shows generation strategy choices as concise labels such as `A안`, and keeps readiness/selected-snapshot status badges aligned with their section headings.
 - Admin shell sidebar now scrolls independently on desktop and mobile widths, so domain workspace navigation remains reachable with long menus.
 - Domain `Chat Settings` now uses compact Korean-labeled controls for chat mode, synthetic query batch snapshots, generation strategies, rewrite policy, and retrieval runtime selection.
