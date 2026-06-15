@@ -89,6 +89,13 @@ public class ChatRuntimeConfigRepository {
                        COALESCE(c.rewrite_query_profile, 'compact_anchor') AS rewrite_query_profile,
                        COALESCE(c.rewrite_anchor_injection_enabled, FALSE) AS rewrite_anchor_injection_enabled,
                        COALESCE(c.use_session_context, FALSE) AS use_session_context,
+                       COALESCE(c.retrieval_backend, 'local') AS retrieval_backend,
+                       COALESCE(c.dense_embedding_model, 'intfloat/multilingual-e5-small') AS dense_embedding_model,
+                       COALESCE(c.retriever_mode, 'hybrid') AS retriever_mode,
+                       COALESCE(c.retriever_candidate_pool_k, 50) AS retriever_candidate_pool_k,
+                       COALESCE(c.retriever_dense_weight, 0.60) AS retriever_dense_weight,
+                       COALESCE(c.retriever_bm25_weight, 0.32) AS retriever_bm25_weight,
+                       COALESCE(c.retriever_technical_weight, 0.08) AS retriever_technical_weight,
                        COALESCE(c.retrieval_top_k, 10) AS retrieval_top_k,
                        COALESCE(c.rerank_top_n, 5) AS rerank_top_n,
                        COALESCE(c.memory_top_n, 5) AS memory_top_n,
@@ -303,6 +310,13 @@ public class ChatRuntimeConfigRepository {
             String rewriteQueryProfile,
             boolean rewriteAnchorInjectionEnabled,
             boolean useSessionContext,
+            String retrievalBackend,
+            String denseEmbeddingModel,
+            String retrieverMode,
+            int retrieverCandidatePoolK,
+            double retrieverDenseWeight,
+            double retrieverBm25Weight,
+            double retrieverTechnicalWeight,
             int retrievalTopK,
             int rerankTopN,
             int memoryTopN,
@@ -324,6 +338,13 @@ public class ChatRuntimeConfigRepository {
                     rewrite_query_profile,
                     rewrite_anchor_injection_enabled,
                     use_session_context,
+                    retrieval_backend,
+                    dense_embedding_model,
+                    retriever_mode,
+                    retriever_candidate_pool_k,
+                    retriever_dense_weight,
+                    retriever_bm25_weight,
+                    retriever_technical_weight,
                     retrieval_top_k,
                     rerank_top_n,
                     memory_top_n,
@@ -344,6 +365,13 @@ public class ChatRuntimeConfigRepository {
                     :rewriteQueryProfile,
                     :rewriteAnchorInjectionEnabled,
                     :useSessionContext,
+                    :retrievalBackend,
+                    :denseEmbeddingModel,
+                    :retrieverMode,
+                    :retrieverCandidatePoolK,
+                    :retrieverDenseWeight,
+                    :retrieverBm25Weight,
+                    :retrieverTechnicalWeight,
                     :retrievalTopK,
                     :rerankTopN,
                     :memoryTopN,
@@ -364,6 +392,13 @@ public class ChatRuntimeConfigRepository {
                     rewrite_query_profile = EXCLUDED.rewrite_query_profile,
                     rewrite_anchor_injection_enabled = EXCLUDED.rewrite_anchor_injection_enabled,
                     use_session_context = EXCLUDED.use_session_context,
+                    retrieval_backend = EXCLUDED.retrieval_backend,
+                    dense_embedding_model = EXCLUDED.dense_embedding_model,
+                    retriever_mode = EXCLUDED.retriever_mode,
+                    retriever_candidate_pool_k = EXCLUDED.retriever_candidate_pool_k,
+                    retriever_dense_weight = EXCLUDED.retriever_dense_weight,
+                    retriever_bm25_weight = EXCLUDED.retriever_bm25_weight,
+                    retriever_technical_weight = EXCLUDED.retriever_technical_weight,
                     retrieval_top_k = EXCLUDED.retrieval_top_k,
                     rerank_top_n = EXCLUDED.rerank_top_n,
                     memory_top_n = EXCLUDED.memory_top_n,
@@ -387,6 +422,13 @@ public class ChatRuntimeConfigRepository {
                         .addValue("rewriteQueryProfile", rewriteQueryProfile)
                         .addValue("rewriteAnchorInjectionEnabled", rewriteAnchorInjectionEnabled)
                         .addValue("useSessionContext", useSessionContext)
+                        .addValue("retrievalBackend", retrievalBackend)
+                        .addValue("denseEmbeddingModel", denseEmbeddingModel)
+                        .addValue("retrieverMode", retrieverMode)
+                        .addValue("retrieverCandidatePoolK", retrieverCandidatePoolK)
+                        .addValue("retrieverDenseWeight", retrieverDenseWeight)
+                        .addValue("retrieverBm25Weight", retrieverBm25Weight)
+                        .addValue("retrieverTechnicalWeight", retrieverTechnicalWeight)
                         .addValue("retrievalTopK", retrievalTopK)
                         .addValue("rerankTopN", rerankTopN)
                         .addValue("memoryTopN", memoryTopN)
@@ -421,6 +463,13 @@ public class ChatRuntimeConfigRepository {
                 rs.getString("rewrite_query_profile"),
                 rs.getBoolean("rewrite_anchor_injection_enabled"),
                 rs.getBoolean("use_session_context"),
+                rs.getString("retrieval_backend"),
+                rs.getString("dense_embedding_model"),
+                rs.getString("retriever_mode"),
+                rs.getInt("retriever_candidate_pool_k"),
+                rs.getDouble("retriever_dense_weight"),
+                rs.getDouble("retriever_bm25_weight"),
+                rs.getDouble("retriever_technical_weight"),
                 rs.getInt("retrieval_top_k"),
                 rs.getInt("rerank_top_n"),
                 rs.getInt("memory_top_n"),

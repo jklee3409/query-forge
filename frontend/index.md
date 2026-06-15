@@ -34,6 +34,7 @@
 ---
 
 ## Recent Update
+- Domain `Chat Settings` now exposes the live chat retrieval tuple: retrieval backend (`local` / `db_ann`), dense embedding model, retriever mode, candidate pool, and Dense/BM25/Technical fusion weights. The Chat page shows the active backend/model/mode so promoted Admin RAG retrieval settings are visible during live use.
 - Domain `Chat Settings` now shows recent config provenance rows, including manual vs Apply-to-Chat source, operator, source RAG run ID, and changed field names for auditability.
 - `/admin/rag-tests` completed run rows now expose `Apply to Chat`, which copies the selected RAG run into the persistent per-domain chat runtime config and opens a result modal with an `Edit Chat Settings` link so the copied values remain directly editable.
 - `/` Chat surface now requires a domain selection, loads the persisted domain chat runtime config, and shows raw query, rewritten query, final query, applied config, rewrite candidates, retrieved chunks, and memory candidates. Domain workspace Admin navigation now includes `Chat Settings` for pinning live chat mode, generation strategies, completed snapshot, compact/detailed rewrite profile, anchor injection, session context, and retrieval sizing per domain.

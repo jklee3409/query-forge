@@ -19,8 +19,29 @@ const REWRITE_PROFILES = [
   { value: 'detailed_intent', label: 'Detailed intent' },
 ]
 const FAILURE_POLICIES = ['heuristic_fallback', 'skip_to_raw', 'fail_run']
+const RETRIEVAL_BACKENDS = ['local', 'db_ann']
+const RETRIEVER_MODES = ['bm25_only', 'dense_only', 'hybrid']
+
+function retrieverModeLabel(mode) {
+  if (mode === 'bm25_only') return 'BM25 Only'
+  if (mode === 'dense_only') return 'Dense Only'
+  if (mode === 'hybrid') return 'Hybrid'
+  return mode || '-'
+}
+
+function retrieverDefaults(mode, runtimeOptions = {}) {
+  const defaults = runtimeOptions.retrieverModeDefaults?.[mode] || {}
+  const weights = defaults.retriever_fusion_weights || defaults.retrieverFusionWeights || {}
+  return {
+    candidatePoolK: String(defaults.retriever_candidate_pool_k || defaults.retrieverCandidatePoolK || 50),
+    denseWeight: String(weights.dense ?? (mode === 'dense_only' ? 1 : mode === 'bm25_only' ? 0 : 0.6)),
+    bm25Weight: String(weights.bm25 ?? (mode === 'bm25_only' ? 1 : mode === 'dense_only' ? 0 : 0.32)),
+    technicalWeight: String(weights.technical ?? (mode === 'hybrid' ? 0.08 : 0)),
+  }
+}
 
 function initialForm(domainId) {
+  const defaults = retrieverDefaults('hybrid')
   return {
     domainId: domainId || '',
     enabled: true,
@@ -31,6 +52,13 @@ function initialForm(domainId) {
     rewriteQueryProfile: 'compact_anchor',
     rewriteAnchorInjectionEnabled: false,
     useSessionContext: false,
+    retrievalBackend: 'local',
+    denseEmbeddingModel: 'intfloat/multilingual-e5-small',
+    retrieverMode: 'hybrid',
+    retrieverCandidatePoolK: defaults.candidatePoolK,
+    retrieverDenseWeight: defaults.denseWeight,
+    retrieverBm25Weight: defaults.bm25Weight,
+    retrieverTechnicalWeight: defaults.technicalWeight,
     retrievalTopK: '10',
     rerankTopN: '5',
     memoryTopN: '5',
@@ -52,6 +80,12 @@ export function ChatSettingsPage({ notify, domainId, domainKey }) {
   const [methods, setMethods] = useState([])
   const [gatingBatches, setGatingBatches] = useState([])
   const [provenance, setProvenance] = useState([])
+  const [runtimeOptions, setRuntimeOptions] = useState({
+    denseEmbeddingModels: ['intfloat/multilingual-e5-small'],
+    retrievalBackends: RETRIEVAL_BACKENDS,
+    retrieverModes: RETRIEVER_MODES,
+    retrieverModeDefaults: {},
+  })
   const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
 
@@ -59,16 +93,32 @@ export function ChatSettingsPage({ notify, domainId, domainKey }) {
     if (!domainId) return
     setLoading(true)
     try {
-      const [configPayload, methodPayload, batchPayload, provenancePayload] = await Promise.all([
+      const [configPayload, methodPayload, batchPayload, provenancePayload, runtimePayload] = await Promise.all([
         requestJson(appendQuery('/api/admin/chat/config', { domain_id: domainId })),
         fetchSyntheticMethods({ domainId }),
         requestJson(appendQuery('/api/admin/console/gating/batches', { domain_id: domainId, limit: 100 })),
         requestJson(appendQuery('/api/admin/chat/config/provenance', { domain_id: domainId, limit: 10 })),
+        requestJson('/api/admin/console/runtime/options'),
       ])
+      const nextRuntimeOptions = {
+        denseEmbeddingModels: Array.isArray(runtimePayload.denseEmbeddingModels) && runtimePayload.denseEmbeddingModels.length > 0
+          ? runtimePayload.denseEmbeddingModels
+          : ['intfloat/multilingual-e5-small'],
+        retrievalBackends: Array.isArray(runtimePayload.retrievalBackends) && runtimePayload.retrievalBackends.length > 0
+          ? runtimePayload.retrievalBackends
+          : RETRIEVAL_BACKENDS,
+        retrieverModes: Array.isArray(runtimePayload.retrieverModes) && runtimePayload.retrieverModes.length > 0
+          ? runtimePayload.retrieverModes
+          : RETRIEVER_MODES,
+        retrieverModeDefaults: runtimePayload.retrieverModeDefaults && typeof runtimePayload.retrieverModeDefaults === 'object'
+          ? runtimePayload.retrieverModeDefaults
+          : {},
+      }
       setConfig(configPayload)
       setMethods(Array.isArray(methodPayload) ? methodPayload : [])
       setGatingBatches(Array.isArray(batchPayload) ? batchPayload : [])
       setProvenance(Array.isArray(provenancePayload) ? provenancePayload : [])
+      setRuntimeOptions(nextRuntimeOptions)
       setForm({
         domainId,
         enabled: Boolean(configPayload.enabled),
@@ -79,6 +129,13 @@ export function ChatSettingsPage({ notify, domainId, domainKey }) {
         rewriteQueryProfile: configPayload.rewriteQueryProfile || 'compact_anchor',
         rewriteAnchorInjectionEnabled: Boolean(configPayload.rewriteAnchorInjectionEnabled),
         useSessionContext: Boolean(configPayload.useSessionContext),
+        retrievalBackend: configPayload.retrievalBackend || 'local',
+        denseEmbeddingModel: configPayload.denseEmbeddingModel || nextRuntimeOptions.denseEmbeddingModels[0] || 'intfloat/multilingual-e5-small',
+        retrieverMode: configPayload.retrieverMode || 'hybrid',
+        retrieverCandidatePoolK: String(configPayload.retrieverCandidatePoolK || 50),
+        retrieverDenseWeight: String(configPayload.retrieverDenseWeight ?? 0.6),
+        retrieverBm25Weight: String(configPayload.retrieverBm25Weight ?? 0.32),
+        retrieverTechnicalWeight: String(configPayload.retrieverTechnicalWeight ?? 0.08),
         retrievalTopK: String(configPayload.retrievalTopK || 10),
         rerankTopN: String(configPayload.rerankTopN || 5),
         memoryTopN: String(configPayload.memoryTopN || 5),
@@ -112,6 +169,18 @@ export function ChatSettingsPage({ notify, domainId, domainKey }) {
     setForm((prev) => ({ ...prev, [field]: value }))
   }
 
+  const updateRetrieverMode = (mode) => {
+    const defaults = retrieverDefaults(mode, runtimeOptions)
+    setForm((prev) => ({
+      ...prev,
+      retrieverMode: mode,
+      retrieverCandidatePoolK: defaults.candidatePoolK,
+      retrieverDenseWeight: defaults.denseWeight,
+      retrieverBm25Weight: defaults.bm25Weight,
+      retrieverTechnicalWeight: defaults.technicalWeight,
+    }))
+  }
+
   const toggleStrategy = (methodCode) => {
     setForm((prev) => {
       const next = new Set(prev.generationStrategies || [])
@@ -135,6 +204,13 @@ export function ChatSettingsPage({ notify, domainId, domainKey }) {
         body: JSON.stringify({
           ...form,
           domainId,
+          retrievalBackend: form.retrievalBackend,
+          denseEmbeddingModel: form.denseEmbeddingModel,
+          retrieverMode: form.retrieverMode,
+          retrieverCandidatePoolK: toNumber(form.retrieverCandidatePoolK),
+          retrieverDenseWeight: toNumber(form.retrieverDenseWeight),
+          retrieverBm25Weight: toNumber(form.retrieverBm25Weight),
+          retrieverTechnicalWeight: toNumber(form.retrieverTechnicalWeight),
           retrievalTopK: toNumber(form.retrievalTopK),
           rerankTopN: toNumber(form.rerankTopN),
           memoryTopN: toNumber(form.memoryTopN),
@@ -240,6 +316,30 @@ export function ChatSettingsPage({ notify, domainId, domainKey }) {
 
           <ExperimentSection title="Retrieval Shape" description="Keep these values aligned with the Admin RAG test that promoted this chat config.">
             <div className="form-grid">
+              <label className="filter-field">Retrieval backend
+                <select value={form.retrievalBackend} onChange={(event) => updateField('retrievalBackend', event.target.value)}>
+                  {(runtimeOptions.retrievalBackends.length > 0 ? runtimeOptions.retrievalBackends : RETRIEVAL_BACKENDS).map((backend) => (
+                    <option key={backend} value={backend}>{backend}</option>
+                  ))}
+                </select>
+              </label>
+              <label className="filter-field">Retriever mode
+                <select value={form.retrieverMode} onChange={(event) => updateRetrieverMode(event.target.value)}>
+                  {(runtimeOptions.retrieverModes.length > 0 ? runtimeOptions.retrieverModes : RETRIEVER_MODES).map((mode) => (
+                    <option key={mode} value={mode}>{retrieverModeLabel(mode)}</option>
+                  ))}
+                </select>
+              </label>
+              <label className="filter-field">Dense embedding model
+                <select value={form.denseEmbeddingModel} onChange={(event) => updateField('denseEmbeddingModel', event.target.value)}>
+                  {(runtimeOptions.denseEmbeddingModels.length > 0 ? runtimeOptions.denseEmbeddingModels : ['intfloat/multilingual-e5-small']).map((model) => (
+                    <option key={model} value={model}>{model}</option>
+                  ))}
+                </select>
+              </label>
+              <label className="filter-field">Candidate pool
+                <input type="number" min="1" max="500" value={form.retrieverCandidatePoolK} onChange={(event) => updateField('retrieverCandidatePoolK', event.target.value)} />
+              </label>
               <label className="filter-field">Retrieval Top-K
                 <input type="number" min="1" max="100" value={form.retrievalTopK} onChange={(event) => updateField('retrievalTopK', event.target.value)} />
               </label>
@@ -252,6 +352,15 @@ export function ChatSettingsPage({ notify, domainId, domainKey }) {
               <label className="filter-field">Rewrite candidates
                 <input type="number" min="1" max="2" value={form.rewriteCandidateCount} onChange={(event) => updateField('rewriteCandidateCount', event.target.value)} />
               </label>
+              <label className="filter-field">Dense weight
+                <input type="number" min="0" max="1" step="0.01" disabled={form.retrieverMode !== 'hybrid'} value={form.retrieverDenseWeight} onChange={(event) => updateField('retrieverDenseWeight', event.target.value)} />
+              </label>
+              <label className="filter-field">BM25 weight
+                <input type="number" min="0" max="1" step="0.01" disabled={form.retrieverMode !== 'hybrid'} value={form.retrieverBm25Weight} onChange={(event) => updateField('retrieverBm25Weight', event.target.value)} />
+              </label>
+              <label className="filter-field">Technical weight
+                <input type="number" min="0" max="1" step="0.01" disabled={form.retrieverMode !== 'hybrid'} value={form.retrieverTechnicalWeight} onChange={(event) => updateField('retrieverTechnicalWeight', event.target.value)} />
+              </label>
             </div>
           </ExperimentSection>
         </div>
@@ -263,6 +372,8 @@ export function ChatSettingsPage({ notify, domainId, domainKey }) {
             { label: 'Ready', value: config?.readyForRewrite ? 'yes' : config?.readinessMessage || '-' },
             { label: 'Strategies', value: (form.generationStrategies || []).join(', ') || '-' },
             { label: 'Snapshot', value: form.sourceGatingBatchId ? form.sourceGatingBatchId.slice(0, 8) : '-' },
+            { label: 'Retrieval', value: `${form.retrievalBackend} / ${retrieverModeLabel(form.retrieverMode)}` },
+            { label: 'Embedding', value: form.denseEmbeddingModel || '-' },
             { label: 'Profile', value: form.rewriteQueryProfile },
             { label: 'Updated', value: config?.updatedAt ? fmtTime(config.updatedAt) : '-' },
           ]}

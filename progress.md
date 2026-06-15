@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-06-15] Session Summary (Chat Retrieval Parity)
+- What was done: Added persistent per-domain Chat retrieval config for `retrieval_backend`, dense embedding model, retriever mode, candidate pool, and fusion weights, and wired Apply-to-Chat to copy those values from completed Admin RAG runs.
+- Key decisions: Live chat now records and executes the configured retrieval tuple; `db_ann` chat uses materialized `chunk_embeddings` and the same Python dense query embedding path as Admin evaluation, while retaining domain/snapshot/strategy memory isolation.
+- Issues encountered: Java chat runtime had only hash embeddings before this change, so `db_ann` query embeddings are generated through the existing pipeline Python environment and rejected when chunk vectors are not materialized.
+- Next steps: Add the domain readiness/health screen for snapshot, embedding, prompt, memory, and rewrite readiness details.
+
 ## [2026-06-15] Session Summary (Chat Config Provenance)
 - What was done: Added append-only `chat_runtime_config_provenance` storage and Admin API/UI reads so manual Chat Settings saves and Apply-to-Chat events keep previous/applied config snapshots, changed fields, operator, source, and source RAG run ID.
 - Key decisions: Provenance is stored separately from the active config to preserve the latest runtime table as a simple per-domain lookup while retaining enough history to support future version/rollback work.

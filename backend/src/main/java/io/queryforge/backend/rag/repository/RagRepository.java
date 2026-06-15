@@ -302,6 +302,204 @@ public class RagRepository {
         );
     }
 
+    public List<RetrievalDoc> findDbAnnChunkDensePool(
+            String queryEmbeddingLiteral,
+            String embeddingModel,
+            int limit,
+            UUID domainId
+    ) {
+        String sql = """
+                SELECT c.document_id,
+                       c.chunk_id,
+                       c.chunk_text,
+                       1 - (ce.embedding <=> CAST(:embedding AS halfvec)) AS score
+                FROM chunk_embeddings ce
+                JOIN corpus_chunks c ON c.chunk_id = ce.chunk_id
+                WHERE ce.embedding_model = :embeddingModel
+                  AND (:domainId IS NULL OR c.domain_id = :domainId)
+                ORDER BY ce.embedding <=> CAST(:embedding AS halfvec), c.chunk_id
+                LIMIT :limit
+                """;
+        return jdbcTemplate.query(
+                sql,
+                new MapSqlParameterSource()
+                        .addValue("embedding", queryEmbeddingLiteral)
+                        .addValue("embeddingModel", embeddingModel)
+                        .addValue("limit", Math.max(1, limit))
+                        .addValue("domainId", domainId),
+                retrievalDocRowMapper()
+        );
+    }
+
+    public List<RetrievalDoc> findDbAnnChunkTextPool(
+            String queryEmbeddingLiteral,
+            String embeddingModel,
+            List<String> patterns,
+            int limit,
+            UUID domainId
+    ) {
+        if (patterns == null || patterns.isEmpty()) {
+            return List.of();
+        }
+        MapSqlParameterSource parameters = new MapSqlParameterSource()
+                .addValue("embedding", queryEmbeddingLiteral)
+                .addValue("embeddingModel", embeddingModel)
+                .addValue("limit", Math.max(1, limit))
+                .addValue("domainId", domainId);
+        String patternFilter = chunkPatternFilter(patterns, parameters, "chunkPattern");
+        String sql = """
+                SELECT c.document_id,
+                       c.chunk_id,
+                       c.chunk_text,
+                       1 - (ce.embedding <=> CAST(:embedding AS halfvec)) AS score
+                FROM chunk_embeddings ce
+                JOIN corpus_chunks c ON c.chunk_id = ce.chunk_id
+                LEFT JOIN corpus_documents d ON d.document_id = c.document_id
+                WHERE ce.embedding_model = :embeddingModel
+                  AND (:domainId IS NULL OR c.domain_id = :domainId)
+                  AND (%s)
+                ORDER BY c.chunk_id
+                LIMIT :limit
+                """.formatted(patternFilter);
+        return jdbcTemplate.query(sql, parameters, retrievalDocRowMapper());
+    }
+
+    public List<RetrievalDoc> findChunkTextPool(List<String> patterns, int limit, UUID domainId) {
+        if (patterns == null || patterns.isEmpty()) {
+            return List.of();
+        }
+        MapSqlParameterSource parameters = new MapSqlParameterSource()
+                .addValue("limit", Math.max(1, limit))
+                .addValue("domainId", domainId);
+        String patternFilter = chunkPatternFilter(patterns, parameters, "localChunkPattern");
+        String sql = """
+                SELECT c.document_id,
+                       c.chunk_id,
+                       c.chunk_text,
+                       0.0 AS score
+                FROM corpus_chunks c
+                LEFT JOIN corpus_documents d ON d.document_id = c.document_id
+                WHERE (:domainId IS NULL OR c.domain_id = :domainId)
+                  AND (%s)
+                ORDER BY c.chunk_id
+                LIMIT :limit
+                """.formatted(patternFilter);
+        return jdbcTemplate.query(sql, parameters, retrievalDocRowMapper());
+    }
+
+    public List<MemoryCandidate> findMemoryDensePool(
+            String queryEmbeddingLiteral,
+            String embeddingModel,
+            int limit,
+            String gatingPreset,
+            UUID domainId,
+            List<String> generationStrategies,
+            UUID sourceGatingRunId,
+            UUID sourceGatingBatchId
+    ) {
+        boolean strategyFilterEmpty = generationStrategies == null || generationStrategies.isEmpty();
+        String sql = """
+                SELECT m.memory_id,
+                       m.query_text,
+                       m.target_doc_id,
+                       m.target_chunk_ids::text AS target_chunk_ids,
+                       m.glossary_terms::text AS glossary_terms,
+                       m.metadata::text AS metadata_json,
+                       1 - (m.query_embedding <=> CAST(:embedding AS halfvec)) AS similarity,
+                       m.generation_strategy,
+                       r.generation_batch_id,
+                       m.domain_id,
+                       m.source_gated_query_id,
+                       m.metadata ->> 'source_gate_run_id' AS source_gate_run_id,
+                       m.metadata ->> 'source_gating_batch_id' AS source_gating_batch_id
+                FROM memory_entries m
+                JOIN synthetic_queries_gated g ON g.gated_query_id = m.source_gated_query_id
+                LEFT JOIN synthetic_queries_raw_all r ON r.synthetic_query_id = g.synthetic_query_id
+                WHERE m.query_embedding IS NOT NULL
+                  AND m.metadata ->> 'embedding_model' = :embeddingModel
+                  AND (:gatingPreset IS NULL OR g.gating_preset = :gatingPreset)
+                  AND (:domainId IS NULL OR m.domain_id = :domainId)
+                  AND (:strategyFilterEmpty IS TRUE OR m.generation_strategy IN (:generationStrategies))
+                  AND (:sourceGatingRunId IS NULL OR m.metadata ->> 'source_gate_run_id' = :sourceGatingRunId)
+                  AND (:sourceGatingBatchId IS NULL OR m.metadata ->> 'source_gating_batch_id' = :sourceGatingBatchId)
+                ORDER BY m.query_embedding <=> CAST(:embedding AS halfvec), m.memory_id
+                LIMIT :limit
+                """;
+        return jdbcTemplate.query(
+                sql,
+                memoryQueryParameters(
+                        queryEmbeddingLiteral,
+                        embeddingModel,
+                        limit,
+                        gatingPreset,
+                        domainId,
+                        generationStrategies,
+                        sourceGatingRunId,
+                        sourceGatingBatchId,
+                        strategyFilterEmpty
+                ),
+                memoryCandidateRowMapper()
+        );
+    }
+
+    public List<MemoryCandidate> findMemoryTextPool(
+            String queryEmbeddingLiteral,
+            String embeddingModel,
+            List<String> patterns,
+            int limit,
+            String gatingPreset,
+            UUID domainId,
+            List<String> generationStrategies,
+            UUID sourceGatingRunId,
+            UUID sourceGatingBatchId
+    ) {
+        if (patterns == null || patterns.isEmpty()) {
+            return List.of();
+        }
+        boolean strategyFilterEmpty = generationStrategies == null || generationStrategies.isEmpty();
+        MapSqlParameterSource parameters = memoryQueryParameters(
+                queryEmbeddingLiteral,
+                embeddingModel,
+                limit,
+                gatingPreset,
+                domainId,
+                generationStrategies,
+                sourceGatingRunId,
+                sourceGatingBatchId,
+                strategyFilterEmpty
+        );
+        String patternFilter = memoryPatternFilter(patterns, parameters, "memoryPattern");
+        String sql = """
+                SELECT m.memory_id,
+                       m.query_text,
+                       m.target_doc_id,
+                       m.target_chunk_ids::text AS target_chunk_ids,
+                       m.glossary_terms::text AS glossary_terms,
+                       m.metadata::text AS metadata_json,
+                       1 - (m.query_embedding <=> CAST(:embedding AS halfvec)) AS similarity,
+                       m.generation_strategy,
+                       r.generation_batch_id,
+                       m.domain_id,
+                       m.source_gated_query_id,
+                       m.metadata ->> 'source_gate_run_id' AS source_gate_run_id,
+                       m.metadata ->> 'source_gating_batch_id' AS source_gating_batch_id
+                FROM memory_entries m
+                JOIN synthetic_queries_gated g ON g.gated_query_id = m.source_gated_query_id
+                LEFT JOIN synthetic_queries_raw_all r ON r.synthetic_query_id = g.synthetic_query_id
+                WHERE m.query_embedding IS NOT NULL
+                  AND m.metadata ->> 'embedding_model' = :embeddingModel
+                  AND (:gatingPreset IS NULL OR g.gating_preset = :gatingPreset)
+                  AND (:domainId IS NULL OR m.domain_id = :domainId)
+                  AND (:strategyFilterEmpty IS TRUE OR m.generation_strategy IN (:generationStrategies))
+                  AND (:sourceGatingRunId IS NULL OR m.metadata ->> 'source_gate_run_id' = :sourceGatingRunId)
+                  AND (:sourceGatingBatchId IS NULL OR m.metadata ->> 'source_gating_batch_id' = :sourceGatingBatchId)
+                  AND (%s)
+                ORDER BY m.memory_id
+                LIMIT :limit
+                """.formatted(patternFilter);
+        return jdbcTemplate.query(sql, parameters, memoryCandidateRowMapper());
+    }
+
     @Transactional
     public UUID createOnlineQuery(
             UUID domainId,
@@ -427,6 +625,19 @@ public class RagRepository {
             List<RetrievalDoc> docs,
             String mode
     ) {
+        insertRetrievalResults(onlineQueryId, rewriteCandidateId, scope, docs, mode, "pgvector-hash-embedding", objectMapper.createObjectNode());
+    }
+
+    @Transactional
+    public void insertRetrievalResults(
+            UUID onlineQueryId,
+            UUID rewriteCandidateId,
+            String scope,
+            List<RetrievalDoc> docs,
+            String mode,
+            String retrieverName,
+            JsonNode metadata
+    ) {
         String sql = """
                 INSERT INTO retrieval_results (
                     online_query_id,
@@ -461,9 +672,9 @@ public class RagRepository {
                             .addValue("rank", index + 1)
                             .addValue("documentId", doc.documentId())
                             .addValue("chunkId", doc.chunkId())
-                            .addValue("retrieverName", "pgvector-hash-embedding")
+                            .addValue("retrieverName", retrieverName)
                             .addValue("score", doc.score())
-                            .addValue("metadata", "{\"mode\":\"" + mode + "\"}")
+                            .addValue("metadata", retrievalMetadata(mode, metadata).toString())
             );
         }
     }
@@ -995,6 +1206,93 @@ public class RagRepository {
                         rs.getString("notes")
                 )
         );
+    }
+
+    private RowMapper<RetrievalDoc> retrievalDocRowMapper() {
+        return (rs, rowNum) -> new RetrievalDoc(
+                rs.getString("document_id"),
+                rs.getString("chunk_id"),
+                rs.getString("chunk_text"),
+                rs.getDouble("score")
+        );
+    }
+
+    private RowMapper<MemoryCandidate> memoryCandidateRowMapper() {
+        return (rs, rowNum) -> new MemoryCandidate(
+                readUuid(rs, "memory_id"),
+                rs.getString("query_text"),
+                rs.getString("target_doc_id"),
+                readJson(rs, "target_chunk_ids"),
+                readJson(rs, "glossary_terms"),
+                readJson(rs, "metadata_json"),
+                rs.getDouble("similarity"),
+                rs.getString("generation_strategy"),
+                readUuid(rs, "generation_batch_id"),
+                readUuid(rs, "domain_id"),
+                rs.getString("source_gated_query_id"),
+                rs.getString("source_gate_run_id"),
+                rs.getString("source_gating_batch_id")
+        );
+    }
+
+    private MapSqlParameterSource memoryQueryParameters(
+            String queryEmbeddingLiteral,
+            String embeddingModel,
+            int limit,
+            String gatingPreset,
+            UUID domainId,
+            List<String> generationStrategies,
+            UUID sourceGatingRunId,
+            UUID sourceGatingBatchId,
+            boolean strategyFilterEmpty
+    ) {
+        return new MapSqlParameterSource()
+                .addValue("embedding", queryEmbeddingLiteral)
+                .addValue("embeddingModel", embeddingModel)
+                .addValue("limit", Math.max(1, limit))
+                .addValue("gatingPreset", gatingPreset)
+                .addValue("domainId", domainId)
+                .addValue("strategyFilterEmpty", strategyFilterEmpty)
+                .addValue("generationStrategies", strategyFilterEmpty ? List.of("") : generationStrategies)
+                .addValue("sourceGatingRunId", sourceGatingRunId == null ? null : sourceGatingRunId.toString())
+                .addValue("sourceGatingBatchId", sourceGatingBatchId == null ? null : sourceGatingBatchId.toString());
+    }
+
+    private String chunkPatternFilter(List<String> patterns, MapSqlParameterSource parameters, String prefix) {
+        List<String> clauses = new ArrayList<>();
+        for (int index = 0; index < patterns.size(); index++) {
+            String name = prefix + index;
+            parameters.addValue(name, "%" + patterns.get(index).toLowerCase() + "%");
+            clauses.add("""
+                    LOWER(COALESCE(c.chunk_text, '')) LIKE :%1$s
+                    OR LOWER(COALESCE(c.section_path_text, '')) LIKE :%1$s
+                    OR LOWER(COALESCE(d.title, '')) LIKE :%1$s
+                    """.formatted(name));
+        }
+        return String.join(" OR ", clauses);
+    }
+
+    private String memoryPatternFilter(List<String> patterns, MapSqlParameterSource parameters, String prefix) {
+        List<String> clauses = new ArrayList<>();
+        for (int index = 0; index < patterns.size(); index++) {
+            String name = prefix + index;
+            parameters.addValue(name, "%" + patterns.get(index).toLowerCase() + "%");
+            clauses.add("""
+                    LOWER(COALESCE(m.query_text, '')) LIKE :%1$s
+                    OR LOWER(COALESCE(m.glossary_terms::text, '')) LIKE :%1$s
+                    OR LOWER(COALESCE((m.metadata -> 'canonical_anchors')::text, '')) LIKE :%1$s
+                    """.formatted(name));
+        }
+        return String.join(" OR ", clauses);
+    }
+
+    private JsonNode retrievalMetadata(String mode, JsonNode metadata) {
+        ObjectNode node = objectMapper.createObjectNode();
+        node.put("mode", mode);
+        if (metadata != null && metadata.isObject()) {
+            node.setAll((ObjectNode) metadata);
+        }
+        return node;
     }
 
     private RowMapper<ChunkSource> chunkSourceRowMapper() {

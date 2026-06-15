@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-06-15] Session Summary (Chat Retrieval Backend Parity)
+- What was done: Added Flyway V46 retrieval columns to `chat_runtime_config`, extended Chat config DTO/repository/service validation, copied completed RAG run retrieval settings through Apply-to-Chat, and routed live chat chunk/memory retrieval through the saved backend/model/mode/fusion tuple.
+- Key decisions: `db_ann` chat requires materialized chunk embeddings and uses the existing pipeline Python dense query embedding path for the configured model; local chat keeps the existing hash path. Runtime catalog options remain the allowlist for selectable backend/model/mode values.
+- Issues encountered: The prior live chat path could only use `hash-embedding-v1`, so Admin FINAL `db_ann + intfloat/multilingual-e5-small + hybrid` runs were not reproducible in chat before this change.
+- Next steps: Surface these readiness checks in the upcoming domain health screen.
+
 ## [2026-06-15] Session Summary (Chat Runtime Provenance)
 - What was done: Added Flyway V45 `chat_runtime_config_provenance`, repository/service insertion and listing, and `GET /api/admin/chat/config/provenance` for per-domain config history.
 - Key decisions: Both manual `PUT /api/admin/chat/config` saves and `apply-rag-run` writes now insert provenance after the active config is updated, recording previous/applied snapshots, JSON diff, change source, source RAG run ID, and operator.

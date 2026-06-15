@@ -19,6 +19,7 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
@@ -26,6 +27,8 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
 @Service
@@ -33,8 +36,12 @@ import java.util.stream.Stream;
 @Transactional(readOnly = true)
 public class RagService {
 
+    private static final Pattern SEARCH_TOKEN_PATTERN = Pattern.compile("[@A-Za-z0-9_./:$-]{2,}|\\p{InHangulSyllables}{2,}");
+    private static final Pattern TECHNICAL_TOKEN_PATTERN = Pattern.compile("[@A-Za-z_][A-Za-z0-9_./:$-]{1,}");
+
     private final RagRepository repository;
     private final HashEmbeddingService embeddingService;
+    private final DenseEmbeddingService denseEmbeddingService;
     private final CohereRerankService cohereRerankService;
     private final RewriteCandidateService rewriteCandidateService;
     private final ChatRuntimeConfigService chatRuntimeConfigService;
@@ -65,6 +72,7 @@ public class RagService {
         String gatingPreset = normalizedPreset(config.gatingPreset());
         boolean useSessionContext = config.useSessionContext() || "selective_rewrite_with_session".equals(mode);
         String rewriteQueryProfile = normalizedRewriteProfile(config.rewriteQueryProfile());
+        RetrievalRuntime retrievalRuntime = retrievalRuntime(config);
         ObjectNode runtimeMetadata = runtimeMetadata(config);
 
         Instant started = Instant.now();
@@ -81,34 +89,46 @@ public class RagService {
         long createQueryLatency = elapsedMs(stageStart);
 
         stageStart = System.nanoTime();
-        String rawEmbeddingLiteral = embeddingService.toHalfvecLiteral(embeddingService.embed(rawQuery));
+        String rawEmbeddingLiteral = embeddingLiteral(rawQuery, retrievalRuntime);
         String memoryPreset = switch (mode) {
             case "memory_only_ungated" -> "ungated";
             case "memory_only_gated" -> gatingPreset;
             default -> gatingPreset;
         };
-        List<RagRepository.MemoryCandidate> memoryCandidates = repository.findMemoryTopN(
+        List<RagRepository.MemoryCandidate> memoryCandidates = findMemoryCandidates(
+                rawQuery,
                 rawEmbeddingLiteral,
                 memoryTopN,
                 memoryPreset,
                 config.domainId(),
                 config.generationStrategies(),
                 config.sourceGatingRunId(),
-                config.sourceGatingBatchId()
+                config.sourceGatingBatchId(),
+                retrievalRuntime
         );
         JsonNode memoryTopNJson = objectMapper.valueToTree(memoryCandidates);
         long memoryLatency = elapsedMs(stageStart);
 
         stageStart = System.nanoTime();
-        List<RagRepository.RetrievalDoc> rawRetrievedLocal = repository.findTopChunksByEmbedding(
+        List<RagRepository.RetrievalDoc> rawRetrievedLocal = retrieveChunks(
+                rawQuery,
                 rawEmbeddingLiteral,
                 retrievalTopK,
-                config.domainId()
+                config.domainId(),
+                retrievalRuntime
         );
         List<RagRepository.RetrievalDoc> rawRetrieved = cohereRerankService.rerank(rawQuery, rawRetrievedLocal, rerankTopN);
         double rawDense = memoryCandidates.isEmpty() ? 0.0 : memoryCandidates.getFirst().similarity();
         double rawConfidence = confidence(rawRetrieved, rawDense);
-        repository.insertRetrievalResults(onlineQueryId, null, "raw", rawRetrievedLocal, mode);
+        repository.insertRetrievalResults(
+                onlineQueryId,
+                null,
+                "raw",
+                rawRetrievedLocal,
+                mode,
+                retrievalRuntime.retrieverName(),
+                retrievalMetadata(retrievalRuntime)
+        );
         long rawRetrievalLatency = elapsedMs(stageStart);
 
         stageStart = System.nanoTime();
@@ -124,11 +144,13 @@ public class RagService {
         List<GeneratedCandidate> scoredCandidates = new ArrayList<>();
         for (int index = 0; index < generatedCandidates.size(); index++) {
             RewriteCandidateService.CandidateTemplate generated = generatedCandidates.get(index);
-            String embeddingLiteral = embeddingService.toHalfvecLiteral(embeddingService.embed(generated.query()));
-            List<RagRepository.RetrievalDoc> candidateRetrievedLocal = repository.findTopChunksByEmbedding(
+            String embeddingLiteral = embeddingLiteral(generated.query(), retrievalRuntime);
+            List<RagRepository.RetrievalDoc> candidateRetrievedLocal = retrieveChunks(
+                    generated.query(),
                     embeddingLiteral,
                     retrievalTopK,
-                    config.domainId()
+                    config.domainId(),
+                    retrievalRuntime
             );
             List<RagRepository.RetrievalDoc> candidateRetrieved = cohereRerankService.rerank(
                     generated.query(),
@@ -146,7 +168,15 @@ public class RagService {
                     confidence,
                     scoreBreakdown(candidateRetrieved, memoryCandidates)
             );
-            repository.insertRetrievalResults(onlineQueryId, candidateId, "rewrite_candidate", candidateRetrievedLocal, mode);
+            repository.insertRetrievalResults(
+                    onlineQueryId,
+                    candidateId,
+                    "rewrite_candidate",
+                    candidateRetrievedLocal,
+                    mode,
+                    retrievalRuntime.retrieverName(),
+                    retrievalMetadata(retrievalRuntime)
+            );
             scoredCandidates.add(new GeneratedCandidate(generated.label(), generated.query(), candidateRetrieved, confidence, candidateId));
         }
         long candidateLatency = elapsedMs(stageStart);
@@ -160,7 +190,8 @@ public class RagService {
                 memoryCandidates,
                 scoredCandidates,
                 threshold,
-                config.domainId()
+                config.domainId(),
+                retrievalRuntime
         );
         if (decision.selectedCandidateId() != null) {
             for (GeneratedCandidate candidate : scoredCandidates) {
@@ -236,7 +267,17 @@ public class RagService {
                 selectedConfidence - rawConfidence,
                 decision.selectedReason(),
                 decision.rejectedReason(),
-                rewriteLogMetadata(config, rewriteQueryProfile, retrievalTopK, rerankTopN, memoryTopN, candidateCount, threshold, latencyBreakdown)
+                rewriteLogMetadata(
+                        config,
+                        rewriteQueryProfile,
+                        retrievalTopK,
+                        rerankTopN,
+                        memoryTopN,
+                        candidateCount,
+                        threshold,
+                        latencyBreakdown,
+                        retrievalRuntime
+                )
         );
 
         for (int index = 0; index < memoryCandidates.size(); index++) {
@@ -495,6 +536,313 @@ public class RagService {
                 .toList();
     }
 
+    private RetrievalRuntime retrievalRuntime(ChatRuntimeDtos.ChatRuntimeConfigResponse config) {
+        String backend = config.retrievalBackend() == null || config.retrievalBackend().isBlank()
+                ? "local"
+                : config.retrievalBackend().trim().toLowerCase(Locale.ROOT).replace("-", "_");
+        String mode = config.retrieverMode() == null || config.retrieverMode().isBlank()
+                ? "hybrid"
+                : config.retrieverMode().trim().toLowerCase(Locale.ROOT).replace("-", "_");
+        String denseModel = config.denseEmbeddingModel() == null || config.denseEmbeddingModel().isBlank()
+                ? "intfloat/multilingual-e5-small"
+                : config.denseEmbeddingModel().trim();
+        int candidatePoolK = Math.max(1, config.retrieverCandidatePoolK());
+        double denseWeight = clampWeight(config.retrieverDenseWeight());
+        double bm25Weight = clampWeight(config.retrieverBm25Weight());
+        double technicalWeight = clampWeight(config.retrieverTechnicalWeight());
+        if ("bm25_only".equals(mode)) {
+            denseWeight = 0.0d;
+            bm25Weight = 1.0d;
+            technicalWeight = 0.0d;
+        } else if ("dense_only".equals(mode)) {
+            denseWeight = 1.0d;
+            bm25Weight = 0.0d;
+            technicalWeight = 0.0d;
+        } else {
+            double sum = denseWeight + bm25Weight + technicalWeight;
+            if (sum <= 0.0d) {
+                denseWeight = 0.60d;
+                bm25Weight = 0.32d;
+                technicalWeight = 0.08d;
+                sum = denseWeight + bm25Weight + technicalWeight;
+            }
+            denseWeight = denseWeight / sum;
+            bm25Weight = bm25Weight / sum;
+            technicalWeight = technicalWeight / sum;
+        }
+        return new RetrievalRuntime(backend, denseModel, mode, candidatePoolK, denseWeight, bm25Weight, technicalWeight);
+    }
+
+    private String embeddingLiteral(String query, RetrievalRuntime runtime) {
+        if ("db_ann".equals(runtime.retrievalBackend())) {
+            return embeddingService.toHalfvecLiteral(denseEmbeddingService.embedQuery(
+                    query,
+                    runtime.retrieverMode(),
+                    runtime.denseEmbeddingModel()
+            ));
+        }
+        return embeddingService.toHalfvecLiteral(embeddingService.embed(query));
+    }
+
+    private List<RagRepository.RetrievalDoc> retrieveChunks(
+            String query,
+            String queryEmbeddingLiteral,
+            int topK,
+            UUID domainId,
+            RetrievalRuntime runtime
+    ) {
+        int poolSize = Math.max(topK, runtime.candidatePoolK());
+        List<RagRepository.RetrievalDoc> candidates = new ArrayList<>();
+        List<String> patterns = searchPatterns(query);
+        if ("db_ann".equals(runtime.retrievalBackend())) {
+            if (!"bm25_only".equals(runtime.retrieverMode())) {
+                candidates.addAll(repository.findDbAnnChunkDensePool(
+                        queryEmbeddingLiteral,
+                        runtime.denseEmbeddingModel(),
+                        poolSize,
+                        domainId
+                ));
+            }
+            if (!"dense_only".equals(runtime.retrieverMode())) {
+                candidates.addAll(repository.findDbAnnChunkTextPool(
+                        queryEmbeddingLiteral,
+                        runtime.denseEmbeddingModel(),
+                        patterns,
+                        poolSize,
+                        domainId
+                ));
+            }
+        } else {
+            if (!"bm25_only".equals(runtime.retrieverMode())) {
+                candidates.addAll(repository.findTopChunksByEmbedding(queryEmbeddingLiteral, poolSize, domainId));
+            }
+            if (!"dense_only".equals(runtime.retrieverMode())) {
+                candidates.addAll(repository.findChunkTextPool(patterns, poolSize, domainId));
+            }
+        }
+        if (candidates.isEmpty()) {
+            return List.of();
+        }
+        return rankDocs(query, mergeDocs(candidates), topK, runtime);
+    }
+
+    private List<RagRepository.MemoryCandidate> findMemoryCandidates(
+            String query,
+            String queryEmbeddingLiteral,
+            int topN,
+            String gatingPreset,
+            UUID domainId,
+            List<String> generationStrategies,
+            UUID sourceGatingRunId,
+            UUID sourceGatingBatchId,
+            RetrievalRuntime runtime
+    ) {
+        if (!"db_ann".equals(runtime.retrievalBackend())) {
+            return repository.findMemoryTopN(
+                    queryEmbeddingLiteral,
+                    topN,
+                    gatingPreset,
+                    domainId,
+                    generationStrategies,
+                    sourceGatingRunId,
+                    sourceGatingBatchId
+            );
+        }
+        int poolSize = Math.max(topN, runtime.candidatePoolK());
+        List<RagRepository.MemoryCandidate> candidates = new ArrayList<>();
+        if (!"bm25_only".equals(runtime.retrieverMode())) {
+            candidates.addAll(repository.findMemoryDensePool(
+                    queryEmbeddingLiteral,
+                    runtime.denseEmbeddingModel(),
+                    poolSize,
+                    gatingPreset,
+                    domainId,
+                    generationStrategies,
+                    sourceGatingRunId,
+                    sourceGatingBatchId
+            ));
+        }
+        if (!"dense_only".equals(runtime.retrieverMode())) {
+            candidates.addAll(repository.findMemoryTextPool(
+                    queryEmbeddingLiteral,
+                    runtime.denseEmbeddingModel(),
+                    searchPatterns(query),
+                    poolSize,
+                    gatingPreset,
+                    domainId,
+                    generationStrategies,
+                    sourceGatingRunId,
+                    sourceGatingBatchId
+            ));
+        }
+        return rankMemories(query, mergeMemories(candidates), topN, runtime);
+    }
+
+    private List<RagRepository.RetrievalDoc> mergeDocs(List<RagRepository.RetrievalDoc> docs) {
+        Map<String, RagRepository.RetrievalDoc> merged = new LinkedHashMap<>();
+        for (RagRepository.RetrievalDoc doc : docs) {
+            RagRepository.RetrievalDoc current = merged.get(doc.chunkId());
+            if (current == null || doc.score() > current.score()) {
+                merged.put(doc.chunkId(), doc);
+            }
+        }
+        return new ArrayList<>(merged.values());
+    }
+
+    private List<RagRepository.MemoryCandidate> mergeMemories(List<RagRepository.MemoryCandidate> memories) {
+        Map<UUID, RagRepository.MemoryCandidate> merged = new LinkedHashMap<>();
+        for (RagRepository.MemoryCandidate memory : memories) {
+            RagRepository.MemoryCandidate current = merged.get(memory.memoryId());
+            if (current == null || memory.similarity() > current.similarity()) {
+                merged.put(memory.memoryId(), memory);
+            }
+        }
+        return new ArrayList<>(merged.values());
+    }
+
+    private List<RagRepository.RetrievalDoc> rankDocs(
+            String query,
+            List<RagRepository.RetrievalDoc> candidates,
+            int topK,
+            RetrievalRuntime runtime
+    ) {
+        return candidates.stream()
+                .map(doc -> new RagRepository.RetrievalDoc(
+                        doc.documentId(),
+                        doc.chunkId(),
+                        doc.chunkText(),
+                        fusedScore(query, doc.chunkText(), doc.score(), runtime)
+                ))
+                .sorted(Comparator
+                        .comparingDouble(RagRepository.RetrievalDoc::score)
+                        .reversed()
+                        .thenComparing(RagRepository.RetrievalDoc::chunkId))
+                .limit(Math.max(1, topK))
+                .toList();
+    }
+
+    private List<RagRepository.MemoryCandidate> rankMemories(
+            String query,
+            List<RagRepository.MemoryCandidate> candidates,
+            int topN,
+            RetrievalRuntime runtime
+    ) {
+        return candidates.stream()
+                .map(candidate -> withSimilarity(
+                        candidate,
+                        fusedScore(query, memoryLexicalText(candidate), candidate.similarity(), runtime)
+                ))
+                .sorted(Comparator
+                        .comparingDouble(RagRepository.MemoryCandidate::similarity)
+                        .reversed()
+                        .thenComparing(memory -> memory.memoryId().toString()))
+                .limit(Math.max(1, topN))
+                .toList();
+    }
+
+    private double fusedScore(String query, String text, double denseScore, RetrievalRuntime runtime) {
+        double dense = normalizeScore(denseScore);
+        double lexical = lexicalOverlap(query, text);
+        double technical = technicalOverlap(query, text);
+        double combined = (runtime.denseWeight() * dense)
+                + (runtime.bm25Weight() * lexical)
+                + (runtime.technicalWeight() * technical);
+        return Math.max(-1.0, Math.min(1.0, (combined * 2.0) - 1.0));
+    }
+
+    private RagRepository.MemoryCandidate withSimilarity(RagRepository.MemoryCandidate source, double similarity) {
+        return new RagRepository.MemoryCandidate(
+                source.memoryId(),
+                source.queryText(),
+                source.targetDocId(),
+                source.targetChunkIds(),
+                source.glossaryTerms(),
+                source.metadata(),
+                similarity,
+                source.generationStrategy(),
+                source.generationBatchId(),
+                source.domainId(),
+                source.sourceGatedQueryId(),
+                source.sourceGateRunId(),
+                source.sourceGatingBatchId()
+        );
+    }
+
+    private String memoryLexicalText(RagRepository.MemoryCandidate candidate) {
+        return String.join(
+                " ",
+                candidate.queryText() == null ? "" : candidate.queryText(),
+                candidate.glossaryTerms() == null ? "" : candidate.glossaryTerms().toString(),
+                candidate.metadata() == null ? "" : candidate.metadata().toString()
+        );
+    }
+
+    private List<String> searchPatterns(String query) {
+        LinkedHashSet<String> tokens = new LinkedHashSet<>();
+        Matcher matcher = SEARCH_TOKEN_PATTERN.matcher(query == null ? "" : query);
+        while (matcher.find() && tokens.size() < 16) {
+            String value = matcher.group().trim().toLowerCase(Locale.ROOT);
+            if (value.length() >= 2) {
+                tokens.add(value);
+            }
+        }
+        return List.copyOf(tokens);
+    }
+
+    private double lexicalOverlap(String query, String text) {
+        List<String> tokens = searchPatterns(query);
+        if (tokens.isEmpty() || text == null || text.isBlank()) {
+            return 0.0;
+        }
+        String normalizedText = text.toLowerCase(Locale.ROOT);
+        int hits = 0;
+        for (String token : tokens) {
+            if (normalizedText.contains(token)) {
+                hits++;
+            }
+        }
+        return (double) hits / tokens.size();
+    }
+
+    private double technicalOverlap(String query, String text) {
+        if (query == null || query.isBlank() || text == null || text.isBlank()) {
+            return 0.0;
+        }
+        LinkedHashSet<String> tokens = new LinkedHashSet<>();
+        Matcher matcher = TECHNICAL_TOKEN_PATTERN.matcher(query);
+        while (matcher.find() && tokens.size() < 12) {
+            tokens.add(matcher.group().toLowerCase(Locale.ROOT));
+        }
+        if (tokens.isEmpty()) {
+            return 0.0;
+        }
+        String normalizedText = text.toLowerCase(Locale.ROOT);
+        int hits = 0;
+        for (String token : tokens) {
+            if (normalizedText.contains(token)) {
+                hits++;
+            }
+        }
+        return (double) hits / tokens.size();
+    }
+
+    private ObjectNode retrievalMetadata(RetrievalRuntime runtime) {
+        ObjectNode node = objectMapper.createObjectNode();
+        node.put("retrieval_backend", runtime.retrievalBackend());
+        node.put("dense_embedding_model", runtime.denseEmbeddingModel());
+        node.put("retriever_mode", runtime.retrieverMode());
+        node.put("retriever_candidate_pool_k", runtime.candidatePoolK());
+        ObjectNode weights = node.putObject("retriever_fusion_weights");
+        weights.put("dense", runtime.denseWeight());
+        weights.put("bm25", runtime.bm25Weight());
+        weights.put("technical", runtime.technicalWeight());
+        return node;
+    }
+
+    private double clampWeight(double value) {
+        return Math.max(0.0d, Math.min(1.0d, value));
+    }
+
     private Decision decide(
             String mode,
             String rawQuery,
@@ -503,7 +851,8 @@ public class RagService {
             List<RagRepository.MemoryCandidate> memoryCandidates,
             List<GeneratedCandidate> candidates,
             double threshold,
-            UUID domainId
+            UUID domainId,
+            RetrievalRuntime retrievalRuntime
     ) {
         if ("raw_only".equals(mode)) {
             return new Decision(rawQuery, false, rawRetrieved, null, "raw_only", "mode=raw_only");
@@ -513,11 +862,13 @@ public class RagService {
                 return new Decision(rawQuery, false, rawRetrieved, null, "memory_empty", "no memory candidate");
             }
             String memoryQuery = memoryCandidates.getFirst().queryText();
-            String embedding = embeddingService.toHalfvecLiteral(embeddingService.embed(memoryQuery));
-            List<RagRepository.RetrievalDoc> retrievedLocal = repository.findTopChunksByEmbedding(
+            String embedding = embeddingLiteral(memoryQuery, retrievalRuntime);
+            List<RagRepository.RetrievalDoc> retrievedLocal = retrieveChunks(
+                    memoryQuery,
                     embedding,
                     Math.max(20, rawRetrieved.size()),
-                    domainId
+                    domainId,
+                    retrievalRuntime
             );
             List<RagRepository.RetrievalDoc> retrieved = cohereRerankService.rerank(memoryQuery, retrievedLocal, rawRetrieved.size());
             return new Decision(memoryQuery, true, retrieved, null, "memory_only", null);
@@ -615,6 +966,14 @@ public class RagService {
         node.put("rewrite_query_profile", config.rewriteQueryProfile());
         node.put("rewrite_anchor_injection_enabled", config.rewriteAnchorInjectionEnabled());
         node.put("use_session_context", config.useSessionContext());
+        node.put("retrieval_backend", config.retrievalBackend());
+        node.put("dense_embedding_model", config.denseEmbeddingModel());
+        node.put("retriever_mode", config.retrieverMode());
+        node.put("retriever_candidate_pool_k", config.retrieverCandidatePoolK());
+        ObjectNode weights = node.putObject("retriever_fusion_weights");
+        weights.put("dense", config.retrieverDenseWeight());
+        weights.put("bm25", config.retrieverBm25Weight());
+        weights.put("technical", config.retrieverTechnicalWeight());
         return node;
     }
 
@@ -626,7 +985,8 @@ public class RagService {
             int memoryTopN,
             int candidateCount,
             double threshold,
-            Map<String, Long> latencyBreakdown
+            Map<String, Long> latencyBreakdown,
+            RetrievalRuntime retrievalRuntime
     ) {
         ObjectNode node = runtimeMetadata(config);
         node.put("rewrite_query_profile", rewriteQueryProfile);
@@ -635,6 +995,7 @@ public class RagService {
         node.put("memory_top_n", memoryTopN);
         node.put("rewrite_candidate_count", candidateCount);
         node.put("rewrite_threshold", threshold);
+        node.set("retrieval_runtime", retrievalMetadata(retrievalRuntime));
         node.set("latency_breakdown", objectMapper.valueToTree(latencyBreakdown));
         return node;
     }
@@ -743,6 +1104,23 @@ public class RagService {
 
     private double normalizeScore(double score) {
         return Math.max(0.0, Math.min(1.0, (score + 1.0) / 2.0));
+    }
+
+    private record RetrievalRuntime(
+            String retrievalBackend,
+            String denseEmbeddingModel,
+            String retrieverMode,
+            int candidatePoolK,
+            double denseWeight,
+            double bm25Weight,
+            double technicalWeight
+    ) {
+        String retrieverName() {
+            if ("db_ann".equals(retrievalBackend)) {
+                return "db-ann:" + retrieverMode + ":" + denseEmbeddingModel;
+            }
+            return "local:" + retrieverMode + ":hash-embedding-v1";
+        }
     }
 
     private record GeneratedCandidate(

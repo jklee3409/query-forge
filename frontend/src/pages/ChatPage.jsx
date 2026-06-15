@@ -137,6 +137,8 @@ export function ChatPage({ navigate, notify }) {
           <span>{config?.mode || '-'}</span>
           <span>{config?.gatingPreset || '-'}</span>
           <span>{(config?.generationStrategies || []).join('+') || '-'}</span>
+          <span>{config?.retrievalBackend || 'local'} / {config?.retrieverMode || 'hybrid'}</span>
+          <span>{config?.denseEmbeddingModel || '-'}</span>
           <span>{config?.sourceGatingBatchId ? `snapshot ${config.sourceGatingBatchId.slice(0, 8)}` : 'snapshot required'}</span>
           <span>{config?.rewriteAnchorInjectionEnabled ? 'anchor on' : 'anchor off'}</span>
         </div>
@@ -187,6 +189,15 @@ export function ChatPage({ navigate, notify }) {
                 generationStrategies: result.appliedConfig?.generationStrategies,
                 sourceGatingBatchId: result.appliedConfig?.sourceGatingBatchId,
                 sourceGatingRunId: result.appliedConfig?.sourceGatingRunId,
+                retrievalBackend: result.appliedConfig?.retrievalBackend,
+                denseEmbeddingModel: result.appliedConfig?.denseEmbeddingModel,
+                retrieverMode: result.appliedConfig?.retrieverMode,
+                retrieverCandidatePoolK: result.appliedConfig?.retrieverCandidatePoolK,
+                retrieverFusionWeights: {
+                  dense: result.appliedConfig?.retrieverDenseWeight,
+                  bm25: result.appliedConfig?.retrieverBm25Weight,
+                  technical: result.appliedConfig?.retrieverTechnicalWeight,
+                },
                 rewriteQueryProfile: result.appliedConfig?.rewriteQueryProfile,
                 rewriteAnchorInjectionEnabled: result.appliedConfig?.rewriteAnchorInjectionEnabled,
               }, null, 2)}

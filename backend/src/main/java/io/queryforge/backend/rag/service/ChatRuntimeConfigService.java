@@ -4,6 +4,8 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import io.queryforge.backend.admin.console.model.AdminConsoleDtos;
+import io.queryforge.backend.admin.console.service.AdminConsoleService;
 import io.queryforge.backend.rag.model.ChatRuntimeDtos;
 import io.queryforge.backend.rag.repository.ChatRuntimeConfigRepository;
 import lombok.RequiredArgsConstructor;
@@ -32,8 +34,12 @@ public class ChatRuntimeConfigService {
     private static final Set<String> GATING_PRESETS = Set.of("ungated", "rule_only", "rule_plus_llm", "full_gating");
     private static final Set<String> REWRITE_PROFILES = Set.of("compact_anchor", "detailed_intent");
     private static final Set<String> FAILURE_POLICIES = Set.of("fail_run", "skip_to_raw", "heuristic_fallback");
+    private static final Set<String> RETRIEVAL_BACKENDS = Set.of("local", "db_ann");
+    private static final Set<String> RETRIEVER_MODES = Set.of("bm25_only", "dense_only", "hybrid");
+    private static final String DEFAULT_DENSE_EMBEDDING_MODEL = "intfloat/multilingual-e5-small";
 
     private final ChatRuntimeConfigRepository repository;
+    private final AdminConsoleService adminConsoleService;
     private final ObjectMapper objectMapper;
 
     public List<ChatRuntimeDtos.ChatDomainOption> listChatDomains() {
@@ -85,6 +91,74 @@ public class ChatRuntimeConfigService {
                 FAILURE_POLICIES,
                 "rewriteFailurePolicy"
         );
+        AdminConsoleDtos.RuntimeOptionsResponse runtimeOptions = adminConsoleService.getRuntimeOptions();
+        String retrievalBackend = normalizeAllowed(
+                request.retrievalBackend(),
+                current.retrievalBackend(),
+                RETRIEVAL_BACKENDS,
+                "retrievalBackend"
+        );
+        validateCatalogSelection(retrievalBackend, runtimeOptions.retrievalBackends(), "retrievalBackend");
+        String retrieverMode = normalizeAllowed(
+                request.retrieverMode(),
+                current.retrieverMode(),
+                RETRIEVER_MODES,
+                "retrieverMode"
+        );
+        validateCatalogSelection(retrieverMode, runtimeOptions.retrieverModes(), "retrieverMode");
+        String denseEmbeddingModel = firstNonBlank(
+                request.denseEmbeddingModel(),
+                current.denseEmbeddingModel(),
+                runtimeOptions.defaultDenseEmbeddingModel(),
+                DEFAULT_DENSE_EMBEDDING_MODEL
+        );
+        validateCatalogSelection(denseEmbeddingModel, runtimeOptions.denseEmbeddingModels(), "denseEmbeddingModel");
+        int retrieverCandidatePoolK = bounded(
+                request.retrieverCandidatePoolK(),
+                current.retrieverCandidatePoolK(),
+                1,
+                500,
+                "retrieverCandidatePoolK"
+        );
+        double retrieverDenseWeight = boundedDouble(
+                request.retrieverDenseWeight(),
+                current.retrieverDenseWeight(),
+                0.0,
+                1.0,
+                "retrieverDenseWeight"
+        );
+        double retrieverBm25Weight = boundedDouble(
+                request.retrieverBm25Weight(),
+                current.retrieverBm25Weight(),
+                0.0,
+                1.0,
+                "retrieverBm25Weight"
+        );
+        double retrieverTechnicalWeight = boundedDouble(
+                request.retrieverTechnicalWeight(),
+                current.retrieverTechnicalWeight(),
+                0.0,
+                1.0,
+                "retrieverTechnicalWeight"
+        );
+        double weightSum = retrieverDenseWeight + retrieverBm25Weight + retrieverTechnicalWeight;
+        if (weightSum <= 0.0d) {
+            throw new IllegalArgumentException("retriever fusion weights must have a positive sum");
+        }
+        if ("bm25_only".equals(retrieverMode)) {
+            retrieverDenseWeight = 0.0d;
+            retrieverBm25Weight = 1.0d;
+            retrieverTechnicalWeight = 0.0d;
+        } else if ("dense_only".equals(retrieverMode)) {
+            retrieverDenseWeight = 1.0d;
+            retrieverBm25Weight = 0.0d;
+            retrieverTechnicalWeight = 0.0d;
+        } else {
+            retrieverDenseWeight = retrieverDenseWeight / weightSum;
+            retrieverBm25Weight = retrieverBm25Weight / weightSum;
+            retrieverTechnicalWeight = retrieverTechnicalWeight / weightSum;
+        }
+        validateDbAnnReadiness(retrievalBackend, retrieverMode, denseEmbeddingModel);
         List<String> enabledMethods = repository.findEnabledMethodCodes(request.domainId());
         List<String> generationStrategies = normalizeStrategies(
                 request.generationStrategies() == null ? current.generationStrategies() : request.generationStrategies(),
@@ -140,6 +214,13 @@ public class ChatRuntimeConfigService {
                 rewriteQueryProfile,
                 rewriteAnchorInjectionEnabled,
                 useSessionContext,
+                retrievalBackend,
+                denseEmbeddingModel,
+                retrieverMode,
+                retrieverCandidatePoolK,
+                retrieverDenseWeight,
+                retrieverBm25Weight,
+                retrieverTechnicalWeight,
                 retrievalTopK,
                 rerankTopN,
                 memoryTopN,
@@ -211,6 +292,11 @@ public class ChatRuntimeConfigService {
                 "rewrite_anchor_injection_enabled",
                 current.rewriteAnchorInjectionEnabled()
         );
+        JsonNode retrieverConfig = config.path("retriever_config");
+        JsonNode fusionWeights = firstPresentObject(
+                retrieverConfig.path("retriever_fusion_weights"),
+                config.path("retriever_fusion_weights")
+        );
         ChatRuntimeDtos.ChatRuntimeConfigRequest applyRequest = new ChatRuntimeDtos.ChatRuntimeConfigRequest(
                 run.domainId(),
                 true,
@@ -221,6 +307,25 @@ public class ChatRuntimeConfigService {
                 rewriteQueryProfile,
                 rewriteAnchorInjectionEnabled,
                 useSessionContext,
+                configText(config, "retrieval_backend", current.retrievalBackend()),
+                firstNonBlank(
+                        configText(retrieverConfig, "dense_embedding_model", null),
+                        configText(config, "dense_embedding_model", null),
+                        current.denseEmbeddingModel()
+                ),
+                firstNonBlank(
+                        configText(retrieverConfig, "retriever_mode", null),
+                        configText(config, "retriever_mode", null),
+                        current.retrieverMode()
+                ),
+                firstNonNull(
+                        configIntOrNull(retrieverConfig, "retriever_candidate_pool_k"),
+                        configIntOrNull(config, "retriever_candidate_pool_k"),
+                        current.retrieverCandidatePoolK()
+                ),
+                configDouble(fusionWeights, "dense", current.retrieverDenseWeight()),
+                configDouble(fusionWeights, "bm25", current.retrieverBm25Weight()),
+                configDouble(fusionWeights, "technical", current.retrieverTechnicalWeight()),
                 firstNonNull(run.retrievalTopK(), configInt(config, "retrieval_top_k", current.retrievalTopK())),
                 firstNonNull(run.rerankTopN(), configInt(config, "rerank_top_n", current.rerankTopN())),
                 configInt(config, "memory_top_n", current.memoryTopN()),
@@ -277,6 +382,13 @@ public class ChatRuntimeConfigService {
                 after.rewriteAnchorInjectionEnabled()
         );
         addDiff(changedFields, changes, "useSessionContext", before.useSessionContext(), after.useSessionContext());
+        addDiff(changedFields, changes, "retrievalBackend", before.retrievalBackend(), after.retrievalBackend());
+        addDiff(changedFields, changes, "denseEmbeddingModel", before.denseEmbeddingModel(), after.denseEmbeddingModel());
+        addDiff(changedFields, changes, "retrieverMode", before.retrieverMode(), after.retrieverMode());
+        addDiff(changedFields, changes, "retrieverCandidatePoolK", before.retrieverCandidatePoolK(), after.retrieverCandidatePoolK());
+        addDiff(changedFields, changes, "retrieverDenseWeight", before.retrieverDenseWeight(), after.retrieverDenseWeight());
+        addDiff(changedFields, changes, "retrieverBm25Weight", before.retrieverBm25Weight(), after.retrieverBm25Weight());
+        addDiff(changedFields, changes, "retrieverTechnicalWeight", before.retrieverTechnicalWeight(), after.retrieverTechnicalWeight());
         addDiff(changedFields, changes, "retrievalTopK", before.retrievalTopK(), after.retrievalTopK());
         addDiff(changedFields, changes, "rerankTopN", before.rerankTopN(), after.rerankTopN());
         addDiff(changedFields, changes, "memoryTopN", before.memoryTopN(), after.memoryTopN());
@@ -369,6 +481,11 @@ public class ChatRuntimeConfigService {
         return value == null || value.isNull() ? fallback : value.asInt(fallback);
     }
 
+    private Integer configIntOrNull(JsonNode config, String field) {
+        JsonNode value = config == null ? null : config.get(field);
+        return value == null || value.isNull() ? null : value.asInt();
+    }
+
     private double configDouble(JsonNode config, String field, double fallback) {
         JsonNode value = config == null ? null : config.get(field);
         return value == null || value.isNull() ? fallback : value.asDouble(fallback);
@@ -378,6 +495,16 @@ public class ChatRuntimeConfigService {
         JsonNode value = config == null ? null : config.get(field);
         String raw = value == null || value.isNull() ? null : value.asText();
         return raw == null || raw.isBlank() ? fallback : raw.trim();
+    }
+
+    private JsonNode firstPresentObject(JsonNode first, JsonNode second) {
+        if (first != null && first.isObject()) {
+            return first;
+        }
+        if (second != null && second.isObject()) {
+            return second;
+        }
+        return objectMapper.createObjectNode();
     }
 
     private UUID configUuid(JsonNode config, String field) {
@@ -452,6 +579,37 @@ public class ChatRuntimeConfigService {
         return value;
     }
 
+    private void validateCatalogSelection(String value, List<String> allowedValues, String fieldName) {
+        if (allowedValues == null || allowedValues.isEmpty()) {
+            return;
+        }
+        if (!allowedValues.contains(value)) {
+            throw new IllegalArgumentException(fieldName + " is not allowed by runtime catalog: " + value);
+        }
+    }
+
+    private void validateDbAnnReadiness(String retrievalBackend, String retrieverMode, String denseEmbeddingModel) {
+        if (!"db_ann".equals(retrievalBackend)) {
+            return;
+        }
+        if ("bm25_only".equals(retrieverMode)) {
+            throw new IllegalArgumentException("db_ann retrievalBackend requires retrieverMode=dense_only or hybrid");
+        }
+        if (denseEmbeddingModel == null || denseEmbeddingModel.isBlank()) {
+            throw new IllegalArgumentException("db_ann retrievalBackend requires denseEmbeddingModel");
+        }
+        AdminConsoleDtos.ChunkEmbeddingMaterializationStatusResponse status =
+                adminConsoleService.getChunkEmbeddingMaterializationStatus(denseEmbeddingModel);
+        if (!status.ready()) {
+            throw new IllegalArgumentException(
+                    "chunk embeddings are not materialized for chat db_ann retrieval: embedding_model="
+                            + denseEmbeddingModel
+                            + ", materialized_chunks=" + status.materializedChunkCount()
+                            + ", total_chunks=" + status.totalChunkCount()
+            );
+        }
+    }
+
     private List<String> normalizeStrategies(List<String> rawValues, List<String> enabledMethods) {
         Set<String> enabled = new LinkedHashSet<>();
         for (String method : enabledMethods) {
@@ -493,6 +651,15 @@ public class ChatRuntimeConfigService {
             throw new IllegalArgumentException(fieldName + " must be between " + min + " and " + max);
         }
         return value;
+    }
+
+    private String firstNonBlank(String... values) {
+        for (String value : values) {
+            if (value != null && !value.isBlank()) {
+                return value.trim();
+            }
+        }
+        return null;
     }
 
     private String blankToNull(String value) {

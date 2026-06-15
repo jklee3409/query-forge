@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-06-15] Session Summary (Chat Retrieval Settings UI)
+- What was done: Extended domain `Chat Settings` with runtime-option-driven retrieval backend, dense embedding model, retriever mode, candidate pool, and fusion-weight controls, and showed the active retrieval tuple on the Chat page.
+- Key decisions: The UI reuses backend runtime options instead of local hardcoded allowlists when available; Apply-to-Chat values remain editable through the same Chat Settings form.
+- Issues encountered: None so far; final lint/build validation is recorded in the root session summary.
+- Next steps: Add per-domain readiness/health indicators for snapshot, DB ANN materialization, prompt binding, and rewrite availability.
+
 ## [2026-06-15] Session Summary (Chat Config Provenance UI)
 - What was done: Extended domain `Chat Settings` to load and render recent config provenance rows, showing change time, source, operator, source RAG run ID, and changed fields.
 - Key decisions: Provenance is read-only in this step; editing remains in the existing Chat Settings form and rollback/version management is left for a later feature.
