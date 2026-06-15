@@ -34,6 +34,7 @@
 ---
 
 ## Recent Update
+- Domain `Chat Settings` now shows recent config provenance rows, including manual vs Apply-to-Chat source, operator, source RAG run ID, and changed field names for auditability.
 - `/admin/rag-tests` completed run rows now expose `Apply to Chat`, which copies the selected RAG run into the persistent per-domain chat runtime config and opens a result modal with an `Edit Chat Settings` link so the copied values remain directly editable.
 - `/` Chat surface now requires a domain selection, loads the persisted domain chat runtime config, and shows raw query, rewritten query, final query, applied config, rewrite candidates, retrieved chunks, and memory candidates. Domain workspace Admin navigation now includes `Chat Settings` for pinning live chat mode, generation strategies, completed snapshot, compact/detailed rewrite profile, anchor injection, session context, and retrieval sizing per domain.
 - `/admin/rag-tests` eval dataset detail modal now uses the dataset name as the title and renders every query as structured cards. RAG run history loads the full list and supports first/previous/direct/next/last page movement; RAG run detail dropdowns show miss-target badges, latency metrics are displayed in seconds, and raw-query metric deltas use green/red emphasis.

@@ -1,8 +1,14 @@
 # progress.md
 
+## [2026-06-15] Session Summary (Chat Config Provenance)
+- What was done: Added append-only `chat_runtime_config_provenance` storage and Admin API/UI reads so manual Chat Settings saves and Apply-to-Chat events keep previous/applied config snapshots, changed fields, operator, source, and source RAG run ID.
+- Key decisions: Provenance is stored separately from the active config to preserve the latest runtime table as a simple per-domain lookup while retaining enough history to support future version/rollback work.
+- Issues encountered: The first migration patch was briefly created under a nested backend path and was removed before implementation continued; no project file remains there.
+- Next steps: Use the recorded provenance rows as the base for explicit config version labels and rollback controls.
+
 ## [2026-06-15] Session Summary (RAG Apply to Chat)
 - What was done: Added an `Apply to Chat` flow that copies a completed Admin RAG test run's domain, rewrite mode, strategy set, gating snapshot, rewrite profile, anchor/session flags, threshold, retrieval Top-K, and rerank Top-N into the persistent per-domain chat runtime config.
-- Key decisions: The apply path reuses the same chat config validation as manual Chat Settings saves, rejects non-completed/domainless RAG runs, and keeps the copied values editable through the existing domain Chat Settings page instead of creating a separate version/provenance system.
+- Key decisions: The apply path reuses the same chat config validation as manual Chat Settings saves, rejects non-completed/domainless RAG runs, and keeps the copied values editable through the existing domain Chat Settings page.
 - Issues encountered: Official gating-effect runs may store snapshots under `comparison_snapshots`; the apply mapper resolves the selected preset's single snapshot before saving.
 - Next steps: Browser-smoke applying one completed run per domain, then edit and save the resulting values in Chat Settings.
 

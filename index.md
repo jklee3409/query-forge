@@ -32,6 +32,7 @@ Root directory for the Query Forge project, which manages a research-oriented RA
 - Prepare data and configs, then run pipeline stages in fixed order: collect -> preprocess -> chunk -> glossary -> import -> generate-queries -> gate-queries -> build-memory -> build-eval-dataset -> eval-retrieval -> eval-answer
 - Keep synthetic query strategies (A/B/C/D/E) separated and apply strategy-aware quality gating
 - Promote a completed domain-scoped Admin RAG test run into the persistent Chat runtime via `Apply to Chat`, then tune copied values in the domain Chat Settings page
+- Preserve Chat runtime change history in provenance rows so later version/rollback work can replay or inspect prior configs
 - Track major work decisions in root `progress.md`
 
 ---

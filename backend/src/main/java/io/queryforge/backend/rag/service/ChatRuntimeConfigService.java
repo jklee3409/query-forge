@@ -2,6 +2,8 @@ package io.queryforge.backend.rag.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import io.queryforge.backend.rag.model.ChatRuntimeDtos;
 import io.queryforge.backend.rag.repository.ChatRuntimeConfigRepository;
 import lombok.RequiredArgsConstructor;
@@ -11,6 +13,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 
@@ -45,8 +48,24 @@ public class ChatRuntimeConfigService {
                 .orElseThrow(() -> new IllegalArgumentException("active domain not found: " + domainId));
     }
 
+    public List<ChatRuntimeDtos.ChatRuntimeConfigProvenanceRow> listConfigProvenance(UUID domainId, Integer limit) {
+        if (domainId == null) {
+            throw new IllegalArgumentException("domainId is required");
+        }
+        return repository.findProvenance(domainId, limit);
+    }
+
     @Transactional
     public ChatRuntimeDtos.ChatRuntimeConfigResponse updateConfig(ChatRuntimeDtos.ChatRuntimeConfigRequest request) {
+        return updateConfig(request, "manual", null, objectMapper.createObjectNode());
+    }
+
+    private ChatRuntimeDtos.ChatRuntimeConfigResponse updateConfig(
+            ChatRuntimeDtos.ChatRuntimeConfigRequest request,
+            String changeSource,
+            UUID sourceRagTestRunId,
+            JsonNode sourceConfig
+    ) {
         if (request == null || request.domainId() == null) {
             throw new IllegalArgumentException("domainId is required");
         }
@@ -130,7 +149,18 @@ public class ChatRuntimeConfigService {
                 metadata,
                 blankToNull(request.updatedBy())
         );
-        return getConfig(request.domainId());
+        ChatRuntimeDtos.ChatRuntimeConfigResponse applied = getConfig(request.domainId());
+        repository.insertProvenance(
+                request.domainId(),
+                changeSource,
+                sourceRagTestRunId,
+                sourceConfig,
+                configSnapshot(current),
+                configSnapshot(applied),
+                buildConfigDiff(current, applied),
+                blankToNull(request.updatedBy())
+        );
+        return applied;
     }
 
     @Transactional
@@ -200,7 +230,72 @@ public class ChatRuntimeConfigService {
                 current.metadata() == null ? objectMapper.createObjectNode() : current.metadata(),
                 blankToNull(request.updatedBy())
         );
-        return updateConfig(applyRequest);
+        return updateConfig(
+                applyRequest,
+                "apply_rag_run",
+                run.ragTestRunId(),
+                sourceConfigFromRagRun(run, config)
+        );
+    }
+
+    private ObjectNode sourceConfigFromRagRun(
+            ChatRuntimeConfigRepository.RagRunApplySnapshot run,
+            JsonNode config
+    ) {
+        ObjectNode source = objectMapper.createObjectNode();
+        source.put("rag_test_run_id", run.ragTestRunId().toString());
+        source.put("status", run.status());
+        source.put("gating_preset", run.gatingPreset());
+        source.set("generation_method_codes", run.generationMethodCodes());
+        source.set("config_json", config == null ? objectMapper.createObjectNode() : config);
+        return source;
+    }
+
+    private JsonNode configSnapshot(ChatRuntimeDtos.ChatRuntimeConfigResponse config) {
+        return objectMapper.valueToTree(config);
+    }
+
+    private ObjectNode buildConfigDiff(
+            ChatRuntimeDtos.ChatRuntimeConfigResponse before,
+            ChatRuntimeDtos.ChatRuntimeConfigResponse after
+    ) {
+        ObjectNode diff = objectMapper.createObjectNode();
+        ArrayNode changedFields = diff.putArray("changed_fields");
+        ObjectNode changes = diff.putObject("changes");
+        addDiff(changedFields, changes, "enabled", before.enabled(), after.enabled());
+        addDiff(changedFields, changes, "mode", before.mode(), after.mode());
+        addDiff(changedFields, changes, "generationStrategies", before.generationStrategies(), after.generationStrategies());
+        addDiff(changedFields, changes, "gatingPreset", before.gatingPreset(), after.gatingPreset());
+        addDiff(changedFields, changes, "sourceGatingBatchId", before.sourceGatingBatchId(), after.sourceGatingBatchId());
+        addDiff(changedFields, changes, "sourceGatingRunId", before.sourceGatingRunId(), after.sourceGatingRunId());
+        addDiff(changedFields, changes, "rewriteQueryProfile", before.rewriteQueryProfile(), after.rewriteQueryProfile());
+        addDiff(
+                changedFields,
+                changes,
+                "rewriteAnchorInjectionEnabled",
+                before.rewriteAnchorInjectionEnabled(),
+                after.rewriteAnchorInjectionEnabled()
+        );
+        addDiff(changedFields, changes, "useSessionContext", before.useSessionContext(), after.useSessionContext());
+        addDiff(changedFields, changes, "retrievalTopK", before.retrievalTopK(), after.retrievalTopK());
+        addDiff(changedFields, changes, "rerankTopN", before.rerankTopN(), after.rerankTopN());
+        addDiff(changedFields, changes, "memoryTopN", before.memoryTopN(), after.memoryTopN());
+        addDiff(changedFields, changes, "rewriteCandidateCount", before.rewriteCandidateCount(), after.rewriteCandidateCount());
+        addDiff(changedFields, changes, "rewriteThreshold", before.rewriteThreshold(), after.rewriteThreshold());
+        addDiff(changedFields, changes, "rewriteFailurePolicy", before.rewriteFailurePolicy(), after.rewriteFailurePolicy());
+        addDiff(changedFields, changes, "metadata", before.metadata(), after.metadata());
+        diff.put("changed_count", changedFields.size());
+        return diff;
+    }
+
+    private void addDiff(ArrayNode changedFields, ObjectNode changes, String field, Object before, Object after) {
+        if (Objects.equals(before, after)) {
+            return;
+        }
+        changedFields.add(field);
+        ObjectNode change = changes.putObject(field);
+        change.set("before", objectMapper.valueToTree(before));
+        change.set("after", objectMapper.valueToTree(after));
     }
 
     private void validateSnapshot(

@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-06-15] Session Summary (Chat Runtime Provenance)
+- What was done: Added Flyway V45 `chat_runtime_config_provenance`, repository/service insertion and listing, and `GET /api/admin/chat/config/provenance` for per-domain config history.
+- Key decisions: Both manual `PUT /api/admin/chat/config` saves and `apply-rag-run` writes now insert provenance after the active config is updated, recording previous/applied snapshots, JSON diff, change source, source RAG run ID, and operator.
+- Issues encountered: Provenance is intentionally append-only and does not implement rollback yet.
+- Next steps: Add explicit version labels and rollback-from-provenance in a later task.
+
 ## [2026-06-15] Session Summary (Apply RAG Run to Chat Config)
 - What was done: Added `POST /api/admin/chat/config/apply-rag-run`, a RAG-run apply snapshot query, and service mapping that converts a completed Admin RAG test run into the per-domain `chat_runtime_config`.
 - Key decisions: The endpoint copies only the currently supported chat runtime fields and then calls the existing `updateConfig` validation path, so domain ownership, enabled strategies, completed gating snapshot, preset, and source gating run consistency are enforced exactly like manual saves.

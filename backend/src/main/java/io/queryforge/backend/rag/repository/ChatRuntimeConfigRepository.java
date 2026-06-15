@@ -197,6 +197,101 @@ public class ChatRuntimeConfigRepository {
     }
 
     @Transactional
+    public void insertProvenance(
+            UUID domainId,
+            String changeSource,
+            UUID sourceRagTestRunId,
+            JsonNode sourceConfig,
+            JsonNode previousConfig,
+            JsonNode appliedConfig,
+            JsonNode diff,
+            String updatedBy
+    ) {
+        String sql = """
+                INSERT INTO chat_runtime_config_provenance (
+                    provenance_id,
+                    domain_id,
+                    change_source,
+                    source_rag_test_run_id,
+                    source_config_json,
+                    previous_config_json,
+                    applied_config_json,
+                    diff_json,
+                    updated_by
+                ) VALUES (
+                    gen_random_uuid(),
+                    :domainId,
+                    :changeSource,
+                    :sourceRagTestRunId,
+                    CAST(:sourceConfig AS jsonb),
+                    CAST(:previousConfig AS jsonb),
+                    CAST(:appliedConfig AS jsonb),
+                    CAST(:diff AS jsonb),
+                    :updatedBy
+                )
+                """;
+        jdbcTemplate.update(
+                sql,
+                new MapSqlParameterSource()
+                        .addValue("domainId", domainId)
+                        .addValue("changeSource", changeSource)
+                        .addValue("sourceRagTestRunId", sourceRagTestRunId)
+                        .addValue("sourceConfig", jsonText(sourceConfig))
+                        .addValue("previousConfig", jsonText(previousConfig))
+                        .addValue("appliedConfig", jsonText(appliedConfig))
+                        .addValue("diff", jsonText(diff))
+                        .addValue("updatedBy", updatedBy)
+        );
+    }
+
+    public List<ChatRuntimeDtos.ChatRuntimeConfigProvenanceRow> findProvenance(UUID domainId, Integer limit) {
+        String sql = """
+                SELECT p.provenance_id,
+                       p.domain_id,
+                       d.domain_key,
+                       d.display_name,
+                       p.change_source,
+                       p.source_rag_test_run_id,
+                       r.run_label AS source_rag_test_run_label,
+                       p.source_config_json::text AS source_config_json,
+                       p.previous_config_json::text AS previous_config_json,
+                       p.applied_config_json::text AS applied_config_json,
+                       p.diff_json::text AS diff_json,
+                       p.updated_by,
+                       p.created_at
+                FROM chat_runtime_config_provenance p
+                JOIN tech_doc_domain d
+                  ON d.domain_id = p.domain_id
+                LEFT JOIN rag_test_run r
+                  ON r.rag_test_run_id = p.source_rag_test_run_id
+                WHERE p.domain_id = :domainId
+                ORDER BY p.created_at DESC
+                LIMIT :limit
+                """;
+        return jdbcTemplate.query(
+                sql,
+                new MapSqlParameterSource()
+                        .addValue("domainId", domainId)
+                        .addValue("limit", normalizeLimit(limit, 50)),
+                (rs, rowNum) -> new ChatRuntimeDtos.ChatRuntimeConfigProvenanceRow(
+                        readUuid(rs, "provenance_id"),
+                        readUuid(rs, "domain_id"),
+                        rs.getString("domain_key"),
+                        rs.getString("display_name"),
+                        rs.getString("change_source"),
+                        readUuid(rs, "source_rag_test_run_id"),
+                        rs.getString("source_rag_test_run_label"),
+                        readJson(rs.getString("source_config_json")),
+                        readJson(rs.getString("previous_config_json")),
+                        readJson(rs.getString("applied_config_json")),
+                        readJson(rs.getString("diff_json")),
+                        rs.getString("updated_by"),
+                        readInstant(rs, "created_at")
+                )
+        );
+    }
+
+    @Transactional
     public void upsertConfig(
             UUID domainId,
             boolean enabled,
@@ -351,6 +446,15 @@ public class ChatRuntimeConfigRepository {
             }
         }
         return values;
+    }
+
+    private String jsonText(JsonNode node) {
+        return (node == null ? objectMapper.createObjectNode() : node).toString();
+    }
+
+    private int normalizeLimit(Integer limit, int fallback) {
+        int value = limit == null ? fallback : limit;
+        return Math.max(1, Math.min(value, 200));
     }
 
     private JsonNode readJson(String raw) {

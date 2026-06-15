@@ -38,6 +38,14 @@ public class ChatRuntimeConfigController {
         return service.getConfig(domainId);
     }
 
+    @GetMapping("/api/admin/chat/config/provenance")
+    public List<ChatRuntimeDtos.ChatRuntimeConfigProvenanceRow> adminChatConfigProvenance(
+            @RequestParam(name = "domain_id") UUID domainId,
+            @RequestParam(name = "limit", required = false) Integer limit
+    ) {
+        return service.listConfigProvenance(domainId, limit);
+    }
+
     @PutMapping("/api/admin/chat/config")
     public ChatRuntimeDtos.ChatRuntimeConfigResponse updateAdminChatConfig(
             @RequestBody ChatRuntimeDtos.ChatRuntimeConfigRequest request

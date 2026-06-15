@@ -41,11 +41,17 @@ function initialForm(domainId) {
   }
 }
 
+function provenanceChangedFields(row) {
+  const fields = row?.diff?.changed_fields || row?.diff?.changedFields
+  return Array.isArray(fields) ? fields.filter(Boolean) : []
+}
+
 export function ChatSettingsPage({ notify, domainId, domainKey }) {
   const [form, setForm] = useState(() => initialForm(domainId))
   const [config, setConfig] = useState(null)
   const [methods, setMethods] = useState([])
   const [gatingBatches, setGatingBatches] = useState([])
+  const [provenance, setProvenance] = useState([])
   const [loading, setLoading] = useState(false)
   const [saving, setSaving] = useState(false)
 
@@ -53,14 +59,16 @@ export function ChatSettingsPage({ notify, domainId, domainKey }) {
     if (!domainId) return
     setLoading(true)
     try {
-      const [configPayload, methodPayload, batchPayload] = await Promise.all([
+      const [configPayload, methodPayload, batchPayload, provenancePayload] = await Promise.all([
         requestJson(appendQuery('/api/admin/chat/config', { domain_id: domainId })),
         fetchSyntheticMethods({ domainId }),
         requestJson(appendQuery('/api/admin/console/gating/batches', { domain_id: domainId, limit: 100 })),
+        requestJson(appendQuery('/api/admin/chat/config/provenance', { domain_id: domainId, limit: 10 })),
       ])
       setConfig(configPayload)
       setMethods(Array.isArray(methodPayload) ? methodPayload : [])
       setGatingBatches(Array.isArray(batchPayload) ? batchPayload : [])
+      setProvenance(Array.isArray(provenancePayload) ? provenancePayload : [])
       setForm({
         domainId,
         enabled: Boolean(configPayload.enabled),
@@ -275,6 +283,44 @@ export function ChatSettingsPage({ notify, domainId, domainKey }) {
           </div>
         ) : (
           <div className="summary-card__meta">No compatible completed snapshot selected.</div>
+        )}
+      </section>
+
+      <section className="data-panel">
+        <div className="data-panel__header">
+          <h3>Config Provenance</h3>
+          <span className="summary-card__meta">Recent immutable changes</span>
+        </div>
+        {provenance.length > 0 ? (
+          <div className="table-wrap">
+            <table className="data-table">
+              <thead>
+                <tr>
+                  <th>Changed</th>
+                  <th>Source</th>
+                  <th>Updated by</th>
+                  <th>RAG run</th>
+                  <th>Fields</th>
+                </tr>
+              </thead>
+              <tbody>
+                {provenance.map((row) => {
+                  const fields = provenanceChangedFields(row)
+                  return (
+                    <tr key={row.provenanceId}>
+                      <td>{fmtTime(row.createdAt)}</td>
+                      <td><StatusBadge value={row.changeSource} /></td>
+                      <td>{row.updatedBy || '-'}</td>
+                      <td>{row.sourceRagTestRunId ? <IdBadge value={row.sourceRagTestRunId} /> : '-'}</td>
+                      <td>{fields.length > 0 ? fields.join(', ') : 'no field delta'}</td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <div className="summary-card__meta">No provenance has been recorded for this domain yet.</div>
         )}
       </section>
     </div>

@@ -73,4 +73,21 @@ public final class ChatRuntimeDtos {
             String updatedBy
     ) {
     }
+
+    public record ChatRuntimeConfigProvenanceRow(
+            UUID provenanceId,
+            UUID domainId,
+            String domainKey,
+            String displayName,
+            String changeSource,
+            UUID sourceRagTestRunId,
+            String sourceRagTestRunLabel,
+            JsonNode sourceConfig,
+            JsonNode previousConfig,
+            JsonNode appliedConfig,
+            JsonNode diff,
+            String updatedBy,
+            Instant createdAt
+    ) {
+    }
 }

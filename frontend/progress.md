@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-06-15] Session Summary (Chat Config Provenance UI)
+- What was done: Extended domain `Chat Settings` to load and render recent config provenance rows, showing change time, source, operator, source RAG run ID, and changed fields.
+- Key decisions: Provenance is read-only in this step; editing remains in the existing Chat Settings form and rollback/version management is left for a later feature.
+- Issues encountered: Targeted ESLint passed with the existing two `RagPage.jsx` hook dependency warnings, and `npm run build` passed with a refreshed backend-served JS bundle.
+- Next steps: Add version labels and rollback controls once backend rollback semantics are defined.
+
 ## [2026-06-15] Session Summary (RAG Apply to Chat UI)
 - What was done: Added an `Apply to Chat` action to completed `/admin/rag-tests` history rows. Applying a run calls the new backend API and opens a confirmation modal with the applied domain, mode/profile, snapshot, strategies, and an `Edit Chat Settings` link.
 - Key decisions: The UI keeps editing in the domain `Chat Settings` page so copied values are immediately adjustable through the same form used for manual chat runtime config changes.
