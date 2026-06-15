@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-06-15] Session Summary (Chat Multi-Snapshot Runtime)
+- What was done: Added Flyway V48 array fields for Chat runtime source gating batch/run IDs, extended Chat config DTOs/provenance snapshots/readiness, and changed live synthetic-memory repository filters to accept multiple selected snapshot IDs.
+- Key decisions: Manual Chat config validation still resolves each selected batch through the existing completed/domain/preset/strategy/source-run checks; Apply-to-Chat remains a single-run promotion path and stores that run's snapshot as a one-item selected set.
+- Issues encountered: None; `compileJava` passed after the DTO/repository/service changes.
+- Next steps: Apply Flyway V48 in the active DB, then save a multi-snapshot Chat Settings config and verify `online_queries.metadata` records the selected arrays.
+
 ## [2026-06-15] Session Summary (Chat Domain Readiness API)
 - What was done: Added `GET /api/chat/readiness` and `GET /api/admin/chat/readiness` with DTOs for active config presence, snapshot/source-run health, mismatch flags, domain chunk-embedding status, memory count, accepted gated query count, prompt binding, retrieval summary, and blocking reasons.
 - Key decisions: Repository checks stay bounded by `domain_id`, selected `source_gating_batch_id` / `source_gating_run_id`, and strategy filters; V47 adds supporting lookup indexes without changing data semantics.

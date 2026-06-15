@@ -39,6 +39,7 @@ public class ChatRuntimeConfigService {
     private static final Set<String> RETRIEVAL_BACKENDS = Set.of("local", "db_ann");
     private static final Set<String> RETRIEVER_MODES = Set.of("bm25_only", "dense_only", "hybrid");
     private static final String DEFAULT_DENSE_EMBEDDING_MODEL = "intfloat/multilingual-e5-small";
+    private static final int MAX_SELECTED_SOURCE_GATING_BATCHES = 20;
 
     private final ChatRuntimeConfigRepository repository;
     private final AdminConsoleService adminConsoleService;
@@ -69,24 +70,52 @@ public class ChatRuntimeConfigService {
                 .distinct()
                 .toList();
 
-        ChatRuntimeConfigRepository.GatingSnapshot snapshot = config.sourceGatingBatchId() == null
-                ? null
-                : repository.findGatingSnapshot(config.sourceGatingBatchId()).orElse(null);
-        boolean selectedSnapshotPresent = snapshot != null;
+        List<UUID> selectedBatchIds = normalizeUuidList(config.sourceGatingBatchIds());
+        if (selectedBatchIds.isEmpty() && config.sourceGatingBatchId() != null) {
+            selectedBatchIds = List.of(config.sourceGatingBatchId());
+        }
+        List<UUID> configSourceGatingRunIds = normalizeUuidList(config.sourceGatingRunIds());
+        if (configSourceGatingRunIds.isEmpty() && config.sourceGatingRunId() != null) {
+            configSourceGatingRunIds = List.of(config.sourceGatingRunId());
+        }
+        List<ChatRuntimeConfigRepository.GatingSnapshot> snapshots = new ArrayList<>();
+        for (UUID selectedBatchId : selectedBatchIds) {
+            repository.findGatingSnapshot(selectedBatchId).ifPresent(snapshots::add);
+        }
+        ChatRuntimeConfigRepository.GatingSnapshot snapshot = snapshots.isEmpty() ? null : snapshots.getFirst();
+        boolean selectedSnapshotPresent = !selectedBatchIds.isEmpty() && snapshots.size() == selectedBatchIds.size();
+        LinkedHashSet<UUID> snapshotSourceRunSet = new LinkedHashSet<>();
+        LinkedHashSet<String> snapshotMethods = new LinkedHashSet<>();
+        for (ChatRuntimeConfigRepository.GatingSnapshot item : snapshots) {
+            if (item.sourceGatingRunId() != null) {
+                snapshotSourceRunSet.add(item.sourceGatingRunId());
+            }
+            String method = item.methodCode() == null ? "" : item.methodCode().trim().toUpperCase(Locale.ROOT);
+            if (!method.isBlank()) {
+                snapshotMethods.add(method);
+            }
+        }
         UUID snapshotSourceGatingRunId = snapshot == null ? null : snapshot.sourceGatingRunId();
-        boolean sourceGatingRunPresent = config.sourceGatingRunId() != null && snapshotSourceGatingRunId != null;
+        boolean sourceGatingRunPresent = selectedSnapshotPresent
+                && !snapshots.isEmpty()
+                && snapshots.stream().allMatch(item -> item.sourceGatingRunId() != null)
+                && !configSourceGatingRunIds.isEmpty();
         boolean sourceGatingRunMatchesConfig = sourceGatingRunPresent
-                && Objects.equals(config.sourceGatingRunId(), snapshotSourceGatingRunId);
+                && new LinkedHashSet<>(configSourceGatingRunIds).equals(snapshotSourceRunSet);
         boolean domainMismatch = selectedSnapshotPresent
-                && (snapshot.domainId() == null || !snapshot.domainId().equals(config.domainId()));
+                && snapshots.stream().anyMatch(item -> item.domainId() == null || !item.domainId().equals(config.domainId()));
         boolean gatingPresetMismatch = selectedSnapshotPresent
-                && !normalizeText(snapshot.gatingPreset(), "").equals(normalizeText(config.gatingPreset(), ""));
-        String snapshotMethod = snapshot == null || snapshot.methodCode() == null
+                && snapshots.stream().anyMatch(item -> !normalizeText(item.gatingPreset(), "").equals(normalizeText(config.gatingPreset(), "")));
+        String snapshotMethod = snapshotMethods.isEmpty() ? null : String.join("+", snapshotMethods);
+        boolean generationStrategyMismatch = !snapshotMethods.isEmpty()
+                && snapshotMethods.stream().anyMatch(method -> !generationStrategies.contains(method));
+        boolean snapshotStatusMismatch = selectedSnapshotPresent
+                && snapshots.stream().anyMatch(item -> !"completed".equalsIgnoreCase(item.status()));
+        String snapshotStatus = snapshots.isEmpty()
                 ? null
-                : snapshot.methodCode().trim().toUpperCase(Locale.ROOT);
-        boolean generationStrategyMismatch = snapshotMethod != null
-                && !snapshotMethod.isBlank()
-                && !generationStrategies.contains(snapshotMethod);
+                : (snapshots.stream().allMatch(item -> "completed".equalsIgnoreCase(item.status()))
+                ? "completed"
+                : "mixed");
 
         String embeddingModel = firstNonBlank(config.denseEmbeddingModel(), DEFAULT_DENSE_EMBEDDING_MODEL);
         ChatRuntimeConfigRepository.DomainChunkEmbeddingStatus embeddingStatus =
@@ -100,15 +129,15 @@ public class ChatRuntimeConfigService {
         boolean chunkEmbeddingsReady = !dbAnnRequired || (domainChunkCount > 0L && missingChunkCount == 0L);
 
         long acceptedGatedQueryCount = rewriteBackedMode && selectedSnapshotPresent
-                ? repository.countAcceptedGatedQueries(config.domainId(), config.sourceGatingBatchId(), generationStrategies)
+                ? repository.countAcceptedGatedQueries(config.domainId(), selectedBatchIds, generationStrategies)
                 : 0L;
         long memoryCount = rewriteBackedMode && selectedSnapshotPresent
                 ? repository.countReadyMemoryEntries(
                 config.domainId(),
                 config.gatingPreset(),
                 generationStrategies,
-                config.sourceGatingRunId(),
-                config.sourceGatingBatchId()
+                configSourceGatingRunIds,
+                selectedBatchIds
         )
                 : 0L;
 
@@ -148,28 +177,28 @@ public class ChatRuntimeConfigService {
             blockingReasons.add("domain chunk embeddings are not fully materialized for " + embeddingModel);
         }
         if (rewriteBackedMode) {
-            if (config.sourceGatingBatchId() == null) {
-                blockingReasons.add("source_gating_batch_id is required for rewrite-backed chat");
+            if (selectedBatchIds.isEmpty()) {
+                blockingReasons.add("at least one source_gating_batch_id is required for rewrite-backed chat");
             }
             if (!selectedSnapshotPresent) {
-                blockingReasons.add("selected source gating snapshot was not found");
+                blockingReasons.add("one or more selected source gating snapshots were not found");
             } else {
-                if (!"completed".equalsIgnoreCase(snapshot.status())) {
-                    blockingReasons.add("selected source gating snapshot is not completed");
+                if (snapshotStatusMismatch) {
+                    blockingReasons.add("one or more selected source gating snapshots are not completed");
                 }
                 if (!sourceGatingRunPresent) {
-                    blockingReasons.add("source_gating_run_id is missing");
+                    blockingReasons.add("source_gating_run_id is missing for one or more selected snapshots");
                 } else if (!sourceGatingRunMatchesConfig) {
-                    blockingReasons.add("config source_gating_run_id does not match selected snapshot");
+                    blockingReasons.add("config source_gating_run_ids do not match selected snapshots");
                 }
                 if (domainMismatch) {
-                    blockingReasons.add("selected snapshot belongs to another domain");
+                    blockingReasons.add("one or more selected snapshots belong to another domain");
                 }
                 if (gatingPresetMismatch) {
-                    blockingReasons.add("selected snapshot gating preset differs from active config");
+                    blockingReasons.add("one or more selected snapshot gating presets differ from active config");
                 }
                 if (generationStrategyMismatch) {
-                    blockingReasons.add("selected snapshot generation strategy is not enabled in active config");
+                    blockingReasons.add("one or more selected snapshot generation strategies are not enabled in active config");
                 }
             }
             if (!promptBinding.active()) {
@@ -198,9 +227,12 @@ public class ChatRuntimeConfigService {
                 new ChatRuntimeDtos.SnapshotReadiness(
                         config.sourceGatingBatchId(),
                         config.sourceGatingRunId(),
+                        selectedBatchIds,
+                        configSourceGatingRunIds,
+                        selectedBatchIds.size(),
                         snapshotSourceGatingRunId,
                         selectedSnapshotPresent,
-                        snapshot == null ? null : snapshot.status(),
+                        snapshotStatus,
                         snapshot == null ? null : snapshot.domainId(),
                         snapshot == null ? null : snapshot.gatingPreset(),
                         snapshotMethod,
@@ -370,20 +402,34 @@ public class ChatRuntimeConfigService {
                 1.0,
                 "rewriteThreshold"
         );
-        UUID sourceGatingBatchId = request.sourceGatingBatchId();
+        List<UUID> sourceGatingBatchIds = requestedSourceGatingBatchIds(request, current);
+        UUID sourceGatingBatchId = sourceGatingBatchIds.isEmpty() ? null : sourceGatingBatchIds.getFirst();
+        List<UUID> sourceGatingRunIds = List.of();
         UUID sourceGatingRunId = null;
         if ("raw_only".equals(mode)) {
+            sourceGatingBatchIds = List.of();
             sourceGatingBatchId = null;
         } else {
-            if (sourceGatingBatchId == null) {
-                throw new IllegalArgumentException("sourceGatingBatchId is required for rewrite-backed chat");
+            if (sourceGatingBatchIds.isEmpty()) {
+                throw new IllegalArgumentException("at least one sourceGatingBatchId is required for rewrite-backed chat");
             }
-            UUID selectedBatchId = sourceGatingBatchId;
-            ChatRuntimeConfigRepository.GatingSnapshot snapshot = repository.findGatingSnapshot(sourceGatingBatchId)
-                    .orElseThrow(() -> new IllegalArgumentException("gating batch not found: " + selectedBatchId));
-            validateSnapshot(request.domainId(), gatingPreset, generationStrategies, snapshot);
-            sourceGatingRunId = snapshot.sourceGatingRunId();
-            gatingPreset = snapshot.gatingPreset();
+            if (sourceGatingBatchIds.size() > MAX_SELECTED_SOURCE_GATING_BATCHES) {
+                throw new IllegalArgumentException(
+                        "sourceGatingBatchIds must contain at most " + MAX_SELECTED_SOURCE_GATING_BATCHES + " snapshots"
+                );
+            }
+            LinkedHashSet<UUID> runIds = new LinkedHashSet<>();
+            String resolvedGatingPreset = gatingPreset;
+            for (UUID selectedBatchId : sourceGatingBatchIds) {
+                ChatRuntimeConfigRepository.GatingSnapshot snapshot = repository.findGatingSnapshot(selectedBatchId)
+                        .orElseThrow(() -> new IllegalArgumentException("gating batch not found: " + selectedBatchId));
+                validateSnapshot(request.domainId(), gatingPreset, generationStrategies, snapshot);
+                runIds.add(snapshot.sourceGatingRunId());
+                resolvedGatingPreset = snapshot.gatingPreset();
+            }
+            sourceGatingRunIds = List.copyOf(runIds);
+            sourceGatingRunId = sourceGatingRunIds.isEmpty() ? null : sourceGatingRunIds.getFirst();
+            gatingPreset = resolvedGatingPreset;
         }
         JsonNode metadata = request.metadata() == null ? objectMapper.createObjectNode() : request.metadata();
         repository.upsertConfig(
@@ -394,6 +440,8 @@ public class ChatRuntimeConfigService {
                 gatingPreset,
                 sourceGatingBatchId,
                 sourceGatingRunId,
+                sourceGatingBatchIds,
+                sourceGatingRunIds,
                 rewriteQueryProfile,
                 rewriteAnchorInjectionEnabled,
                 useSessionContext,
@@ -487,6 +535,7 @@ public class ChatRuntimeConfigService {
                 generationStrategies,
                 gatingPreset,
                 sourceGatingBatchId,
+                sourceGatingBatchId == null ? List.of() : List.of(sourceGatingBatchId),
                 rewriteQueryProfile,
                 rewriteAnchorInjectionEnabled,
                 useSessionContext,
@@ -556,6 +605,8 @@ public class ChatRuntimeConfigService {
         addDiff(changedFields, changes, "gatingPreset", before.gatingPreset(), after.gatingPreset());
         addDiff(changedFields, changes, "sourceGatingBatchId", before.sourceGatingBatchId(), after.sourceGatingBatchId());
         addDiff(changedFields, changes, "sourceGatingRunId", before.sourceGatingRunId(), after.sourceGatingRunId());
+        addDiff(changedFields, changes, "sourceGatingBatchIds", before.sourceGatingBatchIds(), after.sourceGatingBatchIds());
+        addDiff(changedFields, changes, "sourceGatingRunIds", before.sourceGatingRunIds(), after.sourceGatingRunIds());
         addDiff(changedFields, changes, "rewriteQueryProfile", before.rewriteQueryProfile(), after.rewriteQueryProfile());
         addDiff(
                 changedFields,
@@ -591,6 +642,36 @@ public class ChatRuntimeConfigService {
         ObjectNode change = changes.putObject(field);
         change.set("before", objectMapper.valueToTree(before));
         change.set("after", objectMapper.valueToTree(after));
+    }
+
+    private List<UUID> requestedSourceGatingBatchIds(
+            ChatRuntimeDtos.ChatRuntimeConfigRequest request,
+            ChatRuntimeDtos.ChatRuntimeConfigResponse current
+    ) {
+        boolean provided = request.sourceGatingBatchIds() != null || request.sourceGatingBatchId() != null;
+        List<UUID> values = provided
+                ? normalizeUuidList(request.sourceGatingBatchIds())
+                : normalizeUuidList(current.sourceGatingBatchIds());
+        if (values.isEmpty()) {
+            UUID fallback = provided ? request.sourceGatingBatchId() : current.sourceGatingBatchId();
+            if (fallback != null) {
+                values = List.of(fallback);
+            }
+        }
+        return values;
+    }
+
+    private List<UUID> normalizeUuidList(List<UUID> rawValues) {
+        if (rawValues == null || rawValues.isEmpty()) {
+            return List.of();
+        }
+        LinkedHashSet<UUID> values = new LinkedHashSet<>();
+        for (UUID value : rawValues) {
+            if (value != null) {
+                values.add(value);
+            }
+        }
+        return List.copyOf(values);
     }
 
     private void validateSnapshot(

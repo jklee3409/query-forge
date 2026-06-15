@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-06-15] Session Summary (Chat Multi-Snapshot Selection UI)
+- What was done: Replaced the single completed-snapshot selector in domain Chat Settings with multi-select snapshot chips, saved `sourceGatingBatchIds`, and showed selected snapshot counts in Chat Settings and the live Chat applied-config trace.
+- Key decisions: The UI still filters selectable snapshots by completed status, source gating run, gating preset, and selected generation strategies before allowing selection; the first selected snapshot is sent as `sourceGatingBatchId` for backward compatibility.
+- Issues encountered: Targeted `npx eslint src/pages/ChatSettingsPage.jsx src/pages/ChatPage.jsx` passed.
+- Next steps: Browser-smoke selecting multiple compatible snapshots, saving, and confirming readiness/memory counts update.
+
 ## [2026-06-15] Session Summary (Chat Readiness UI)
 - What was done: Added read-only domain readiness panels to Chat Settings and the live Chat page, showing active config, snapshot/source-run status, mismatch flags, memory/query counts, chunk embeddings, prompt binding, retrieval tuple, and blocking reasons.
 - Key decisions: The Chat page reads the same readiness API as Admin and disables `Ask` when rewrite-backed chat is blocked, while `raw_only` remains governed by the active config state.

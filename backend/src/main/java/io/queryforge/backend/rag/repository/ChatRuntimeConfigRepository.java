@@ -14,6 +14,7 @@ import java.sql.SQLException;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
@@ -103,6 +104,20 @@ public class ChatRuntimeConfigRepository {
                        COALESCE(c.gating_preset, 'full_gating') AS gating_preset,
                        c.source_gating_batch_id,
                        c.source_gating_run_id,
+                       COALESCE(
+                           c.source_gating_batch_ids,
+                           CASE
+                               WHEN c.source_gating_batch_id IS NULL THEN '[]'::jsonb
+                               ELSE jsonb_build_array(c.source_gating_batch_id::text)
+                           END
+                       )::text AS source_gating_batch_ids,
+                       COALESCE(
+                           c.source_gating_run_ids,
+                           CASE
+                               WHEN c.source_gating_run_id IS NULL THEN '[]'::jsonb
+                               ELSE jsonb_build_array(c.source_gating_run_id::text)
+                           END
+                       )::text AS source_gating_run_ids,
                        COALESCE(c.rewrite_query_profile, 'compact_anchor') AS rewrite_query_profile,
                        COALESCE(c.rewrite_anchor_injection_enabled, FALSE) AS rewrite_anchor_injection_enabled,
                        COALESCE(c.use_session_context, FALSE) AS use_session_context,
@@ -219,10 +234,11 @@ public class ChatRuntimeConfigRepository {
 
     public long countAcceptedGatedQueries(
             UUID domainId,
-            UUID sourceGatingBatchId,
+            List<UUID> sourceGatingBatchIds,
             List<String> generationStrategies
     ) {
-        if (sourceGatingBatchId == null) {
+        List<UUID> batchIds = normalizeUuidList(sourceGatingBatchIds);
+        if (batchIds.isEmpty()) {
             return 0L;
         }
         boolean strategyFilterEmpty = generationStrategies == null || generationStrategies.isEmpty();
@@ -230,7 +246,7 @@ public class ChatRuntimeConfigRepository {
                 SELECT COUNT(*)
                 FROM synthetic_query_gating_result r
                 WHERE r.domain_id = :domainId
-                  AND r.gating_batch_id = :sourceGatingBatchId
+                  AND r.gating_batch_id IN (:sourceGatingBatchIds)
                   AND r.accepted IS TRUE
                   AND (:strategyFilterEmpty IS TRUE OR r.generation_strategy IN (:generationStrategies))
                 """;
@@ -238,7 +254,7 @@ public class ChatRuntimeConfigRepository {
                 sql,
                 new MapSqlParameterSource()
                         .addValue("domainId", domainId)
-                        .addValue("sourceGatingBatchId", sourceGatingBatchId)
+                        .addValue("sourceGatingBatchIds", batchIds)
                         .addValue("strategyFilterEmpty", strategyFilterEmpty)
                         .addValue("generationStrategies", strategyFilterEmpty ? List.of("") : generationStrategies),
                 Long.class
@@ -250,10 +266,12 @@ public class ChatRuntimeConfigRepository {
             UUID domainId,
             String gatingPreset,
             List<String> generationStrategies,
-            UUID sourceGatingRunId,
-            UUID sourceGatingBatchId
+            List<UUID> sourceGatingRunIds,
+            List<UUID> sourceGatingBatchIds
     ) {
-        if (sourceGatingRunId == null || sourceGatingBatchId == null) {
+        List<String> runIds = uuidTextArray(sourceGatingRunIds);
+        List<String> batchIds = uuidTextArray(sourceGatingBatchIds);
+        if (runIds.isEmpty() || batchIds.isEmpty()) {
             return 0L;
         }
         boolean strategyFilterEmpty = generationStrategies == null || generationStrategies.isEmpty();
@@ -266,8 +284,8 @@ public class ChatRuntimeConfigRepository {
                   AND g.final_decision IS TRUE
                   AND (:gatingPreset IS NULL OR g.gating_preset = :gatingPreset)
                   AND (:strategyFilterEmpty IS TRUE OR m.generation_strategy IN (:generationStrategies))
-                  AND m.metadata ->> 'source_gate_run_id' = :sourceGatingRunId
-                  AND m.metadata ->> 'source_gating_batch_id' = :sourceGatingBatchId
+                  AND m.metadata ->> 'source_gate_run_id' IN (:sourceGatingRunIds)
+                  AND m.metadata ->> 'source_gating_batch_id' IN (:sourceGatingBatchIds)
                 """;
         Long count = jdbcTemplate.queryForObject(
                 sql,
@@ -276,8 +294,8 @@ public class ChatRuntimeConfigRepository {
                         .addValue("gatingPreset", gatingPreset)
                         .addValue("strategyFilterEmpty", strategyFilterEmpty)
                         .addValue("generationStrategies", strategyFilterEmpty ? List.of("") : generationStrategies)
-                        .addValue("sourceGatingRunId", sourceGatingRunId.toString())
-                        .addValue("sourceGatingBatchId", sourceGatingBatchId.toString()),
+                        .addValue("sourceGatingRunIds", runIds)
+                        .addValue("sourceGatingBatchIds", batchIds),
                 Long.class
         );
         return count == null ? 0L : count;
@@ -459,6 +477,8 @@ public class ChatRuntimeConfigRepository {
             String gatingPreset,
             UUID sourceGatingBatchId,
             UUID sourceGatingRunId,
+            List<UUID> sourceGatingBatchIds,
+            List<UUID> sourceGatingRunIds,
             String rewriteQueryProfile,
             boolean rewriteAnchorInjectionEnabled,
             boolean useSessionContext,
@@ -487,6 +507,8 @@ public class ChatRuntimeConfigRepository {
                     gating_preset,
                     source_gating_batch_id,
                     source_gating_run_id,
+                    source_gating_batch_ids,
+                    source_gating_run_ids,
                     rewrite_query_profile,
                     rewrite_anchor_injection_enabled,
                     use_session_context,
@@ -514,6 +536,8 @@ public class ChatRuntimeConfigRepository {
                     :gatingPreset,
                     :sourceGatingBatchId,
                     :sourceGatingRunId,
+                    CAST(:sourceGatingBatchIds AS jsonb),
+                    CAST(:sourceGatingRunIds AS jsonb),
                     :rewriteQueryProfile,
                     :rewriteAnchorInjectionEnabled,
                     :useSessionContext,
@@ -541,6 +565,8 @@ public class ChatRuntimeConfigRepository {
                     gating_preset = EXCLUDED.gating_preset,
                     source_gating_batch_id = EXCLUDED.source_gating_batch_id,
                     source_gating_run_id = EXCLUDED.source_gating_run_id,
+                    source_gating_batch_ids = EXCLUDED.source_gating_batch_ids,
+                    source_gating_run_ids = EXCLUDED.source_gating_run_ids,
                     rewrite_query_profile = EXCLUDED.rewrite_query_profile,
                     rewrite_anchor_injection_enabled = EXCLUDED.rewrite_anchor_injection_enabled,
                     use_session_context = EXCLUDED.use_session_context,
@@ -571,6 +597,8 @@ public class ChatRuntimeConfigRepository {
                         .addValue("gatingPreset", gatingPreset)
                         .addValue("sourceGatingBatchId", sourceGatingBatchId)
                         .addValue("sourceGatingRunId", sourceGatingRunId)
+                        .addValue("sourceGatingBatchIds", objectMapper.valueToTree(uuidTextArray(sourceGatingBatchIds)).toString())
+                        .addValue("sourceGatingRunIds", objectMapper.valueToTree(uuidTextArray(sourceGatingRunIds)).toString())
                         .addValue("rewriteQueryProfile", rewriteQueryProfile)
                         .addValue("rewriteAnchorInjectionEnabled", rewriteAnchorInjectionEnabled)
                         .addValue("useSessionContext", useSessionContext)
@@ -596,8 +624,16 @@ public class ChatRuntimeConfigRepository {
         List<String> methods = readStringArray(rs.getString("generation_strategies"));
         UUID sourceGatingBatchId = readUuid(rs, "source_gating_batch_id");
         UUID sourceGatingRunId = readUuid(rs, "source_gating_run_id");
+        List<UUID> sourceGatingBatchIds = readUuidArray(rs.getString("source_gating_batch_ids"));
+        if (sourceGatingBatchIds.isEmpty() && sourceGatingBatchId != null) {
+            sourceGatingBatchIds = List.of(sourceGatingBatchId);
+        }
+        List<UUID> sourceGatingRunIds = readUuidArray(rs.getString("source_gating_run_ids"));
+        if (sourceGatingRunIds.isEmpty() && sourceGatingRunId != null) {
+            sourceGatingRunIds = List.of(sourceGatingRunId);
+        }
         boolean memoryMode = !"raw_only".equalsIgnoreCase(rs.getString("mode"));
-        boolean ready = !memoryMode || (sourceGatingBatchId != null && sourceGatingRunId != null);
+        boolean ready = !memoryMode || (!sourceGatingBatchIds.isEmpty() && !sourceGatingRunIds.isEmpty());
         String readinessMessage = ready
                 ? "ready"
                 : "select a completed gating snapshot before enabling rewrite-backed chat";
@@ -612,6 +648,8 @@ public class ChatRuntimeConfigRepository {
                 rs.getString("gating_preset"),
                 sourceGatingBatchId,
                 sourceGatingRunId,
+                sourceGatingBatchIds,
+                sourceGatingRunIds,
                 rs.getString("rewrite_query_profile"),
                 rs.getBoolean("rewrite_anchor_injection_enabled"),
                 rs.getBoolean("use_session_context"),
@@ -649,6 +687,41 @@ public class ChatRuntimeConfigRepository {
         return values;
     }
 
+    private List<UUID> readUuidArray(String raw) {
+        List<UUID> values = new ArrayList<>();
+        JsonNode node = readJson(raw);
+        if (node.isArray()) {
+            for (JsonNode item : node) {
+                UUID value = parseUuid(item.asText(""));
+                if (value != null && !values.contains(value)) {
+                    values.add(value);
+                }
+            }
+        }
+        return values;
+    }
+
+    private List<UUID> normalizeUuidList(List<UUID> rawValues) {
+        if (rawValues == null || rawValues.isEmpty()) {
+            return List.of();
+        }
+        LinkedHashSet<UUID> values = new LinkedHashSet<>();
+        for (UUID value : rawValues) {
+            if (value != null) {
+                values.add(value);
+            }
+        }
+        return List.copyOf(values);
+    }
+
+    private List<String> uuidTextArray(List<UUID> rawValues) {
+        List<UUID> values = normalizeUuidList(rawValues);
+        if (values.isEmpty()) {
+            return List.of();
+        }
+        return values.stream().map(UUID::toString).toList();
+    }
+
     private String jsonText(JsonNode node) {
         return (node == null ? objectMapper.createObjectNode() : node).toString();
     }
@@ -675,6 +748,17 @@ public class ChatRuntimeConfigRepository {
             return uuid;
         }
         return value == null ? null : UUID.fromString(value.toString());
+    }
+
+    private UUID parseUuid(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return null;
+        }
+        try {
+            return UUID.fromString(raw.trim());
+        } catch (IllegalArgumentException ignored) {
+            return null;
+        }
     }
 
     private Instant readInstant(ResultSet rs, String column) throws SQLException {

@@ -34,7 +34,8 @@
 ---
 
 ## Recent Update
-- Domain `Chat Settings` and `/` Chat now show per-domain readiness from the backend: active config, selected snapshot/source gating run, domain/strategy mismatch flags, accepted gated query and memory counts, chunk embedding materialization, active prompt binding, retrieval tuple, and blocking reasons. Live Chat disables `Ask` when rewrite-backed chat is not ready.
+- Domain `Chat Settings` can select multiple compatible completed snapshots for one chat config, saves `sourceGatingBatchIds`, and `/` Chat shows the selected snapshot count plus applied config arrays so operators can verify the live rewrite memory scope.
+- Domain `Chat Settings` and `/` Chat now show per-domain readiness from the backend: active config, selected snapshot set/source gating runs, domain/strategy mismatch flags, accepted gated query and memory counts, chunk embedding materialization, active prompt binding, retrieval tuple, and blocking reasons. Live Chat disables `Ask` when rewrite-backed chat is not ready.
 - Domain `Chat Settings` now exposes the live chat retrieval tuple: retrieval backend (`local` / `db_ann`), dense embedding model, retriever mode, candidate pool, and Dense/BM25/Technical fusion weights. The Chat page shows the active backend/model/mode so promoted Admin RAG retrieval settings are visible during live use.
 - Domain `Chat Settings` now shows recent config provenance rows, including manual vs Apply-to-Chat source, operator, source RAG run ID, and changed field names for auditability.
 - `/admin/rag-tests` completed run rows now expose `Apply to Chat`, which copies the selected RAG run into the persistent per-domain chat runtime config and opens a result modal with an `Edit Chat Settings` link so the copied values remain directly editable.

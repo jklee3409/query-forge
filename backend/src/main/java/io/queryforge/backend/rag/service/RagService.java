@@ -106,8 +106,8 @@ public class RagService {
                 memoryPreset,
                 config.domainId(),
                 config.generationStrategies(),
-                config.sourceGatingRunId(),
-                config.sourceGatingBatchId(),
+                config.sourceGatingRunIds(),
+                config.sourceGatingBatchIds(),
                 retrievalRuntime
         );
         JsonNode memoryTopNJson = objectMapper.valueToTree(memoryCandidates);
@@ -355,8 +355,8 @@ public class RagService {
                 gatingPreset,
                 null,
                 List.of(),
-                null,
-                null
+                List.of(),
+                List.of()
         );
         List<RewriteCandidateService.CandidateTemplate> candidates = rewriteCandidateService.buildCandidates(
                 rawQuery,
@@ -637,8 +637,8 @@ public class RagService {
             String gatingPreset,
             UUID domainId,
             List<String> generationStrategies,
-            UUID sourceGatingRunId,
-            UUID sourceGatingBatchId,
+            List<UUID> sourceGatingRunIds,
+            List<UUID> sourceGatingBatchIds,
             RetrievalRuntime runtime
     ) {
         if (!"db_ann".equals(runtime.retrievalBackend())) {
@@ -648,8 +648,8 @@ public class RagService {
                     gatingPreset,
                     domainId,
                     generationStrategies,
-                    sourceGatingRunId,
-                    sourceGatingBatchId
+                    sourceGatingRunIds,
+                    sourceGatingBatchIds
             );
         }
         int poolSize = Math.max(topN, runtime.candidatePoolK());
@@ -662,8 +662,8 @@ public class RagService {
                     gatingPreset,
                     domainId,
                     generationStrategies,
-                    sourceGatingRunId,
-                    sourceGatingBatchId
+                    sourceGatingRunIds,
+                    sourceGatingBatchIds
             ));
         }
         if (!"dense_only".equals(runtime.retrieverMode())) {
@@ -675,8 +675,8 @@ public class RagService {
                     gatingPreset,
                     domainId,
                     generationStrategies,
-                    sourceGatingRunId,
-                    sourceGatingBatchId
+                    sourceGatingRunIds,
+                    sourceGatingBatchIds
             ));
         }
         return rankMemories(query, mergeMemories(candidates), topN, runtime);
@@ -967,6 +967,8 @@ public class RagService {
         node.set("generation_strategies", objectMapper.valueToTree(config.generationStrategies()));
         putNullableUuid(node, "source_gating_batch_id", config.sourceGatingBatchId());
         putNullableUuid(node, "source_gating_run_id", config.sourceGatingRunId());
+        node.set("source_gating_batch_ids", objectMapper.valueToTree(config.sourceGatingBatchIds()));
+        node.set("source_gating_run_ids", objectMapper.valueToTree(config.sourceGatingRunIds()));
         node.put("rewrite_query_profile", config.rewriteQueryProfile());
         node.put("rewrite_anchor_injection_enabled", config.rewriteAnchorInjectionEnabled());
         node.put("use_session_context", config.useSessionContext());

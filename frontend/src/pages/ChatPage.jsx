@@ -120,6 +120,9 @@ export function ChatPage({ navigate, notify }) {
   const baseBlocked = Boolean(readiness && (!readiness.activeConfigPresent || !readiness.configEnabled))
   const chatBlocked = baseBlocked || rewriteBlocked
   const chatDisabled = loading || !selectedDomainId || !config || !readiness || !config.enabled || chatBlocked
+  const sourceGatingBatchIds = Array.isArray(config?.sourceGatingBatchIds)
+    ? config.sourceGatingBatchIds.filter(Boolean)
+    : []
 
   return (
     <div className="chat-shell">
@@ -161,7 +164,13 @@ export function ChatPage({ navigate, notify }) {
           <span>{(config?.generationStrategies || []).join('+') || '-'}</span>
           <span>{config?.retrievalBackend || 'local'} / {config?.retrieverMode || 'hybrid'}</span>
           <span>{config?.denseEmbeddingModel || '-'}</span>
-          <span>{config?.sourceGatingBatchId ? `snapshot ${config.sourceGatingBatchId.slice(0, 8)}` : 'snapshot required'}</span>
+          <span>
+            {sourceGatingBatchIds.length > 0
+              ? `snapshots ${sourceGatingBatchIds.length}`
+              : config?.sourceGatingBatchId
+                ? `snapshot ${config.sourceGatingBatchId.slice(0, 8)}`
+                : 'snapshot required'}
+          </span>
           <span>{config?.rewriteAnchorInjectionEnabled ? 'anchor on' : 'anchor off'}</span>
         </div>
       </section>
@@ -231,6 +240,8 @@ export function ChatPage({ navigate, notify }) {
                 generationStrategies: result.appliedConfig?.generationStrategies,
                 sourceGatingBatchId: result.appliedConfig?.sourceGatingBatchId,
                 sourceGatingRunId: result.appliedConfig?.sourceGatingRunId,
+                sourceGatingBatchIds: result.appliedConfig?.sourceGatingBatchIds,
+                sourceGatingRunIds: result.appliedConfig?.sourceGatingRunIds,
                 retrievalBackend: result.appliedConfig?.retrievalBackend,
                 denseEmbeddingModel: result.appliedConfig?.denseEmbeddingModel,
                 retrieverMode: result.appliedConfig?.retrieverMode,

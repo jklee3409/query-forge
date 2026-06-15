@@ -16,6 +16,7 @@ import java.sql.SQLException;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -145,10 +146,14 @@ public class RagRepository {
             String gatingPreset,
             UUID domainId,
             List<String> generationStrategies,
-            UUID sourceGatingRunId,
-            UUID sourceGatingBatchId
+            List<UUID> sourceGatingRunIds,
+            List<UUID> sourceGatingBatchIds
     ) {
         boolean strategyFilterEmpty = generationStrategies == null || generationStrategies.isEmpty();
+        List<String> runIds = uuidTextArray(sourceGatingRunIds);
+        List<String> batchIds = uuidTextArray(sourceGatingBatchIds);
+        boolean sourceGatingRunFilterEmpty = runIds.isEmpty();
+        boolean sourceGatingBatchFilterEmpty = batchIds.isEmpty();
         String sql = """
                 SELECT m.memory_id,
                        m.query_text,
@@ -174,8 +179,8 @@ public class RagRepository {
                   AND (:gatingPreset IS NULL OR g.gating_preset = :gatingPreset)
                   AND (:domainId IS NULL OR m.domain_id = :domainId)
                   AND (:strategyFilterEmpty IS TRUE OR m.generation_strategy IN (:generationStrategies))
-                  AND (:sourceGatingRunId IS NULL OR m.metadata ->> 'source_gate_run_id' = :sourceGatingRunId)
-                  AND (:sourceGatingBatchId IS NULL OR m.metadata ->> 'source_gating_batch_id' = :sourceGatingBatchId)
+                  AND (:sourceGatingRunFilterEmpty IS TRUE OR m.metadata ->> 'source_gate_run_id' IN (:sourceGatingRunIds))
+                  AND (:sourceGatingBatchFilterEmpty IS TRUE OR m.metadata ->> 'source_gating_batch_id' IN (:sourceGatingBatchIds))
                 ORDER BY qe.embedding <=> CAST(:embedding AS halfvec)
                 LIMIT :topN
                 """;
@@ -188,8 +193,10 @@ public class RagRepository {
                         .addValue("domainId", domainId)
                         .addValue("strategyFilterEmpty", strategyFilterEmpty)
                         .addValue("generationStrategies", strategyFilterEmpty ? List.of("") : generationStrategies)
-                        .addValue("sourceGatingRunId", sourceGatingRunId == null ? null : sourceGatingRunId.toString())
-                        .addValue("sourceGatingBatchId", sourceGatingBatchId == null ? null : sourceGatingBatchId.toString()),
+                        .addValue("sourceGatingRunFilterEmpty", sourceGatingRunFilterEmpty)
+                        .addValue("sourceGatingRunIds", sourceGatingRunFilterEmpty ? List.of("") : runIds)
+                        .addValue("sourceGatingBatchFilterEmpty", sourceGatingBatchFilterEmpty)
+                        .addValue("sourceGatingBatchIds", sourceGatingBatchFilterEmpty ? List.of("") : batchIds),
                 (rs, rowNum) -> new MemoryCandidate(
                         readUuid(rs, "memory_id"),
                         rs.getString("query_text"),
@@ -394,8 +401,8 @@ public class RagRepository {
             String gatingPreset,
             UUID domainId,
             List<String> generationStrategies,
-            UUID sourceGatingRunId,
-            UUID sourceGatingBatchId
+            List<UUID> sourceGatingRunIds,
+            List<UUID> sourceGatingBatchIds
     ) {
         boolean strategyFilterEmpty = generationStrategies == null || generationStrategies.isEmpty();
         String sql = """
@@ -420,8 +427,8 @@ public class RagRepository {
                   AND (:gatingPreset IS NULL OR g.gating_preset = :gatingPreset)
                   AND (:domainId IS NULL OR m.domain_id = :domainId)
                   AND (:strategyFilterEmpty IS TRUE OR m.generation_strategy IN (:generationStrategies))
-                  AND (:sourceGatingRunId IS NULL OR m.metadata ->> 'source_gate_run_id' = :sourceGatingRunId)
-                  AND (:sourceGatingBatchId IS NULL OR m.metadata ->> 'source_gating_batch_id' = :sourceGatingBatchId)
+                  AND (:sourceGatingRunFilterEmpty IS TRUE OR m.metadata ->> 'source_gate_run_id' IN (:sourceGatingRunIds))
+                  AND (:sourceGatingBatchFilterEmpty IS TRUE OR m.metadata ->> 'source_gating_batch_id' IN (:sourceGatingBatchIds))
                 ORDER BY m.query_embedding <=> CAST(:embedding AS halfvec), m.memory_id
                 LIMIT :limit
                 """;
@@ -434,8 +441,8 @@ public class RagRepository {
                         gatingPreset,
                         domainId,
                         generationStrategies,
-                        sourceGatingRunId,
-                        sourceGatingBatchId,
+                        sourceGatingRunIds,
+                        sourceGatingBatchIds,
                         strategyFilterEmpty
                 ),
                 memoryCandidateRowMapper()
@@ -450,8 +457,8 @@ public class RagRepository {
             String gatingPreset,
             UUID domainId,
             List<String> generationStrategies,
-            UUID sourceGatingRunId,
-            UUID sourceGatingBatchId
+            List<UUID> sourceGatingRunIds,
+            List<UUID> sourceGatingBatchIds
     ) {
         if (patterns == null || patterns.isEmpty()) {
             return List.of();
@@ -464,8 +471,8 @@ public class RagRepository {
                 gatingPreset,
                 domainId,
                 generationStrategies,
-                sourceGatingRunId,
-                sourceGatingBatchId,
+                sourceGatingRunIds,
+                sourceGatingBatchIds,
                 strategyFilterEmpty
         );
         String patternFilter = memoryPatternFilter(patterns, parameters, "memoryPattern");
@@ -491,8 +498,8 @@ public class RagRepository {
                   AND (:gatingPreset IS NULL OR g.gating_preset = :gatingPreset)
                   AND (:domainId IS NULL OR m.domain_id = :domainId)
                   AND (:strategyFilterEmpty IS TRUE OR m.generation_strategy IN (:generationStrategies))
-                  AND (:sourceGatingRunId IS NULL OR m.metadata ->> 'source_gate_run_id' = :sourceGatingRunId)
-                  AND (:sourceGatingBatchId IS NULL OR m.metadata ->> 'source_gating_batch_id' = :sourceGatingBatchId)
+                  AND (:sourceGatingRunFilterEmpty IS TRUE OR m.metadata ->> 'source_gate_run_id' IN (:sourceGatingRunIds))
+                  AND (:sourceGatingBatchFilterEmpty IS TRUE OR m.metadata ->> 'source_gating_batch_id' IN (:sourceGatingBatchIds))
                   AND (%s)
                 ORDER BY m.memory_id
                 LIMIT :limit
@@ -1242,10 +1249,14 @@ public class RagRepository {
             String gatingPreset,
             UUID domainId,
             List<String> generationStrategies,
-            UUID sourceGatingRunId,
-            UUID sourceGatingBatchId,
+            List<UUID> sourceGatingRunIds,
+            List<UUID> sourceGatingBatchIds,
             boolean strategyFilterEmpty
     ) {
+        List<String> runIds = uuidTextArray(sourceGatingRunIds);
+        List<String> batchIds = uuidTextArray(sourceGatingBatchIds);
+        boolean sourceGatingRunFilterEmpty = runIds.isEmpty();
+        boolean sourceGatingBatchFilterEmpty = batchIds.isEmpty();
         return new MapSqlParameterSource()
                 .addValue("embedding", queryEmbeddingLiteral)
                 .addValue("embeddingModel", embeddingModel)
@@ -1254,8 +1265,23 @@ public class RagRepository {
                 .addValue("domainId", domainId)
                 .addValue("strategyFilterEmpty", strategyFilterEmpty)
                 .addValue("generationStrategies", strategyFilterEmpty ? List.of("") : generationStrategies)
-                .addValue("sourceGatingRunId", sourceGatingRunId == null ? null : sourceGatingRunId.toString())
-                .addValue("sourceGatingBatchId", sourceGatingBatchId == null ? null : sourceGatingBatchId.toString());
+                .addValue("sourceGatingRunFilterEmpty", sourceGatingRunFilterEmpty)
+                .addValue("sourceGatingRunIds", sourceGatingRunFilterEmpty ? List.of("") : runIds)
+                .addValue("sourceGatingBatchFilterEmpty", sourceGatingBatchFilterEmpty)
+                .addValue("sourceGatingBatchIds", sourceGatingBatchFilterEmpty ? List.of("") : batchIds);
+    }
+
+    private List<String> uuidTextArray(List<UUID> rawValues) {
+        if (rawValues == null || rawValues.isEmpty()) {
+            return List.of();
+        }
+        LinkedHashSet<String> values = new LinkedHashSet<>();
+        for (UUID value : rawValues) {
+            if (value != null) {
+                values.add(value.toString());
+            }
+        }
+        return List.copyOf(values);
     }
 
     private String chunkPatternFilter(List<String> patterns, MapSqlParameterSource parameters, String prefix) {

@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-06-15] Session Summary (Chat Multi-Snapshot Memory)
+- What was done: Extended Chat runtime config so Chat Settings can save multiple completed source gating snapshots and live chat memory retrieval uses the selected snapshot set when building rewrite candidates.
+- Key decisions: Kept the existing singular `source_gating_batch_id` / `source_gating_run_id` as primary/backward-compatible fields, added array fields for the actual selected set, and capped manual selection to 20 snapshots while preserving domain/preset/strategy/source-run validation.
+- Issues encountered: `npm run lint -- ...` still invokes the project-wide lint script and hits the pre-existing `vite.config.js process` global issue; targeted `npx eslint src/pages/ChatSettingsPage.jsx src/pages/ChatPage.jsx` passed.
+- Next steps: Browser-smoke Chat Settings with two compatible completed snapshots and verify the live chat trace shows memory candidates from both selected batches.
+
 ## [2026-06-15] Session Summary (Chat Domain Readiness)
 - What was done: Added domain-scoped Chat readiness APIs and UI panels that report active config, selected gating snapshot, source gating run, domain/strategy/preset mismatches, domain chunk-embedding materialization, memory count, accepted gated query count, prompt binding, and retrieval tuple.
 - Key decisions: Readiness queries are bounded by `domain_id`, selected `source_gating_batch_id` / `source_gating_run_id`, and generation strategy; live chat now uses the same readiness result to block rewrite-backed requests before retrieval/rewrite execution.

@@ -49,6 +49,7 @@ function initialForm(domainId) {
     generationStrategies: [],
     gatingPreset: 'full_gating',
     sourceGatingBatchId: '',
+    sourceGatingBatchIds: [],
     rewriteQueryProfile: 'compact_anchor',
     rewriteAnchorInjectionEnabled: false,
     useSessionContext: false,
@@ -84,6 +85,14 @@ function formatCount(value) {
 
 function readinessReasons(readiness) {
   return Array.isArray(readiness?.blockingReasons) ? readiness.blockingReasons.filter(Boolean) : []
+}
+
+function configSnapshotIds(configPayload) {
+  const ids = Array.isArray(configPayload?.sourceGatingBatchIds)
+    ? configPayload.sourceGatingBatchIds.filter(Boolean)
+    : []
+  if (ids.length > 0) return Array.from(new Set(ids))
+  return configPayload?.sourceGatingBatchId ? [configPayload.sourceGatingBatchId] : []
 }
 
 export function ChatSettingsPage({ notify, domainId, domainKey }) {
@@ -140,7 +149,8 @@ export function ChatSettingsPage({ notify, domainId, domainKey }) {
         mode: configPayload.mode || 'selective_rewrite',
         generationStrategies: Array.isArray(configPayload.generationStrategies) ? configPayload.generationStrategies : [],
         gatingPreset: configPayload.gatingPreset || 'full_gating',
-        sourceGatingBatchId: configPayload.sourceGatingBatchId || '',
+        sourceGatingBatchId: configSnapshotIds(configPayload)[0] || '',
+        sourceGatingBatchIds: configSnapshotIds(configPayload),
         rewriteQueryProfile: configPayload.rewriteQueryProfile || 'compact_anchor',
         rewriteAnchorInjectionEnabled: Boolean(configPayload.rewriteAnchorInjectionEnabled),
         useSessionContext: Boolean(configPayload.useSessionContext),
@@ -177,7 +187,12 @@ export function ChatSettingsPage({ notify, domainId, domainKey }) {
       .filter((batch) => !form.gatingPreset || batch.gatingPreset === form.gatingPreset)
       .filter((batch) => selectedStrategies.size === 0 || !batch.methodCode || selectedStrategies.has(batch.methodCode))
   }, [gatingBatches, form.gatingPreset, selectedStrategies])
-  const selectedSnapshot = snapshotOptions.find((batch) => batch.gatingBatchId === form.sourceGatingBatchId)
+  const selectedBatchIds = useMemo(
+    () => Array.from(new Set((form.sourceGatingBatchIds || []).filter(Boolean))),
+    [form.sourceGatingBatchIds],
+  )
+  const selectedBatchIdSet = useMemo(() => new Set(selectedBatchIds), [selectedBatchIds])
+  const selectedSnapshots = snapshotOptions.filter((batch) => selectedBatchIdSet.has(batch.gatingBatchId))
   const memoryBacked = form.mode !== 'raw_only'
   const readinessBlockingReasons = readinessReasons(readiness)
 
@@ -202,14 +217,26 @@ export function ChatSettingsPage({ notify, domainId, domainKey }) {
       const next = new Set(prev.generationStrategies || [])
       if (next.has(methodCode)) next.delete(methodCode)
       else next.add(methodCode)
-      return { ...prev, generationStrategies: Array.from(next).sort(), sourceGatingBatchId: '' }
+      return { ...prev, generationStrategies: Array.from(next).sort(), sourceGatingBatchId: '', sourceGatingBatchIds: [] }
+    })
+  }
+
+  const toggleSnapshot = (batchId) => {
+    if (!memoryBacked || !batchId) return
+    setForm((prev) => {
+      const next = new Set(prev.sourceGatingBatchIds || [])
+      if (next.has(batchId)) next.delete(batchId)
+      else next.add(batchId)
+      const values = Array.from(next)
+      return { ...prev, sourceGatingBatchIds: values, sourceGatingBatchId: values[0] || '' }
     })
   }
 
   const save = async () => {
     if (!domainId) return
-    if (memoryBacked && !form.sourceGatingBatchId) {
-      notify('Select a completed gating snapshot for rewrite-backed chat.', 'danger')
+    const nextSourceGatingBatchIds = memoryBacked ? selectedBatchIds : []
+    if (memoryBacked && nextSourceGatingBatchIds.length === 0) {
+      notify('Select one or more completed gating snapshots for rewrite-backed chat.', 'danger')
       return
     }
     setSaving(true)
@@ -232,7 +259,8 @@ export function ChatSettingsPage({ notify, domainId, domainKey }) {
           memoryTopN: toNumber(form.memoryTopN),
           rewriteCandidateCount: toNumber(form.rewriteCandidateCount),
           rewriteThreshold: toNumber(form.rewriteThreshold),
-          sourceGatingBatchId: form.sourceGatingBatchId || null,
+          sourceGatingBatchId: nextSourceGatingBatchIds[0] || null,
+          sourceGatingBatchIds: nextSourceGatingBatchIds,
         }),
       })
       setConfig(payload)
@@ -250,7 +278,7 @@ export function ChatSettingsPage({ notify, domainId, domainKey }) {
       <SectionHeader
         eyebrow={`Domain Chat / ${domainKey || config?.domainKey || '-'}`}
         title="Chat Runtime Settings"
-        description="Pin the online chat RAG path to one domain, one evaluated memory snapshot, and one rewrite policy."
+        description="Pin the online chat RAG path to one domain, evaluated memory snapshots, and one rewrite policy."
         actions={<button type="button" className="button button--primary" disabled={saving || loading} onClick={save}>{saving ? 'Saving...' : 'Save config'}</button>}
       />
 
@@ -270,20 +298,32 @@ export function ChatSettingsPage({ notify, domainId, domainKey }) {
                 </select>
               </label>
               <label className="filter-field">Gating preset
-                <select value={form.gatingPreset} onChange={(event) => setForm((prev) => ({ ...prev, gatingPreset: event.target.value, sourceGatingBatchId: '' }))}>
+                <select value={form.gatingPreset} onChange={(event) => setForm((prev) => ({ ...prev, gatingPreset: event.target.value, sourceGatingBatchId: '', sourceGatingBatchIds: [] }))}>
                   {GATING_PRESETS.map((preset) => <option key={preset} value={preset}>{preset}</option>)}
                 </select>
               </label>
-              <label className="filter-field">Completed snapshot
-                <select value={form.sourceGatingBatchId} disabled={!memoryBacked} onChange={(event) => updateField('sourceGatingBatchId', event.target.value)}>
-                  <option value="">{memoryBacked ? 'Select snapshot' : 'Not used in raw_only'}</option>
-                  {snapshotOptions.map((batch) => (
-                    <option key={batch.gatingBatchId} value={batch.gatingBatchId}>
-                      {batch.methodCode || '-'} / {batch.gatingPreset} / accepted {batch.acceptedCount} / {batch.gatingBatchId}
-                    </option>
-                  ))}
-                </select>
-              </label>
+            </div>
+
+            <div className="summary-card__meta">
+              Completed snapshots {memoryBacked ? `${selectedBatchIds.length} selected` : 'not used in raw_only'}
+            </div>
+            <div className="strategy-chip-grid">
+              {snapshotOptions.map((batch) => {
+                const selected = selectedBatchIdSet.has(batch.gatingBatchId)
+                return (
+                  <button
+                    key={batch.gatingBatchId}
+                    type="button"
+                    className={`strategy-chip ${selected ? 'is-selected' : ''}`}
+                    disabled={!memoryBacked}
+                    onClick={() => toggleSnapshot(batch.gatingBatchId)}
+                  >
+                    <strong>{batch.methodCode || '-'}</strong>
+                    <span>{batch.gatingPreset} / accepted {batch.acceptedCount}</span>
+                    <span>{batch.gatingBatchId.slice(0, 8)}</span>
+                  </button>
+                )
+              })}
             </div>
 
             <div className="strategy-chip-grid">
@@ -387,7 +427,7 @@ export function ChatSettingsPage({ notify, domainId, domainKey }) {
             { label: 'Domain', value: config?.displayName || domainKey || '-' },
             { label: 'Ready', value: readiness?.readyForRewrite ? 'yes' : readinessBlockingReasons[0] || '-' },
             { label: 'Strategies', value: (form.generationStrategies || []).join(', ') || '-' },
-            { label: 'Snapshot', value: form.sourceGatingBatchId ? form.sourceGatingBatchId.slice(0, 8) : '-' },
+            { label: 'Snapshots', value: selectedBatchIds.length > 0 ? `${selectedBatchIds.length} selected` : '-' },
             { label: 'Retrieval', value: `${form.retrievalBackend} / ${retrieverModeLabel(form.retrieverMode)}` },
             { label: 'Embedding', value: form.denseEmbeddingModel || '-' },
             { label: 'Profile', value: form.rewriteQueryProfile },
@@ -412,6 +452,7 @@ export function ChatSettingsPage({ notify, domainId, domainKey }) {
               <div><span>Active config</span><strong>{yesNo(readiness.activeConfigPresent)}</strong></div>
               <div><span>Rewrite-backed mode</span><strong>{yesNo(readiness.rewriteBackedMode)}</strong></div>
               <div><span>Snapshot exists</span><strong>{yesNo(readiness.snapshot?.selectedSnapshotPresent)}</strong></div>
+              <div><span>Selected snapshots</span><strong>{formatCount(readiness.snapshot?.selectedSnapshotCount)}</strong></div>
               <div><span>Source gating run</span><strong>{yesNo(readiness.snapshot?.sourceGatingRunPresent)}</strong></div>
               <div><span>Snapshot domain mismatch</span><strong>{yesNo(readiness.snapshot?.domainMismatch)}</strong></div>
               <div><span>Strategy mismatch</span><strong>{yesNo(readiness.snapshot?.generationStrategyMismatch)}</strong></div>
@@ -442,18 +483,20 @@ export function ChatSettingsPage({ notify, domainId, domainKey }) {
 
       <section className="data-panel">
         <div className="data-panel__header">
-          <h3>Selected Snapshot</h3>
-          {selectedSnapshot && <StatusBadge value={selectedSnapshot.status} />}
+          <h3>Selected Snapshots</h3>
+          {selectedSnapshots.length > 0 && <StatusBadge value="completed" label={`${selectedSnapshots.length} selected`} />}
         </div>
-        {selectedSnapshot ? (
+        {selectedSnapshots.length > 0 ? (
           <div className="metadata-grid">
-            <div><span>Batch</span><strong><IdBadge value={selectedSnapshot.gatingBatchId} /></strong></div>
-            <div><span>Source run</span><strong><IdBadge value={selectedSnapshot.sourceGatingRunId} /></strong></div>
-            <div><span>Method</span><strong>{selectedSnapshot.methodCode || '-'}</strong></div>
-            <div><span>Accepted</span><strong>{selectedSnapshot.acceptedCount}</strong></div>
+            {selectedSnapshots.map((snapshot) => (
+              <div key={snapshot.gatingBatchId}>
+                <span>{snapshot.methodCode || '-'} / accepted {snapshot.acceptedCount}</span>
+                <strong><IdBadge value={snapshot.gatingBatchId} /></strong>
+              </div>
+            ))}
           </div>
         ) : (
-          <div className="summary-card__meta">No compatible completed snapshot selected.</div>
+          <div className="summary-card__meta">No compatible completed snapshots selected.</div>
         )}
       </section>
 
