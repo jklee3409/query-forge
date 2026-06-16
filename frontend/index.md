@@ -34,6 +34,8 @@
 ---
 
 ## Recent Update
+- Domain `Chat Settings` now paginates `Config Provenance` in three-card slices, adds page controls for recent history, and correctly spaces the Domain Readiness, Selected Snapshots, and Config Provenance sections by making the page container honor vertical gaps.
+- Domain `Chat Settings` now gives the readiness/snapshot/provenance panels more vertical breathing room and renders Config Provenance as structured change cards with source pills, linked RAG run badges, and changed-field chips instead of a dense table row.
 - Domain `Chat Settings` keeps runtime option labels in English and highlights each synthetic batch's accepted query count as a badge.
 - Domain `Chat Settings` now displays `full gating`, shows generation strategy choices as concise labels such as `A안`, and keeps readiness/selected-snapshot status badges aligned with their section headings.
 - Admin shell sidebar now scrolls independently on desktop and mobile widths, so domain workspace navigation remains reachable with long menus.

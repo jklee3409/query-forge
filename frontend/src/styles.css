@@ -5175,7 +5175,9 @@ table.anchor-review-table {
 }
 
 .chat-settings-page {
-  gap: 20px;
+  display: grid;
+  gap: 30px;
+  align-content: start;
 }
 
 .chat-settings-page .section-heading {
@@ -5527,8 +5529,8 @@ table.anchor-review-table {
 
 .chat-settings-page .data-panel {
   display: grid;
-  gap: 12px;
-  padding: 16px;
+  gap: 16px;
+  padding: 22px 20px;
   border: 1px solid var(--border-subtle);
   border-radius: var(--radius);
   background: var(--surface);
@@ -5540,7 +5542,7 @@ table.anchor-review-table {
   flex-wrap: wrap;
   align-items: center;
   justify-content: flex-start;
-  gap: 8px;
+  gap: 12px;
 }
 
 .chat-settings-page .data-panel__header h3 {
@@ -5556,13 +5558,13 @@ table.anchor-review-table {
 }
 
 .chat-settings-page .metadata-grid {
-  gap: 8px;
+  gap: 12px;
   grid-template-columns: repeat(auto-fit, minmax(176px, 1fr));
 }
 
 .chat-settings-page .metadata-grid > div {
   gap: 5px;
-  padding: 9px 10px;
+  padding: 12px;
   border-radius: var(--radius-sm);
 }
 
@@ -5580,6 +5582,180 @@ table.anchor-review-table {
 .chat-settings-page .chat-warning {
   margin-top: 0;
   border-radius: var(--radius-sm);
+}
+
+.chat-provenance-list {
+  display: grid;
+  gap: 14px;
+}
+
+.chat-provenance-card {
+  display: grid;
+  gap: 14px;
+  padding: 16px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background:
+    linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--surface-raised) 96%, transparent),
+      color-mix(in srgb, var(--surface-muted) 88%, transparent)
+    );
+}
+
+.chat-provenance-card__header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.chat-provenance-card__stamp,
+.chat-provenance-card__meta-item,
+.chat-provenance-card__fields {
+  min-width: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.chat-provenance-card__stamp span,
+.chat-provenance-card__meta-item span,
+.chat-provenance-card__fields > span {
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 800;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.chat-provenance-card__stamp strong {
+  color: var(--text-primary);
+  font-size: 18px;
+  line-height: 1.2;
+}
+
+.chat-provenance-card__header-meta {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.chat-provenance-source {
+  display: inline-flex;
+  align-items: center;
+  min-height: 30px;
+  padding: 6px 11px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 800;
+  white-space: nowrap;
+}
+
+.chat-provenance-source[data-source="manual"] {
+  background: var(--success-soft);
+  border-color: color-mix(in srgb, var(--success) 34%, var(--border-subtle));
+  color: var(--success);
+}
+
+.chat-provenance-source[data-source="apply_rag_run"] {
+  background: var(--accent-soft);
+  border-color: color-mix(in srgb, var(--accent-primary) 34%, var(--border-subtle));
+  color: color-mix(in srgb, var(--accent-primary) 78%, var(--text-primary));
+}
+
+.chat-provenance-source[data-source="unknown"] {
+  background: var(--surface-muted);
+  color: var(--text-secondary);
+}
+
+.chat-provenance-card__meta-grid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+
+.chat-provenance-card__meta-item {
+  padding: 12px;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--surface-control) 82%, transparent);
+}
+
+.chat-provenance-card__meta-item strong {
+  min-width: 0;
+  color: var(--text-primary);
+  font-size: 15px;
+  line-height: 1.3;
+  overflow-wrap: anywhere;
+}
+
+.chat-provenance-card__fields {
+  padding-top: 2px;
+}
+
+.chat-provenance-field-list {
+  gap: 8px;
+}
+
+.chat-provenance-field {
+  background: color-mix(in srgb, var(--surface-control) 90%, transparent);
+  border-color: var(--border-subtle);
+  color: var(--text-primary);
+}
+
+.chat-provenance-field .token-badge__icon {
+  min-width: 20px;
+}
+
+.chat-provenance-pagination {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding-top: 2px;
+}
+
+.chat-provenance-pagination__pages {
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.chat-provenance-pagination__page {
+  min-width: 34px;
+  min-height: 34px;
+  padding: 6px 10px;
+  border: 1px solid var(--border-subtle);
+  border-radius: 999px;
+  background: var(--surface-control);
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 800;
+  cursor: pointer;
+  transition:
+    background-color var(--transition-fast),
+    border-color var(--transition-fast),
+    color var(--transition-fast),
+    box-shadow var(--transition-fast);
+}
+
+.chat-provenance-pagination__page:hover {
+  border-color: var(--border-strong);
+  color: var(--text-primary);
+}
+
+.chat-provenance-pagination__page.is-active {
+  border-color: var(--selected-soft-border);
+  background: var(--selected-soft-bg);
+  color: var(--selected-soft-text);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--selected-soft-border) 70%, transparent);
 }
 
 @media (max-width: 1279px) {
@@ -5646,6 +5822,22 @@ table.anchor-review-table {
 
   .chat-settings-chip-grid {
     grid-template-columns: 1fr;
+  }
+
+  .chat-provenance-card {
+    padding: 14px;
+  }
+
+  .chat-provenance-card__header-meta {
+    justify-content: flex-start;
+  }
+
+  .chat-provenance-card__meta-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .chat-provenance-pagination {
+    justify-content: flex-start;
   }
 
   .admin-content {

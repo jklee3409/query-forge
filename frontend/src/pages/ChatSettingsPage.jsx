@@ -34,6 +34,12 @@ const GATING_PRESET_LABELS = {
   rule_only: 'rule only',
   ungated: 'ungated',
 }
+const PROVENANCE_PAGE_SIZE = 3
+
+const PROVENANCE_SOURCE_LABELS = {
+  manual: 'manual save',
+  apply_rag_run: 'Apply to Chat',
+}
 
 function retrieverModeLabel(mode) {
   if (mode === 'bm25_only') return 'BM25 Only'
@@ -88,6 +94,19 @@ function provenanceChangedFields(row) {
   return Array.isArray(fields) ? fields.filter(Boolean) : []
 }
 
+function provenanceSourceLabel(source) {
+  return PROVENANCE_SOURCE_LABELS[source] || source || '-'
+}
+
+function provenanceFieldLabel(field) {
+  const normalized = String(field || '').trim()
+  if (!normalized) return '-'
+  return normalized
+    .replace(/([a-z0-9])([A-Z])/g, '$1 $2')
+    .replace(/_/g, ' ')
+    .replace(/\bid\b/gi, 'ID')
+}
+
 function yesNo(value) {
   return value ? 'yes' : 'no'
 }
@@ -125,6 +144,7 @@ export function ChatSettingsPage({ notify, domainId, domainKey }) {
   const [methods, setMethods] = useState([])
   const [gatingBatches, setGatingBatches] = useState([])
   const [provenance, setProvenance] = useState([])
+  const [provenancePage, setProvenancePage] = useState(0)
   const [runtimeOptions, setRuntimeOptions] = useState({
     denseEmbeddingModels: ['intfloat/multilingual-e5-small'],
     retrievalBackends: RETRIEVAL_BACKENDS,
@@ -142,7 +162,7 @@ export function ChatSettingsPage({ notify, domainId, domainKey }) {
         requestJson(appendQuery('/api/admin/chat/config', { domain_id: domainId })),
         fetchSyntheticMethods({ domainId }),
         requestJson(appendQuery('/api/admin/console/gating/batches', { domain_id: domainId, limit: 100 })),
-        requestJson(appendQuery('/api/admin/chat/config/provenance', { domain_id: domainId, limit: 10 })),
+        requestJson(appendQuery('/api/admin/chat/config/provenance', { domain_id: domainId, limit: 30 })),
         requestJson('/api/admin/console/runtime/options'),
         requestJson(appendQuery('/api/admin/chat/readiness', { domain_id: domainId })),
       ])
@@ -165,6 +185,7 @@ export function ChatSettingsPage({ notify, domainId, domainKey }) {
       setMethods(Array.isArray(methodPayload) ? methodPayload : [])
       setGatingBatches(Array.isArray(batchPayload) ? batchPayload : [])
       setProvenance(Array.isArray(provenancePayload) ? provenancePayload : [])
+      setProvenancePage(0)
       setRuntimeOptions(nextRuntimeOptions)
       setForm({
         domainId,
@@ -218,6 +239,15 @@ export function ChatSettingsPage({ notify, domainId, domainKey }) {
   const selectedSnapshots = snapshotOptions.filter((batch) => selectedBatchIdSet.has(batch.gatingBatchId))
   const memoryBacked = form.mode !== 'raw_only'
   const readinessBlockingReasons = readinessReasons(readiness)
+  const provenancePageCount = Math.max(1, Math.ceil(provenance.length / PROVENANCE_PAGE_SIZE))
+  const visibleProvenance = provenance.slice(
+    provenancePage * PROVENANCE_PAGE_SIZE,
+    (provenancePage + 1) * PROVENANCE_PAGE_SIZE,
+  )
+
+  useEffect(() => {
+    setProvenancePage((current) => Math.min(current, Math.max(0, provenancePageCount - 1)))
+  }, [provenancePageCount])
 
   const updateField = (field, value) => {
     setForm((prev) => ({ ...prev, [field]: value }))
@@ -564,33 +594,90 @@ export function ChatSettingsPage({ notify, domainId, domainKey }) {
           <span className="summary-card__meta">Recent immutable changes</span>
         </div>
         {provenance.length > 0 ? (
-          <div className="table-wrap">
-            <table className="data-table">
-              <thead>
-                <tr>
-                  <th>Changed</th>
-                  <th>Source</th>
-                  <th>Updated by</th>
-                  <th>RAG run</th>
-                  <th>Fields</th>
-                </tr>
-              </thead>
-              <tbody>
-                {provenance.map((row) => {
-                  const fields = provenanceChangedFields(row)
-                  return (
-                    <tr key={row.provenanceId}>
-                      <td>{fmtTime(row.createdAt)}</td>
-                      <td><StatusBadge value={row.changeSource} /></td>
-                      <td>{row.updatedBy || '-'}</td>
-                      <td>{row.sourceRagTestRunId ? <IdBadge value={row.sourceRagTestRunId} /> : '-'}</td>
-                      <td>{fields.length > 0 ? fields.join(', ') : 'no field delta'}</td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
-          </div>
+          <>
+            <div className="chat-provenance-list">
+              {visibleProvenance.map((row) => {
+                const fields = provenanceChangedFields(row)
+                return (
+                  <article key={row.provenanceId} className="chat-provenance-card">
+                    <div className="chat-provenance-card__header">
+                      <div className="chat-provenance-card__stamp">
+                        <span>Changed</span>
+                        <strong>{fmtTime(row.createdAt)}</strong>
+                      </div>
+                      <div className="chat-provenance-card__header-meta">
+                        <span className="chat-provenance-source" data-source={row.changeSource || 'unknown'}>
+                          {provenanceSourceLabel(row.changeSource)}
+                        </span>
+                        <span className="plain-badge">
+                          {fields.length > 0 ? `${fields.length} fields` : 'no delta'}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="chat-provenance-card__meta-grid">
+                      <div className="chat-provenance-card__meta-item">
+                        <span>Updated by</span>
+                        <strong>{row.updatedBy || '-'}</strong>
+                      </div>
+                      <div className="chat-provenance-card__meta-item">
+                        <span>RAG run</span>
+                        {row.sourceRagTestRunId ? <IdBadge value={row.sourceRagTestRunId} /> : <span className="plain-badge">-</span>}
+                      </div>
+                    </div>
+
+                    <div className="chat-provenance-card__fields">
+                      <span>Changed fields</span>
+                      {fields.length > 0 ? (
+                        <div className="token-badge-list chat-provenance-field-list">
+                          {fields.map((field) => (
+                            <span key={`${row.provenanceId}-${field}`} className="token-badge chat-provenance-field" title={field}>
+                              <span className="token-badge__icon" aria-hidden="true">F</span>
+                              <span className="token-badge__text">{provenanceFieldLabel(field)}</span>
+                            </span>
+                          ))}
+                        </div>
+                      ) : (
+                        <span className="plain-badge">No changed fields</span>
+                      )}
+                    </div>
+                  </article>
+                )
+              })}
+            </div>
+            {provenancePageCount > 1 && (
+              <div className="chat-provenance-pagination">
+                <button
+                  type="button"
+                  className="button button--ghost button--compact"
+                  disabled={provenancePage === 0}
+                  onClick={() => setProvenancePage((current) => Math.max(0, current - 1))}
+                >
+                  Previous
+                </button>
+                <div className="chat-provenance-pagination__pages">
+                  {Array.from({ length: provenancePageCount }, (_, index) => (
+                    <button
+                      key={`provenance-page-${index}`}
+                      type="button"
+                      className={`chat-provenance-pagination__page ${index === provenancePage ? 'is-active' : ''}`}
+                      onClick={() => setProvenancePage(index)}
+                    >
+                      {index + 1}
+                    </button>
+                  ))}
+                </div>
+                <button
+                  type="button"
+                  className="button button--ghost button--compact"
+                  disabled={provenancePage >= provenancePageCount - 1}
+                  onClick={() => setProvenancePage((current) => Math.min(provenancePageCount - 1, current + 1))}
+                >
+                  Next
+                </button>
+              </div>
+            )}
+          </>
         ) : (
           <div className="summary-card__meta">No provenance has been recorded for this domain yet.</div>
         )}

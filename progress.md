@@ -1,5 +1,17 @@
 # progress.md
 
+## [2026-06-16] Session Summary (Chat Settings Provenance Pagination)
+- What was done: Limited Chat Settings `Config Provenance` to three cards per page with pager controls, and fixed the page container layout so Domain Readiness, Selected Snapshots, and Config Provenance sections now render with real vertical gaps.
+- Key decisions: Kept the backend provenance API unchanged and paginated the most recent 30 rows client-side because the current endpoint exposes `limit` only and does not support offset paging.
+- Issues encountered: The previous spacing tweak did not show up because `.chat-settings-page` had `gap` styles without a grid/flex layout context, so the browser ignored the section spacing.
+- Next steps: Browser-smoke `/admin/domains/{domainKey}/chat-settings` and confirm the three-card pager plus section rhythm hold on both desktop and narrow widths.
+
+## [2026-06-16] Session Summary (Chat Settings Provenance Layout)
+- What was done: Increased the vertical spacing and panel padding between the Chat Settings readiness/snapshot/provenance sections, and redesigned Config Provenance from a plain table into structured change cards with source pills, RAG run badges, and changed-field chips.
+- Key decisions: Scoped the visual changes to Chat Settings page classes only so other Admin data panels and tables keep their current layout.
+- Issues encountered: None; frontend production build passed and refreshed the backend-served React bundle.
+- Next steps: Browser-smoke `/admin/domains/{domainKey}/chat-settings` and confirm the taller section rhythm plus provenance cards read cleanly on desktop and mobile widths.
+
 ## [2026-06-16] Session Summary (Chat Memory Domain Repair)
 - What was done: Repaired only the Spring C full-gating snapshot memory rows for RAG run `32111fcd-9b38-42e4-bdb0-a9afa3c79323` by backfilling `memory_entries.domain_id` on the 586 affected rows, and fixed `build-memory` so new memory rows persist the gated query domain.
 - Key decisions: Scoped the live DB repair to `source_gating_batch_id=73b5bfc1-73b5-4cfe-ab64-daf94729578b`, `source_gating_run_id=135d3403-7db5-4643-a31b-19eab9933e67`, strategy `C`, and Spring domain only; unrelated NULL-domain memory rows were left untouched.

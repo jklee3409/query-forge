@@ -1,5 +1,17 @@
 # progress.md
 
+## [2026-06-16] Session Summary (Chat Settings Provenance Pagination)
+- What was done: Updated domain `Chat Settings` so `Config Provenance` shows three change cards at a time with previous/next plus direct page buttons, and fixed the page container layout so Domain Readiness / Selected Snapshots / Config Provenance finally get visible vertical spacing.
+- Key decisions: The frontend now requests the latest 30 provenance rows and paginates them client-side because the current admin provenance API accepts `limit` but does not expose offset paging.
+- Issues encountered: The earlier spacing CSS only set `gap`; without `display: grid` or flex on `.chat-settings-page`, the browser collapsed the sections together.
+- Next steps: Browser-smoke the page and verify the pager remains readable when changed-field chips wrap across multiple lines.
+
+## [2026-06-16] Session Summary (Chat Settings Provenance Cards)
+- What was done: Increased Chat Settings section spacing/padding around Domain Readiness, Selected Snapshots, and Config Provenance, and replaced the provenance table with structured cards that show change time, source, operator, linked RAG run, and changed-field chips.
+- Key decisions: Kept the existing Chat Settings API payload and provenance data shape unchanged; the improvement is presentation-only and scoped to `.chat-settings-page`.
+- Issues encountered: Frontend `npm run build` passed and refreshed the backend-served bundle; targeted ESLint verification remained file-scoped because CSS is not part of the ESLint target set.
+- Next steps: Browser-smoke the page at `/admin/domains/{domainKey}/chat-settings` and confirm long field-chip rows wrap cleanly without crowding the section header.
+
 ## [2026-06-15] Session Summary (Chat Settings Option Labels)
 - What was done: Restored Chat Settings runtime option labels to English display text and made each synthetic batch accepted count a highlighted badge.
 - Key decisions: Kept the Chat Settings save payload unchanged and scoped the new badge styling to Chat Settings snapshot chips.
