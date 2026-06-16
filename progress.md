@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-06-16] Session Summary (Live Chat Dense Embedding Windows Quoting Fix)
+- What was done: Fixed the live chat dense query embedding subprocess script so Windows `python -c` invocation no longer strips Python string quotes and crash on `/api/chat/ask` with `NameError: name 'utf' is not defined`.
+- Key decisions: Kept the fix scoped to `DenseEmbeddingService` only by rewriting the inline Python script literals to single-quoted Python strings; no chat flow, retrieval policy, or pipeline logic changed.
+- Issues encountered: The failure reproduced only when the multiline Python script was passed through a Windows native `-c` command-line argument path; piping the same script over stdin did not fail, which isolated the problem to argument quoting rather than embedding logic.
+- Next steps: Restart the running backend `bootRun` process so `/api/chat/ask` picks up the rebuilt `DenseEmbeddingService` class.
+
 ## [2026-06-16] Session Summary (Chat Settings Provenance Pagination)
 - What was done: Limited Chat Settings `Config Provenance` to three cards per page with pager controls, and fixed the page container layout so Domain Readiness, Selected Snapshots, and Config Provenance sections now render with real vertical gaps.
 - Key decisions: Kept the backend provenance API unchanged and paginated the most recent 30 rows client-side because the current endpoint exposes `limit` only and does not support offset paging.

@@ -33,16 +33,16 @@ public class DenseEmbeddingService {
 
             from pipeline.common.local_retriever import build_retriever_config, embed_query_with_retriever_config
 
-            query = base64.b64decode(sys.argv[1]).decode("utf-8")
+            query = base64.b64decode(sys.argv[1]).decode('utf-8')
             retriever_mode = sys.argv[2]
             dense_model = sys.argv[3]
             config = build_retriever_config({
-                "retriever_mode": retriever_mode,
-                "dense_embedding_model": dense_model,
-                "dense_embedding_required": True,
-                "dense_fallback_enabled": False,
-                "dense_embedding_device": "cpu",
-                "dense_embedding_batch_size": 32,
+                'retriever_mode': retriever_mode,
+                'dense_embedding_model': dense_model,
+                'dense_embedding_required': True,
+                'dense_fallback_enabled': False,
+                'dense_embedding_device': 'cpu',
+                'dense_embedding_batch_size': 32,
             })
             embedding, model_name, fallback_used = embed_query_with_retriever_config(
                 query,
@@ -50,9 +50,9 @@ public class DenseEmbeddingService {
                 require_real_dense=True,
             )
             print(json.dumps({
-                "embedding": embedding,
-                "model": model_name,
-                "fallback": fallback_used,
+                'embedding': embedding,
+                'model': model_name,
+                'fallback': fallback_used,
             }))
             """;
 

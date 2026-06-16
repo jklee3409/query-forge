@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-06-16] Session Summary (Live Chat Dense Embedding Windows Quoting Fix)
+- What was done: Fixed `DenseEmbeddingService` so the inline Python script used for live-chat dense query embeddings survives Windows `python -c` argument parsing and no longer throws `NameError: name 'utf' is not defined`.
+- Key decisions: Left the chat API/retrieval flow untouched and changed only the Python literal quoting inside the embedded script from double quotes to single quotes.
+- Issues encountered: The same script worked when piped to Python stdin but failed when passed as a Windows native `-c` argument, which isolated the bug to command-line quote stripping rather than model loading or embedding logic.
+- Next steps: Restart the active `bootRun` backend process and re-run `/api/chat/ask` for the affected domain.
+
 ## [2026-06-15] Session Summary (Admin React Bundle Refresh - Chat Settings Option Labels)
 - What was done: Prepared a backend-served React bundle refresh for Chat Settings English option labels and accepted-count badge styling.
 - Key decisions: No backend API, repository, readiness, or schema code changed; only static React assets will change after build.
