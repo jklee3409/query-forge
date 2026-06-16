@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-06-16] Session Summary (Chat Memory Domain Repair)
+- What was done: Repaired only the Spring C full-gating snapshot memory rows for RAG run `32111fcd-9b38-42e4-bdb0-a9afa3c79323` by backfilling `memory_entries.domain_id` on the 586 affected rows, and fixed `build-memory` so new memory rows persist the gated query domain.
+- Key decisions: Scoped the live DB repair to `source_gating_batch_id=73b5bfc1-73b5-4cfe-ab64-daf94729578b`, `source_gating_run_id=135d3403-7db5-4643-a31b-19eab9933e67`, strategy `C`, and Spring domain only; unrelated NULL-domain memory rows were left untouched.
+- Issues encountered: Admin RAG `build-memory` had built the selected synthetic memory, but `domain_id` was NULL, so domain-scoped Chat readiness could not count it.
+- Next steps: Monitor the next Admin RAG build for non-null `memory_entries.domain_id` and confirm Spring live Chat Settings remains rewrite-ready.
+
 ## [2026-06-15] Session Summary (Chat Settings Option Labels)
 - What was done: Restored Chat Settings enum option labels to English/canonical display text and split snapshot accepted counts into a highlighted badge.
 - Key decisions: Kept all saved config values/API payloads unchanged; only visible labels and page-scoped presentation changed.

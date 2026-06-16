@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-06-16] Session Summary (Memory Domain Persistence)
+- What was done: Updated `memory/build_memory.py` so gated row loaders carry `domain_id` into `memory_entries`, and added a regression test that verifies the insert contract includes the domain.
+- Key decisions: Used the existing gated query domain as the source of truth, with quality-gating result domain as the batch/stage-cutoff fallback where applicable.
+- Issues encountered: Existing Spring C memory rows from Admin RAG build had valid snapshot metadata but NULL `domain_id`, making domain-scoped live Chat readiness report no built synthetic memory.
+- Next steps: Keep future RAG memory builds snapshot-pinned and verify Chat readiness after any new domain-scoped snapshot build.
+
 ## [2026-05-29] Session Summary (Detailed Intent Rewrite Runtime)
 - What was done: Added `rewrite_query_profile` runtime support to selective rewrite, added detailed-intent prompt selection, passed Admin raw config into rewrite-stage LLM client creation, and recorded the profile in retrieval rewrite artifacts.
 - Key decisions: `compact_anchor` remains the default prompt path; `detailed_intent` prefers `selective_rewrite_detailed_intent_v1.md` with compact prompt fallback. `llm_rewrite_model` now reaches `load_stage_config(stage="rewrite", raw_config=...)`.

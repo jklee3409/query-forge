@@ -53,6 +53,7 @@ STAGE_CUTOFF_FULL_GATING = "full_gating"
 class GatedRow:
     gated_query_id: str
     synthetic_query_id: str
+    domain_id: str | None
     query_text: str
     query_type: str
     query_language: str
@@ -184,6 +185,7 @@ def _load_gated_rows(
             f"""
             SELECT g.gated_query_id,
                    g.synthetic_query_id,
+                   g.domain_id::text AS domain_id,
                    r.query_text,
                    r.query_type,
                    r.query_language,
@@ -217,6 +219,7 @@ def _load_gated_rows(
         GatedRow(
             gated_query_id=str(row["gated_query_id"]),
             synthetic_query_id=str(row["synthetic_query_id"]),
+            domain_id=str(row["domain_id"]) if row["domain_id"] else None,
             query_text=str(row["query_text"]),
             query_type=str(row["query_type"]),
             query_language=str(row["query_language"] or ""),
@@ -300,6 +303,7 @@ def _load_gated_rows_by_batch(
             f"""
             SELECT g.gated_query_id,
                    gr.synthetic_query_id,
+                   COALESCE(g.domain_id, gr.domain_id)::text AS domain_id,
                    r.query_text,
                    r.query_type,
                    r.query_language,
@@ -336,6 +340,7 @@ def _load_gated_rows_by_batch(
         GatedRow(
             gated_query_id=str(row["gated_query_id"]),
             synthetic_query_id=str(row["synthetic_query_id"]),
+            domain_id=str(row["domain_id"]) if row["domain_id"] else None,
             query_text=str(row["query_text"]),
             query_type=str(row["query_type"]),
             query_language=str(row["query_language"] or ""),
@@ -443,6 +448,7 @@ def _load_stage_cutoff_rows(
             f"""
             SELECT full_gated.gated_query_id,
                    gr.synthetic_query_id,
+                   COALESCE(full_gated.domain_id, gr.domain_id)::text AS domain_id,
                    r.query_text,
                    r.query_type,
                    r.query_language,
@@ -478,6 +484,7 @@ def _load_stage_cutoff_rows(
         GatedRow(
             gated_query_id=str(row["gated_query_id"]),
             synthetic_query_id=str(row["synthetic_query_id"]),
+            domain_id=str(row["domain_id"]) if row["domain_id"] else None,
             query_text=str(row["query_text"]),
             query_type=str(row["query_type"]),
             query_language=str(row["query_language"] or ""),
@@ -624,6 +631,65 @@ def _load_glossary_term_candidates(
                 }
             )
     return candidates_by_doc
+
+
+def _insert_memory_entry(
+    cursor: Any,
+    *,
+    memory_id: str,
+    row: GatedRow,
+    embedding_literal: str,
+    memory_metadata: dict[str, Any],
+) -> None:
+    cursor.execute(
+        """
+        INSERT INTO memory_entries (
+            memory_id,
+            source_gated_query_id,
+            domain_id,
+            query_text,
+            query_type,
+            generation_strategy,
+            target_chunk_ids,
+            target_doc_id,
+            chunk_id_source,
+            product,
+            glossary_terms,
+            llm_scores,
+            utility_score,
+            novelty_score,
+            final_score,
+            prompt_version,
+            prompt_hash,
+            query_embedding,
+            metadata
+        ) VALUES (
+            %s, %s, %s, %s, %s, %s, %s, %s, %s, %s,
+            %s, %s, %s, %s, %s, %s, %s, CAST(%s AS halfvec), %s
+        )
+        """,
+        (
+            memory_id,
+            row.gated_query_id,
+            row.domain_id,
+            row.query_text,
+            row.query_type,
+            row.generation_strategy,
+            Jsonb(row.target_chunk_ids),
+            row.target_doc_id,
+            row.chunk_id_source,
+            row.product_name,
+            Jsonb(row.glossary_terms),
+            Jsonb(row.llm_scores),
+            row.utility_score,
+            row.novelty_score,
+            row.final_score,
+            row.prompt_version,
+            row.prompt_hash,
+            embedding_literal,
+            Jsonb(memory_metadata),
+        ),
+    )
 
 
 def _canonical_mapping_table_available(connection: Any | None) -> bool:
@@ -1095,52 +1161,12 @@ def run_memory_build(
                         """,
                         (row.gated_query_id,),
                     )
-                    cursor.execute(
-                        """
-                        INSERT INTO memory_entries (
-                            memory_id,
-                            source_gated_query_id,
-                            query_text,
-                            query_type,
-                            generation_strategy,
-                            target_chunk_ids,
-                            target_doc_id,
-                            chunk_id_source,
-                            product,
-                            glossary_terms,
-                            llm_scores,
-                            utility_score,
-                            novelty_score,
-                            final_score,
-                            prompt_version,
-                            prompt_hash,
-                            query_embedding,
-                            metadata
-                        ) VALUES (
-                            %s, %s, %s, %s, %s, %s, %s, %s, %s,
-                            %s, %s, %s, %s, %s, %s, %s, CAST(%s AS halfvec), %s
-                        )
-                        """,
-                        (
-                            memory_id,
-                            row.gated_query_id,
-                            row.query_text,
-                            row.query_type,
-                            row.generation_strategy,
-                            Jsonb(row.target_chunk_ids),
-                            row.target_doc_id,
-                            row.chunk_id_source,
-                            row.product_name,
-                            Jsonb(row.glossary_terms),
-                            Jsonb(row.llm_scores),
-                            row.utility_score,
-                            row.novelty_score,
-                            row.final_score,
-                            row.prompt_version,
-                            row.prompt_hash,
-                            embedding_literal,
-                            Jsonb(memory_metadata),
-                        ),
+                    _insert_memory_entry(
+                        cursor,
+                        memory_id=memory_id,
+                        row=row,
+                        embedding_literal=embedding_literal,
+                        memory_metadata=memory_metadata,
                     )
 
                 _upsert_query_embedding(

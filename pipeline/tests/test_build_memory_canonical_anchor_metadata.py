@@ -2,7 +2,21 @@ from __future__ import annotations
 
 import unittest
 
-from pipeline.memory.build_memory import _with_canonical_anchor_metadata
+from pipeline.memory.build_memory import (
+    GatedRow,
+    _insert_memory_entry,
+    _with_canonical_anchor_metadata,
+)
+
+
+class CaptureCursor:
+    def __init__(self) -> None:
+        self.sql = ""
+        self.parameters = ()
+
+    def execute(self, sql: str, parameters: tuple[object, ...]) -> None:
+        self.sql = sql
+        self.parameters = parameters
 
 
 class BuildMemoryCanonicalAnchorMetadataTests(unittest.TestCase):
@@ -97,6 +111,46 @@ class BuildMemoryCanonicalAnchorMetadataTests(unittest.TestCase):
         self.assertEqual(canonical["canonical_terms"], [])
         self.assertEqual(canonical["canonical_term_ids"], [])
         self.assertEqual(canonical["unresolved_aliases"], [])
+
+    def test_memory_insert_persists_domain_id_for_domain_scoped_chat_readiness(self) -> None:
+        cursor = CaptureCursor()
+        row = GatedRow(
+            gated_query_id="gated-1",
+            synthetic_query_id="synthetic-1",
+            domain_id="6240b791-1bf0-432d-9709-faab193a2530",
+            query_text="How does readOnly transaction configuration work?",
+            query_type="short_user",
+            query_language="ko",
+            language_profile="ko",
+            generation_strategy="C",
+            target_chunk_ids=["chunk-1"],
+            target_doc_id="doc-1",
+            chunk_id_source="chunk-1",
+            glossary_terms=["@Transactional"],
+            llm_scores={"grounding": 0.9},
+            utility_score=0.8,
+            novelty_score=0.7,
+            final_score=0.85,
+            prompt_version="v1",
+            prompt_hash="hash-1",
+            product_name="spring-framework",
+        )
+
+        _insert_memory_entry(
+            cursor,
+            memory_id="memory-1",
+            row=row,
+            embedding_literal="[0.1,0.2,0.3]",
+            memory_metadata={
+                "source_gate_run_id": "135d3403-7db5-4643-a31b-19eab9933e67",
+                "source_gating_batch_id": "73b5bfc1-73b5-4cfe-ab64-daf94729578b",
+            },
+        )
+
+        self.assertIn("domain_id", cursor.sql)
+        self.assertEqual(cursor.parameters[0], "memory-1")
+        self.assertEqual(cursor.parameters[1], "gated-1")
+        self.assertEqual(cursor.parameters[2], "6240b791-1bf0-432d-9709-faab193a2530")
 
 
 if __name__ == "__main__":
