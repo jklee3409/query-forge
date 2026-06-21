@@ -34,6 +34,8 @@
 ---
 
 ## Recent Update
+- `/` Chat now presents the answer flow as a production-style result surface: spinner while asking, final LLM answer first, original and rewritten/final query focus cards, and disclosure sections for synthetic memory, anchor hints, rewrite candidates, and retrieved context using the same structured visual language as the Admin RAG detail modal.
+- Chat ask failures are now sanitized on the frontend so backend stack/detail text is not shown to end users; readiness/configuration problems get a short actionable message and all other ask failures fall back to a generic retry message.
 - Domain `Chat Settings` now paginates `Config Provenance` in three-card slices, adds page controls for recent history, and correctly spaces the Domain Readiness, Selected Snapshots, and Config Provenance sections by making the page container honor vertical gaps.
 - Domain `Chat Settings` now gives the readiness/snapshot/provenance panels more vertical breathing room and renders Config Provenance as structured change cards with source pills, linked RAG run badges, and changed-field chips instead of a dense table row.
 - Domain `Chat Settings` keeps runtime option labels in English and highlights each synthetic batch's accepted query count as a badge.

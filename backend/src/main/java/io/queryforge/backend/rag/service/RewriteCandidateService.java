@@ -36,6 +36,7 @@ public class RewriteCandidateService {
     private static final int MEMORY_CANDIDATE_LIMIT = 5;
 
     private final ObjectMapper objectMapper;
+    private final RuntimeEnvService runtimeEnvService;
     private final HttpClient httpClient = HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(10))
             .build();
@@ -76,7 +77,7 @@ public class RewriteCandidateService {
 
     private Optional<PromptAsset> resolvePromptAsset(String rewriteQueryProfile) {
         List<Path> roots = new ArrayList<>();
-        String promptRootEnv = envOrDefault("PROMPT_ROOT", "").trim();
+        String promptRootEnv = runtimeEnvService.getOrDefault("PROMPT_ROOT", "").trim();
         if (!promptRootEnv.isBlank()) {
             roots.add(Path.of(promptRootEnv));
         }
@@ -122,7 +123,7 @@ public class RewriteCandidateService {
             boolean anchorInjectionEnabled,
             JsonNode domainContext
     ) {
-        String provider = envOrDefault("QUERY_FORGE_LLM_PROVIDER", "gemini").toLowerCase(Locale.ROOT);
+        String provider = runtimeEnvService.getOrDefault("QUERY_FORGE_LLM_PROVIDER", "gemini").toLowerCase(Locale.ROOT);
         if (provider.startsWith("openai")) {
             return requestOpenAiCandidates(
                     promptAsset,
@@ -158,19 +159,19 @@ public class RewriteCandidateService {
             JsonNode domainContext
     ) {
         String apiKey = firstNonBlank(
-                envOrDefault("QUERY_FORGE_GEMINI_API_KEY", ""),
-                envOrDefault("GEMINI_API_KEY", ""),
-                envOrDefault("GOOGLE_API_KEY", "")
+                runtimeEnvService.get("QUERY_FORGE_GEMINI_API_KEY"),
+                runtimeEnvService.get("GEMINI_API_KEY"),
+                runtimeEnvService.get("GOOGLE_API_KEY")
         );
         if (apiKey.isBlank()) {
             return Optional.empty();
         }
-        String model = envOrDefault(
+        String model = runtimeEnvService.getOrDefault(
                 "QUERY_FORGE_LLM_REWRITE_MODEL",
-                envOrDefault("QUERY_FORGE_LLM_MODEL", "gemini-2.5-flash-lite")
+                runtimeEnvService.getOrDefault("QUERY_FORGE_LLM_MODEL", "gemini-2.5-flash-lite")
         );
-        String baseUrl = envOrDefault("QUERY_FORGE_GEMINI_BASE_URL", "https://generativelanguage.googleapis.com");
-        int maxOutputTokens = parseInt(envOrDefault("QUERY_FORGE_LLM_MAX_OUTPUT_TOKENS", "384"), 384);
+        String baseUrl = runtimeEnvService.getOrDefault("QUERY_FORGE_GEMINI_BASE_URL", "https://generativelanguage.googleapis.com");
+        int maxOutputTokens = parseInt(runtimeEnvService.getOrDefault("QUERY_FORGE_LLM_MAX_OUTPUT_TOKENS", "384"), 384);
         try {
             ObjectNode payload = objectMapper.createObjectNode();
             ObjectNode systemInstruction = payload.putObject("systemInstruction");
@@ -232,16 +233,16 @@ public class RewriteCandidateService {
             boolean anchorInjectionEnabled,
             JsonNode domainContext
     ) {
-        String apiKey = envOrDefault("OPENAI_API_KEY", "").trim();
+        String apiKey = runtimeEnvService.getOrDefault("OPENAI_API_KEY", "").trim();
         if (apiKey.isBlank()) {
             return Optional.empty();
         }
-        String model = envOrDefault(
+        String model = runtimeEnvService.getOrDefault(
                 "QUERY_FORGE_LLM_REWRITE_MODEL",
-                envOrDefault("QUERY_FORGE_LLM_MODEL", "gpt-4o-mini")
+                runtimeEnvService.getOrDefault("QUERY_FORGE_LLM_MODEL", "gpt-4o-mini")
         );
-        String baseUrl = envOrDefault("QUERY_FORGE_OPENAI_BASE_URL", "https://api.openai.com/v1");
-        int maxTokens = parseInt(envOrDefault("QUERY_FORGE_LLM_MAX_OUTPUT_TOKENS", "384"), 384);
+        String baseUrl = runtimeEnvService.getOrDefault("QUERY_FORGE_OPENAI_BASE_URL", "https://api.openai.com/v1");
+        int maxTokens = parseInt(runtimeEnvService.getOrDefault("QUERY_FORGE_LLM_MAX_OUTPUT_TOKENS", "384"), 384);
         try {
             ObjectNode payload = objectMapper.createObjectNode();
             payload.put("model", model);
@@ -539,14 +540,6 @@ public class RewriteCandidateService {
         } catch (NumberFormatException ignored) {
             return fallback;
         }
-    }
-
-    private String envOrDefault(String key, String fallback) {
-        String value = System.getenv(key);
-        if (value == null || value.isBlank()) {
-            return fallback;
-        }
-        return value.trim();
     }
 
     private String firstNonBlank(String... values) {

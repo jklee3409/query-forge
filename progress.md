@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-06-16] Session Summary (Live Chat LLM Answer and Trace UX)
+- What was done: Reworked live chat so `/api/chat/ask` now returns a real LLM-generated answer from `gemini-2.5-flash-lite`, exposes answer model and cited document/chunk IDs, and no longer surfaces raw backend error details in the chat UI toast path.
+- Key decisions: Kept the retrieval/rewrite pipeline shape intact (`raw query -> synthetic memory lookup -> rewrite candidate generation -> rewrite decision -> final retrieval -> answer generation`) and added only the missing answer-generation stage plus `.env`-aware runtime model credential lookup needed by the local backend process.
+- Issues encountered: The running `bootRun` process was still serving the previous extractive answer path, so it had to be restarted before validation. After restart, `/api/chat/ask` returned `answerModel=gemini-2.5-flash-lite` and non-empty cited chunk/document IDs for the Spring domain.
+- Next steps: Browser-smoke `/` live chat and confirm the new disclosure UI and sanitized failure toast behavior under a real frontend session.
+
 ## [2026-06-16] Session Summary (Live Chat Dense Embedding Windows Quoting Fix)
 - What was done: Fixed the live chat dense query embedding subprocess script so Windows `python -c` invocation no longer strips Python string quotes and crash on `/api/chat/ask` with `NameError: name 'utf' is not defined`.
 - Key decisions: Kept the fix scoped to `DenseEmbeddingService` only by rewriting the inline Python script literals to single-quoted Python strings; no chat flow, retrieval policy, or pipeline logic changed.
@@ -1461,3 +1467,11 @@ High-level progress tracking for the project.
 - Key decisions: Kept `sampleId` as the React key only and preserved the existing dropdown option content model by grouping badges in CSS.
 - Issues encountered: None; frontend production build passed and targeted lint had only existing hook dependency warnings.
 - Next steps: Browser smoke-test the RAG detail dropdown against miss-target rows.
+
+---
+
+## [2026-06-21] Session Summary (Live Chat Query Strategy Router)
+- What was done: Added backend live-chat QueryStrategyRouter groundwork with metadata opt-in, RAW_ONLY fallback/short-circuiting, and focused service tests.
+- Key decisions: No route table or DB column was added; route decisions are written into existing JSON metadata and existing rewrite logs.
+- Issues encountered: None in targeted backend tests.
+- Next steps: Decide how Chat Settings should expose `routerEnabled` for operational rollout.

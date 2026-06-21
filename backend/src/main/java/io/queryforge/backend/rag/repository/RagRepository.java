@@ -766,6 +766,21 @@ public class RagRepository {
     }
 
     @Transactional
+    public void mergeOnlineQueryMetadata(UUID onlineQueryId, JsonNode metadata) {
+        String sql = """
+                UPDATE online_queries
+                SET metadata = COALESCE(metadata, '{}'::jsonb) || CAST(:metadata AS jsonb)
+                WHERE online_query_id = :onlineQueryId
+                """;
+        jdbcTemplate.update(
+                sql,
+                new MapSqlParameterSource()
+                        .addValue("onlineQueryId", onlineQueryId)
+                        .addValue("metadata", Objects.requireNonNullElse(metadata, objectMapper.createObjectNode()).toString())
+        );
+    }
+
+    @Transactional
     public UUID createOnlineRewriteLog(
             UUID onlineQueryId,
             UUID runId,
@@ -968,7 +983,14 @@ public class RagRepository {
     }
 
     @Transactional
-    public void insertAnswer(UUID onlineQueryId, String answer, JsonNode citedDocumentIds, JsonNode citedChunkIds) {
+    public void insertAnswer(
+            UUID onlineQueryId,
+            String answer,
+            JsonNode citedDocumentIds,
+            JsonNode citedChunkIds,
+            String generationModel,
+            JsonNode metadata
+    ) {
         String sql = """
                 INSERT INTO answers (
                     online_query_id,
@@ -999,8 +1021,8 @@ public class RagRepository {
                         .addValue("answer", answer)
                         .addValue("citedDocumentIds", citedDocumentIds.toString())
                         .addValue("citedChunkIds", citedChunkIds.toString())
-                        .addValue("generationModel", "extractive-answer-simulated")
-                        .addValue("metadata", "{\"source\":\"backend\"}")
+                        .addValue("generationModel", generationModel == null || generationModel.isBlank() ? "gemini-2.5-flash-lite" : generationModel)
+                        .addValue("metadata", Objects.requireNonNullElse(metadata, objectMapper.createObjectNode()).toString())
         );
     }
 

@@ -51,6 +51,10 @@ class RagControllerWebTest {
                         List.of(),
                         List.of(),
                         objectMapper.createArrayNode(),
+                        "gemini-2.5-flash-lite",
+                        List.of(),
+                        List.of(),
+                        null,
                         Map.of("totalMs", 12L)
                 )
         );

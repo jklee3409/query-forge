@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-06-16] Session Summary (Live Chat Answer Surface Refresh)
+- What was done: Reworked `/` Chat result rendering so the primary result shows original query, rewritten/final query, and final LLM answer first, while synthetic memory, anchor hints, rewrite candidates, and search context moved into RAG-style disclosure panels. Added an Ask-button spinner/loading state and sanitized chat error toasts so backend stack/detail text is not shown to end users.
+- Key decisions: Reused the existing RAG detail card/disclosure visual language instead of inventing a second chat-specific debug style, and kept the chat page focused on the current answer rather than dumping raw JSON config blocks.
+- Issues encountered: None; targeted ESLint and the production frontend build passed, and the rebuilt backend-served static bundle was picked up after backend restart.
+- Next steps: Browser-smoke the chat page with a real response and confirm long answer/disclosure content still scans cleanly on narrow widths.
+
 ## [2026-06-16] Session Summary (Chat Settings Provenance Pagination)
 - What was done: Updated domain `Chat Settings` so `Config Provenance` shows three change cards at a time with previous/next plus direct page buttons, and fixed the page container layout so Domain Readiness / Selected Snapshots / Config Provenance finally get visible vertical spacing.
 - Key decisions: The frontend now requests the latest 30 provenance rows and paginates them client-side because the current admin provenance API accepts `limit` but does not expose offset paging.

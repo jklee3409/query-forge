@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-06-16] Session Summary (Live Chat Real LLM Answer Path)
+- What was done: Added `ChatAnswerService` so `RagService.ask` now generates the final chat answer through Gemini/OpenAI instead of the old extractive snippet concatenation, and extended `AskResponse` / `answers` persistence to include answer model plus cited document/chunk IDs.
+- Key decisions: Reused the existing retrieval/rewrite flow and defaulted the answer-stage model to `gemini-2.5-flash-lite`. Added `RuntimeEnvService` so rewrite and answer stages can read model/provider credentials from process env or repo-root `.env`, which matches how the local backend is started.
+- Issues encountered: The previous `bootRun` process was still serving the old code path until restart; after restart, live `/api/chat/ask` returned a Gemini answer with cited IDs and non-trivial answer latency.
+- Next steps: Keep the answer prompt and citation filtering conservative so future UI detail changes do not require API contract churn.
+
 ## [2026-06-16] Session Summary (Live Chat Dense Embedding Windows Quoting Fix)
 - What was done: Fixed `DenseEmbeddingService` so the inline Python script used for live-chat dense query embeddings survives Windows `python -c` argument parsing and no longer throws `NameError: name 'utf' is not defined`.
 - Key decisions: Left the chat API/retrieval flow untouched and changed only the Python literal quoting inside the embedded script from double quotes to single quotes.
@@ -780,3 +786,11 @@ High-level backend progress tracking.
 - Key decisions: No backend Java/API changes were needed for this polish pass.
 - Issues encountered: None; frontend production build passed.
 - Next steps: Serve the backend static UI and visually confirm the updated modal spacing.
+
+---
+
+## [2026-06-21] Session Summary (Live Chat Query Strategy Router)
+- What was done: Added an opt-in rule-based QueryStrategyRouter for live chat, with RAW_ONLY short-circuiting, readiness fallback metadata, and targeted router/RagService tests.
+- Key decisions: Router opt-in uses `chat_runtime_config.metadata.routerEnabled`; route decisions are stored in existing metadata JSON rather than a new table or migration.
+- Issues encountered: None in targeted tests.
+- Next steps: Expose/validate routerEnabled from Chat Settings UI before broad live rollout.

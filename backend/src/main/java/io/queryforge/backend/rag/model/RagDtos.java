@@ -60,6 +60,9 @@ public final class RagDtos {
             List<ScoredDocumentDto> retrievedDocs,
             List<ScoredDocumentDto> rerankedDocs,
             JsonNode memoryTopN,
+            String answerModel,
+            List<String> citedDocumentIds,
+            List<String> citedChunkIds,
             ChatRuntimeDtos.ChatRuntimeConfigResponse appliedConfig,
             Map<String, Long> latencyBreakdown
     ) {
