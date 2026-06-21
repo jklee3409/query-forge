@@ -28,7 +28,7 @@ public class QueryStrategyRouter {
         ChatRuntimeDtos.ChatRuntimeConfigResponse config = context.config();
         String mode = normalize(context.runtimeMode(), "selective_rewrite");
         String rewriteProfile = normalize(context.rewriteQueryProfile(), "compact_anchor");
-        boolean routerEnabled = routerEnabled(config == null ? null : config.metadata());
+        boolean routerEnabled = routerEnabled(config);
         boolean fallbackAllowed = routerEnabled && fallbackAllowed(config == null ? null : config.metadata());
         boolean technicalAnchor = context.containsTechnicalAnchor() || hasTechnicalAnchor(context.rawQuery());
         boolean korean = context.containsKorean() || hasKorean(context.rawQuery());
@@ -182,6 +182,13 @@ public class QueryStrategyRouter {
             metadata.put("rawRetrievalConfidence", context.rawRetrievalConfidence());
         }
         return metadata;
+    }
+
+    private boolean routerEnabled(ChatRuntimeDtos.ChatRuntimeConfigResponse config) {
+        if (config == null) {
+            return false;
+        }
+        return config.routerEnabled() || routerEnabled(config.metadata());
     }
 
     private boolean routerEnabled(JsonNode metadata) {

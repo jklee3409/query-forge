@@ -195,6 +195,7 @@ export function ChatPage({ navigate, notify }) {
                 : 'snapshot required'}
           </span>
           <span>{config?.rewriteAnchorInjectionEnabled ? 'anchor on' : 'anchor off'}</span>
+          <span>{config?.routerEnabled ? 'router on' : 'router off'}</span>
         </div>
       </section>
 

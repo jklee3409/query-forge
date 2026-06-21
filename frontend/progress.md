@@ -599,6 +599,14 @@ High-level progress tracking for the project.
 
 ---
 
+## [2026-06-21] Session Summary (Chat Router Toggle Exposure)
+- What was done: Added a Chat Settings checkbox for Query Strategy Router opt-in and surfaced router on/off in the live Chat config strip.
+- Key decisions: The UI sends the explicit `routerEnabled` field and relies on the backend to persist it in config metadata.
+- Issues encountered: `npm run lint` still fails on the existing `vite.config.js` `process` global rule; production build passed and refreshed backend static assets.
+- Next steps: Browser-smoke Chat Settings save and Chat ask router metadata for both enabled and disabled states.
+
+---
+
 ## Notes
 - Keep this file concise
 - Only record important changes

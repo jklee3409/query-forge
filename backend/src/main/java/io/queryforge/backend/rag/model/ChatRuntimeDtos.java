@@ -49,6 +49,7 @@ public final class ChatRuntimeDtos {
             int rewriteCandidateCount,
             double rewriteThreshold,
             String rewriteFailurePolicy,
+            boolean routerEnabled,
             JsonNode metadata,
             Instant updatedAt,
             boolean readyForRewrite,
@@ -80,6 +81,7 @@ public final class ChatRuntimeDtos {
             Integer rewriteCandidateCount,
             Double rewriteThreshold,
             String rewriteFailurePolicy,
+            Boolean routerEnabled,
             JsonNode metadata,
             String updatedBy
     ) {

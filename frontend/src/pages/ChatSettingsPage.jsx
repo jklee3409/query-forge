@@ -69,6 +69,7 @@ function initialForm(domainId) {
     gatingPreset: 'full_gating',
     sourceGatingBatchId: '',
     sourceGatingBatchIds: [],
+    routerEnabled: false,
     rewriteQueryProfile: 'compact_anchor',
     rewriteAnchorInjectionEnabled: false,
     useSessionContext: false,
@@ -195,6 +196,9 @@ export function ChatSettingsPage({ notify, domainId, domainKey }) {
         gatingPreset: configPayload.gatingPreset || 'full_gating',
         sourceGatingBatchId: configSnapshotIds(configPayload)[0] || '',
         sourceGatingBatchIds: configSnapshotIds(configPayload),
+        routerEnabled: configPayload.routerEnabled != null
+          ? Boolean(configPayload.routerEnabled)
+          : Boolean(configPayload.metadata?.routerEnabled),
         rewriteQueryProfile: configPayload.rewriteQueryProfile || 'compact_anchor',
         rewriteAnchorInjectionEnabled: Boolean(configPayload.rewriteAnchorInjectionEnabled),
         useSessionContext: Boolean(configPayload.useSessionContext),
@@ -445,6 +449,11 @@ export function ChatSettingsPage({ notify, domainId, domainKey }) {
               <label className="filter-field">Rewrite threshold
                 <input type="number" min="0" max="1" step="0.01" value={form.rewriteThreshold} onChange={(event) => updateField('rewriteThreshold', event.target.value)} />
               </label>
+              <label className={`check-pill ${form.routerEnabled ? 'is-active' : ''}`}>
+                <input type="checkbox" checked={form.routerEnabled} onChange={(event) => updateField('routerEnabled', event.target.checked)} />
+                <span className="check-pill__box" aria-hidden="true">✓</span>
+                <span className="check-pill__text">Query Strategy Router 사용</span>
+              </label>
               <label className={`check-pill ${form.rewriteAnchorInjectionEnabled ? 'is-active' : ''}`}>
                 <input type="checkbox" checked={form.rewriteAnchorInjectionEnabled} onChange={(event) => updateField('rewriteAnchorInjectionEnabled', event.target.checked)} />
                 <span className="check-pill__box" aria-hidden="true">✓</span>
@@ -519,6 +528,7 @@ export function ChatSettingsPage({ notify, domainId, domainKey }) {
             { label: '검색', value: `${form.retrievalBackend} / ${retrieverModeLabel(form.retrieverMode)}` },
             { label: 'Embedding', value: form.denseEmbeddingModel || '-' },
             { label: 'Profile', value: form.rewriteQueryProfile },
+            { label: 'Router', value: form.routerEnabled ? 'enabled' : 'disabled' },
             { label: '수정 시각', value: config?.updatedAt ? fmtTime(config.updatedAt) : '-' },
           ]}
         />
@@ -557,6 +567,7 @@ export function ChatSettingsPage({ notify, domainId, domainKey }) {
               <div><span>Prompt binding</span><strong>{readiness.promptBinding?.active ? readiness.promptBinding.bindingKey : 'inactive'}</strong></div>
               <div><span>Prompt version</span><strong>{readiness.promptBinding?.activePromptVersion || '-'}</strong></div>
               <div><span>Retrieval</span><strong>{readiness.retrieval?.retrievalBackend || '-'} / {retrieverModeLabel(readiness.retrieval?.retrieverMode)}</strong></div>
+              <div><span>Query Router</span><strong>{form.routerEnabled ? 'enabled' : 'disabled'}</strong></div>
             </div>
             {readinessBlockingReasons.length > 0 && (
               <div className="chat-warning">

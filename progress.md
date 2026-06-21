@@ -1475,3 +1475,11 @@ High-level progress tracking for the project.
 - Key decisions: No route table or DB column was added; route decisions are written into existing JSON metadata and existing rewrite logs.
 - Issues encountered: None in targeted backend tests.
 - Next steps: Decide how Chat Settings should expose `routerEnabled` for operational rollout.
+
+---
+
+## [2026-06-21] Session Summary (Chat Router Toggle Exposure)
+- What was done: Exposed Query Strategy Router opt-in through Chat runtime DTOs and Chat Settings UI, preserving metadata-backed storage and refreshing the backend React bundle.
+- Key decisions: `routerEnabled` is an API/UI facade over `chat_runtime_config.metadata_json.routerEnabled`; no schema change was introduced.
+- Issues encountered: Frontend lint still hits the existing `vite.config.js` `process` no-undef issue; backend targeted tests and frontend production build passed.
+- Next steps: Manually toggle the setting in Chat Settings and verify `/api/chat/ask` route metadata changes as expected.

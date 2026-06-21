@@ -637,6 +637,7 @@ public class ChatRuntimeConfigRepository {
         String readinessMessage = ready
                 ? "ready"
                 : "select a completed gating snapshot before enabling rewrite-backed chat";
+        JsonNode metadata = readJson(rs.getString("metadata_json"));
         return new ChatRuntimeDtos.ChatRuntimeConfigResponse(
                 readUuid(rs, "domain_id"),
                 rs.getString("domain_key"),
@@ -666,11 +667,21 @@ public class ChatRuntimeConfigRepository {
                 rs.getInt("rewrite_candidate_count"),
                 rs.getDouble("rewrite_threshold"),
                 rs.getString("rewrite_failure_policy"),
-                readJson(rs.getString("metadata_json")),
+                routerEnabled(metadata),
+                metadata,
                 readInstant(rs, "updated_at"),
                 ready,
                 readinessMessage
         );
+    }
+
+    private boolean routerEnabled(JsonNode metadata) {
+        if (metadata == null || metadata.isMissingNode() || metadata.isNull()) {
+            return false;
+        }
+        return metadata.path("routerEnabled").asBoolean(false)
+                || metadata.path("queryRouterEnabled").asBoolean(false)
+                || metadata.path("query_router_enabled").asBoolean(false);
     }
 
     private List<String> readStringArray(String raw) {

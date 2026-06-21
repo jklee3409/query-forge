@@ -794,3 +794,11 @@ High-level backend progress tracking.
 - Key decisions: Router opt-in uses `chat_runtime_config.metadata.routerEnabled`; route decisions are stored in existing metadata JSON rather than a new table or migration.
 - Issues encountered: None in targeted tests.
 - Next steps: Expose/validate routerEnabled from Chat Settings UI before broad live rollout.
+
+---
+
+## [2026-06-21] Session Summary (Chat Router Toggle Exposure)
+- What was done: Exposed `routerEnabled` through Chat runtime config DTOs and Chat Settings UI while keeping persistence in `metadata_json.routerEnabled`.
+- Key decisions: No DB column/migration was added; omitted metadata in config updates now preserves current metadata, and explicit `routerEnabled` writes only that metadata flag.
+- Issues encountered: Frontend lint still fails on the existing `vite.config.js` `process` global rule; production build passed.
+- Next steps: Smoke-test toggling Query Strategy Router in Chat Settings and confirm `/api/chat/config` plus `/api/chat/ask` router metadata reflect the selected state.

@@ -431,7 +431,10 @@ public class ChatRuntimeConfigService {
             sourceGatingRunId = sourceGatingRunIds.isEmpty() ? null : sourceGatingRunIds.getFirst();
             gatingPreset = resolvedGatingPreset;
         }
-        JsonNode metadata = request.metadata() == null ? objectMapper.createObjectNode() : request.metadata();
+        ObjectNode metadata = mutableMetadata(request.metadata() == null ? current.metadata() : request.metadata());
+        if (request.routerEnabled() != null) {
+            metadata.put("routerEnabled", request.routerEnabled());
+        }
         repository.upsertConfig(
                 request.domainId(),
                 enabled,
@@ -564,6 +567,7 @@ public class ChatRuntimeConfigService {
                 configInt(config, "rewrite_candidate_count", current.rewriteCandidateCount()),
                 firstNonNull(run.threshold(), configDouble(config, "rewrite_threshold", current.rewriteThreshold())),
                 rewriteFailurePolicy,
+                current.routerEnabled(),
                 current.metadata() == null ? objectMapper.createObjectNode() : current.metadata(),
                 blankToNull(request.updatedBy())
         );
@@ -629,9 +633,17 @@ public class ChatRuntimeConfigService {
         addDiff(changedFields, changes, "rewriteCandidateCount", before.rewriteCandidateCount(), after.rewriteCandidateCount());
         addDiff(changedFields, changes, "rewriteThreshold", before.rewriteThreshold(), after.rewriteThreshold());
         addDiff(changedFields, changes, "rewriteFailurePolicy", before.rewriteFailurePolicy(), after.rewriteFailurePolicy());
+        addDiff(changedFields, changes, "routerEnabled", before.routerEnabled(), after.routerEnabled());
         addDiff(changedFields, changes, "metadata", before.metadata(), after.metadata());
         diff.put("changed_count", changedFields.size());
         return diff;
+    }
+
+    private ObjectNode mutableMetadata(JsonNode metadata) {
+        if (metadata != null && metadata.isObject()) {
+            return metadata.deepCopy();
+        }
+        return objectMapper.createObjectNode();
     }
 
     private void addDiff(ArrayNode changedFields, ObjectNode changes, String field, Object before, Object after) {

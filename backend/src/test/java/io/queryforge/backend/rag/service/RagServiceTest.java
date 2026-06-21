@@ -172,6 +172,7 @@ class RagServiceTest {
                 2,
                 0.05,
                 "skip_to_raw",
+                routerEnabled,
                 metadata,
                 Instant.now(),
                 true,
