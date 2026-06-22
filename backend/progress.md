@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-06-22] Session Summary (Live Chat Gemini 503 Retry)
+- What was done: Added a `GeminiServiceUnavailableException`, Gemini 503 one-shot retry in `ChatAnswerService`, and a RAG API ProblemDetail response with `errorCode=GEMINI_SERVICE_UNAVAILABLE`, retry metadata, and the user-facing Gemini failure message.
+- Key decisions: Limited retry behavior to Gemini answer generation 503 responses and preserved existing generic `IllegalStateException` handling for non-503 answer failures.
+- Issues encountered: `RagService.ask` is non-transactional and commits online query/retrieval/rerank rows before answer generation succeeds, so answer-stage failures can leave incomplete chat traces; this was documented as a bug candidate and not fixed in this task.
+- Next steps: Design an atomic chat trace finalization or explicit failed-query state before expanding answer-stage retry/reporting.
+
 ## [2026-06-16] Session Summary (Live Chat Real LLM Answer Path)
 - What was done: Added `ChatAnswerService` so `RagService.ask` now generates the final chat answer through Gemini/OpenAI instead of the old extractive snippet concatenation, and extended `AskResponse` / `answers` persistence to include answer model plus cited document/chunk IDs.
 - Key decisions: Reused the existing retrieval/rewrite flow and defaulted the answer-stage model to `gemini-2.5-flash-lite`. Added `RuntimeEnvService` so rewrite and answer stages can read model/provider credentials from process env or repo-root `.env`, which matches how the local backend is started.

@@ -42,6 +42,8 @@ public class ChatAnswerService {
 
     private static final int MAX_CONTEXT_CHUNKS = 6;
     private static final int MAX_CHUNK_TEXT_LENGTH = 1400;
+    private static final int GEMINI_SERVICE_UNAVAILABLE_STATUS = 503;
+    private static final int GEMINI_MAX_ATTEMPTS = 2;
 
     private final ObjectMapper objectMapper;
     private final RuntimeEnvService runtimeEnvService;
@@ -120,7 +122,7 @@ public class ChatAnswerService {
                     .header("Content-Type", "application/json")
                     .POST(HttpRequest.BodyPublishers.ofString(payload.toString()))
                     .build();
-            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+            HttpResponse<String> response = sendGeminiRequestWithRetry(request, model);
             if (response.statusCode() >= 400) {
                 throw new IllegalStateException("chat answer generation failed with status: " + response.statusCode());
             }
@@ -131,6 +133,20 @@ public class ChatAnswerService {
         } catch (Exception exception) {
             throw new IllegalStateException("chat answer generation failed", exception);
         }
+    }
+
+    private HttpResponse<String> sendGeminiRequestWithRetry(HttpRequest request, String model) throws Exception {
+        HttpResponse<String> response = null;
+        for (int attempt = 1; attempt <= GEMINI_MAX_ATTEMPTS; attempt++) {
+            response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+            if (response.statusCode() != GEMINI_SERVICE_UNAVAILABLE_STATUS) {
+                return response;
+            }
+            if (attempt == GEMINI_MAX_ATTEMPTS) {
+                throw new GeminiServiceUnavailableException(model, response.statusCode(), attempt);
+            }
+        }
+        return response;
     }
 
     private GeneratedAnswer requestOpenAiAnswer(

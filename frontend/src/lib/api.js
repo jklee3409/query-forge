@@ -11,9 +11,17 @@ export async function requestJson(url, options = {}) {
   }
   if (!response.ok) {
     if (payload && typeof payload === 'object') {
-      throw new Error(payload.detail || payload.error || payload.message || `요청 실패 (${response.status})`)
+      const error = new Error(payload.detail || payload.error || payload.message || `요청 실패 (${response.status})`)
+      error.status = response.status
+      error.payload = payload
+      error.errorCode = payload.errorCode || payload.code || null
+      error.retryable = Boolean(payload.retryable)
+      error.retryMessage = payload.retryMessage || null
+      throw error
     }
-    throw new Error(String(payload || `요청 실패 (${response.status})`))
+    const error = new Error(String(payload || `요청 실패 (${response.status})`))
+    error.status = response.status
+    throw error
   }
   return payload ?? {}
 }

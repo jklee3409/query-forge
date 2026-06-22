@@ -3,6 +3,7 @@ package io.queryforge.backend.rag.controller;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.queryforge.backend.rag.model.RagDtos;
 import io.queryforge.backend.rag.service.ExperimentPipelineService;
+import io.queryforge.backend.rag.service.GeminiServiceUnavailableException;
 import io.queryforge.backend.rag.service.RagService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -70,6 +71,28 @@ class RagControllerWebTest {
                 .andExpect(jsonPath("$.onlineQueryId").value(queryId.toString()))
                 .andExpect(jsonPath("$.answer").value("answer"))
                 .andExpect(jsonPath("$.rewriteApplied").value(true));
+    }
+
+    @Test
+    void askEndpointReturnsGeminiServiceUnavailableProblemDetail() throws Exception {
+        when(ragService.ask(any())).thenThrow(new GeminiServiceUnavailableException(
+                "gemini-2.5-flash-lite",
+                503,
+                2
+        ));
+
+        mockMvc.perform(post("/api/chat/ask")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "query": "스프링 시큐리티 필터 체인 순서가 궁금해요"
+                                }
+                                """))
+                .andExpect(status().isServiceUnavailable())
+                .andExpect(jsonPath("$.errorCode").value("GEMINI_SERVICE_UNAVAILABLE"))
+                .andExpect(jsonPath("$.detail").value("Gemini 모델에 문제가 발생하였습니다. 잠시 후 다시 시도해주세요."))
+                .andExpect(jsonPath("$.retryMessage").value("Gemini 모델에 문제가 발생하였습니다. 답변을 다시 생성 중입니다"))
+                .andExpect(jsonPath("$.attempts").value(2));
     }
 
     @Test

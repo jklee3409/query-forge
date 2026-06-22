@@ -34,6 +34,7 @@
 ---
 
 ## Recent Update
+- `/` Chat now preserves structured API error metadata from `requestJson` and maps `GEMINI_SERVICE_UNAVAILABLE` responses from `/api/chat/ask` to the dedicated Gemini failure copy while leaving readiness/configuration and generic failure messages unchanged.
 - Chat Settings now exposes a `Query Strategy Router 사용` toggle backed by `chat_runtime_config.metadata.routerEnabled`, and the live Chat runtime strip shows router on/off for demo verification.
 - `/` Chat now presents the answer flow as a production-style result surface: spinner while asking, final LLM answer first, original and rewritten/final query focus cards, and disclosure sections for synthetic memory, anchor hints, rewrite candidates, and retrieved context using the same structured visual language as the Admin RAG detail modal.
 - Chat ask failures are now sanitized on the frontend so backend stack/detail text is not shown to end users; readiness/configuration problems get a short actionable message and all other ask failures fall back to a generic retry message.

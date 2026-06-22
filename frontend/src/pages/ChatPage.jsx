@@ -10,6 +10,8 @@ import {
 import { appendQuery, requestJson } from '../lib/api.js'
 
 const CHAT_DOMAIN_STORAGE_KEY = 'query-forge-chat-domain-id'
+const GEMINI_SERVICE_UNAVAILABLE_CODE = 'GEMINI_SERVICE_UNAVAILABLE'
+const GEMINI_SERVICE_UNAVAILABLE_MESSAGE = 'Gemini 모델에 문제가 발생하였습니다. 잠시 후 다시 시도해주세요.'
 
 function formatCount(value) {
   return Number(value || 0).toLocaleString()
@@ -20,7 +22,13 @@ function readinessReasons(readiness) {
 }
 
 function chatAskErrorMessage(error) {
+  if (error?.errorCode === GEMINI_SERVICE_UNAVAILABLE_CODE) {
+    return GEMINI_SERVICE_UNAVAILABLE_MESSAGE
+  }
   const text = String(error?.message || '').toLowerCase()
+  if (error?.status === 503 && text.includes('gemini')) {
+    return GEMINI_SERVICE_UNAVAILABLE_MESSAGE
+  }
   if (
     text.includes('chat_runtime_config')
     || text.includes('chat is disabled')

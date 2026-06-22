@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-06-22] Session Summary (Live Chat Gemini 503 Retry)
+- What was done: Added Gemini answer-stage 503 detection for `/api/chat/ask`, retried the Gemini call once inside `ChatAnswerService`, returned a 503 ProblemDetail with `errorCode=GEMINI_SERVICE_UNAVAILABLE` after retry exhaustion, and mapped that code to a dedicated Chat UI failure message.
+- Key decisions: Kept the existing live chat retrieval/rewrite pipeline intact and scoped the retry to Gemini 503 ServiceUnavailable only; other LLM/API failures keep the existing generic chat failure behavior.
+- Issues encountered: The current synchronous POST chat API cannot accurately push an intermediate retry-state UI event while the server is retrying; also, `RagService.ask` persists online query/retrieval state before answer generation and can leave partial chat traces when the final answer stage fails.
+- Next steps: Consider a later chat-progress channel or transactional/outbox cleanup design before adding richer retry-progress UX.
+
 ## [2026-06-16] Session Summary (Live Chat LLM Answer and Trace UX)
 - What was done: Reworked live chat so `/api/chat/ask` now returns a real LLM-generated answer from `gemini-2.5-flash-lite`, exposes answer model and cited document/chunk IDs, and no longer surfaces raw backend error details in the chat UI toast path.
 - Key decisions: Kept the retrieval/rewrite pipeline shape intact (`raw query -> synthetic memory lookup -> rewrite candidate generation -> rewrite decision -> final retrieval -> answer generation`) and added only the missing answer-generation stage plus `.env`-aware runtime model credential lookup needed by the local backend process.

@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-06-22] Session Summary (Live Chat Gemini 503 Message)
+- What was done: Preserved structured API error metadata in `requestJson` and mapped `GEMINI_SERVICE_UNAVAILABLE` failures from `/api/chat/ask` to a dedicated Chat UI message: `Gemini 모델에 문제가 발생하였습니다. 잠시 후 다시 시도해주세요.`
+- Key decisions: Kept existing readiness/configuration error copy and generic ask-failure fallback unchanged; only the Gemini 503 path gets the separate message.
+- Issues encountered: The current single-response `/api/chat/ask` flow cannot receive a real-time server retry event, so intermediate retry-state display needs a future progress/SSE design if exact retry timing must be shown.
+- Next steps: Browser-smoke a Gemini 503 failure after backend reload and confirm the toast uses the dedicated copy.
+
 ## [2026-06-16] Session Summary (Live Chat Answer Surface Refresh)
 - What was done: Reworked `/` Chat result rendering so the primary result shows original query, rewritten/final query, and final LLM answer first, while synthetic memory, anchor hints, rewrite candidates, and search context moved into RAG-style disclosure panels. Added an Ask-button spinner/loading state and sanitized chat error toasts so backend stack/detail text is not shown to end users.
 - Key decisions: Reused the existing RAG detail card/disclosure visual language instead of inventing a second chat-specific debug style, and kept the chat page focused on the current answer rather than dumping raw JSON config blocks.
