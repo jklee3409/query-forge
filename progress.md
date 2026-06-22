@@ -1,5 +1,17 @@
 # progress.md
 
+## [2026-06-22] Session Summary (Python Agentic Multi-Query Eval Mode)
+- What was done: Extended the Python retrieval evaluation path with explicit `anchor_aware_rewrite` and `agentic_multi_query` modes so raw, selective, anchor-aware, and agentic retrieval can be compared under one snapshot.
+- Key decisions: Preserved legacy default eval modes, kept the Java live path and DB schema unchanged, made agentic eval single-domain/snapshot-scoped, and added only latency/degraded-query summary metrics while leaving token usage for later.
+- Issues encountered: Full DB-backed evaluation was not run in this session; validation covered syntax, planner fallback, mode registration, and RRF chunk dedupe.
+- Next steps: Run a controlled same-snapshot eval config listing `raw_only`, `selective_rewrite`, `anchor_aware_rewrite`, and `agentic_multi_query`.
+
+## [2026-06-22] Session Summary (Intra-Domain Agentic Multi-Query Retrieval MVP)
+- What was done: Added a metadata-gated live Chat Agentic Multi-Query Retrieval MVP that keeps `domainId` mandatory, plans domain-scoped subqueries, runs each subquery through the existing router/rewrite/retrieval services sequentially, and merges chunk results with chunk-id dedupe plus RRF.
+- Key decisions: No DB schema, DomainRouter, cross-domain retrieval, or optional-domain API changes were introduced; `chat_runtime_config.metadata_json.agenticMultiQueryEnabled=true` is the only opt-in path, with planner failure falling back to the original query.
+- Issues encountered: The MVP stores normalized plan/trace data in existing JSON metadata and response payloads; deeper analytics may later justify normalized agentic plan/trace tables.
+- Next steps: Add evaluation-mode support for `agentic_multi_query` so Recall@K/MRR/nDCG can compare raw, selective rewrite, and agentic paths under the same snapshot.
+
 ## [2026-06-22] Session Summary (Live Chat Gemini 503 Retry)
 - What was done: Added Gemini answer-stage 503 detection for `/api/chat/ask`, retried the Gemini call once inside `ChatAnswerService`, returned a 503 ProblemDetail with `errorCode=GEMINI_SERVICE_UNAVAILABLE` after retry exhaustion, and mapped that code to a dedicated Chat UI failure message.
 - Key decisions: Kept the existing live chat retrieval/rewrite pipeline intact and scoped the retry to Gemini 503 ServiceUnavailable only; other LLM/API failures keep the existing generic chat failure behavior.

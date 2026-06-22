@@ -34,6 +34,7 @@ try:
         retrieval_candidates_to_payload,
         retrieval_metrics,
         retrieve_top_k,
+        run_agentic_multi_query,
         run_selective_rewrite,
         runtime_retriever_label,
         runtime_retriever_metadata,
@@ -58,6 +59,7 @@ except ModuleNotFoundError:  # pragma: no cover
         retrieval_candidates_to_payload,
         retrieval_metrics,
         retrieve_top_k,
+        run_agentic_multi_query,
         run_selective_rewrite,
         runtime_retriever_label,
         runtime_retriever_metadata,
@@ -67,7 +69,7 @@ except ModuleNotFoundError:  # pragma: no cover
 LOGGER = logging.getLogger(__name__)
 
 METRIC_KEYS = ("recall@5", "hit@5", "mrr@10", "ndcg@10")
-MODES = (
+LEGACY_DEFAULT_MODES = (
     "raw_only",
     "memory_only_ungated",
     "memory_only_rule_only",
@@ -76,6 +78,11 @@ MODES = (
     "rewrite_always",
     "selective_rewrite",
     "selective_rewrite_with_session",
+)
+MODES = (
+    *LEGACY_DEFAULT_MODES,
+    "anchor_aware_rewrite",
+    "agentic_multi_query",
 )
 
 
@@ -122,6 +129,21 @@ def _multi_source_relation_types(raw_config: dict[str, Any]) -> list[str]:
     if isinstance(value, list):
         return [str(item).strip() for item in value if str(item).strip()]
     return ["canonical_alias", "synthetic_query_cooccurrence", "chunk_cooccurrence"]
+
+
+def _int_config(raw_config: dict[str, Any], *keys: str, default: int, max_value: int | None = None) -> int:
+    value = None
+    for key in keys:
+        if key in raw_config:
+            value = raw_config.get(key)
+            break
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        parsed = default
+    if max_value is not None:
+        parsed = min(parsed, max_value)
+    return max(1, parsed)
 
 
 def _mean(rows: list[float]) -> float:
@@ -207,13 +229,15 @@ def _render_report(
         "",
         "## Mode Summary",
         "",
-        "| mode | recall@5 | hit@5 | mrr@10 | ndcg@10 | adoption_rate | bad_rewrite_rate |",
-        "| --- | ---: | ---: | ---: | ---: | ---: | ---: |",
+        "| mode | recall@5 | hit@5 | mrr@10 | ndcg@10 | avg_latency_ms | degraded_query_count | adoption_rate | bad_rewrite_rate |",
+        "| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |",
     ]
     for row in summary_rows:
         lines.append(
             f"| {row['mode']} | {row['recall@5']:.4f} | {row['hit@5']:.4f} | {row['mrr@10']:.4f} | "
-            f"{row['ndcg@10']:.4f} | {row.get('adoption_rate', 0.0):.4f} | {row.get('bad_rewrite_rate', 0.0):.4f} |"
+            f"{row['ndcg@10']:.4f} | {row.get('avg_latency_ms', 0.0):.2f} | "
+            f"{int(row.get('degraded_query_count', 0))} | {row.get('adoption_rate', 0.0):.4f} | "
+            f"{row.get('bad_rewrite_rate', 0.0):.4f} |"
         )
 
     lines.extend(
@@ -531,8 +555,69 @@ def _evaluate_mode(
             retrieval,
         )
 
+    if mode == "agentic_multi_query":
+        rewrite_info, retrieval = run_agentic_multi_query(
+            raw_query=sample.query_text,
+            query_language=sample.query_language,
+            query_category=sample.query_category,
+            session_context={},
+            chunks=chunks,
+            memories=memories,
+            memory_top_n_value=config.memory_top_n,
+            candidate_count=config.rewrite_candidate_count,
+            threshold=config.rewrite_threshold,
+            retrieval_top_k=config.retrieval_top_k,
+            preset_filter=config.gating_preset,
+            source_gate_run_id=source_gating_run_id,
+            strategy_filters=memory_strategy_filters,
+            rewrite_anchor_injection_enabled=_is_rewrite_anchor_injection_enabled(config.raw),
+            rewrite_terminology_hints_max_count=config.raw.get("rewrite_terminology_hints_max_count", 12),
+            multi_source_anchor_expansion_enabled=_is_multi_source_anchor_expansion_enabled(config.raw),
+            multi_source_anchor_index=multi_source_anchor_index,
+            multi_source_anchor_relation_types=_multi_source_relation_types(config.raw),
+            multi_source_anchor_min_score=config.raw.get("multi_source_anchor_min_score", 0.72),
+            multi_source_anchor_max_per_seed=config.raw.get("multi_source_anchor_max_per_seed", 2),
+            multi_source_anchor_max_total=config.raw.get("multi_source_anchor_max_total", 8),
+            rewrite_query_profile=str(config.raw.get("rewrite_query_profile") or "compact_anchor"),
+            rewrite_failure_policy=str(config.raw.get("rewrite_failure_policy") or "fail_run"),
+            rewrite_retrieval_strategy=str(config.raw.get("rewrite_retrieval_strategy") or "replace"),
+            rewrite_adoption_policy=config.rewrite_adoption_policy,
+            raw_config=config.raw,
+            retriever_config=config.retriever_config,
+            retrieval_adapter=retrieval_adapter,
+            raw_retrieval=raw_retrieval,
+            source_product=sample.source_product,
+            memory_candidate_pool_n=config.raw.get("rewrite_memory_candidate_pool_n"),
+            max_subqueries=_int_config(
+                config.raw,
+                "agentic_max_subqueries",
+                "maxSubqueries",
+                "max_subqueries",
+                default=3,
+                max_value=4,
+            ),
+            rrf_k=_int_config(
+                config.raw,
+                "agentic_rrf_k",
+                "rrfK",
+                "rrf_k",
+                default=60,
+            ),
+        )
+        metrics = retrieval_metrics(
+            expected_chunk_ids=sample.expected_chunk_ids,
+            expected_doc_ids=sample.expected_doc_ids,
+            retrieved=retrieval,
+        )
+        return metrics, rewrite_info, retrieval
+
     force_rewrite = mode == "rewrite_always"
     use_context = mode == "selective_rewrite_with_session"
+    rewrite_anchor_injection_enabled = (
+        True
+        if mode == "anchor_aware_rewrite"
+        else _is_rewrite_anchor_injection_enabled(config.raw)
+    )
     rewrite_outcome, retrieval = run_selective_rewrite(
         raw_query=sample.query_text,
         query_language=sample.query_language,
@@ -548,7 +633,7 @@ def _evaluate_mode(
         source_gate_run_id=source_gating_run_id,
         strategy_filters=memory_strategy_filters,
         force_rewrite=force_rewrite,
-        rewrite_anchor_injection_enabled=_is_rewrite_anchor_injection_enabled(config.raw),
+        rewrite_anchor_injection_enabled=rewrite_anchor_injection_enabled,
         rewrite_terminology_hints_max_count=config.raw.get("rewrite_terminology_hints_max_count", 12),
         multi_source_anchor_expansion_enabled=_is_multi_source_anchor_expansion_enabled(config.raw),
         multi_source_anchor_index=multi_source_anchor_index,
@@ -709,7 +794,7 @@ def run_retrieval_eval(
             for item in (config.raw.get("retrieval_modes") or [])
             if str(item).strip()
         ]
-        active_modes = [mode for mode in configured_modes if mode in MODES] or list(MODES)
+        active_modes = [mode for mode in configured_modes if mode in MODES] or list(LEGACY_DEFAULT_MODES)
         if synthetic_free_baseline:
             active_modes = ["raw_only"]
         eval_concurrency = _resolve_eval_concurrency(config.raw)
@@ -901,6 +986,7 @@ def run_retrieval_eval(
                 retrieval=raw_retrieval_by_sample.get(sample.sample_id, []),
             )
             final_rank = _first_expected_rank(sample=sample, retrieval=retrieval)
+            degraded_vs_raw = float(metrics.get("mrr@10", 0.0)) < float(raw_metrics.get("mrr@10", 0.0))
             rewrite_generation_stats = rewrite_generation_stats_by_mode[mode]
             rewrite_generation_stats["rewrite_llm_attempted_count"] += (
                 1 if rewrite_info.get("rewrite_llm_attempted") else 0
@@ -928,6 +1014,8 @@ def run_retrieval_eval(
                         rewrite_info.get("best_candidate_confidence", 0.0)
                         - rewrite_info.get("raw_confidence", 0.0)
                     ),
+                    "elapsed_ms": float(row.get("elapsed_ms", 0.0)),
+                    "degraded_vs_raw": degraded_vs_raw,
                     "final_rewrite_latency_ms": rewrite_info.get("final_rewrite_latency_ms"),
                     "pure_rewrite_latency_ms": rewrite_info.get("pure_rewrite_latency_ms"),
                     "memory_hint_retrieval_applied": bool(
@@ -951,11 +1039,19 @@ def run_retrieval_eval(
                     "final_rank": final_rank,
                     "raw_retrieval_rank": raw_rank,
                     "final_retrieval_rank": final_rank,
+                    "elapsed_ms": float(row.get("elapsed_ms", 0.0)),
+                    "degraded_vs_raw": degraded_vs_raw,
                     "raw_metrics": raw_metrics,
                     "final_metrics": metrics,
                     "rewrite_metrics": (
                         metrics
-                        if mode in {"rewrite_always", "selective_rewrite", "selective_rewrite_with_session"}
+                        if mode in {
+                            "rewrite_always",
+                            "selective_rewrite",
+                            "selective_rewrite_with_session",
+                            "anchor_aware_rewrite",
+                            "agentic_multi_query",
+                        }
                         and bool(rewrite_info["rewrite_applied"])
                         else None
                     ),
@@ -979,6 +1075,14 @@ def run_retrieval_eval(
                     "terminology_hints": rewrite_info.get("terminology_hints"),
                     "canonical_anchor_hints": rewrite_info.get("canonical_anchor_hints"),
                     "multi_source_anchor_hints": rewrite_info.get("multi_source_anchor_hints"),
+                    "agentic_plan": rewrite_info.get("agentic_plan"),
+                    "subquery_traces": rewrite_info.get("subquery_traces", []),
+                    "merge_strategy": rewrite_info.get("merge_strategy"),
+                    "max_subqueries": rewrite_info.get("max_subqueries"),
+                    "rrf_k": rewrite_info.get("rrf_k"),
+                    "planner_fallback_applied": rewrite_info.get("planner_fallback_applied"),
+                    "agentic_planner_latency_ms": rewrite_info.get("agentic_planner_latency_ms"),
+                    "agentic_total_latency_ms": rewrite_info.get("agentic_total_latency_ms"),
                     "retrieved_top_k": [
                         {
                             "chunk_id": item.chunk_id,
@@ -1054,15 +1158,19 @@ def run_retrieval_eval(
             bad_rewrite_rate = bad_rewrite_cases / rewrite_total if rewrite_total else 0.0
             rewrite_rejection_rate = (
                 sum(1 for row in rows if not row["rewrite_applied"]) / len(rows)
-                if mode in {"rewrite_always", "selective_rewrite", "selective_rewrite_with_session"}
+                if mode in {"rewrite_always", "selective_rewrite", "selective_rewrite_with_session", "anchor_aware_rewrite"}
                 else 0.0
             )
             avg_confidence_delta = _mean([float(row.get("confidence_delta", 0.0)) for row in rows])
+            avg_latency_ms = _mean([float(row.get("elapsed_ms", 0.0)) for row in rows])
+            degraded_query_count = sum(1 for row in rows if bool(row.get("degraded_vs_raw")))
 
             summary_rows.append(
                 {
                     "mode": mode,
                     **aggregates,
+                    "avg_latency_ms": avg_latency_ms,
+                    "degraded_query_count": degraded_query_count,
                     "adoption_rate": adoption_rate,
                     "rewrite_rejection_rate": rewrite_rejection_rate,
                     "avg_confidence_delta": avg_confidence_delta,
@@ -1144,6 +1252,7 @@ def run_retrieval_eval(
             "rewrite_generation_stats": rewrite_stats_by_mode_payload,
             "multi_source_anchor_expansion_enabled": _is_multi_source_anchor_expansion_enabled(config.raw),
             "multi_source_anchor_diagnostics": _aggregate_multi_source_anchor_diagnostics(rewrite_flat_rows),
+            "degraded_query_count_definition": "per-sample mode mrr@10 lower than the same sample raw_only mrr@10",
             "summary": summary_rows,
             "category_summary": category_rows,
         }
@@ -1157,6 +1266,8 @@ def run_retrieval_eval(
             [
                 "mode",
                 *METRIC_KEYS,
+                "avg_latency_ms",
+                "degraded_query_count",
                 "adoption_rate",
                 "rewrite_rejection_rate",
                 "avg_confidence_delta",

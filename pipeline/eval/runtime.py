@@ -146,6 +146,25 @@ class RewriteOutcome:
     memory_hint_retrieval_applied: bool = False
 
 
+@dataclass(slots=True)
+class AgenticSubquery:
+    index: int
+    query: str
+    intent: str = "subquery"
+    weight: float = 1.0
+
+
+@dataclass(slots=True)
+class AgenticQueryPlan:
+    original_query: str
+    subqueries: list[AgenticSubquery]
+    fallback_applied: bool
+    fallback_reason: str | None = None
+    planner_model: str | None = None
+    planner_latency_ms: float = 0.0
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+
 RETRIEVAL_BACKEND_LOCAL = "local"
 RETRIEVAL_BACKEND_DB_ANN = "db_ann"
 
@@ -1016,6 +1035,39 @@ REWRITE_RESPONSE_SCHEMA: dict[str, Any] = {
     },
     "additionalProperties": True,
 }
+
+AGENTIC_QUERY_PLAN_RESPONSE_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "required": ["subqueries"],
+    "properties": {
+        "subqueries": {
+            "type": "array",
+            "minItems": 1,
+            "maxItems": 4,
+            "items": {
+                "type": "object",
+                "required": ["query"],
+                "properties": {
+                    "query": {"type": "string"},
+                    "intent": {"type": "string"},
+                    "weight": {"type": "number"},
+                },
+                "additionalProperties": True,
+            },
+        },
+        "planner_notes": {"type": "string"},
+    },
+    "additionalProperties": True,
+}
+AGENTIC_QUERY_PLANNER_SYSTEM_PROMPT = (
+    "You are a domain-scoped technical documentation retrieval query planner. "
+    "Decompose the user's query into focused retrieval subqueries, but stay strictly "
+    "inside the current technical-document domain supplied in domain_context. "
+    "Return JSON only. Generate 2 to max_subqueries subqueries when the question is "
+    "composite; keep each subquery concise and retrieval-oriented. Do not route to, "
+    "mention, or depend on other technical domains unless the current domain_context "
+    "already allows them."
+)
 
 PRODUCT_SCOPE_SUFFIXES = (
     "-reference",
@@ -4094,6 +4146,442 @@ def _memory_hint_retrieval(
         query_canonical_anchors=query_canonical_anchors,
     )
     return hint_query, retrieval, bool(retrieval)
+
+
+def _fallback_agentic_query_plan(
+    *,
+    raw_query: str,
+    reason: str,
+    planner_latency_ms: float,
+) -> AgenticQueryPlan:
+    return AgenticQueryPlan(
+        original_query=raw_query,
+        subqueries=[
+            AgenticSubquery(
+                index=1,
+                query=raw_query,
+                intent="original_query_fallback",
+                weight=1.0,
+            )
+        ],
+        fallback_applied=True,
+        fallback_reason=reason,
+        planner_model="fallback-original-query",
+        planner_latency_ms=planner_latency_ms,
+        metadata={},
+    )
+
+
+def _agentic_query_plan_payload(plan: AgenticQueryPlan) -> dict[str, Any]:
+    return {
+        "original_query": plan.original_query,
+        "fallback_applied": plan.fallback_applied,
+        "fallback_reason": plan.fallback_reason,
+        "planner_model": plan.planner_model,
+        "planner_latency_ms": plan.planner_latency_ms,
+        "subqueries": [
+            {
+                "index": subquery.index,
+                "query": subquery.query,
+                "intent": subquery.intent,
+                "weight": subquery.weight,
+            }
+            for subquery in plan.subqueries
+        ],
+        "metadata": plan.metadata,
+    }
+
+
+def _normalize_agentic_subqueries(
+    payload: Any,
+    *,
+    max_subqueries: int,
+) -> list[AgenticSubquery]:
+    rows: list[Any]
+    if isinstance(payload, Mapping):
+        raw_rows = payload.get("subqueries")
+        if raw_rows is None:
+            raw_rows = payload.get("queries")
+        rows = raw_rows if isinstance(raw_rows, list) else []
+    elif isinstance(payload, list):
+        rows = payload
+    else:
+        rows = []
+
+    normalized: list[AgenticSubquery] = []
+    seen: set[str] = set()
+    for row in rows:
+        if isinstance(row, str):
+            query = row.strip()
+            intent = "subquery"
+            weight = 1.0
+        elif isinstance(row, Mapping):
+            query = str(row.get("query") or row.get("text") or "").strip()
+            intent = str(row.get("intent") or "subquery").strip() or "subquery"
+            try:
+                weight = float(row.get("weight") or 1.0)
+            except (TypeError, ValueError):
+                weight = 1.0
+        else:
+            continue
+        if not query:
+            continue
+        key = " ".join(query.split()).casefold()
+        if key in seen:
+            continue
+        seen.add(key)
+        normalized.append(
+            AgenticSubquery(
+                index=len(normalized) + 1,
+                query=query,
+                intent=intent[:120],
+                weight=max(0.0, min(weight, 1.0)),
+            )
+        )
+        if len(normalized) >= max_subqueries:
+            break
+    return normalized
+
+
+def build_agentic_query_plan(
+    *,
+    raw_query: str,
+    query_language: str,
+    session_context: dict[str, Any],
+    source_product: str | None,
+    memory_hints: list[dict[str, Any]],
+    max_subqueries: int,
+    raw_config: dict[str, Any] | None = None,
+) -> AgenticQueryPlan:
+    started = time.perf_counter()
+    bounded_max_subqueries = _clamp_count(max_subqueries, default=3, max_value=4)
+    try:
+        client = _rewrite_client(raw_config=raw_config)
+        domain_context = _rewrite_domain_context(source_product)
+        payload = {
+            "raw_query": raw_query,
+            "query_language": query_language,
+            "session_context": session_context or {},
+            "domain_context": domain_context,
+            "max_subqueries": bounded_max_subqueries,
+            "scope_policy": {
+                "single_domain_only": True,
+                "cross_domain_routing_allowed": False,
+                "final_answer_not_requested": True,
+            },
+            "top_memory_hints": _memory_prompt_candidates(memory_hints)[:5],
+        }
+        response = client.chat_json(
+            system_prompt=AGENTIC_QUERY_PLANNER_SYSTEM_PROMPT,
+            user_prompt=json.dumps(payload, ensure_ascii=False, indent=2),
+            response_schema=AGENTIC_QUERY_PLAN_RESPONSE_SCHEMA,
+            request_purpose="agentic_query_planner",
+            trace_id=f"agentic-plan:{hashlib.sha1(raw_query.encode('utf-8')).hexdigest()[:12]}",
+        )
+        subqueries = _normalize_agentic_subqueries(
+            response,
+            max_subqueries=bounded_max_subqueries,
+        )
+        planner_latency_ms = (time.perf_counter() - started) * 1000.0
+        if not subqueries:
+            return _fallback_agentic_query_plan(
+                raw_query=raw_query,
+                reason="empty_subqueries",
+                planner_latency_ms=planner_latency_ms,
+            )
+        meta = response.get("_llm_meta") if isinstance(response, Mapping) else None
+        planner_model = None
+        if isinstance(meta, Mapping):
+            planner_model = str(meta.get("model") or "").strip() or None
+        return AgenticQueryPlan(
+            original_query=raw_query,
+            subqueries=subqueries,
+            fallback_applied=False,
+            fallback_reason=None,
+            planner_model=planner_model,
+            planner_latency_ms=planner_latency_ms,
+            metadata={
+                "planner_notes": str(response.get("planner_notes") or "").strip()
+                if isinstance(response, Mapping)
+                else "",
+                "llm_meta": dict(meta) if isinstance(meta, Mapping) else {},
+            },
+        )
+    except Exception as exception:  # noqa: BLE001 - planner must fail closed to original query.
+        planner_latency_ms = (time.perf_counter() - started) * 1000.0
+        return _fallback_agentic_query_plan(
+            raw_query=raw_query,
+            reason=f"{type(exception).__name__}: {str(exception)[:240]}",
+            planner_latency_ms=planner_latency_ms,
+        )
+
+
+def rrf_merge_retrieval_results(
+    result_sets: list[list[RetrievalCandidate]],
+    *,
+    top_k: int,
+    rrf_k: int = 60,
+) -> list[RetrievalCandidate]:
+    bounded_top_k = max(1, int(top_k or 1))
+    bounded_rrf_k = max(1, int(rrf_k or 60))
+    by_chunk: dict[str, dict[str, Any]] = {}
+    for retrieval in result_sets:
+        seen_in_result: set[str] = set()
+        for rank, row in enumerate(retrieval, start=1):
+            chunk_id = str(row.chunk_id or "").strip()
+            if not chunk_id or chunk_id in seen_in_result:
+                continue
+            seen_in_result.add(chunk_id)
+            entry = by_chunk.setdefault(
+                chunk_id,
+                {
+                    "representative": row,
+                    "rrf_score": 0.0,
+                    "best_original_score": row.score,
+                },
+            )
+            entry["rrf_score"] = float(entry["rrf_score"]) + (1.0 / (bounded_rrf_k + rank))
+            if row.score > float(entry.get("best_original_score", row.score)):
+                entry["representative"] = row
+                entry["best_original_score"] = row.score
+
+    ranked = sorted(
+        by_chunk.values(),
+        key=lambda entry: (
+            -float(entry["rrf_score"]),
+            -float(entry.get("best_original_score", 0.0)),
+            str(entry["representative"].chunk_id),
+        ),
+    )
+    merged: list[RetrievalCandidate] = []
+    for entry in ranked[:bounded_top_k]:
+        representative = entry["representative"]
+        merged.append(
+            RetrievalCandidate(
+                chunk_id=representative.chunk_id,
+                document_id=representative.document_id,
+                score=float(entry["rrf_score"]),
+                text=representative.text,
+            )
+        )
+    return merged
+
+
+def run_agentic_multi_query(
+    *,
+    raw_query: str,
+    query_language: str,
+    session_context: dict[str, Any],
+    chunks: list[ChunkItem],
+    memories: list[MemoryItem],
+    memory_top_n_value: int,
+    candidate_count: int,
+    threshold: float,
+    retrieval_top_k: int,
+    query_category: str | None = None,
+    preset_filter: str | None = None,
+    source_gate_run_id: str | None = None,
+    strategy_filters: list[str] | None = None,
+    rewrite_anchor_injection_enabled: bool = True,
+    rewrite_terminology_hints_max_count: int = DEFAULT_REWRITE_TERMINOLOGY_HINTS_MAX,
+    multi_source_anchor_expansion_enabled: bool = False,
+    multi_source_anchor_index: MultiSourceAnchorIndex | None = None,
+    multi_source_anchor_relation_types: list[str] | tuple[str, ...] | None = None,
+    multi_source_anchor_min_score: float = 0.72,
+    multi_source_anchor_max_per_seed: int = 2,
+    multi_source_anchor_max_total: int = 8,
+    rewrite_query_profile: str = REWRITE_QUERY_PROFILE_COMPACT_ANCHOR,
+    rewrite_failure_policy: str | None = None,
+    rewrite_retrieval_strategy: str = "replace",
+    rewrite_adoption_policy: dict[str, Any] | None = None,
+    raw_config: dict[str, Any] | None = None,
+    retriever_config: RetrieverConfig | None = None,
+    retrieval_adapter: DbAnnRuntimeRetrievalAdapter | None = None,
+    raw_retrieval: list[RetrievalCandidate] | None = None,
+    source_product: str | None = None,
+    memory_candidate_pool_n: int | None = None,
+    max_subqueries: int = 3,
+    rrf_k: int = 60,
+) -> tuple[dict[str, Any], list[RetrievalCandidate]]:
+    started = time.perf_counter()
+    config = retriever_config or build_retriever_config({})
+    bounded_max_subqueries = _clamp_count(max_subqueries, default=3, max_value=4)
+    bounded_rrf_k = max(1, int(_float_value(rrf_k, 60)))
+    memory_pool_n = max(
+        memory_top_n_value,
+        int(_float_value(memory_candidate_pool_n, max(memory_top_n_value * 4, 20))),
+    )
+    planner_memory_hints = memory_top_n(
+        raw_query,
+        memories,
+        top_n=min(memory_pool_n, 8),
+        preset_filter=preset_filter,
+        source_gate_run_id=source_gate_run_id,
+        strategy_filters=strategy_filters,
+        retriever_config=config,
+        retrieval_adapter=retrieval_adapter,
+    )
+    plan = build_agentic_query_plan(
+        raw_query=raw_query,
+        query_language=query_language,
+        session_context=session_context,
+        source_product=source_product,
+        memory_hints=planner_memory_hints,
+        max_subqueries=bounded_max_subqueries,
+        raw_config=raw_config,
+    )
+
+    subquery_traces: list[dict[str, Any]] = []
+    subquery_result_sets: list[list[RetrievalCandidate]] = []
+    any_rewrite_applied = False
+    rewrite_llm_attempted = False
+    rewrite_llm_succeeded = False
+    rewrite_heuristic_fallback_used = False
+    best_candidate_confidence = 0.0
+    raw_confidence = 0.0
+    for subquery in plan.subqueries[:bounded_max_subqueries]:
+        sub_started = time.perf_counter()
+        sub_raw_retrieval = retrieve_top_k(
+            subquery.query,
+            chunks,
+            top_k=retrieval_top_k,
+            retriever_config=config,
+            retrieval_adapter=retrieval_adapter,
+        )
+        trace_error = None
+        try:
+            rewrite_outcome, sub_retrieval = run_selective_rewrite(
+                raw_query=subquery.query,
+                query_language=query_language,
+                query_category=query_category,
+                session_context=session_context,
+                chunks=chunks,
+                memories=memories,
+                memory_top_n_value=memory_top_n_value,
+                candidate_count=candidate_count,
+                threshold=threshold,
+                retrieval_top_k=retrieval_top_k,
+                preset_filter=preset_filter,
+                source_gate_run_id=source_gate_run_id,
+                strategy_filters=strategy_filters,
+                force_rewrite=False,
+                rewrite_anchor_injection_enabled=rewrite_anchor_injection_enabled,
+                rewrite_terminology_hints_max_count=rewrite_terminology_hints_max_count,
+                multi_source_anchor_expansion_enabled=multi_source_anchor_expansion_enabled,
+                multi_source_anchor_index=multi_source_anchor_index,
+                multi_source_anchor_relation_types=multi_source_anchor_relation_types,
+                multi_source_anchor_min_score=multi_source_anchor_min_score,
+                multi_source_anchor_max_per_seed=multi_source_anchor_max_per_seed,
+                multi_source_anchor_max_total=multi_source_anchor_max_total,
+                rewrite_query_profile=rewrite_query_profile,
+                rewrite_failure_policy=rewrite_failure_policy,
+                rewrite_retrieval_strategy=rewrite_retrieval_strategy,
+                rewrite_adoption_policy=rewrite_adoption_policy,
+                raw_config=raw_config,
+                retriever_config=config,
+                retrieval_adapter=retrieval_adapter,
+                raw_retrieval=sub_raw_retrieval,
+                source_product=source_product,
+                memory_candidate_pool_n=memory_candidate_pool_n,
+            )
+            final_query = rewrite_outcome.final_query
+            rewrite_applied = rewrite_outcome.rewrite_applied
+            rewrite_reason = rewrite_outcome.rewrite_reason
+            memory_top = rewrite_outcome.memory_top_n
+            selected_rewrite = rewrite_outcome.selected_rewrite
+            candidates = rewrite_outcome.candidates
+            raw_confidence = max(raw_confidence, float(rewrite_outcome.raw_confidence or 0.0))
+            best_candidate_confidence = max(
+                best_candidate_confidence,
+                float(rewrite_outcome.best_candidate_confidence or 0.0),
+            )
+            any_rewrite_applied = any_rewrite_applied or rewrite_applied
+            rewrite_llm_attempted = rewrite_llm_attempted or rewrite_outcome.rewrite_llm_attempted
+            rewrite_llm_succeeded = rewrite_llm_succeeded or rewrite_outcome.rewrite_llm_succeeded
+            rewrite_heuristic_fallback_used = (
+                rewrite_heuristic_fallback_used or rewrite_outcome.rewrite_heuristic_fallback_used
+            )
+        except Exception as exception:  # noqa: BLE001 - one failed subquery must not abort the eval sample.
+            sub_retrieval = sub_raw_retrieval
+            final_query = subquery.query
+            rewrite_applied = False
+            rewrite_reason = "subquery_rewrite_failed_raw_fallback"
+            memory_top = []
+            selected_rewrite = None
+            candidates = []
+            trace_error = f"{type(exception).__name__}: {str(exception)[:240]}"
+
+        subquery_result_sets.append(sub_retrieval)
+        subquery_traces.append(
+            {
+                "index": subquery.index,
+                "subquery": subquery.query,
+                "intent": subquery.intent,
+                "weight": subquery.weight,
+                "final_query": final_query,
+                "rewrite_applied": rewrite_applied,
+                "rewrite_reason": rewrite_reason,
+                "rewrite_error": trace_error,
+                "selected_rewrite": selected_rewrite,
+                "rewrite_candidates": candidates,
+                "memory_top_n": memory_top,
+                "retrieval_count": len(sub_retrieval),
+                "retrieved_top_k": retrieval_candidates_to_payload(sub_retrieval[:5]),
+                "latency_ms": (time.perf_counter() - sub_started) * 1000.0,
+            }
+        )
+
+    if not subquery_result_sets:
+        fallback_retrieval = (
+            list(raw_retrieval)
+            if raw_retrieval is not None
+            else retrieve_top_k(
+                raw_query,
+                chunks,
+                top_k=retrieval_top_k,
+                retriever_config=config,
+                retrieval_adapter=retrieval_adapter,
+            )
+        )
+        subquery_result_sets = [fallback_retrieval]
+    merged = rrf_merge_retrieval_results(
+        subquery_result_sets,
+        top_k=retrieval_top_k,
+        rrf_k=bounded_rrf_k,
+    )
+    elapsed_ms = (time.perf_counter() - started) * 1000.0
+    return (
+        {
+            "rewrite_applied": any_rewrite_applied,
+            "raw_confidence": raw_confidence,
+            "best_candidate_confidence": best_candidate_confidence,
+            "final_query": raw_query,
+            "rewrite_reason": "agentic_multi_query_rrf",
+            "memory_top_n": planner_memory_hints,
+            "candidates": [],
+            "selected_rewrite": None,
+            "anchor_candidates": [],
+            "terminology_hints": None,
+            "canonical_anchor_hints": None,
+            "multi_source_anchor_hints": None,
+            "rewrite_llm_attempted": rewrite_llm_attempted,
+            "rewrite_llm_succeeded": rewrite_llm_succeeded,
+            "rewrite_heuristic_fallback_used": rewrite_heuristic_fallback_used,
+            "final_rewrite_latency_ms": elapsed_ms,
+            "pure_rewrite_latency_ms": plan.planner_latency_ms,
+            "memory_hint_query": None,
+            "memory_hint_retrieval_applied": False,
+            "agentic_plan": _agentic_query_plan_payload(plan),
+            "subquery_traces": subquery_traces,
+            "merge_strategy": "RRF",
+            "max_subqueries": bounded_max_subqueries,
+            "rrf_k": bounded_rrf_k,
+            "planner_fallback_applied": plan.fallback_applied,
+            "agentic_planner_latency_ms": plan.planner_latency_ms,
+            "agentic_total_latency_ms": elapsed_ms,
+        },
+        merged,
+    )
 
 
 def run_selective_rewrite(

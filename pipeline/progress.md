@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-06-22] Session Summary (Agentic Multi-Query Retrieval Eval Mode)
+- What was done: Added Python retrieval-eval support for explicit `anchor_aware_rewrite` and `agentic_multi_query` modes, including agentic planner fallback, sequential subquery selective rewrite/retrieval, chunk-id RRF merge, per-sample latency, and degraded-query summary counts.
+- Key decisions: Kept Java live path untouched, preserved legacy default eval modes, retained snapshot/domain scoping through existing corpus and memory filters, and excluded token-usage aggregation for this step.
+- Issues encountered: Local validation used py_compile and an in-process smoke with a mock planner fallback rather than a full DB-backed eval run.
+- Next steps: Run a same-snapshot comparison config with `raw_only`, `selective_rewrite`, `anchor_aware_rewrite`, and `agentic_multi_query`, then inspect `rewrite_cases_*` for `agentic_plan` and `subquery_traces`.
+
 ## [2026-06-16] Session Summary (Memory Domain Persistence)
 - What was done: Updated `memory/build_memory.py` so gated row loaders carry `domain_id` into `memory_entries`, and added a regression test that verifies the insert contract includes the domain.
 - Key decisions: Used the existing gated query domain as the source of truth, with quality-gating result domain as the batch/stage-cutoff fallback where applicable.
