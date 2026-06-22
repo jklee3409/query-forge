@@ -50,6 +50,56 @@ public final class RagDtos {
     ) {
     }
 
+    public record AgenticSubquery(
+            int index,
+            String query,
+            String intent,
+            double weight,
+            JsonNode metadata
+    ) {
+    }
+
+    public record AgenticQueryPlan(
+            String originalQuery,
+            UUID domainId,
+            String domainKey,
+            String domainName,
+            int maxSubqueries,
+            List<AgenticSubquery> subqueries,
+            String plannerModel,
+            boolean fallbackApplied,
+            String fallbackReason,
+            JsonNode metadata
+    ) {
+    }
+
+    public record SubqueryRetrievalTrace(
+            int subqueryIndex,
+            String subquery,
+            String effectiveQuery,
+            boolean rewriteApplied,
+            String routeStrategy,
+            String selectedReason,
+            String rejectedReason,
+            List<ScoredDocumentDto> retrievedDocs,
+            List<RewriteCandidateDto> rewriteCandidates,
+            JsonNode memoryTopN,
+            long latencyMs,
+            JsonNode metadata
+    ) {
+    }
+
+    public record AgenticRetrievalMetadata(
+            AgenticQueryPlan plan,
+            List<SubqueryRetrievalTrace> subqueryTraces,
+            String mergeStrategy,
+            int rrfK,
+            int finalTopK,
+            List<ScoredDocumentDto> mergedDocs,
+            JsonNode metadata
+    ) {
+    }
+
     public record AskResponse(
             UUID onlineQueryId,
             String answer,
@@ -64,7 +114,8 @@ public final class RagDtos {
             List<String> citedDocumentIds,
             List<String> citedChunkIds,
             ChatRuntimeDtos.ChatRuntimeConfigResponse appliedConfig,
-            Map<String, Long> latencyBreakdown
+            Map<String, Long> latencyBreakdown,
+            AgenticRetrievalMetadata agenticMetadata
     ) {
     }
 

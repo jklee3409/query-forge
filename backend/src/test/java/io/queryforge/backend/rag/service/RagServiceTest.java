@@ -50,6 +50,8 @@ class RagServiceTest {
     private ChatAnswerService chatAnswerService;
     @Mock
     private ChatRuntimeConfigService chatRuntimeConfigService;
+    @Mock
+    private AgenticRetrievalService agenticRetrievalService;
 
     private RagService ragService;
 
@@ -64,6 +66,7 @@ class RagServiceTest {
                 chatAnswerService,
                 chatRuntimeConfigService,
                 new QueryStrategyRouter(),
+                agenticRetrievalService,
                 objectMapper
         );
     }
@@ -110,6 +113,7 @@ class RagServiceTest {
         verify(repository, never()).findMemoryTopN(anyString(), anyInt(), anyString(), eq(domainId), anyList(), anyList(), anyList());
         verify(rewriteCandidateService, never()).buildCandidates(anyString(), any(), anyList(), anyInt(), anyString(), anyBoolean(), any());
         verify(repository, never()).createRewriteCandidate(any(), anyInt(), anyString(), anyString(), any(), any(), anyDouble(), any());
+        verify(agenticRetrievalService, never()).execute(any());
 
         ArgumentCaptor<JsonNode> metadataCaptor = ArgumentCaptor.forClass(JsonNode.class);
         verify(repository).mergeOnlineQueryMetadata(eq(onlineQueryId), metadataCaptor.capture());

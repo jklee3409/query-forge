@@ -56,7 +56,8 @@ class RagControllerWebTest {
                         List.of(),
                         List.of(),
                         null,
-                        Map.of("totalMs", 12L)
+                        Map.of("totalMs", 12L),
+                        null
                 )
         );
 

@@ -50,6 +50,7 @@ public class RagService {
     private final ChatAnswerService chatAnswerService;
     private final ChatRuntimeConfigService chatRuntimeConfigService;
     private final QueryStrategyRouter queryStrategyRouter;
+    private final AgenticRetrievalService agenticRetrievalService;
     private final ObjectMapper objectMapper;
 
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
@@ -97,8 +98,12 @@ public class RagService {
         boolean useSessionContext = config.useSessionContext() || "selective_rewrite_with_session".equals(mode);
         JsonNode sessionContextSnapshot = useSessionContext ? nullSafeJson(request.sessionContext()) : objectMapper.createObjectNode();
         RetrievalRuntime retrievalRuntime = retrievalRuntime(config);
+        AgenticSettings agenticSettings = agenticSettings(config.metadata());
         ObjectNode runtimeMetadata = runtimeMetadata(config);
         runtimeMetadata.set("router", routerMetadata(routeDecision));
+        if (agenticSettings.enabled()) {
+            runtimeMetadata.set("agentic_retrieval", agenticSettingsMetadata(agenticSettings, retrievalTopK));
+        }
         boolean rawOnlyRoute = routeDecision.routerEnabled() && routeDecision.strategy() == QueryStrategy.RAW_ONLY;
 
         Instant started = Instant.now();
@@ -139,6 +144,34 @@ public class RagService {
         }
         JsonNode memoryTopNJson = objectMapper.valueToTree(memoryCandidates);
         long memoryLatency = elapsedMs(stageStart);
+
+        if (agenticSettings.enabled()) {
+            return askAgentic(
+                    request,
+                    rawQuery,
+                    config,
+                    mode,
+                    rewriteQueryProfile,
+                    routeDecision,
+                    retrievalTopK,
+                    rerankTopN,
+                    memoryTopN,
+                    candidateCount,
+                    threshold,
+                    gatingPreset,
+                    useSessionContext,
+                    sessionContextSnapshot,
+                    retrievalRuntime,
+                    onlineQueryId,
+                    memoryCandidates,
+                    memoryTopNJson,
+                    createQueryLatency,
+                    memoryLatency,
+                    started,
+                    agenticSettings,
+                    readiness
+            );
+        }
 
         stageStart = System.nanoTime();
         List<RagRepository.RetrievalDoc> rawRetrievedLocal = retrieveChunks(
@@ -395,7 +428,208 @@ public class RagService {
                 answerDraft.citedDocumentIds(),
                 answerDraft.citedChunkIds(),
                 config,
-                latencyBreakdown
+                latencyBreakdown,
+                null
+        );
+    }
+
+    private RagDtos.AskResponse askAgentic(
+            RagDtos.AskRequest request,
+            String rawQuery,
+            ChatRuntimeDtos.ChatRuntimeConfigResponse config,
+            String mode,
+            String rewriteQueryProfile,
+            QueryRouteDecision routeDecision,
+            int retrievalTopK,
+            int rerankTopN,
+            int memoryTopN,
+            int candidateCount,
+            double threshold,
+            String gatingPreset,
+            boolean useSessionContext,
+            JsonNode sessionContextSnapshot,
+            RetrievalRuntime retrievalRuntime,
+            UUID onlineQueryId,
+            List<RagRepository.MemoryCandidate> plannerMemoryCandidates,
+            JsonNode memoryTopNJson,
+            long createQueryLatency,
+            long memoryLatency,
+            Instant started,
+            AgenticSettings agenticSettings,
+            ChatRuntimeDtos.ChatDomainReadinessResponse readiness
+    ) {
+        long stageStart = System.nanoTime();
+        AgenticRetrievalService.AgenticExecutionResult agenticResult = agenticRetrievalService.execute(
+                new AgenticRetrievalService.AgenticExecutionRequest(
+                        rawQuery,
+                        onlineQueryId,
+                        config,
+                        readiness,
+                        sessionContextSnapshot,
+                        plannerMemoryCandidates,
+                        mode,
+                        rewriteQueryProfile,
+                        switch (mode) {
+                            case "memory_only_ungated" -> "ungated";
+                            case "memory_only_gated" -> gatingPreset;
+                            default -> gatingPreset;
+                        },
+                        retrievalTopK,
+                        rerankTopN,
+                        memoryTopN,
+                        candidateCount,
+                        threshold,
+                        agenticSettings.maxSubqueries(),
+                        agenticSettings.rrfK(),
+                        retrievalTopK
+                )
+        );
+        long agenticRetrievalLatency = elapsedMs(stageStart);
+
+        stageStart = System.nanoTime();
+        List<RagRepository.RetrievalDoc> mergedDocs = agenticResult.mergedDocs();
+        repository.insertRerankResults(onlineQueryId, null, mergedDocs, "agentic-rrf");
+        long rerankLatency = elapsedMs(stageStart);
+
+        stageStart = System.nanoTime();
+        AnswerDraft answerDraft = buildAnswer(
+                rawQuery,
+                rawQuery,
+                config.displayName(),
+                mergedDocs
+        );
+        ObjectNode answerMetadata = objectMapper.createObjectNode();
+        answerMetadata.put("source", "llm-chat-answer");
+        answerMetadata.put("agentic_multi_query", true);
+        repository.insertAnswer(
+                onlineQueryId,
+                answerDraft.answerText(),
+                objectMapper.valueToTree(answerDraft.citedDocumentIds()),
+                objectMapper.valueToTree(answerDraft.citedChunkIds()),
+                answerDraft.modelName(),
+                answerMetadata
+        );
+        long answerLatency = elapsedMs(stageStart);
+
+        Map<String, Long> latencyBreakdown = new LinkedHashMap<>();
+        latencyBreakdown.put("queryRouterMs", routeDecision.metadata().get("latencyMs") instanceof Number number ? number.longValue() : 0L);
+        latencyBreakdown.put("createOnlineQueryMs", createQueryLatency);
+        latencyBreakdown.put("memoryLookupMs", memoryLatency);
+        latencyBreakdown.put("agenticPlanningMs", agenticResult.planningLatencyMs());
+        latencyBreakdown.put("agenticRetrievalMs", agenticRetrievalLatency);
+        latencyBreakdown.put("rerankMs", rerankLatency);
+        latencyBreakdown.put("answerGenerationMs", answerLatency);
+        latencyBreakdown.put("totalMs", java.time.Duration.between(started, Instant.now()).toMillis());
+
+        double denseHint = plannerMemoryCandidates.isEmpty() ? 0.0d : plannerMemoryCandidates.getFirst().similarity();
+        double selectedConfidence = confidence(mergedDocs, denseHint);
+        repository.upsertOnlineQueryDecision(
+                onlineQueryId,
+                rawQuery,
+                agenticResult.rewriteApplied(),
+                memoryTopNJson,
+                selectedConfidence,
+                null,
+                agenticResult.selectedReason(),
+                agenticResult.rejectedReason(),
+                objectMapper.valueToTree(latencyBreakdown)
+        );
+        ObjectNode agenticEnvelope = agenticMetadataEnvelope(agenticResult, agenticSettings, retrievalTopK, routeDecision);
+        repository.mergeOnlineQueryMetadata(onlineQueryId, agenticEnvelope);
+
+        boolean gatingApplied = !"raw_only".equals(mode) && !"memory_only_ungated".equals(mode);
+        boolean selectiveRewrite = mode.startsWith("selective_rewrite");
+        ObjectNode rewriteMetadata = rewriteLogMetadata(
+                config,
+                rewriteQueryProfile,
+                retrievalTopK,
+                rerankTopN,
+                memoryTopN,
+                candidateCount,
+                threshold,
+                latencyBreakdown,
+                retrievalRuntime,
+                routeDecision
+        );
+        rewriteMetadata.set("agentic_retrieval", agenticEnvelope);
+        UUID rewriteLogId = repository.createOnlineRewriteLog(
+                onlineQueryId,
+                null,
+                rawQuery,
+                rawQuery,
+                mode,
+                generationMethodCodes(plannerMemoryCandidates),
+                generationBatchIds(plannerMemoryCandidates),
+                gatingApplied,
+                gatingPreset,
+                agenticResult.rewriteApplied(),
+                selectiveRewrite,
+                useSessionContext,
+                selectedConfidence,
+                selectedConfidence,
+                0.0d,
+                agenticResult.selectedReason(),
+                agenticResult.rejectedReason(),
+                rewriteMetadata
+        );
+
+        for (int index = 0; index < plannerMemoryCandidates.size(); index++) {
+            RagRepository.MemoryCandidate memoryCandidate = plannerMemoryCandidates.get(index);
+            repository.insertMemoryRetrievalLog(
+                    rewriteLogId,
+                    onlineQueryId,
+                    index + 1,
+                    memoryCandidate,
+                    objectMapper.valueToTree(Map.of(
+                            "gating_preset", gatingPreset,
+                            "generation_batch_id", memoryCandidate.generationBatchId() == null ? "" : memoryCandidate.generationBatchId().toString(),
+                            "source_gate_run_id", memoryCandidate.sourceGateRunId() == null ? "" : memoryCandidate.sourceGateRunId(),
+                            "source_gating_batch_id", memoryCandidate.sourceGatingBatchId() == null ? "" : memoryCandidate.sourceGatingBatchId(),
+                            "agentic_role", "planner_memory_hint"
+                    ))
+            );
+        }
+
+        List<AgenticRetrievalService.PersistedRewriteCandidate> persistedCandidates = agenticResult.persistedCandidates();
+        for (int index = 0; index < persistedCandidates.size(); index++) {
+            AgenticRetrievalService.PersistedRewriteCandidate candidate = persistedCandidates.get(index);
+            ObjectNode candidateMetadata = objectMapper.createObjectNode();
+            candidateMetadata.put("mode", mode);
+            candidateMetadata.put("selected_reason", agenticResult.selectedReason());
+            candidateMetadata.put("agentic_multi_query", true);
+            repository.insertRewriteCandidateLog(
+                    rewriteLogId,
+                    onlineQueryId,
+                    candidate.rewriteCandidateId(),
+                    index + 1,
+                    candidate.label(),
+                    candidate.query(),
+                    candidate.confidence(),
+                    candidate.selected(),
+                    candidate.selected() ? null : candidate.rejectedReason(),
+                    objectMapper.valueToTree(candidate.retrieved()),
+                    candidate.scoreBreakdown(),
+                    candidateMetadata
+            );
+        }
+
+        RagDtos.AgenticRetrievalMetadata responseMetadata = toAgenticMetadata(agenticResult, agenticSettings, retrievalTopK);
+        return new RagDtos.AskResponse(
+                onlineQueryId,
+                answerDraft.answerText(),
+                rawQuery,
+                rawQuery,
+                agenticResult.rewriteApplied(),
+                toAgenticRewriteDtos(persistedCandidates),
+                toScoredDocs(mergedDocs),
+                toScoredDocs(mergedDocs),
+                memoryTopNJson,
+                answerDraft.modelName(),
+                answerDraft.citedDocumentIds(),
+                answerDraft.citedChunkIds(),
+                config,
+                latencyBreakdown,
+                responseMetadata
         );
     }
 
@@ -600,6 +834,120 @@ public class RagService {
                         doc.score()
                 ))
                 .toList();
+    }
+
+    private List<RagDtos.RewriteCandidateDto> toAgenticRewriteDtos(
+            List<AgenticRetrievalService.PersistedRewriteCandidate> candidates
+    ) {
+        return candidates.stream()
+                .map(candidate -> new RagDtos.RewriteCandidateDto(
+                        candidate.rewriteCandidateId(),
+                        candidate.label(),
+                        candidate.query(),
+                        candidate.confidence(),
+                        candidate.selected(),
+                        candidate.selected() ? null : candidate.rejectedReason(),
+                        objectMapper.valueToTree(candidate.retrieved()),
+                        candidate.scoreBreakdown()
+                ))
+                .toList();
+    }
+
+    private RagDtos.AgenticRetrievalMetadata toAgenticMetadata(
+            AgenticRetrievalService.AgenticExecutionResult result,
+            AgenticSettings settings,
+            int finalTopK
+    ) {
+        ObjectNode metadata = objectMapper.createObjectNode();
+        metadata.set("execution", nullSafeJson(result.metadata()));
+        metadata.put("fallback_plan", result.plan().fallbackApplied());
+        return new RagDtos.AgenticRetrievalMetadata(
+                result.plan(),
+                result.traces(),
+                settings.mergeStrategy(),
+                settings.rrfK(),
+                finalTopK,
+                toScoredDocs(result.mergedDocs()),
+                metadata
+        );
+    }
+
+    private ObjectNode agenticMetadataEnvelope(
+            AgenticRetrievalService.AgenticExecutionResult result,
+            AgenticSettings settings,
+            int finalTopK,
+            QueryRouteDecision routeDecision
+    ) {
+        ObjectNode node = objectMapper.createObjectNode();
+        node.set("agentic_plan", objectMapper.valueToTree(result.plan()));
+        node.set("subquery_traces", objectMapper.valueToTree(result.traces()));
+        node.put("merge_strategy", settings.mergeStrategy());
+        node.put("max_subqueries", settings.maxSubqueries());
+        node.put("rrf_k", settings.rrfK());
+        node.put("final_top_k", finalTopK);
+        node.set("merged_docs", objectMapper.valueToTree(toScoredDocs(result.mergedDocs())));
+        node.set("agentic_execution", nullSafeJson(result.metadata()));
+        node.set("router", routerMetadata(routeDecision));
+        return node;
+    }
+
+    private AgenticSettings agenticSettings(JsonNode metadata) {
+        boolean enabled = booleanMetadata(metadata, "agenticMultiQueryEnabled", "agentic_multi_query_enabled", false);
+        int maxSubqueries = intMetadata(metadata, "maxSubqueries", "max_subqueries", 3);
+        int rrfK = intMetadata(metadata, "rrfK", "rrf_k", 60);
+        String mergeStrategy = stringMetadata(metadata, "agenticMergeStrategy", "agentic_merge_strategy", "RRF");
+        String normalizedMergeStrategy = mergeStrategy == null || mergeStrategy.isBlank()
+                ? "RRF"
+                : mergeStrategy.trim().toUpperCase(Locale.ROOT);
+        if (!"RRF".equals(normalizedMergeStrategy)) {
+            normalizedMergeStrategy = "RRF";
+        }
+        return new AgenticSettings(
+                enabled,
+                Math.max(1, Math.min(maxSubqueries, 4)),
+                normalizedMergeStrategy,
+                Math.max(1, rrfK)
+        );
+    }
+
+    private ObjectNode agenticSettingsMetadata(AgenticSettings settings, int finalTopK) {
+        ObjectNode node = objectMapper.createObjectNode();
+        node.put("agenticMultiQueryEnabled", settings.enabled());
+        node.put("maxSubqueries", settings.maxSubqueries());
+        node.put("agenticMergeStrategy", settings.mergeStrategy());
+        node.put("rrfK", settings.rrfK());
+        node.put("finalTopK", finalTopK);
+        return node;
+    }
+
+    private boolean booleanMetadata(JsonNode metadata, String primaryKey, String aliasKey, boolean fallback) {
+        JsonNode value = metadataValue(metadata, primaryKey, aliasKey);
+        return value == null || value.isMissingNode() || value.isNull() ? fallback : value.asBoolean(fallback);
+    }
+
+    private int intMetadata(JsonNode metadata, String primaryKey, String aliasKey, int fallback) {
+        JsonNode value = metadataValue(metadata, primaryKey, aliasKey);
+        return value == null || value.isMissingNode() || value.isNull() ? fallback : value.asInt(fallback);
+    }
+
+    private String stringMetadata(JsonNode metadata, String primaryKey, String aliasKey, String fallback) {
+        JsonNode value = metadataValue(metadata, primaryKey, aliasKey);
+        if (value == null || value.isMissingNode() || value.isNull()) {
+            return fallback;
+        }
+        String raw = value.asText("");
+        return raw.isBlank() ? fallback : raw;
+    }
+
+    private JsonNode metadataValue(JsonNode metadata, String primaryKey, String aliasKey) {
+        if (metadata == null || !metadata.isObject()) {
+            return null;
+        }
+        JsonNode value = metadata.path(primaryKey);
+        if (!value.isMissingNode()) {
+            return value;
+        }
+        return metadata.path(aliasKey);
     }
 
     private RetrievalRuntime retrievalRuntime(ChatRuntimeDtos.ChatRuntimeConfigResponse config) {
@@ -1355,6 +1703,14 @@ public class RagService {
             UUID selectedCandidateId,
             String selectedReason,
             String rejectedReason
+    ) {
+    }
+
+    private record AgenticSettings(
+            boolean enabled,
+            int maxSubqueries,
+            String mergeStrategy,
+            int rrfK
     ) {
     }
 

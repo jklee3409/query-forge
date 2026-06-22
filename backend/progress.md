@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-06-22] Session Summary (Live Chat Agentic Multi-Query MVP)
+- What was done: Added `AgenticQueryPlannerService`, `AgenticRetrievalService`, and `SearchResultMerger`, extended `RagDtos.AskResponse` with optional agentic metadata, and wired `RagService.ask` to use the new path only when `chat_runtime_config.metadata_json.agenticMultiQueryEnabled=true`.
+- Key decisions: Preserved mandatory single-domain `domainId`, reused existing `QueryStrategyRouter` / `RewriteCandidateService` / domain-filtered retrieval for each subquery, executed subqueries sequentially, and stored plan/trace data in existing JSON metadata without a migration.
+- Issues encountered: The agentic path intentionally records merged RRF output as the final rerank result (`agentic-rrf`) rather than adding a second external rerank stage, so score semantics differ from Cohere rerank rows.
+- Next steps: Add Admin Chat Settings controls and snapshot-pinned retrieval evaluation mode after live MVP behavior is manually smoke-tested.
+
 ## [2026-06-22] Session Summary (Live Chat Gemini 503 Retry)
 - What was done: Added a `GeminiServiceUnavailableException`, Gemini 503 one-shot retry in `ChatAnswerService`, and a RAG API ProblemDetail response with `errorCode=GEMINI_SERVICE_UNAVAILABLE`, retry metadata, and the user-facing Gemini failure message.
 - Key decisions: Limited retry behavior to Gemini answer generation 503 responses and preserved existing generic `IllegalStateException` handling for non-503 answer failures.
