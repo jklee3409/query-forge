@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-06-23] Session Summary (RAG Java Source-of-Truth Migration Guide Phase 3A)
+- What was done: Extracted backend `RagService` general non-agentic retrieval helper code into `DomainScopedRetrievalService` without changing `/ask` response shape, orchestration order, answer generation, online persistence writes, router semantics, or agentic production logic.
+- Extracted helper/service: `DomainScopedRetrievalService` now owns retrieval runtime parsing, embedding literal creation, domain-scoped chunk/memory retrieval, pool merge/ranking, and fused-score calculation.
+- Validation: `.\gradlew.bat compileJava` passed; targeted RAG regression command including `io.queryforge.backend.rag.service.DomainScopedRetrievalServiceTest` passed; `git diff --check` passed.
+- Remaining risks: Phase 2 execution models remain intentionally unwired; Phase 4 must create non-agentic `RagRetrievalExecutionService` separately, and agentic helper commonization remains out of scope for this phase.
+
 ## [2026-06-23] Session Summary (RAG Java Source-of-Truth Migration Guide Phase 2)
 - What was done: Added backend-only retrieval execution request/result/trace model records plus persist-policy, forced-mode, retrieved-doc, and LLM-call-count support models for the future Java retrieval source-of-truth path.
 - Added models: `RagPersistPolicy`, `ForcedRetrievalMode`, `RagRetrievalExecutionRequest`, `RagRetrievalExecutionResult`, `RagRetrievedDoc`, `RagExecutionTrace`, `RagLlmCallCount`.

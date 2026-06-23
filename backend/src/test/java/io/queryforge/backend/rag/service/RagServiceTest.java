@@ -62,10 +62,15 @@ class RagServiceTest {
 
     @BeforeEach
     void setUp() {
-        ragService = new RagService(
+        DomainScopedRetrievalService domainScopedRetrievalService = new DomainScopedRetrievalService(
                 repository,
                 embeddingService,
-                denseEmbeddingService,
+                denseEmbeddingService
+        );
+        ragService = new RagService(
+                repository,
+                domainScopedRetrievalService,
+                embeddingService,
                 cohereRerankService,
                 rewriteCandidateService,
                 chatAnswerService,
