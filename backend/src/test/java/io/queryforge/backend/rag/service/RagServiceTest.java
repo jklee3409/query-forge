@@ -70,6 +70,7 @@ class RagServiceTest {
         RagRetrievalExecutionService ragRetrievalExecutionService = new RagRetrievalExecutionService(
                 domainScopedRetrievalService,
                 cohereRerankService,
+                rewriteCandidateService,
                 objectMapper
         );
         ragService = new RagService(

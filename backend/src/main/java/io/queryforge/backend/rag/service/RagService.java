@@ -244,51 +244,98 @@ public class RagService {
         stageStart = System.nanoTime();
         List<GeneratedCandidate> scoredCandidates = new ArrayList<>();
         if (!rawOnlyRoute) {
-            List<RewriteCandidateService.CandidateTemplate> generatedCandidates = rewriteCandidateService.buildCandidates(
-                    rawQuery,
-                    sessionContextSnapshot,
-                    memoryCandidates,
-                    candidateCount,
-                    routeDecision.rewriteQueryProfile(),
-                    routeDecision.anchorInjectionEnabled(),
-                    domainContext(config)
-            );
-            for (int index = 0; index < generatedCandidates.size(); index++) {
-                RewriteCandidateService.CandidateTemplate generated = generatedCandidates.get(index);
-                String embeddingLiteral = domainScopedRetrievalService.embeddingLiteral(generated.query(), retrievalRuntime);
-                List<RagRepository.RetrievalDoc> candidateRetrievedLocal = domainScopedRetrievalService.retrieveChunks(
-                        generated.query(),
-                        embeddingLiteral,
-                        retrievalTopK,
-                        config.domainId(),
-                        retrievalRuntime
+            if (usesSelectiveRewriteExecutionService(mode, routeDecision)) {
+                RagRetrievalExecutionService.SelectiveRewriteExecutionResult selectiveExecution =
+                        ragRetrievalExecutionService.executeSelectiveRewrite(new RagRetrievalExecutionService.SelectiveRewriteExecutionRequest(
+                                rawQuery,
+                                sessionContextSnapshot,
+                                memoryCandidates,
+                                candidateCount,
+                                routeDecision.rewriteQueryProfile(),
+                                domainContext(config),
+                                retrievalTopK,
+                                rerankTopN,
+                                config.domainId(),
+                                retrievalRuntime,
+                                rawDense
+                        ));
+                for (int index = 0; index < selectiveExecution.candidates().size(); index++) {
+                    RagRetrievalExecutionService.ExecutedRewriteCandidate executed =
+                            selectiveExecution.candidates().get(index);
+                    UUID candidateId = repository.createRewriteCandidate(
+                            onlineQueryId,
+                            index + 1,
+                            executed.label(),
+                            executed.query(),
+                            memorySourceIds(memoryCandidates),
+                            objectMapper.valueToTree(executed.rerankedDocs()),
+                            executed.confidence(),
+                            scoreBreakdown(executed.rerankedDocs(), memoryCandidates)
+                    );
+                    repository.insertRetrievalResults(
+                            onlineQueryId,
+                            candidateId,
+                            "rewrite_candidate",
+                            executed.localRetrievedDocs(),
+                            mode,
+                            retrievalRuntime.retrieverName(),
+                            retrievalMetadata(retrievalRuntime)
+                    );
+                    scoredCandidates.add(new GeneratedCandidate(
+                            executed.label(),
+                            executed.query(),
+                            executed.rerankedDocs(),
+                            executed.confidence(),
+                            candidateId
+                    ));
+                }
+            } else {
+                List<RewriteCandidateService.CandidateTemplate> generatedCandidates = rewriteCandidateService.buildCandidates(
+                        rawQuery,
+                        sessionContextSnapshot,
+                        memoryCandidates,
+                        candidateCount,
+                        routeDecision.rewriteQueryProfile(),
+                        routeDecision.anchorInjectionEnabled(),
+                        domainContext(config)
                 );
-                List<RagRepository.RetrievalDoc> candidateRetrieved = cohereRerankService.rerank(
-                        generated.query(),
-                        candidateRetrievedLocal,
-                        rerankTopN
-                );
-                double confidence = confidence(candidateRetrieved, rawDense);
-                UUID candidateId = repository.createRewriteCandidate(
-                        onlineQueryId,
-                        index + 1,
-                        generated.label(),
-                        generated.query(),
-                        memorySourceIds(memoryCandidates),
-                        objectMapper.valueToTree(candidateRetrieved),
-                        confidence,
-                        scoreBreakdown(candidateRetrieved, memoryCandidates)
-                );
-                repository.insertRetrievalResults(
-                        onlineQueryId,
-                        candidateId,
-                        "rewrite_candidate",
-                        candidateRetrievedLocal,
-                        mode,
-                        retrievalRuntime.retrieverName(),
-                        retrievalMetadata(retrievalRuntime)
-                );
-                scoredCandidates.add(new GeneratedCandidate(generated.label(), generated.query(), candidateRetrieved, confidence, candidateId));
+                for (int index = 0; index < generatedCandidates.size(); index++) {
+                    RewriteCandidateService.CandidateTemplate generated = generatedCandidates.get(index);
+                    String embeddingLiteral = domainScopedRetrievalService.embeddingLiteral(generated.query(), retrievalRuntime);
+                    List<RagRepository.RetrievalDoc> candidateRetrievedLocal = domainScopedRetrievalService.retrieveChunks(
+                            generated.query(),
+                            embeddingLiteral,
+                            retrievalTopK,
+                            config.domainId(),
+                            retrievalRuntime
+                    );
+                    List<RagRepository.RetrievalDoc> candidateRetrieved = cohereRerankService.rerank(
+                            generated.query(),
+                            candidateRetrievedLocal,
+                            rerankTopN
+                    );
+                    double confidence = confidence(candidateRetrieved, rawDense);
+                    UUID candidateId = repository.createRewriteCandidate(
+                            onlineQueryId,
+                            index + 1,
+                            generated.label(),
+                            generated.query(),
+                            memorySourceIds(memoryCandidates),
+                            objectMapper.valueToTree(candidateRetrieved),
+                            confidence,
+                            scoreBreakdown(candidateRetrieved, memoryCandidates)
+                    );
+                    repository.insertRetrievalResults(
+                            onlineQueryId,
+                            candidateId,
+                            "rewrite_candidate",
+                            candidateRetrievedLocal,
+                            mode,
+                            retrievalRuntime.retrieverName(),
+                            retrievalMetadata(retrievalRuntime)
+                    );
+                    scoredCandidates.add(new GeneratedCandidate(generated.label(), generated.query(), candidateRetrieved, confidence, candidateId));
+                }
             }
         }
         long candidateLatency = elapsedMs(stageStart);
@@ -1007,6 +1054,12 @@ public class RagService {
                 routeDecision.reason(),
                 rejectedReason
         );
+    }
+
+    private boolean usesSelectiveRewriteExecutionService(String mode, QueryRouteDecision routeDecision) {
+        return mode.startsWith("selective_rewrite")
+                && !routeDecision.routerEnabled()
+                && !routeDecision.anchorInjectionEnabled();
     }
 
     private Decision decide(

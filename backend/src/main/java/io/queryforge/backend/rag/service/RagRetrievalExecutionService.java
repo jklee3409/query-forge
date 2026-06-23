@@ -16,6 +16,7 @@ public class RagRetrievalExecutionService {
 
     private final DomainScopedRetrievalService domainScopedRetrievalService;
     private final CohereRerankService cohereRerankService;
+    private final RewriteCandidateService rewriteCandidateService;
     private final ObjectMapper objectMapper;
 
     public RawOnlyExecutionResult executeRawOnly(RawOnlyExecutionRequest request) {
@@ -41,6 +42,52 @@ public class RagRetrievalExecutionService {
                 request.retrievalRuntime().retrieverName(),
                 retrievalMetadata(request.retrievalRuntime()),
                 elapsedMs(started)
+        );
+    }
+
+    public SelectiveRewriteExecutionResult executeSelectiveRewrite(SelectiveRewriteExecutionRequest request) {
+        long started = System.nanoTime();
+        List<RewriteCandidateService.CandidateTemplate> generatedCandidates = rewriteCandidateService.buildCandidates(
+                request.rawQuery(),
+                request.sessionContextSnapshot(),
+                request.memoryCandidates(),
+                request.candidateCount(),
+                request.rewriteQueryProfile(),
+                false,
+                request.domainContext()
+        );
+        List<ExecutedRewriteCandidate> executedCandidates = generatedCandidates.stream()
+                .map(generated -> executeCandidate(generated, request))
+                .toList();
+        return new SelectiveRewriteExecutionResult(executedCandidates, elapsedMs(started));
+    }
+
+    private ExecutedRewriteCandidate executeCandidate(
+            RewriteCandidateService.CandidateTemplate generated,
+            SelectiveRewriteExecutionRequest request
+    ) {
+        String embeddingLiteral = domainScopedRetrievalService.embeddingLiteral(
+                generated.query(),
+                request.retrievalRuntime()
+        );
+        List<RagRepository.RetrievalDoc> localRetrievedDocs = domainScopedRetrievalService.retrieveChunks(
+                generated.query(),
+                embeddingLiteral,
+                request.retrievalTopK(),
+                request.domainId(),
+                request.retrievalRuntime()
+        );
+        List<RagRepository.RetrievalDoc> rerankedDocs = cohereRerankService.rerank(
+                generated.query(),
+                localRetrievedDocs,
+                request.rerankTopN()
+        );
+        return new ExecutedRewriteCandidate(
+                generated.label(),
+                generated.query(),
+                localRetrievedDocs,
+                rerankedDocs,
+                confidence(rerankedDocs, request.rawDenseScore())
         );
     }
 
@@ -117,6 +164,58 @@ public class RagRetrievalExecutionService {
             long latencyMs
     ) {
         public RawOnlyExecutionResult {
+            localRetrievedDocs = localRetrievedDocs == null ? List.of() : List.copyOf(localRetrievedDocs);
+            rerankedDocs = rerankedDocs == null ? List.of() : List.copyOf(rerankedDocs);
+        }
+    }
+
+    public record SelectiveRewriteExecutionRequest(
+            String rawQuery,
+            JsonNode sessionContextSnapshot,
+            List<RagRepository.MemoryCandidate> memoryCandidates,
+            int candidateCount,
+            String rewriteQueryProfile,
+            ObjectNode domainContext,
+            int retrievalTopK,
+            int rerankTopN,
+            UUID domainId,
+            DomainScopedRetrievalService.RetrievalRuntime retrievalRuntime,
+            double rawDenseScore
+    ) {
+        public SelectiveRewriteExecutionRequest {
+            if (rawQuery == null || rawQuery.isBlank()) {
+                throw new IllegalArgumentException("rawQuery must not be blank");
+            }
+            if (domainId == null) {
+                throw new IllegalArgumentException("domainId is required");
+            }
+            if (retrievalRuntime == null) {
+                throw new IllegalArgumentException("retrievalRuntime is required");
+            }
+            memoryCandidates = memoryCandidates == null ? List.of() : List.copyOf(memoryCandidates);
+            candidateCount = Math.max(1, candidateCount);
+            retrievalTopK = Math.max(1, retrievalTopK);
+            rerankTopN = Math.max(1, rerankTopN);
+        }
+    }
+
+    public record SelectiveRewriteExecutionResult(
+            List<ExecutedRewriteCandidate> candidates,
+            long latencyMs
+    ) {
+        public SelectiveRewriteExecutionResult {
+            candidates = candidates == null ? List.of() : List.copyOf(candidates);
+        }
+    }
+
+    public record ExecutedRewriteCandidate(
+            String label,
+            String query,
+            List<RagRepository.RetrievalDoc> localRetrievedDocs,
+            List<RagRepository.RetrievalDoc> rerankedDocs,
+            double confidence
+    ) {
+        public ExecutedRewriteCandidate {
             localRetrievedDocs = localRetrievedDocs == null ? List.of() : List.copyOf(localRetrievedDocs);
             rerankedDocs = rerankedDocs == null ? List.of() : List.copyOf(rerankedDocs);
         }
