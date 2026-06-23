@@ -67,6 +67,25 @@ class QueryStrategyRouterTest {
     }
 
     @Test
+    void memoryCandidatesUnavailableFallsBackToRawOnlyWhenRouterIsEnabled() {
+        QueryRouteDecision decision = router.route(context(
+                "\uC2A4\uD504\uB9C1 \uC124\uC815 \uBC29\uBC95",
+                config("selective_rewrite", true, false),
+                readiness(true),
+                true,
+                false
+        ));
+
+        assertThat(decision.strategy()).isEqualTo(QueryStrategy.RAW_ONLY);
+        assertThat(decision.reason()).isEqualTo("memory_candidates_unavailable");
+        assertThat(decision.fallbackApplied()).isTrue();
+        assertThat(decision.fallbackReason()).isEqualTo("memory_candidates_empty");
+        assertThat(decision.metadata())
+                .containsEntry("memoryCandidatesKnown", true)
+                .containsEntry("memoryCandidatesAvailable", false);
+    }
+
+    @Test
     void rewriteModeWithReadinessSelectsSyntheticSelectiveRewrite() {
         QueryRouteDecision decision = router.route(context(
                 "스프링 부트 설정 방법",
@@ -93,6 +112,49 @@ class QueryStrategyRouterTest {
         assertThat(decision.strategy()).isEqualTo(QueryStrategy.ANCHOR_AWARE_REWRITE);
         assertThat(decision.anchorInjectionEnabled()).isTrue();
         assertThat(decision.reason()).isEqualTo("anchor_injection_enabled_and_technical_anchor_detected");
+    }
+
+    @Test
+    void specificEnglishTechnicalQuerySelectsRawOnly() {
+        QueryRouteDecision decision = router.route(context(
+                "FilterChainProxy SecurityFilterChain order",
+                config("selective_rewrite", true, false),
+                readiness(true),
+                true,
+                true
+        ));
+
+        assertThat(decision.strategy()).isEqualTo(QueryStrategy.RAW_ONLY);
+        assertThat(decision.reason()).isEqualTo("specific_technical_query");
+        assertThat(decision.metadata())
+                .containsEntry("containsEnglish", true)
+                .containsEntry("containsKorean", false)
+                .containsEntry("containsTechnicalAnchor", true);
+    }
+
+    @Test
+    void generalKoreanQuerySelectsSyntheticSelectiveRewriteAndExposesRouteMetadata() {
+        String query = "\uC2A4\uD504\uB9C1 \uC124\uC815 \uBC29\uBC95";
+        QueryRouteDecision decision = router.route(context(
+                query,
+                config("selective_rewrite", true, false),
+                readiness(true),
+                true,
+                true
+        ));
+
+        assertThat(decision.strategy()).isEqualTo(QueryStrategy.SYNTHETIC_SELECTIVE_REWRITE);
+        assertThat(decision.reason()).isEqualTo("rewrite_backed_mode_ready");
+        assertThat(decision.metadata())
+                .containsEntry("runtimeMode", "selective_rewrite")
+                .containsEntry("rewriteQueryProfile", "compact_anchor")
+                .containsEntry("queryLength", query.length())
+                .containsEntry("queryTokenCount", 3)
+                .containsEntry("containsKorean", true)
+                .containsEntry("containsEnglish", false)
+                .containsEntry("containsTechnicalAnchor", false)
+                .containsEntry("memoryCandidatesKnown", true)
+                .containsEntry("memoryCandidatesAvailable", true);
     }
 
     private QueryRouteContext context(

@@ -1,5 +1,12 @@
 # progress.md
 
+## [2026-06-23] Session Summary (RAG Java Source-of-Truth Migration Guide Phase 1)
+- What was done: Expanded `RagServiceTest` with `/ask` characterization for raw-only, selective rewrite, anchor-aware rewrite, and agentic metadata paths; added `AgenticRetrievalServiceTest` for domain-scoped agentic subquery retrieval; extended `QueryStrategyRouterTest` for missing router fallback/selection metadata cases.
+- Key decisions: Test-only backend change; no production Java logic, Python pipeline, DB migration, API response shape, router enum, eval endpoint, DomainRouter, or cross-domain retrieval changes were made.
+- Issues encountered: Internal side-effect verification is intentionally mock-based and brittle by design because Phase 1 is pre-refactor characterization; no DB-backed trace integration test was added.
+- Validation: `.\gradlew.bat compileJava` passed; requested targeted test set plus `io.queryforge.backend.rag.service.AgenticRetrievalServiceTest` passed.
+- Next steps: Keep these tests as guards before extracting retrieval execution/persistence responsibilities in later phases.
+
 ## [2026-06-22] Session Summary (Live Chat Agentic Multi-Query MVP)
 - What was done: Added `AgenticQueryPlannerService`, `AgenticRetrievalService`, and `SearchResultMerger`, extended `RagDtos.AskResponse` with optional agentic metadata, and wired `RagService.ask` to use the new path only when `chat_runtime_config.metadata_json.agenticMultiQueryEnabled=true`.
 - Key decisions: Preserved mandatory single-domain `domainId`, reused existing `QueryStrategyRouter` / `RewriteCandidateService` / domain-filtered retrieval for each subquery, executed subqueries sequentially, and stored plan/trace data in existing JSON metadata without a migration.

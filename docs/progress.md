@@ -3,6 +3,12 @@
 ## Overview
 High-level progress tracking for the `docs` directory.
 
+## [2026-06-23] Session Summary (RAG Java Source-of-Truth Migration Phase 1 Follow-up)
+- What was done: Recorded that Phase 1 proceeded as backend `/ask` characterization tests against the existing migration guide.
+- Key decisions: The guide document itself was not changed; no eval endpoint, DB schema, or production runtime behavior was introduced.
+- Issues encountered: Remaining test limitations are documented in backend/root progress and final task output.
+- Next steps: Continue using `rag-java-source-of-truth-migration-guide.md` as the phase boundary document for Phase 2.
+
 ## [2026-05-20] Session Summary (Domain Scoped Admin Runtime Wiring)
 - What was done: Recorded the implementation phase that threads selected domain IDs through existing Admin runtime APIs and domain workspace GUI calls.
 - Key decisions: Kept prompt assets global above domains; only execution/list artifacts are domain scoped in this phase.

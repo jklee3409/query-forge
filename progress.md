@@ -1,5 +1,12 @@
 # progress.md
 
+## [2026-06-23] Session Summary (RAG Java Source-of-Truth Migration Guide Phase 1)
+- What was done: Added /ask characterization coverage for raw-only, selective rewrite adoption, anchor-aware rewrite routing, answer persistence, agentic metadata branching, and domain-scoped retrieval calls.
+- Key decisions: Kept Phase 1 test-only scope; no production Java/Python code, DB schema, router enum, eval endpoint, DomainRouter, or cross-domain retrieval changes were made.
+- Issues encountered: Agentic internal DB writes remain characterized through focused service-level mocks rather than a DB integration test; raw-only skip behavior was fixed in tests for the current router-enabled raw-only path.
+- Validation: `.\gradlew.bat compileJava` passed; targeted RAG test command including `AgenticRetrievalServiceTest` passed.
+- Next steps: Use these tests as the guard before Phase 2 execution result model work.
+
 ## [2026-06-23] Session Summary (Python Strategy Router Eval Mode)
 - What was done: Added opt-in Python retrieval-eval `strategy_router` mode that mirrors the Java live router rules, runs only the selected concrete strategy per sample, and emits selected strategy/reason plus planner/rewrite/total LLM call counts in sample traces and summaries.
 - Key decisions: Preserved existing default retrieval modes, kept Java code, DB schema, UI, DomainRouter, and cross-domain retrieval unchanged, and kept agentic routing behind `strategy_router_agentic_enabled` with conservative complex-query rules.
