@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-06-23] Session Summary (RAG Java Source-of-Truth Migration Guide Phase 5B)
+- What was done: Connected backend raw_only online trace persistence to `RagTracePersistenceService` for existing retrieval/rerank trace writes while preserving `/ask` answer generation, response shape, and remaining persistence locations.
+- Scope: `ONLINE_QUERY` is implemented only for raw_only retrieval/rerank write phases; `NONE` remains no-write and `TRACE_ONLY` remains unsupported. `createOnlineQuery`, `upsertOnlineQueryDecision`, `mergeOnlineQueryMetadata`, `insertAnswer`, selective/anchor/agentic persistence, DB schema, eval endpoints, and Python code were not moved or changed.
+- Validation: `.\gradlew.bat compileJava` passed; `.\gradlew.bat test --tests io.queryforge.backend.rag.service.RagTracePersistenceServiceTest` passed; requested targeted RAG regression command passed; `git diff --check` passed.
+- Remaining risks: The adapter now owns only raw_only retrieval/rerank rows; later phases must define broader `ONLINE_QUERY`, `TRACE_ONLY`, and non-raw trace semantics before moving more persistence.
+
 ## [2026-06-23] Session Summary (RAG Java Source-of-Truth Migration Guide Phase 4E)
 - What was done: Added a common backend non-agentic execution result contract inside `RagRetrievalExecutionService` and normalized raw/selective/anchor-aware retrieval material around shared docs, confidence, retriever/reranker metadata, chunk ids, and latency fields.
 - Scope: Preserved existing Java `/ask` orchestration, response shape, raw/selective/anchor behavior, answer generation, online persistence writes, agentic logic, DB schema, eval endpoint surface, Python eval code, and Phase 2 public model shape.

@@ -61,6 +61,7 @@ class RagServiceTest {
 
     private RagService ragService;
     private RagRetrievalExecutionService ragRetrievalExecutionService;
+    private RagTracePersistenceService ragTracePersistenceService;
 
     @BeforeEach
     void setUp() {
@@ -75,10 +76,12 @@ class RagServiceTest {
                 rewriteCandidateService,
                 objectMapper
         ));
+        ragTracePersistenceService = spy(new RagTracePersistenceService(repository));
         ragService = new RagService(
                 repository,
                 domainScopedRetrievalService,
                 ragRetrievalExecutionService,
+                ragTracePersistenceService,
                 embeddingService,
                 cohereRerankService,
                 rewriteCandidateService,
@@ -133,6 +136,7 @@ class RagServiceTest {
         verify(rewriteCandidateService, never()).buildCandidates(anyString(), any(), anyList(), anyInt(), anyString(), anyBoolean(), any());
         verify(repository, never()).createRewriteCandidate(any(), anyInt(), anyString(), anyString(), any(), any(), anyDouble(), any());
         verify(agenticRetrievalService, never()).execute(any());
+        verify(ragTracePersistenceService, never()).persistRawOnlyTrace(any());
 
         ArgumentCaptor<JsonNode> metadataCaptor = ArgumentCaptor.forClass(JsonNode.class);
         verify(repository).mergeOnlineQueryMetadata(eq(onlineQueryId), metadataCaptor.capture());
@@ -189,6 +193,22 @@ class RagServiceTest {
         verify(agenticRetrievalService, never()).execute(any());
         verify(repository).findTopChunksByEmbedding(anyString(), anyInt(), eq(domainId));
         verify(chatAnswerService).generateAnswer(eq(query), eq(query), eq("Spring"), anyList());
+        ArgumentCaptor<RagTracePersistenceService.RawOnlyTracePersistenceRequest> traceCaptor =
+                ArgumentCaptor.forClass(RagTracePersistenceService.RawOnlyTracePersistenceRequest.class);
+        verify(ragTracePersistenceService, times(2)).persistRawOnlyTrace(traceCaptor.capture());
+        assertThat(traceCaptor.getAllValues())
+                .extracting(RagTracePersistenceService.RawOnlyTracePersistenceRequest::writeScope)
+                .containsExactly(
+                        RagTracePersistenceService.RawOnlyTraceWriteScope.RETRIEVAL,
+                        RagTracePersistenceService.RawOnlyTraceWriteScope.RERANK
+                );
+        assertThat(traceCaptor.getAllValues())
+                .allSatisfy(trace -> {
+                    assertThat(trace.onlineQueryId()).isEqualTo(onlineQueryId);
+                    assertThat(trace.mode()).isEqualTo("raw_only");
+                    assertThat(trace.rawQuery()).isEqualTo(query);
+                    assertThat(trace.finalQuery()).isEqualTo(query);
+                });
         verify(repository).insertRetrievalResults(eq(onlineQueryId), isNull(), eq("raw"), anyList(), eq("raw_only"), eq("local:dense_only:hash-embedding-v1"), any());
         verify(repository).insertRerankResults(eq(onlineQueryId), isNull(), anyList(), eq("local-rerank-fallback"));
         verify(repository).insertAnswer(eq(onlineQueryId), eq("raw answer"), any(), any(), eq("test-answer-model"), any());
@@ -248,6 +268,7 @@ class RagServiceTest {
         verify(repository).insertRetrievalResults(eq(onlineQueryId), isNull(), eq("raw"), anyList(), eq("selective_rewrite"), eq("local:dense_only:hash-embedding-v1"), any());
         verify(repository).insertRetrievalResults(eq(onlineQueryId), eq(rewriteCandidateId), eq("rewrite_candidate"), anyList(), eq("selective_rewrite"), eq("local:dense_only:hash-embedding-v1"), any());
         verify(repository).insertRerankResults(eq(onlineQueryId), eq(rewriteCandidateId), anyList(), eq("local-rerank-fallback"));
+        verify(ragTracePersistenceService, never()).persistRawOnlyTrace(any());
         verify(chatAnswerService).generateAnswer(eq(query), eq(rewrittenQuery), eq("Spring"), anyList());
         verify(repository).insertAnswer(eq(onlineQueryId), eq("rewrite answer"), any(), any(), eq("test-answer-model"), any());
         verify(repository).createOnlineRewriteLog(eq(onlineQueryId), isNull(), eq(query), eq(rewrittenQuery), eq("selective_rewrite"), any(), any(), eq(true), eq("full_gating"), eq(true), eq(true), eq(false), anyDouble(), anyDouble(), anyDouble(), eq("delta_above_threshold"), isNull(), any());
@@ -361,6 +382,7 @@ class RagServiceTest {
         verify(repository).insertRetrievalResults(eq(onlineQueryId), eq(rewriteCandidateId), eq("rewrite_candidate"), anyList(), eq("selective_rewrite"), eq("local:dense_only:hash-embedding-v1"), any());
         verify(repository, times(2)).findTopChunksByEmbedding(anyString(), anyInt(), eq(domainId));
         verify(repository).insertRerankResults(eq(onlineQueryId), eq(rewriteCandidateId), anyList(), eq("local-rerank-fallback"));
+        verify(ragTracePersistenceService, never()).persistRawOnlyTrace(any());
         verify(chatAnswerService).generateAnswer(eq(query), eq(rewrittenQuery), eq("Spring"), anyList());
         verify(repository).insertAnswer(eq(onlineQueryId), eq("anchor answer"), any(), any(), eq("test-answer-model"), any());
         verify(repository).createOnlineRewriteLog(eq(onlineQueryId), isNull(), eq(query), eq(rewrittenQuery), eq("selective_rewrite"), any(), any(), eq(true), eq("full_gating"), eq(true), eq(true), eq(false), anyDouble(), anyDouble(), anyDouble(), eq("delta_above_threshold"), isNull(), any());

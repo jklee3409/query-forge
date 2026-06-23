@@ -8,6 +8,7 @@ import io.queryforge.backend.rag.model.ChatRuntimeDtos;
 import io.queryforge.backend.rag.model.QueryRouteContext;
 import io.queryforge.backend.rag.model.QueryRouteDecision;
 import io.queryforge.backend.rag.model.QueryStrategy;
+import io.queryforge.backend.rag.model.RagPersistPolicy;
 import io.queryforge.backend.rag.model.RagDtos;
 import io.queryforge.backend.rag.repository.RagRepository;
 import lombok.RequiredArgsConstructor;
@@ -45,6 +46,7 @@ public class RagService {
     private final RagRepository repository;
     private final DomainScopedRetrievalService domainScopedRetrievalService;
     private final RagRetrievalExecutionService ragRetrievalExecutionService;
+    private final RagTracePersistenceService ragTracePersistenceService;
     private final HashEmbeddingService embeddingService;
     private final CohereRerankService cohereRerankService;
     private final RewriteCandidateService rewriteCandidateService;
@@ -213,15 +215,33 @@ public class RagService {
             rawRetrieverName = retrievalRuntime.retrieverName();
             rawRetrievalMetadata = retrievalMetadata(retrievalRuntime);
         }
-        repository.insertRetrievalResults(
-                onlineQueryId,
-                null,
-                "raw",
-                rawRetrievedLocal,
-                mode,
-                rawRetrieverName,
-                rawRetrievalMetadata
-        );
+        boolean rawOnlyTracePersistence = useRawOnlyTracePersistence(mode, rawOnlyRoute);
+        if (rawOnlyTracePersistence) {
+            ragTracePersistenceService.persistRawOnlyTrace(new RagTracePersistenceService.RawOnlyTracePersistenceRequest(
+                    RagPersistPolicy.ONLINE_QUERY,
+                    onlineQueryId,
+                    rawQuery,
+                    rawQuery,
+                    mode,
+                    rawRetrievedLocal,
+                    rawRetrieved,
+                    rawRetrievalMetadata,
+                    rawRetrieverName,
+                    null,
+                    rawRetrievalLatency,
+                    RagTracePersistenceService.RawOnlyTraceWriteScope.RETRIEVAL
+            ));
+        } else {
+            repository.insertRetrievalResults(
+                    onlineQueryId,
+                    null,
+                    "raw",
+                    rawRetrievedLocal,
+                    mode,
+                    rawRetrieverName,
+                    rawRetrievalMetadata
+            );
+        }
 
         if (routeDecision.routerEnabled() && !rawOnlyRoute) {
             routeStarted = System.nanoTime();
@@ -392,7 +412,24 @@ public class RagService {
 
         stageStart = System.nanoTime();
         List<RagRepository.RetrievalDoc> reranked = decision.finalRetrieved();
-        repository.insertRerankResults(onlineQueryId, decision.selectedCandidateId(), reranked, cohereRerankService.modelName());
+        if (rawOnlyTracePersistence) {
+            ragTracePersistenceService.persistRawOnlyTrace(new RagTracePersistenceService.RawOnlyTracePersistenceRequest(
+                    RagPersistPolicy.ONLINE_QUERY,
+                    onlineQueryId,
+                    rawQuery,
+                    decision.finalQuery(),
+                    mode,
+                    rawRetrievedLocal,
+                    reranked,
+                    rawRetrievalMetadata,
+                    rawRetrieverName,
+                    cohereRerankService.modelName(),
+                    rawRetrievalLatency,
+                    RagTracePersistenceService.RawOnlyTraceWriteScope.RERANK
+            ));
+        } else {
+            repository.insertRerankResults(onlineQueryId, decision.selectedCandidateId(), reranked, cohereRerankService.modelName());
+        }
         long rerankLatency = elapsedMs(stageStart);
 
         stageStart = System.nanoTime();
@@ -1084,6 +1121,10 @@ public class RagService {
                 routeDecision.strategy() == QueryStrategy.SYNTHETIC_SELECTIVE_REWRITE
                         && !routeDecision.anchorInjectionEnabled();
         return forcedNonAnchorSelective || routerSelectedNonAnchorSelective;
+    }
+
+    private boolean useRawOnlyTracePersistence(String mode, boolean rawOnlyRoute) {
+        return rawOnlyRoute && "raw_only".equals(mode);
     }
 
     private boolean usesAnchorAwareRewriteExecutionService(QueryRouteDecision routeDecision) {
