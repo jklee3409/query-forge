@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-06-23] Session Summary (RAG Java Source-of-Truth Migration Guide Phase 5E)
+- What was done: Moved non-agentic rewrite/memory/candidate log persistence for selective, router-selected selective, and anchor-aware live chat paths behind `RagTracePersistenceService`.
+- Scope: `ONLINE_QUERY` now covers `createOnlineRewriteLog`, `insertMemoryRetrievalLog`, and `insertRewriteCandidateLog` only for those target non-agentic log paths. Existing `/ask` response shape, answer generation, `insertAnswer`, `createOnlineQuery`, online query decision/metadata writes, raw_only trace adapter behavior, candidate root/adoption adapter behavior, candidate retrieval/rerank adapter behavior, agentic persistence, DB schema, eval endpoints, and Python code stayed unchanged.
+- Validation: `.\gradlew.bat compileJava` passed; `.\gradlew.bat test --tests io.queryforge.backend.rag.service.RagTracePersistenceServiceTest` passed; requested targeted RAG regression command passed; `git diff --check` passed.
+- Remaining risks: `TRACE_ONLY` and generic `ONLINE_QUERY` remain intentionally unsupported; agentic side-effect control and broader eval persistence remain later phases.
+
 ## [2026-06-23] Session Summary (RAG Java Source-of-Truth Migration Guide Phase 5D)
 - What was done: Moved non-agentic rewrite candidate root/adoption persistence for selective, router-selected selective, and anchor-aware live chat paths behind `RagTracePersistenceService`.
 - Key decisions: The adapter now handles only `ONLINE_QUERY` `createRewriteCandidate` and `markRewriteCandidateAdopted` for those target paths. `/ask` response shape, answer generation, `insertAnswer`, `createOnlineQuery`, online query decision/metadata writes, rewrite/memory/candidate logs, raw_only trace adapter behavior, candidate retrieval/rerank trace adapter behavior, agentic persistence, DB schema, eval endpoints, and Python code were not changed.

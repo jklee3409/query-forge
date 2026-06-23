@@ -303,6 +303,7 @@ public class RagService {
                 executedCandidateKind = anchorAwareExecution.executionKind();
             }
             if (executedCandidates != null) {
+                candidateRootAdoptionPersistenceKind = executedCandidateKind;
                 for (int index = 0; index < executedCandidates.size(); index++) {
                     RagRetrievalExecutionService.ExecutedRewriteCandidate executed = executedCandidates.get(index);
                     int candidateIndex = executed.index() > 0 ? executed.index() : index + 1;
@@ -323,7 +324,6 @@ public class RagService {
                                     )
                             );
                     UUID candidateId = candidatePersistence.rewriteCandidateId();
-                    candidateRootAdoptionPersistenceKind = executedCandidateKind;
                     ragTracePersistenceService.persistRewriteCandidateTrace(
                             new RagTracePersistenceService.RewriteCandidateTracePersistenceRequest(
                                     RagPersistPolicy.ONLINE_QUERY,
@@ -558,74 +558,142 @@ public class RagService {
         double selectedConfidence = confidence(decision.finalRetrieved(), rawDense);
         boolean gatingApplied = !"raw_only".equals(mode) && !"memory_only_ungated".equals(mode);
         boolean selectiveRewrite = mode.startsWith("selective_rewrite");
-        UUID rewriteLogId = repository.createOnlineRewriteLog(
-                onlineQueryId,
-                null,
-                rawQuery,
-                decision.finalQuery(),
-                mode,
-                generationMethodCodes(memoryCandidates),
-                generationBatchIds(memoryCandidates),
-                gatingApplied,
-                gatingPreset,
-                decision.rewriteApplied(),
-                selectiveRewrite,
-                useSessionContext,
-                rawConfidence,
-                selectedConfidence,
-                selectedConfidence - rawConfidence,
-                decision.selectedReason(),
-                decision.rejectedReason(),
-                rewriteLogMetadata(
-                        config,
-                        rewriteQueryProfile,
-                        retrievalTopK,
-                        rerankTopN,
-                        memoryTopN,
-                        candidateCount,
-                        threshold,
-                        latencyBreakdown,
-                        retrievalRuntime,
-                        routeDecision
-                )
+        JsonNode rewriteMetadata = rewriteLogMetadata(
+                config,
+                rewriteQueryProfile,
+                retrievalTopK,
+                rerankTopN,
+                memoryTopN,
+                candidateCount,
+                threshold,
+                latencyBreakdown,
+                retrievalRuntime,
+                routeDecision
         );
+        UUID rewriteLogId;
+        if (candidateRootAdoptionPersistenceKind != null) {
+            RagTracePersistenceService.OnlineRewriteLogPersistenceResult rewriteLogPersistence =
+                    ragTracePersistenceService.createOnlineRewriteLogTrace(
+                            new RagTracePersistenceService.OnlineRewriteLogPersistenceRequest(
+                                    RagPersistPolicy.ONLINE_QUERY,
+                                    onlineQueryId,
+                                    null,
+                                    candidateRootAdoptionPersistenceKind,
+                                    rawQuery,
+                                    decision.finalQuery(),
+                                    mode,
+                                    generationMethodCodes(memoryCandidates),
+                                    generationBatchIds(memoryCandidates),
+                                    gatingApplied,
+                                    gatingPreset,
+                                    decision.rewriteApplied(),
+                                    selectiveRewrite,
+                                    useSessionContext,
+                                    rawConfidence,
+                                    selectedConfidence,
+                                    selectedConfidence - rawConfidence,
+                                    decision.selectedReason(),
+                                    decision.rejectedReason(),
+                                    rewriteMetadata
+                            )
+                    );
+            rewriteLogId = rewriteLogPersistence.rewriteLogId();
+        } else {
+            rewriteLogId = repository.createOnlineRewriteLog(
+                    onlineQueryId,
+                    null,
+                    rawQuery,
+                    decision.finalQuery(),
+                    mode,
+                    generationMethodCodes(memoryCandidates),
+                    generationBatchIds(memoryCandidates),
+                    gatingApplied,
+                    gatingPreset,
+                    decision.rewriteApplied(),
+                    selectiveRewrite,
+                    useSessionContext,
+                    rawConfidence,
+                    selectedConfidence,
+                    selectedConfidence - rawConfidence,
+                    decision.selectedReason(),
+                    decision.rejectedReason(),
+                    rewriteMetadata
+            );
+        }
 
         for (int index = 0; index < memoryCandidates.size(); index++) {
             RagRepository.MemoryCandidate memoryCandidate = memoryCandidates.get(index);
-            repository.insertMemoryRetrievalLog(
-                    rewriteLogId,
-                    onlineQueryId,
-                    index + 1,
-                    memoryCandidate,
-                    objectMapper.valueToTree(Map.of(
-                            "gating_preset", gatingPreset,
-                            "generation_batch_id", memoryCandidate.generationBatchId() == null ? "" : memoryCandidate.generationBatchId().toString(),
-                            "source_gate_run_id", memoryCandidate.sourceGateRunId() == null ? "" : memoryCandidate.sourceGateRunId(),
-                            "source_gating_batch_id", memoryCandidate.sourceGatingBatchId() == null ? "" : memoryCandidate.sourceGatingBatchId()
-                    ))
-            );
+            JsonNode memoryMetadata = objectMapper.valueToTree(Map.of(
+                    "gating_preset", gatingPreset,
+                    "generation_batch_id", memoryCandidate.generationBatchId() == null ? "" : memoryCandidate.generationBatchId().toString(),
+                    "source_gate_run_id", memoryCandidate.sourceGateRunId() == null ? "" : memoryCandidate.sourceGateRunId(),
+                    "source_gating_batch_id", memoryCandidate.sourceGatingBatchId() == null ? "" : memoryCandidate.sourceGatingBatchId()
+            ));
+            if (candidateRootAdoptionPersistenceKind != null) {
+                ragTracePersistenceService.insertMemoryRetrievalTrace(
+                        new RagTracePersistenceService.MemoryRetrievalLogPersistenceRequest(
+                                RagPersistPolicy.ONLINE_QUERY,
+                                onlineQueryId,
+                                rewriteLogId,
+                                candidateRootAdoptionPersistenceKind,
+                                index + 1,
+                                memoryCandidate,
+                                memoryMetadata
+                        )
+                );
+            } else {
+                repository.insertMemoryRetrievalLog(
+                        rewriteLogId,
+                        onlineQueryId,
+                        index + 1,
+                        memoryCandidate,
+                        memoryMetadata
+                );
+            }
         }
 
         for (int index = 0; index < scoredCandidates.size(); index++) {
             GeneratedCandidate candidate = scoredCandidates.get(index);
             boolean selected = decision.selectedCandidateId() != null && decision.selectedCandidateId().equals(candidate.rewriteCandidateId());
-            repository.insertRewriteCandidateLog(
-                    rewriteLogId,
-                    onlineQueryId,
-                    candidate.rewriteCandidateId(),
-                    index + 1,
-                    candidate.label(),
-                    candidate.query(),
-                    candidate.confidence(),
-                    selected,
-                    selected ? null : decision.rejectedReason(),
-                    objectMapper.valueToTree(candidate.retrieved()),
-                    scoreBreakdown(candidate.retrieved(), memoryCandidates),
-                    objectMapper.valueToTree(Map.of(
-                            "mode", mode,
-                            "selected_reason", decision.selectedReason()
-                    ))
-            );
+            JsonNode candidateMetadata = objectMapper.valueToTree(Map.of(
+                    "mode", mode,
+                    "selected_reason", decision.selectedReason()
+            ));
+            if (candidateRootAdoptionPersistenceKind != null) {
+                ragTracePersistenceService.insertRewriteCandidateTrace(
+                        new RagTracePersistenceService.RewriteCandidateLogPersistenceRequest(
+                                RagPersistPolicy.ONLINE_QUERY,
+                                onlineQueryId,
+                                rewriteLogId,
+                                candidate.rewriteCandidateId(),
+                                candidateRootAdoptionPersistenceKind,
+                                index + 1,
+                                candidate.label(),
+                                candidate.query(),
+                                candidate.confidence(),
+                                selected,
+                                selected ? null : decision.rejectedReason(),
+                                objectMapper.valueToTree(candidate.retrieved()),
+                                scoreBreakdown(candidate.retrieved(), memoryCandidates),
+                                candidateMetadata
+                        )
+                );
+            } else {
+                repository.insertRewriteCandidateLog(
+                        rewriteLogId,
+                        onlineQueryId,
+                        candidate.rewriteCandidateId(),
+                        index + 1,
+                        candidate.label(),
+                        candidate.query(),
+                        candidate.confidence(),
+                        selected,
+                        selected ? null : decision.rejectedReason(),
+                        objectMapper.valueToTree(candidate.retrieved()),
+                        scoreBreakdown(candidate.retrieved(), memoryCandidates),
+                        candidateMetadata
+                );
+            }
         }
 
         return new RagDtos.AskResponse(

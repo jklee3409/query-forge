@@ -217,6 +217,9 @@ class RagServiceTest {
         verify(ragTracePersistenceService, never()).persistRewriteCandidateTrace(any());
         verify(ragTracePersistenceService, never()).createRewriteCandidateTrace(any());
         verify(ragTracePersistenceService, never()).markRewriteCandidateAdopted(any());
+        verify(ragTracePersistenceService, never()).createOnlineRewriteLogTrace(any());
+        verify(ragTracePersistenceService, never()).insertMemoryRetrievalTrace(any());
+        verify(ragTracePersistenceService, never()).insertRewriteCandidateTrace(any());
         verify(repository).insertAnswer(eq(onlineQueryId), eq("raw answer"), any(), any(), eq("test-answer-model"), any());
         verify(repository).upsertOnlineQueryDecision(eq(onlineQueryId), eq(query), eq(false), any(), anyDouble(), isNull(), eq("mode_raw_only"), eq("query_router_strategy=raw_only"), any());
         verify(repository).mergeOnlineQueryMetadata(eq(onlineQueryId), any());
@@ -298,6 +301,26 @@ class RagServiceTest {
         verify(repository).createOnlineRewriteLog(eq(onlineQueryId), isNull(), eq(query), eq(rewrittenQuery), eq("selective_rewrite"), any(), any(), eq(true), eq("full_gating"), eq(true), eq(true), eq(false), anyDouble(), anyDouble(), anyDouble(), eq("delta_above_threshold"), isNull(), any());
         verify(repository).insertMemoryRetrievalLog(eq(rewriteLogId), eq(onlineQueryId), eq(1), eq(memories.getFirst()), any());
         verify(repository).insertRewriteCandidateLog(eq(rewriteLogId), eq(onlineQueryId), eq(rewriteCandidateId), eq(1), eq("candidate-1"), eq(rewrittenQuery), anyDouble(), eq(true), isNull(), any(), any(), any());
+        verifyOnlineRewriteLogPersistence(
+                onlineQueryId,
+                RagRetrievalExecutionService.NonAgenticExecutionKind.SELECTIVE_REWRITE,
+                query,
+                rewrittenQuery
+        );
+        verifyMemoryRetrievalLogPersistence(
+                onlineQueryId,
+                rewriteLogId,
+                RagRetrievalExecutionService.NonAgenticExecutionKind.SELECTIVE_REWRITE,
+                memories.getFirst()
+        );
+        verifyRewriteCandidateLogPersistence(
+                onlineQueryId,
+                rewriteLogId,
+                rewriteCandidateId,
+                RagRetrievalExecutionService.NonAgenticExecutionKind.SELECTIVE_REWRITE,
+                "candidate-1",
+                rewrittenQuery
+        );
         verify(agenticRetrievalService, never()).execute(any());
     }
 
@@ -371,6 +394,26 @@ class RagServiceTest {
         verify(repository).createOnlineRewriteLog(eq(onlineQueryId), isNull(), eq(query), eq(rewrittenQuery), eq("selective_rewrite"), any(), any(), eq(true), eq("full_gating"), eq(true), eq(true), eq(false), anyDouble(), anyDouble(), anyDouble(), eq("delta_above_threshold"), isNull(), any());
         verify(repository).insertMemoryRetrievalLog(eq(rewriteLogId), eq(onlineQueryId), eq(1), eq(memories.getFirst()), any());
         verify(repository).insertRewriteCandidateLog(eq(rewriteLogId), eq(onlineQueryId), eq(rewriteCandidateId), eq(1), eq("candidate-1"), eq(rewrittenQuery), anyDouble(), eq(true), isNull(), any(), any(), any());
+        verifyOnlineRewriteLogPersistence(
+                onlineQueryId,
+                RagRetrievalExecutionService.NonAgenticExecutionKind.SELECTIVE_REWRITE,
+                query,
+                rewrittenQuery
+        );
+        verifyMemoryRetrievalLogPersistence(
+                onlineQueryId,
+                rewriteLogId,
+                RagRetrievalExecutionService.NonAgenticExecutionKind.SELECTIVE_REWRITE,
+                memories.getFirst()
+        );
+        verifyRewriteCandidateLogPersistence(
+                onlineQueryId,
+                rewriteLogId,
+                rewriteCandidateId,
+                RagRetrievalExecutionService.NonAgenticExecutionKind.SELECTIVE_REWRITE,
+                "candidate-1",
+                rewrittenQuery
+        );
         verify(agenticRetrievalService, never()).execute(any());
 
         ArgumentCaptor<JsonNode> metadataCaptor = ArgumentCaptor.forClass(JsonNode.class);
@@ -448,6 +491,26 @@ class RagServiceTest {
         verify(repository).createOnlineRewriteLog(eq(onlineQueryId), isNull(), eq(query), eq(rewrittenQuery), eq("selective_rewrite"), any(), any(), eq(true), eq("full_gating"), eq(true), eq(true), eq(false), anyDouble(), anyDouble(), anyDouble(), eq("delta_above_threshold"), isNull(), any());
         verify(repository).insertMemoryRetrievalLog(eq(rewriteLogId), eq(onlineQueryId), eq(1), eq(memories.getFirst()), any());
         verify(repository).insertRewriteCandidateLog(eq(rewriteLogId), eq(onlineQueryId), eq(rewriteCandidateId), eq(1), eq("anchor-aware"), eq(rewrittenQuery), anyDouble(), eq(true), isNull(), any(), any(), any());
+        verifyOnlineRewriteLogPersistence(
+                onlineQueryId,
+                RagRetrievalExecutionService.NonAgenticExecutionKind.ANCHOR_AWARE_REWRITE,
+                query,
+                rewrittenQuery
+        );
+        verifyMemoryRetrievalLogPersistence(
+                onlineQueryId,
+                rewriteLogId,
+                RagRetrievalExecutionService.NonAgenticExecutionKind.ANCHOR_AWARE_REWRITE,
+                memories.getFirst()
+        );
+        verifyRewriteCandidateLogPersistence(
+                onlineQueryId,
+                rewriteLogId,
+                rewriteCandidateId,
+                RagRetrievalExecutionService.NonAgenticExecutionKind.ANCHOR_AWARE_REWRITE,
+                "anchor-aware",
+                rewrittenQuery
+        );
 
         ArgumentCaptor<JsonNode> metadataCaptor = ArgumentCaptor.forClass(JsonNode.class);
         verify(repository).mergeOnlineQueryMetadata(eq(onlineQueryId), metadataCaptor.capture());
@@ -535,6 +598,9 @@ class RagServiceTest {
         verify(ragTracePersistenceService, never()).persistRewriteCandidateTrace(any());
         verify(ragTracePersistenceService, never()).createRewriteCandidateTrace(any());
         verify(ragTracePersistenceService, never()).markRewriteCandidateAdopted(any());
+        verify(ragTracePersistenceService, never()).createOnlineRewriteLogTrace(any());
+        verify(ragTracePersistenceService, never()).insertMemoryRetrievalTrace(any());
+        verify(ragTracePersistenceService, never()).insertRewriteCandidateTrace(any());
         verify(repository).insertRerankResults(eq(onlineQueryId), isNull(), eq(mergedDocs), eq("agentic-rrf"));
         verify(chatAnswerService).generateAnswer(eq(query), eq(query), eq("Spring"), eq(mergedDocs));
         verify(repository).insertAnswer(eq(onlineQueryId), eq("agentic answer"), any(), any(), eq("test-answer-model"), any());
@@ -681,6 +747,79 @@ class RagServiceTest {
         assertThat(request.executionKind()).isEqualTo(executionKind);
         assertThat(request.adopted()).isEqualTo(adopted);
         assertThat(request.rejectedReason()).isEqualTo(rejectedReason);
+    }
+
+    private void verifyOnlineRewriteLogPersistence(
+            UUID onlineQueryId,
+            RagRetrievalExecutionService.NonAgenticExecutionKind executionKind,
+            String rawQuery,
+            String finalQuery
+    ) {
+        ArgumentCaptor<RagTracePersistenceService.OnlineRewriteLogPersistenceRequest> rewriteLogCaptor =
+                ArgumentCaptor.forClass(RagTracePersistenceService.OnlineRewriteLogPersistenceRequest.class);
+        verify(ragTracePersistenceService).createOnlineRewriteLogTrace(rewriteLogCaptor.capture());
+        RagTracePersistenceService.OnlineRewriteLogPersistenceRequest request = rewriteLogCaptor.getValue();
+        assertThat(request.persistPolicy()).isEqualTo(RagPersistPolicy.ONLINE_QUERY);
+        assertThat(request.onlineQueryId()).isEqualTo(onlineQueryId);
+        assertThat(request.executionKind()).isEqualTo(executionKind);
+        assertThat(request.rawQuery()).isEqualTo(rawQuery);
+        assertThat(request.finalQuery()).isEqualTo(finalQuery);
+        assertThat(request.rewriteStrategy()).isEqualTo("selective_rewrite");
+        assertThat(request.gatingApplied()).isTrue();
+        assertThat(request.gatingPreset()).isEqualTo("full_gating");
+        assertThat(request.rewriteApplied()).isTrue();
+        assertThat(request.selectiveRewrite()).isTrue();
+        assertThat(request.useSessionContext()).isFalse();
+        assertThat(request.decisionReason()).isEqualTo("delta_above_threshold");
+        assertThat(request.rejectionReason()).isNull();
+        assertThat(request.metadata().path("router").isObject()).isTrue();
+    }
+
+    private void verifyMemoryRetrievalLogPersistence(
+            UUID onlineQueryId,
+            UUID rewriteLogId,
+            RagRetrievalExecutionService.NonAgenticExecutionKind executionKind,
+            RagRepository.MemoryCandidate memoryCandidate
+    ) {
+        ArgumentCaptor<RagTracePersistenceService.MemoryRetrievalLogPersistenceRequest> memoryCaptor =
+                ArgumentCaptor.forClass(RagTracePersistenceService.MemoryRetrievalLogPersistenceRequest.class);
+        verify(ragTracePersistenceService).insertMemoryRetrievalTrace(memoryCaptor.capture());
+        RagTracePersistenceService.MemoryRetrievalLogPersistenceRequest request = memoryCaptor.getValue();
+        assertThat(request.persistPolicy()).isEqualTo(RagPersistPolicy.ONLINE_QUERY);
+        assertThat(request.onlineQueryId()).isEqualTo(onlineQueryId);
+        assertThat(request.rewriteLogId()).isEqualTo(rewriteLogId);
+        assertThat(request.executionKind()).isEqualTo(executionKind);
+        assertThat(request.retrievalRank()).isEqualTo(1);
+        assertThat(request.candidate()).isEqualTo(memoryCandidate);
+        assertThat(request.metadata().path("gating_preset").asText()).isEqualTo("full_gating");
+    }
+
+    private void verifyRewriteCandidateLogPersistence(
+            UUID onlineQueryId,
+            UUID rewriteLogId,
+            UUID rewriteCandidateId,
+            RagRetrievalExecutionService.NonAgenticExecutionKind executionKind,
+            String candidateLabel,
+            String candidateQuery
+    ) {
+        ArgumentCaptor<RagTracePersistenceService.RewriteCandidateLogPersistenceRequest> candidateLogCaptor =
+                ArgumentCaptor.forClass(RagTracePersistenceService.RewriteCandidateLogPersistenceRequest.class);
+        verify(ragTracePersistenceService).insertRewriteCandidateTrace(candidateLogCaptor.capture());
+        RagTracePersistenceService.RewriteCandidateLogPersistenceRequest request = candidateLogCaptor.getValue();
+        assertThat(request.persistPolicy()).isEqualTo(RagPersistPolicy.ONLINE_QUERY);
+        assertThat(request.onlineQueryId()).isEqualTo(onlineQueryId);
+        assertThat(request.rewriteLogId()).isEqualTo(rewriteLogId);
+        assertThat(request.rewriteCandidateId()).isEqualTo(rewriteCandidateId);
+        assertThat(request.executionKind()).isEqualTo(executionKind);
+        assertThat(request.candidateRank()).isEqualTo(1);
+        assertThat(request.candidateLabel()).isEqualTo(candidateLabel);
+        assertThat(request.candidateQuery()).isEqualTo(candidateQuery);
+        assertThat(request.selected()).isTrue();
+        assertThat(request.rejectionReason()).isNull();
+        assertThat(request.retrievalTopKDocs().isArray()).isTrue();
+        assertThat(request.scoreBreakdown().isObject()).isTrue();
+        assertThat(request.metadata().path("mode").asText()).isEqualTo("selective_rewrite");
+        assertThat(request.metadata().path("selected_reason").asText()).isEqualTo("delta_above_threshold");
     }
 
     private void stubCommonAskDependencies(ChatRuntimeDtos.ChatRuntimeConfigResponse config, UUID onlineQueryId) {
