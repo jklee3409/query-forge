@@ -47,47 +47,107 @@ public class RagRetrievalExecutionService {
 
     public SelectiveRewriteExecutionResult executeSelectiveRewrite(SelectiveRewriteExecutionRequest request) {
         long started = System.nanoTime();
-        List<RewriteCandidateService.CandidateTemplate> generatedCandidates = rewriteCandidateService.buildCandidates(
+        List<ExecutedRewriteCandidate> executedCandidates = executeRewriteCandidates(
                 request.rawQuery(),
                 request.sessionContextSnapshot(),
                 request.memoryCandidates(),
                 request.candidateCount(),
                 request.rewriteQueryProfile(),
-                false,
-                request.domainContext()
+                request.domainContext(),
+                request.retrievalTopK(),
+                request.rerankTopN(),
+                request.domainId(),
+                request.retrievalRuntime(),
+                request.rawDenseScore(),
+                false
         );
-        List<ExecutedRewriteCandidate> executedCandidates = generatedCandidates.stream()
-                .map(generated -> executeCandidate(generated, request))
-                .toList();
         return new SelectiveRewriteExecutionResult(executedCandidates, elapsedMs(started));
+    }
+
+    public AnchorAwareRewriteExecutionResult executeAnchorAwareRewrite(AnchorAwareRewriteExecutionRequest request) {
+        long started = System.nanoTime();
+        List<ExecutedRewriteCandidate> executedCandidates = executeRewriteCandidates(
+                request.rawQuery(),
+                request.sessionContextSnapshot(),
+                request.memoryCandidates(),
+                request.candidateCount(),
+                request.rewriteQueryProfile(),
+                request.domainContext(),
+                request.retrievalTopK(),
+                request.rerankTopN(),
+                request.domainId(),
+                request.retrievalRuntime(),
+                request.rawDenseScore(),
+                true
+        );
+        return new AnchorAwareRewriteExecutionResult(executedCandidates, true, elapsedMs(started));
+    }
+
+    private List<ExecutedRewriteCandidate> executeRewriteCandidates(
+            String rawQuery,
+            JsonNode sessionContextSnapshot,
+            List<RagRepository.MemoryCandidate> memoryCandidates,
+            int candidateCount,
+            String rewriteQueryProfile,
+            ObjectNode domainContext,
+            int retrievalTopK,
+            int rerankTopN,
+            UUID domainId,
+            DomainScopedRetrievalService.RetrievalRuntime retrievalRuntime,
+            double rawDenseScore,
+            boolean anchorInjectionEnabled
+    ) {
+        List<RewriteCandidateService.CandidateTemplate> generatedCandidates = rewriteCandidateService.buildCandidates(
+                rawQuery,
+                sessionContextSnapshot,
+                memoryCandidates,
+                candidateCount,
+                rewriteQueryProfile,
+                anchorInjectionEnabled,
+                domainContext
+        );
+        return generatedCandidates.stream()
+                .map(generated -> executeCandidate(
+                        generated,
+                        retrievalTopK,
+                        rerankTopN,
+                        domainId,
+                        retrievalRuntime,
+                        rawDenseScore
+                ))
+                .toList();
     }
 
     private ExecutedRewriteCandidate executeCandidate(
             RewriteCandidateService.CandidateTemplate generated,
-            SelectiveRewriteExecutionRequest request
+            int retrievalTopK,
+            int rerankTopN,
+            UUID domainId,
+            DomainScopedRetrievalService.RetrievalRuntime retrievalRuntime,
+            double rawDenseScore
     ) {
         String embeddingLiteral = domainScopedRetrievalService.embeddingLiteral(
                 generated.query(),
-                request.retrievalRuntime()
+                retrievalRuntime
         );
         List<RagRepository.RetrievalDoc> localRetrievedDocs = domainScopedRetrievalService.retrieveChunks(
                 generated.query(),
                 embeddingLiteral,
-                request.retrievalTopK(),
-                request.domainId(),
-                request.retrievalRuntime()
+                retrievalTopK,
+                domainId,
+                retrievalRuntime
         );
         List<RagRepository.RetrievalDoc> rerankedDocs = cohereRerankService.rerank(
                 generated.query(),
                 localRetrievedDocs,
-                request.rerankTopN()
+                rerankTopN
         );
         return new ExecutedRewriteCandidate(
                 generated.label(),
                 generated.query(),
                 localRetrievedDocs,
                 rerankedDocs,
-                confidence(rerankedDocs, request.rawDenseScore())
+                confidence(rerankedDocs, rawDenseScore)
         );
     }
 
@@ -204,6 +264,46 @@ public class RagRetrievalExecutionService {
             long latencyMs
     ) {
         public SelectiveRewriteExecutionResult {
+            candidates = candidates == null ? List.of() : List.copyOf(candidates);
+        }
+    }
+
+    public record AnchorAwareRewriteExecutionRequest(
+            String rawQuery,
+            JsonNode sessionContextSnapshot,
+            List<RagRepository.MemoryCandidate> memoryCandidates,
+            int candidateCount,
+            String rewriteQueryProfile,
+            ObjectNode domainContext,
+            int retrievalTopK,
+            int rerankTopN,
+            UUID domainId,
+            DomainScopedRetrievalService.RetrievalRuntime retrievalRuntime,
+            double rawDenseScore
+    ) {
+        public AnchorAwareRewriteExecutionRequest {
+            if (rawQuery == null || rawQuery.isBlank()) {
+                throw new IllegalArgumentException("rawQuery must not be blank");
+            }
+            if (domainId == null) {
+                throw new IllegalArgumentException("domainId is required");
+            }
+            if (retrievalRuntime == null) {
+                throw new IllegalArgumentException("retrievalRuntime is required");
+            }
+            memoryCandidates = memoryCandidates == null ? List.of() : List.copyOf(memoryCandidates);
+            candidateCount = Math.max(1, candidateCount);
+            retrievalTopK = Math.max(1, retrievalTopK);
+            rerankTopN = Math.max(1, rerankTopN);
+        }
+    }
+
+    public record AnchorAwareRewriteExecutionResult(
+            List<ExecutedRewriteCandidate> candidates,
+            boolean anchorInjectionApplied,
+            long latencyMs
+    ) {
+        public AnchorAwareRewriteExecutionResult {
             candidates = candidates == null ? List.of() : List.copyOf(candidates);
         }
     }

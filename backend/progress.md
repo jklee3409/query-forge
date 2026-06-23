@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-06-23] Session Summary (RAG Java Source-of-Truth Migration Guide Phase 4D)
+- What was done: Added anchor-aware rewrite candidate execution to `RagRetrievalExecutionService` through `executeAnchorAwareRewrite(...)` and wired Java `/ask` anchor-aware routes to use it.
+- Scope: Moved only anchor-aware candidate generation/retrieval/rerank/confidence material creation; `/ask` response shape, selective adoption logic, answer generation, online persistence writes, raw_only, non-anchor selective, agentic, DB schema, eval endpoint, and Python code were left unchanged.
+- Validation: `.\gradlew.bat compileJava` passed; requested targeted RAG regression command including `io.queryforge.backend.rag.service.RagRetrievalExecutionServiceTest` passed; `git diff --check` passed.
+- Remaining risks: Trace persistence, eval retrieval endpoint, agentic side-effect control, and broader Phase 2 model wiring remain future phases.
+
 ## [2026-06-23] Session Summary (RAG Java Source-of-Truth Migration Guide Phase 4C)
 - What was done: Extended backend `RagService` so router-selected non-anchor `SYNTHETIC_SELECTIVE_REWRITE` reuses `RagRetrievalExecutionService.executeSelectiveRewrite(...)`, while forced non-anchor selective remains on the same service path.
 - Scope: Preserved raw_only Phase 4A wiring, `/ask` response shape, answer generation, online persistence writes, selective adoption logic, router rules/metadata, anchor-aware path, agentic production logic, DB schema, eval endpoint surface, and Python pipeline code.

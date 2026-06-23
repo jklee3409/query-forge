@@ -244,6 +244,7 @@ public class RagService {
         stageStart = System.nanoTime();
         List<GeneratedCandidate> scoredCandidates = new ArrayList<>();
         if (!rawOnlyRoute) {
+            List<RagRetrievalExecutionService.ExecutedRewriteCandidate> executedCandidates = null;
             if (usesSelectiveRewriteExecutionService(mode, routeDecision)) {
                 RagRetrievalExecutionService.SelectiveRewriteExecutionResult selectiveExecution =
                         ragRetrievalExecutionService.executeSelectiveRewrite(new RagRetrievalExecutionService.SelectiveRewriteExecutionRequest(
@@ -259,9 +260,27 @@ public class RagService {
                                 retrievalRuntime,
                                 rawDense
                         ));
-                for (int index = 0; index < selectiveExecution.candidates().size(); index++) {
-                    RagRetrievalExecutionService.ExecutedRewriteCandidate executed =
-                            selectiveExecution.candidates().get(index);
+                executedCandidates = selectiveExecution.candidates();
+            } else if (usesAnchorAwareRewriteExecutionService(routeDecision)) {
+                RagRetrievalExecutionService.AnchorAwareRewriteExecutionResult anchorAwareExecution =
+                        ragRetrievalExecutionService.executeAnchorAwareRewrite(new RagRetrievalExecutionService.AnchorAwareRewriteExecutionRequest(
+                                rawQuery,
+                                sessionContextSnapshot,
+                                memoryCandidates,
+                                candidateCount,
+                                routeDecision.rewriteQueryProfile(),
+                                domainContext(config),
+                                retrievalTopK,
+                                rerankTopN,
+                                config.domainId(),
+                                retrievalRuntime,
+                                rawDense
+                        ));
+                executedCandidates = anchorAwareExecution.candidates();
+            }
+            if (executedCandidates != null) {
+                for (int index = 0; index < executedCandidates.size(); index++) {
+                    RagRetrievalExecutionService.ExecutedRewriteCandidate executed = executedCandidates.get(index);
                     UUID candidateId = repository.createRewriteCandidate(
                             onlineQueryId,
                             index + 1,
@@ -1064,6 +1083,11 @@ public class RagService {
                 routeDecision.strategy() == QueryStrategy.SYNTHETIC_SELECTIVE_REWRITE
                         && !routeDecision.anchorInjectionEnabled();
         return forcedNonAnchorSelective || routerSelectedNonAnchorSelective;
+    }
+
+    private boolean usesAnchorAwareRewriteExecutionService(QueryRouteDecision routeDecision) {
+        return routeDecision.strategy() == QueryStrategy.ANCHOR_AWARE_REWRITE
+                || routeDecision.anchorInjectionEnabled();
     }
 
     private Decision decide(

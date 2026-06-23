@@ -201,6 +201,114 @@ class RagRetrievalExecutionServiceTest {
     }
 
     @Test
+    void anchorAwareRewriteExecutionBuildsCandidatesWithAnchorInjectionAndRetrievesWithinDomain() {
+        String query = "FilterChainProxy SecurityFilterChain order";
+        String rewrittenQuery = "FilterChainProxy SecurityFilterChain order in Spring Security";
+        DomainScopedRetrievalService.RetrievalRuntime runtime = localDenseRuntime(20);
+        List<RagRepository.MemoryCandidate> memories = List.of(memory());
+        List<RagRepository.RetrievalDoc> localDocs = List.of(new RagRepository.RetrievalDoc(
+                "doc-1",
+                "chunk-1",
+                "Spring Security FilterChainProxy documentation",
+                0.8d
+        ));
+        List<RagRepository.RetrievalDoc> rerankedDocs = List.of(new RagRepository.RetrievalDoc(
+                "doc-1",
+                "chunk-1",
+                "Spring Security FilterChainProxy documentation",
+                0.94d
+        ));
+        when(rewriteCandidateService.buildCandidates(
+                eq(query),
+                any(),
+                eq(memories),
+                eq(2),
+                eq("compact_anchor"),
+                eq(true),
+                any()
+        )).thenReturn(List.of(new RewriteCandidateService.CandidateTemplate("anchor-aware", rewrittenQuery)));
+        when(embeddingService.embed(rewrittenQuery)).thenReturn(List.of(1.0d, 0.0d));
+        when(embeddingService.toHalfvecLiteral(List.of(1.0d, 0.0d))).thenReturn("embedding");
+        when(repository.findTopChunksByEmbedding("embedding", 20, domainId)).thenReturn(localDocs);
+        when(cohereRerankService.rerank(rewrittenQuery, localDocs, 3)).thenReturn(rerankedDocs);
+
+        RagRetrievalExecutionService.AnchorAwareRewriteExecutionResult result = service.executeAnchorAwareRewrite(
+                new RagRetrievalExecutionService.AnchorAwareRewriteExecutionRequest(
+                        query,
+                        objectMapper.createObjectNode(),
+                        memories,
+                        2,
+                        "compact_anchor",
+                        objectMapper.createObjectNode(),
+                        3,
+                        3,
+                        domainId,
+                        runtime,
+                        0.72d
+                )
+        );
+
+        assertThat(result.anchorInjectionApplied()).isTrue();
+        assertThat(result.candidates()).hasSize(1);
+        RagRetrievalExecutionService.ExecutedRewriteCandidate candidate = result.candidates().getFirst();
+        assertThat(candidate.label()).isEqualTo("anchor-aware");
+        assertThat(candidate.query()).isEqualTo(rewrittenQuery);
+        assertThat(candidate.localRetrievedDocs()).isEqualTo(localDocs);
+        assertThat(candidate.rerankedDocs()).isEqualTo(rerankedDocs);
+        assertThat(candidate.confidence()).isGreaterThan(0.0d);
+        assertThat(result.latencyMs()).isGreaterThanOrEqualTo(0L);
+
+        verify(rewriteCandidateService).buildCandidates(
+                eq(query),
+                any(),
+                eq(memories),
+                eq(2),
+                eq("compact_anchor"),
+                eq(true),
+                any()
+        );
+        verify(repository).findTopChunksByEmbedding("embedding", 20, domainId);
+        verifyNoRepositoryWrites();
+    }
+
+    @Test
+    void anchorAwareRewriteExecutionReturnsEmptyCandidatesWithoutRetrieval() {
+        String query = "FilterChainProxy SecurityFilterChain order";
+        DomainScopedRetrievalService.RetrievalRuntime runtime = localDenseRuntime(20);
+        List<RagRepository.MemoryCandidate> memories = List.of(memory());
+        when(rewriteCandidateService.buildCandidates(
+                eq(query),
+                any(),
+                eq(memories),
+                eq(2),
+                eq("compact_anchor"),
+                eq(true),
+                any()
+        )).thenReturn(List.of());
+
+        RagRetrievalExecutionService.AnchorAwareRewriteExecutionResult result = service.executeAnchorAwareRewrite(
+                new RagRetrievalExecutionService.AnchorAwareRewriteExecutionRequest(
+                        query,
+                        objectMapper.createObjectNode(),
+                        memories,
+                        2,
+                        "compact_anchor",
+                        objectMapper.createObjectNode(),
+                        3,
+                        3,
+                        domainId,
+                        runtime,
+                        0.72d
+                )
+        );
+
+        assertThat(result.anchorInjectionApplied()).isTrue();
+        assertThat(result.candidates()).isEmpty();
+        verify(repository, never()).findTopChunksByEmbedding(anyString(), anyInt(), any());
+        verifyNoRepositoryWrites();
+    }
+
+    @Test
     void selectiveRewriteExecutionReturnsEmptyCandidatesWithoutRetrieval() {
         String query = "spring filter order";
         DomainScopedRetrievalService.RetrievalRuntime runtime = localDenseRuntime(20);

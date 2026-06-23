@@ -241,6 +241,7 @@ class RagServiceTest {
         assertThat(executionRequestCaptor.getValue().domainId()).isEqualTo(domainId);
         assertThat(executionRequestCaptor.getValue().memoryCandidates()).isEqualTo(memories);
         assertThat(executionRequestCaptor.getValue().rewriteQueryProfile()).isEqualTo("compact_anchor");
+        verify(ragRetrievalExecutionService, never()).executeAnchorAwareRewrite(any());
         verify(rewriteCandidateService).buildCandidates(eq(query), any(), eq(memories), eq(2), eq("compact_anchor"), eq(false), any());
         verify(repository).createRewriteCandidate(eq(onlineQueryId), eq(1), eq("candidate-1"), eq(rewrittenQuery), any(), any(), anyDouble(), any());
         verify(repository).markRewriteCandidateAdopted(eq(rewriteCandidateId), eq(true), isNull());
@@ -295,6 +296,7 @@ class RagServiceTest {
         assertThat(executionRequestCaptor.getValue().domainId()).isEqualTo(domainId);
         assertThat(executionRequestCaptor.getValue().memoryCandidates()).isEqualTo(memories);
         assertThat(executionRequestCaptor.getValue().rewriteQueryProfile()).isEqualTo("compact_anchor");
+        verify(ragRetrievalExecutionService, never()).executeAnchorAwareRewrite(any());
         verify(rewriteCandidateService).buildCandidates(eq(query), any(), eq(memories), eq(2), eq("compact_anchor"), eq(false), any());
         verify(repository).createRewriteCandidate(eq(onlineQueryId), eq(1), eq("candidate-1"), eq(rewrittenQuery), any(), any(), anyDouble(), any());
         verify(repository).markRewriteCandidateAdopted(eq(rewriteCandidateId), eq(true), isNull());
@@ -346,12 +348,24 @@ class RagServiceTest {
         assertThat(response.answer()).isEqualTo("anchor answer");
         assertThat(response.answerModel()).isEqualTo("test-answer-model");
         verify(ragRetrievalExecutionService, never()).executeSelectiveRewrite(any());
+        ArgumentCaptor<RagRetrievalExecutionService.AnchorAwareRewriteExecutionRequest> executionRequestCaptor =
+                ArgumentCaptor.forClass(RagRetrievalExecutionService.AnchorAwareRewriteExecutionRequest.class);
+        verify(ragRetrievalExecutionService).executeAnchorAwareRewrite(executionRequestCaptor.capture());
+        assertThat(executionRequestCaptor.getValue().domainId()).isEqualTo(domainId);
+        assertThat(executionRequestCaptor.getValue().memoryCandidates()).isEqualTo(memories);
+        assertThat(executionRequestCaptor.getValue().rewriteQueryProfile()).isEqualTo("compact_anchor");
         verify(rewriteCandidateService).buildCandidates(eq(query), any(), eq(memories), eq(2), eq("compact_anchor"), eq(true), any());
+        verify(repository).createRewriteCandidate(eq(onlineQueryId), eq(1), eq("anchor-aware"), eq(rewrittenQuery), any(), any(), anyDouble(), any());
+        verify(repository).markRewriteCandidateAdopted(eq(rewriteCandidateId), eq(true), isNull());
+        verify(repository).insertRetrievalResults(eq(onlineQueryId), isNull(), eq("raw"), anyList(), eq("selective_rewrite"), eq("local:dense_only:hash-embedding-v1"), any());
+        verify(repository).insertRetrievalResults(eq(onlineQueryId), eq(rewriteCandidateId), eq("rewrite_candidate"), anyList(), eq("selective_rewrite"), eq("local:dense_only:hash-embedding-v1"), any());
         verify(repository, times(2)).findTopChunksByEmbedding(anyString(), anyInt(), eq(domainId));
+        verify(repository).insertRerankResults(eq(onlineQueryId), eq(rewriteCandidateId), anyList(), eq("local-rerank-fallback"));
         verify(chatAnswerService).generateAnswer(eq(query), eq(rewrittenQuery), eq("Spring"), anyList());
         verify(repository).insertAnswer(eq(onlineQueryId), eq("anchor answer"), any(), any(), eq("test-answer-model"), any());
         verify(repository).createOnlineRewriteLog(eq(onlineQueryId), isNull(), eq(query), eq(rewrittenQuery), eq("selective_rewrite"), any(), any(), eq(true), eq("full_gating"), eq(true), eq(true), eq(false), anyDouble(), anyDouble(), anyDouble(), eq("delta_above_threshold"), isNull(), any());
         verify(repository).insertMemoryRetrievalLog(eq(rewriteLogId), eq(onlineQueryId), eq(1), eq(memories.getFirst()), any());
+        verify(repository).insertRewriteCandidateLog(eq(rewriteLogId), eq(onlineQueryId), eq(rewriteCandidateId), eq(1), eq("anchor-aware"), eq(rewrittenQuery), anyDouble(), eq(true), isNull(), any(), any(), any());
 
         ArgumentCaptor<JsonNode> metadataCaptor = ArgumentCaptor.forClass(JsonNode.class);
         verify(repository).mergeOnlineQueryMetadata(eq(onlineQueryId), metadataCaptor.capture());
