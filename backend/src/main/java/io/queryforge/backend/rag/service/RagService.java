@@ -265,6 +265,7 @@ public class RagService {
         List<GeneratedCandidate> scoredCandidates = new ArrayList<>();
         if (!rawOnlyRoute) {
             List<RagRetrievalExecutionService.ExecutedRewriteCandidate> executedCandidates = null;
+            RagRetrievalExecutionService.NonAgenticExecutionKind executedCandidateKind = null;
             if (usesSelectiveRewriteExecutionService(mode, routeDecision)) {
                 RagRetrievalExecutionService.SelectiveRewriteExecutionResult selectiveExecution =
                         ragRetrievalExecutionService.executeSelectiveRewrite(new RagRetrievalExecutionService.SelectiveRewriteExecutionRequest(
@@ -281,6 +282,7 @@ public class RagService {
                                 rawDense
                         ));
                 executedCandidates = selectiveExecution.candidates();
+                executedCandidateKind = selectiveExecution.executionKind();
             } else if (usesAnchorAwareRewriteExecutionService(routeDecision)) {
                 RagRetrievalExecutionService.AnchorAwareRewriteExecutionResult anchorAwareExecution =
                         ragRetrievalExecutionService.executeAnchorAwareRewrite(new RagRetrievalExecutionService.AnchorAwareRewriteExecutionRequest(
@@ -297,6 +299,7 @@ public class RagService {
                                 rawDense
                         ));
                 executedCandidates = anchorAwareExecution.candidates();
+                executedCandidateKind = anchorAwareExecution.executionKind();
             }
             if (executedCandidates != null) {
                 for (int index = 0; index < executedCandidates.size(); index++) {
@@ -312,14 +315,24 @@ public class RagService {
                             executed.confidence(),
                             scoreBreakdown(executed.rerankedDocs(), memoryCandidates)
                     );
-                    repository.insertRetrievalResults(
-                            onlineQueryId,
-                            candidateId,
-                            "rewrite_candidate",
-                            executed.localRetrievedDocs(),
-                            mode,
-                            executed.retrieverName(),
-                            executed.retrievalMetadata()
+                    ragTracePersistenceService.persistRewriteCandidateTrace(
+                            new RagTracePersistenceService.RewriteCandidateTracePersistenceRequest(
+                                    RagPersistPolicy.ONLINE_QUERY,
+                                    onlineQueryId,
+                                    candidateId,
+                                    executedCandidateKind,
+                                    candidateIndex,
+                                    executed.query(),
+                                    executed.label(),
+                                    mode,
+                                    executed.localRetrievedDocs(),
+                                    executed.rerankedDocs(),
+                                    executed.retrievalMetadata(),
+                                    executed.retrieverName(),
+                                    executed.rerankerModel(),
+                                    executed.latencyMs(),
+                                    RagTracePersistenceService.RewriteCandidateTraceWriteScope.CANDIDATE_RETRIEVAL
+                            )
                     );
                     scoredCandidates.add(new GeneratedCandidate(
                             executed.label(),
@@ -428,7 +441,41 @@ public class RagService {
                     RagTracePersistenceService.RawOnlyTraceWriteScope.RERANK
             ));
         } else {
-            repository.insertRerankResults(onlineQueryId, decision.selectedCandidateId(), reranked, cohereRerankService.modelName());
+            GeneratedCandidate selectedGeneratedCandidate = null;
+            int selectedGeneratedCandidateIndex = 0;
+            if (decision.selectedCandidateId() != null) {
+                for (int index = 0; index < scoredCandidates.size(); index++) {
+                    GeneratedCandidate candidate = scoredCandidates.get(index);
+                    if (decision.selectedCandidateId().equals(candidate.rewriteCandidateId())) {
+                        selectedGeneratedCandidate = candidate;
+                        selectedGeneratedCandidateIndex = index + 1;
+                        break;
+                    }
+                }
+            }
+            if (selectedGeneratedCandidate != null) {
+                ragTracePersistenceService.persistRewriteCandidateTrace(
+                        new RagTracePersistenceService.RewriteCandidateTracePersistenceRequest(
+                                RagPersistPolicy.ONLINE_QUERY,
+                                onlineQueryId,
+                                decision.selectedCandidateId(),
+                                rewriteCandidateTraceExecutionKind(routeDecision),
+                                selectedGeneratedCandidateIndex,
+                                selectedGeneratedCandidate.query(),
+                                selectedGeneratedCandidate.label(),
+                                mode,
+                                List.of(),
+                                reranked,
+                                objectMapper.createObjectNode(),
+                                null,
+                                cohereRerankService.modelName(),
+                                0L,
+                                RagTracePersistenceService.RewriteCandidateTraceWriteScope.CANDIDATE_RERANK
+                        )
+                );
+            } else {
+                repository.insertRerankResults(onlineQueryId, decision.selectedCandidateId(), reranked, cohereRerankService.modelName());
+            }
         }
         long rerankLatency = elapsedMs(stageStart);
 
@@ -1130,6 +1177,14 @@ public class RagService {
     private boolean usesAnchorAwareRewriteExecutionService(QueryRouteDecision routeDecision) {
         return routeDecision.strategy() == QueryStrategy.ANCHOR_AWARE_REWRITE
                 || routeDecision.anchorInjectionEnabled();
+    }
+
+    private RagRetrievalExecutionService.NonAgenticExecutionKind rewriteCandidateTraceExecutionKind(
+            QueryRouteDecision routeDecision
+    ) {
+        return usesAnchorAwareRewriteExecutionService(routeDecision)
+                ? RagRetrievalExecutionService.NonAgenticExecutionKind.ANCHOR_AWARE_REWRITE
+                : RagRetrievalExecutionService.NonAgenticExecutionKind.SELECTIVE_REWRITE;
     }
 
     private Decision decide(

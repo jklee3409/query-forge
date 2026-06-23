@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-06-23] Session Summary (RAG Java Source-of-Truth Migration Guide Phase 5C)
+- What was done: Extended backend `RagTracePersistenceService` to own non-agentic rewrite candidate retrieval/rerank trace writes for selective and anchor-aware paths, and wired `RagService` to delegate those candidate writes while preserving existing `/ask` response behavior.
+- Scope: `ONLINE_QUERY` now covers only raw_only retrieval/rerank plus selective/anchor rewrite candidate retrieval/rerank trace rows. `createOnlineQuery`, `createRewriteCandidate`, `markRewriteCandidateAdopted`, `upsertOnlineQueryDecision`, `mergeOnlineQueryMetadata`, `insertAnswer`, answer generation, raw_only behavior, agentic persistence, DB schema, eval endpoints, and Python code were not moved or changed.
+- Validation: `.\gradlew.bat compileJava` passed; `.\gradlew.bat test --tests io.queryforge.backend.rag.service.RagTracePersistenceServiceTest` passed; requested targeted RAG regression command passed.
+- Remaining risks: The adapter still does not own rewrite candidate creation/adoption, rewrite/memory/candidate logs, generic `ONLINE_QUERY`, or `TRACE_ONLY`; later phases must keep those moves separate and avoid changing agentic side effects prematurely.
+
 ## [2026-06-23] Session Summary (RAG Java Source-of-Truth Migration Guide Phase 5B)
 - What was done: Connected backend raw_only online trace persistence to `RagTracePersistenceService` for existing retrieval/rerank trace writes while preserving `/ask` answer generation, response shape, and remaining persistence locations.
 - Scope: `ONLINE_QUERY` is implemented only for raw_only retrieval/rerank write phases; `NONE` remains no-write and `TRACE_ONLY` remains unsupported. `createOnlineQuery`, `upsertOnlineQueryDecision`, `mergeOnlineQueryMetadata`, `insertAnswer`, selective/anchor/agentic persistence, DB schema, eval endpoints, and Python code were not moved or changed.

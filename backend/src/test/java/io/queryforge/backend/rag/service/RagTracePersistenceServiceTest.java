@@ -75,21 +75,21 @@ class RagTracePersistenceServiceTest {
     }
 
     @Test
-    void traceOnlyPolicyIsExplicitlyUnsupportedInPhase5A() {
+    void traceOnlyPolicyIsExplicitlyUnsupportedInPhase5C() {
         assertThatThrownBy(() -> service.persist(request(RagPersistPolicy.TRACE_ONLY, null)))
                 .isInstanceOf(UnsupportedOperationException.class)
                 .hasMessageContaining("TRACE_ONLY")
-                .hasMessageContaining("Phase 5B");
+                .hasMessageContaining("Phase 5C");
 
         verifyNoInteractions(repository);
     }
 
     @Test
-    void onlineQueryGenericPolicyIsExplicitlyUnsupportedInPhase5B() {
+    void onlineQueryGenericPolicyIsExplicitlyUnsupportedInPhase5C() {
         assertThatThrownBy(() -> service.persist(request(RagPersistPolicy.ONLINE_QUERY, null)))
                 .isInstanceOf(UnsupportedOperationException.class)
                 .hasMessageContaining("ONLINE_QUERY")
-                .hasMessageContaining("raw_only");
+                .hasMessageContaining("phase-specific");
 
         verifyNoInteractions(repository);
     }
@@ -194,7 +194,184 @@ class RagTracePersistenceServiceTest {
         )))
                 .isInstanceOf(UnsupportedOperationException.class)
                 .hasMessageContaining("TRACE_ONLY")
-                .hasMessageContaining("Phase 5B");
+                .hasMessageContaining("Phase 5C");
+
+        verifyNoInteractions(repository);
+    }
+
+    @Test
+    void onlineQuerySelectiveRewriteCandidateRetrievalPersistsRetrievalResultsOnly() {
+        UUID onlineQueryId = UUID.fromString("66666666-6666-6666-6666-666666666666");
+        UUID rewriteCandidateId = UUID.fromString("77777777-7777-7777-7777-777777777777");
+        List<RagRepository.RetrievalDoc> retrievedDocs = docs("doc-1", "chunk-1", 0.81d);
+        ObjectNode metadata = JsonNodeFactory.instance.objectNode().put("retriever_mode", "dense_only");
+
+        RagTracePersistenceService.RagTracePersistenceResult result = service.persistRewriteCandidateTrace(
+                rewriteCandidateRequest(
+                        RagPersistPolicy.ONLINE_QUERY,
+                        onlineQueryId,
+                        rewriteCandidateId,
+                        RagRetrievalExecutionService.NonAgenticExecutionKind.SELECTIVE_REWRITE,
+                        retrievedDocs,
+                        docs("doc-2", "chunk-2", 0.91d),
+                        metadata,
+                        RagTracePersistenceService.RewriteCandidateTraceWriteScope.CANDIDATE_RETRIEVAL
+                )
+        );
+
+        assertThat(result.persistPolicy()).isEqualTo(RagPersistPolicy.ONLINE_QUERY);
+        assertThat(result.onlineQueryId()).isEqualTo(onlineQueryId);
+        assertThat(result.persisted()).isTrue();
+        assertThat(result.status()).isEqualTo("persisted_selective_rewrite_candidate_retrieval");
+        verify(repository).insertRetrievalResults(
+                eq(onlineQueryId),
+                eq(rewriteCandidateId),
+                eq("rewrite_candidate"),
+                eq(retrievedDocs),
+                eq("selective_rewrite"),
+                eq("local:dense_only:hash-embedding-v1"),
+                eq(metadata)
+        );
+        verify(repository, never()).insertRerankResults(any(), any(), anyList(), anyString());
+        verifyNoForbiddenOnlineWrites();
+    }
+
+    @Test
+    void onlineQuerySelectiveRewriteCandidateRerankPersistsRerankResultsOnly() {
+        UUID onlineQueryId = UUID.fromString("88888888-8888-8888-8888-888888888888");
+        UUID rewriteCandidateId = UUID.fromString("99999999-9999-9999-9999-999999999999");
+        List<RagRepository.RetrievalDoc> rerankedDocs = docs("doc-2", "chunk-2", 0.91d);
+
+        RagTracePersistenceService.RagTracePersistenceResult result = service.persistRewriteCandidateTrace(
+                rewriteCandidateRequest(
+                        RagPersistPolicy.ONLINE_QUERY,
+                        onlineQueryId,
+                        rewriteCandidateId,
+                        RagRetrievalExecutionService.NonAgenticExecutionKind.SELECTIVE_REWRITE,
+                        docs("doc-1", "chunk-1", 0.81d),
+                        rerankedDocs,
+                        JsonNodeFactory.instance.objectNode(),
+                        RagTracePersistenceService.RewriteCandidateTraceWriteScope.CANDIDATE_RERANK
+                )
+        );
+
+        assertThat(result.persistPolicy()).isEqualTo(RagPersistPolicy.ONLINE_QUERY);
+        assertThat(result.persisted()).isTrue();
+        assertThat(result.status()).isEqualTo("persisted_selective_rewrite_candidate_rerank");
+        verify(repository).insertRerankResults(
+                eq(onlineQueryId),
+                eq(rewriteCandidateId),
+                eq(rerankedDocs),
+                eq("local-rerank-fallback")
+        );
+        verify(repository, never()).insertRetrievalResults(any(), any(), anyString(), anyList(), anyString(), anyString(), any());
+        verifyNoForbiddenOnlineWrites();
+    }
+
+    @Test
+    void onlineQueryAnchorAwareRewriteCandidateRetrievalPersistsRetrievalResultsOnly() {
+        UUID onlineQueryId = UUID.fromString("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
+        UUID rewriteCandidateId = UUID.fromString("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb");
+        List<RagRepository.RetrievalDoc> retrievedDocs = docs("doc-3", "chunk-3", 0.84d);
+        ObjectNode metadata = JsonNodeFactory.instance.objectNode().put("retriever_mode", "hybrid");
+
+        RagTracePersistenceService.RagTracePersistenceResult result = service.persistRewriteCandidateTrace(
+                rewriteCandidateRequest(
+                        RagPersistPolicy.ONLINE_QUERY,
+                        onlineQueryId,
+                        rewriteCandidateId,
+                        RagRetrievalExecutionService.NonAgenticExecutionKind.ANCHOR_AWARE_REWRITE,
+                        retrievedDocs,
+                        docs("doc-4", "chunk-4", 0.94d),
+                        metadata,
+                        RagTracePersistenceService.RewriteCandidateTraceWriteScope.CANDIDATE_RETRIEVAL
+                )
+        );
+
+        assertThat(result.persistPolicy()).isEqualTo(RagPersistPolicy.ONLINE_QUERY);
+        assertThat(result.persisted()).isTrue();
+        assertThat(result.status()).isEqualTo("persisted_anchor_aware_rewrite_candidate_retrieval");
+        verify(repository).insertRetrievalResults(
+                eq(onlineQueryId),
+                eq(rewriteCandidateId),
+                eq("rewrite_candidate"),
+                eq(retrievedDocs),
+                eq("selective_rewrite"),
+                eq("local:dense_only:hash-embedding-v1"),
+                eq(metadata)
+        );
+        verify(repository, never()).insertRerankResults(any(), any(), anyList(), anyString());
+        verifyNoForbiddenOnlineWrites();
+    }
+
+    @Test
+    void onlineQueryAnchorAwareRewriteCandidateRerankPersistsRerankResultsOnly() {
+        UUID onlineQueryId = UUID.fromString("cccccccc-cccc-cccc-cccc-cccccccccccc");
+        UUID rewriteCandidateId = UUID.fromString("dddddddd-dddd-dddd-dddd-dddddddddddd");
+        List<RagRepository.RetrievalDoc> rerankedDocs = docs("doc-4", "chunk-4", 0.94d);
+
+        RagTracePersistenceService.RagTracePersistenceResult result = service.persistRewriteCandidateTrace(
+                rewriteCandidateRequest(
+                        RagPersistPolicy.ONLINE_QUERY,
+                        onlineQueryId,
+                        rewriteCandidateId,
+                        RagRetrievalExecutionService.NonAgenticExecutionKind.ANCHOR_AWARE_REWRITE,
+                        docs("doc-3", "chunk-3", 0.84d),
+                        rerankedDocs,
+                        JsonNodeFactory.instance.objectNode(),
+                        RagTracePersistenceService.RewriteCandidateTraceWriteScope.CANDIDATE_RERANK
+                )
+        );
+
+        assertThat(result.persistPolicy()).isEqualTo(RagPersistPolicy.ONLINE_QUERY);
+        assertThat(result.persisted()).isTrue();
+        assertThat(result.status()).isEqualTo("persisted_anchor_aware_rewrite_candidate_rerank");
+        verify(repository).insertRerankResults(
+                eq(onlineQueryId),
+                eq(rewriteCandidateId),
+                eq(rerankedDocs),
+                eq("local-rerank-fallback")
+        );
+        verify(repository, never()).insertRetrievalResults(any(), any(), anyString(), anyList(), anyString(), anyString(), any());
+        verifyNoForbiddenOnlineWrites();
+    }
+
+    @Test
+    void rewriteCandidateTraceNonePolicyPerformsNoRepositoryWrites() {
+        RagTracePersistenceService.RagTracePersistenceResult result = service.persistRewriteCandidateTrace(
+                rewriteCandidateRequest(
+                        RagPersistPolicy.NONE,
+                        UUID.fromString("eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee"),
+                        UUID.fromString("ffffffff-ffff-ffff-ffff-ffffffffffff"),
+                        RagRetrievalExecutionService.NonAgenticExecutionKind.SELECTIVE_REWRITE,
+                        docs("doc-1", "chunk-1", 0.81d),
+                        docs("doc-2", "chunk-2", 0.91d),
+                        JsonNodeFactory.instance.objectNode(),
+                        RagTracePersistenceService.RewriteCandidateTraceWriteScope.CANDIDATE_RETRIEVAL
+                )
+        );
+
+        assertThat(result.persistPolicy()).isEqualTo(RagPersistPolicy.NONE);
+        assertThat(result.persisted()).isFalse();
+        assertThat(result.status()).isEqualTo("skipped_none");
+        verifyNoInteractions(repository);
+    }
+
+    @Test
+    void rewriteCandidateTraceOnlyPolicyRemainsUnsupported() {
+        assertThatThrownBy(() -> service.persistRewriteCandidateTrace(rewriteCandidateRequest(
+                RagPersistPolicy.TRACE_ONLY,
+                UUID.fromString("12121212-1212-1212-1212-121212121212"),
+                UUID.fromString("34343434-3434-3434-3434-343434343434"),
+                RagRetrievalExecutionService.NonAgenticExecutionKind.SELECTIVE_REWRITE,
+                docs("doc-1", "chunk-1", 0.81d),
+                docs("doc-2", "chunk-2", 0.91d),
+                JsonNodeFactory.instance.objectNode(),
+                RagTracePersistenceService.RewriteCandidateTraceWriteScope.CANDIDATE_RETRIEVAL
+        )))
+                .isInstanceOf(UnsupportedOperationException.class)
+                .hasMessageContaining("TRACE_ONLY")
+                .hasMessageContaining("Phase 5C");
 
         verifyNoInteractions(repository);
     }
@@ -253,6 +430,35 @@ class RagTracePersistenceServiceTest {
                 "local:dense_only:hash-embedding-v1",
                 "local-rerank-fallback",
                 12L,
+                writeScope
+        );
+    }
+
+    private RagTracePersistenceService.RewriteCandidateTracePersistenceRequest rewriteCandidateRequest(
+            RagPersistPolicy policy,
+            UUID onlineQueryId,
+            UUID rewriteCandidateId,
+            RagRetrievalExecutionService.NonAgenticExecutionKind executionKind,
+            List<RagRepository.RetrievalDoc> retrievedDocs,
+            List<RagRepository.RetrievalDoc> rerankedDocs,
+            ObjectNode metadata,
+            RagTracePersistenceService.RewriteCandidateTraceWriteScope writeScope
+    ) {
+        return new RagTracePersistenceService.RewriteCandidateTracePersistenceRequest(
+                policy,
+                onlineQueryId,
+                rewriteCandidateId,
+                executionKind,
+                1,
+                "FilterChainProxy SecurityFilterChain order",
+                "candidate-1",
+                "selective_rewrite",
+                retrievedDocs,
+                rerankedDocs,
+                metadata,
+                "local:dense_only:hash-embedding-v1",
+                "local-rerank-fallback",
+                14L,
                 writeScope
         );
     }
