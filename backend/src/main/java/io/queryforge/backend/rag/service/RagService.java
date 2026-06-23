@@ -44,6 +44,7 @@ public class RagService {
 
     private final RagRepository repository;
     private final DomainScopedRetrievalService domainScopedRetrievalService;
+    private final RagRetrievalExecutionService ragRetrievalExecutionService;
     private final HashEmbeddingService embeddingService;
     private final CohereRerankService cohereRerankService;
     private final RewriteCandidateService rewriteCandidateService;
@@ -174,27 +175,53 @@ public class RagService {
             );
         }
 
-        stageStart = System.nanoTime();
-        List<RagRepository.RetrievalDoc> rawRetrievedLocal = domainScopedRetrievalService.retrieveChunks(
-                rawQuery,
-                rawEmbeddingLiteral,
-                retrievalTopK,
-                config.domainId(),
-                retrievalRuntime
-        );
-        List<RagRepository.RetrievalDoc> rawRetrieved = cohereRerankService.rerank(rawQuery, rawRetrievedLocal, rerankTopN);
+        List<RagRepository.RetrievalDoc> rawRetrievedLocal;
+        List<RagRepository.RetrievalDoc> rawRetrieved;
         double rawDense = memoryCandidates.isEmpty() ? 0.0 : memoryCandidates.getFirst().similarity();
-        double rawConfidence = confidence(rawRetrieved, rawDense);
+        double rawConfidence;
+        long rawRetrievalLatency;
+        String rawRetrieverName;
+        JsonNode rawRetrievalMetadata;
+        if (rawOnlyRoute) {
+            RagRetrievalExecutionService.RawOnlyExecutionResult rawOnlyExecution =
+                    ragRetrievalExecutionService.executeRawOnly(new RagRetrievalExecutionService.RawOnlyExecutionRequest(
+                            rawQuery,
+                            rawEmbeddingLiteral,
+                            retrievalTopK,
+                            rerankTopN,
+                            config.domainId(),
+                            retrievalRuntime
+                    ));
+            rawRetrievedLocal = rawOnlyExecution.localRetrievedDocs();
+            rawRetrieved = rawOnlyExecution.rerankedDocs();
+            rawConfidence = rawOnlyExecution.rawRetrievalConfidence();
+            rawRetrievalLatency = rawOnlyExecution.latencyMs();
+            rawRetrieverName = rawOnlyExecution.retrieverName();
+            rawRetrievalMetadata = rawOnlyExecution.retrievalMetadata();
+        } else {
+            stageStart = System.nanoTime();
+            rawRetrievedLocal = domainScopedRetrievalService.retrieveChunks(
+                    rawQuery,
+                    rawEmbeddingLiteral,
+                    retrievalTopK,
+                    config.domainId(),
+                    retrievalRuntime
+            );
+            rawRetrieved = cohereRerankService.rerank(rawQuery, rawRetrievedLocal, rerankTopN);
+            rawConfidence = confidence(rawRetrieved, rawDense);
+            rawRetrievalLatency = elapsedMs(stageStart);
+            rawRetrieverName = retrievalRuntime.retrieverName();
+            rawRetrievalMetadata = retrievalMetadata(retrievalRuntime);
+        }
         repository.insertRetrievalResults(
                 onlineQueryId,
                 null,
                 "raw",
                 rawRetrievedLocal,
                 mode,
-                retrievalRuntime.retrieverName(),
-                retrievalMetadata(retrievalRuntime)
+                rawRetrieverName,
+                rawRetrievalMetadata
         );
-        long rawRetrievalLatency = elapsedMs(stageStart);
 
         if (routeDecision.routerEnabled() && !rawOnlyRoute) {
             routeStarted = System.nanoTime();

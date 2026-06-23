@@ -67,9 +67,15 @@ class RagServiceTest {
                 embeddingService,
                 denseEmbeddingService
         );
+        RagRetrievalExecutionService ragRetrievalExecutionService = new RagRetrievalExecutionService(
+                domainScopedRetrievalService,
+                cohereRerankService,
+                objectMapper
+        );
         ragService = new RagService(
                 repository,
                 domainScopedRetrievalService,
+                ragRetrievalExecutionService,
                 embeddingService,
                 cohereRerankService,
                 rewriteCandidateService,
