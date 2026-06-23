@@ -1,5 +1,12 @@
 # progress.md
 
+## [2026-06-23] Session Summary (RAG Java Source-of-Truth Migration Guide Phase 2)
+- What was done: Added RAG retrieval execution model types for request, result, trace, retrieved docs, persist policy, forced retrieval mode, and LLM call counts without wiring them into `RagService.ask`.
+- Added models: `RagPersistPolicy`, `ForcedRetrievalMode`, `RagRetrievalExecutionRequest`, `RagRetrievalExecutionResult`, `RagRetrievedDoc`, `RagExecutionTrace`, `RagLlmCallCount`.
+- Key decisions: Used `io.queryforge.backend.rag.model` because existing RAG API DTOs and router model contracts already live there; kept `ForcedRetrievalMode` separate from `QueryStrategy` and did not add `AGENTIC_MULTI_QUERY` to the router enum.
+- Validation: `.\gradlew.bat compileJava` passed; requested targeted RAG tests plus `io.queryforge.backend.rag.model.RagRetrievalExecutionModelTest` passed; `git diff --check` passed.
+- Remaining risks: The new models are not execution logic; Phase 3+ must still decide how to map router decisions, persistence policy, and trace JSON into services/endpoints.
+
 ## [2026-06-23] Session Summary (RAG Java Source-of-Truth Migration Guide Phase 1)
 - What was done: Expanded `RagServiceTest` with `/ask` characterization for raw-only, selective rewrite, anchor-aware rewrite, and agentic metadata paths; added `AgenticRetrievalServiceTest` for domain-scoped agentic subquery retrieval; extended `QueryStrategyRouterTest` for missing router fallback/selection metadata cases.
 - Key decisions: Test-only backend change; no production Java logic, Python pipeline, DB migration, API response shape, router enum, eval endpoint, DomainRouter, or cross-domain retrieval changes were made.

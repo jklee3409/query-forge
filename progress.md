@@ -1,5 +1,12 @@
 # progress.md
 
+## [2026-06-23] Session Summary (RAG Java Source-of-Truth Migration Guide Phase 2)
+- What was done: Added backend-only retrieval execution request/result/trace model records plus persist-policy, forced-mode, retrieved-doc, and LLM-call-count support models for the future Java retrieval source-of-truth path.
+- Added models: `RagPersistPolicy`, `ForcedRetrievalMode`, `RagRetrievalExecutionRequest`, `RagRetrievalExecutionResult`, `RagRetrievedDoc`, `RagExecutionTrace`, `RagLlmCallCount`.
+- Key decisions: Placed the models under `io.queryforge.backend.rag.model`, matching existing `RagDtos`, `QueryRouteDecision`, and `QueryStrategy` package structure; no `/ask` flow, production execution service, eval endpoint, Python client, DB schema, or router strategy enum changes were made.
+- Validation: `.\gradlew.bat compileJava` passed; requested targeted RAG tests plus `io.queryforge.backend.rag.model.RagRetrievalExecutionModelTest` passed; `git diff --check` passed.
+- Remaining risks: Models are intentionally not wired to execution or persistence yet; later phases still need exact eval endpoint mapping and trace persistence policy behavior.
+
 ## [2026-06-23] Session Summary (RAG Java Source-of-Truth Migration Guide Phase 1)
 - What was done: Added /ask characterization coverage for raw-only, selective rewrite adoption, anchor-aware rewrite routing, answer persistence, agentic metadata branching, and domain-scoped retrieval calls.
 - Key decisions: Kept Phase 1 test-only scope; no production Java/Python code, DB schema, router enum, eval endpoint, DomainRouter, or cross-domain retrieval changes were made.
