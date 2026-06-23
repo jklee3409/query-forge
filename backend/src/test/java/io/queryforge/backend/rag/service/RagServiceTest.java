@@ -5,6 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import io.queryforge.backend.rag.model.ChatRuntimeDtos;
 import io.queryforge.backend.rag.model.RagDtos;
+import io.queryforge.backend.rag.model.RagPersistPolicy;
 import io.queryforge.backend.rag.repository.RagRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -135,6 +136,8 @@ class RagServiceTest {
         verify(repository, never()).findMemoryTopN(anyString(), anyInt(), anyString(), eq(domainId), anyList(), anyList(), anyList());
         verify(rewriteCandidateService, never()).buildCandidates(anyString(), any(), anyList(), anyInt(), anyString(), anyBoolean(), any());
         verify(repository, never()).createRewriteCandidate(any(), anyInt(), anyString(), anyString(), any(), any(), anyDouble(), any());
+        verify(ragTracePersistenceService, never()).createRewriteCandidateTrace(any());
+        verify(ragTracePersistenceService, never()).markRewriteCandidateAdopted(any());
         verify(agenticRetrievalService, never()).execute(any());
         verify(ragTracePersistenceService, never()).persistRawOnlyTrace(any());
 
@@ -212,6 +215,8 @@ class RagServiceTest {
         verify(repository).insertRetrievalResults(eq(onlineQueryId), isNull(), eq("raw"), anyList(), eq("raw_only"), eq("local:dense_only:hash-embedding-v1"), any());
         verify(repository).insertRerankResults(eq(onlineQueryId), isNull(), anyList(), eq("local-rerank-fallback"));
         verify(ragTracePersistenceService, never()).persistRewriteCandidateTrace(any());
+        verify(ragTracePersistenceService, never()).createRewriteCandidateTrace(any());
+        verify(ragTracePersistenceService, never()).markRewriteCandidateAdopted(any());
         verify(repository).insertAnswer(eq(onlineQueryId), eq("raw answer"), any(), any(), eq("test-answer-model"), any());
         verify(repository).upsertOnlineQueryDecision(eq(onlineQueryId), eq(query), eq(false), any(), anyDouble(), isNull(), eq("mode_raw_only"), eq("query_router_strategy=raw_only"), any());
         verify(repository).mergeOnlineQueryMetadata(eq(onlineQueryId), any());
@@ -266,6 +271,19 @@ class RagServiceTest {
         verify(rewriteCandidateService).buildCandidates(eq(query), any(), eq(memories), eq(2), eq("compact_anchor"), eq(false), any());
         verify(repository).createRewriteCandidate(eq(onlineQueryId), eq(1), eq("candidate-1"), eq(rewrittenQuery), any(), any(), anyDouble(), any());
         verify(repository).markRewriteCandidateAdopted(eq(rewriteCandidateId), eq(true), isNull());
+        verifyCreateRewriteCandidatePersistence(
+                onlineQueryId,
+                RagRetrievalExecutionService.NonAgenticExecutionKind.SELECTIVE_REWRITE,
+                "candidate-1",
+                rewrittenQuery
+        );
+        verifyRewriteCandidateAdoptionPersistence(
+                onlineQueryId,
+                rewriteCandidateId,
+                RagRetrievalExecutionService.NonAgenticExecutionKind.SELECTIVE_REWRITE,
+                true,
+                null
+        );
         verify(repository).insertRetrievalResults(eq(onlineQueryId), isNull(), eq("raw"), anyList(), eq("selective_rewrite"), eq("local:dense_only:hash-embedding-v1"), any());
         verify(repository).insertRetrievalResults(eq(onlineQueryId), eq(rewriteCandidateId), eq("rewrite_candidate"), anyList(), eq("selective_rewrite"), eq("local:dense_only:hash-embedding-v1"), any());
         verify(repository).insertRerankResults(eq(onlineQueryId), eq(rewriteCandidateId), anyList(), eq("local-rerank-fallback"));
@@ -327,6 +345,19 @@ class RagServiceTest {
         verify(rewriteCandidateService).buildCandidates(eq(query), any(), eq(memories), eq(2), eq("compact_anchor"), eq(false), any());
         verify(repository).createRewriteCandidate(eq(onlineQueryId), eq(1), eq("candidate-1"), eq(rewrittenQuery), any(), any(), anyDouble(), any());
         verify(repository).markRewriteCandidateAdopted(eq(rewriteCandidateId), eq(true), isNull());
+        verifyCreateRewriteCandidatePersistence(
+                onlineQueryId,
+                RagRetrievalExecutionService.NonAgenticExecutionKind.SELECTIVE_REWRITE,
+                "candidate-1",
+                rewrittenQuery
+        );
+        verifyRewriteCandidateAdoptionPersistence(
+                onlineQueryId,
+                rewriteCandidateId,
+                RagRetrievalExecutionService.NonAgenticExecutionKind.SELECTIVE_REWRITE,
+                true,
+                null
+        );
         verify(repository).insertRetrievalResults(eq(onlineQueryId), isNull(), eq("raw"), anyList(), eq("selective_rewrite"), eq("local:dense_only:hash-embedding-v1"), any());
         verify(repository).insertRetrievalResults(eq(onlineQueryId), eq(rewriteCandidateId), eq("rewrite_candidate"), anyList(), eq("selective_rewrite"), eq("local:dense_only:hash-embedding-v1"), any());
         verify(repository).insertRerankResults(eq(onlineQueryId), eq(rewriteCandidateId), anyList(), eq("local-rerank-fallback"));
@@ -389,6 +420,19 @@ class RagServiceTest {
         verify(rewriteCandidateService).buildCandidates(eq(query), any(), eq(memories), eq(2), eq("compact_anchor"), eq(true), any());
         verify(repository).createRewriteCandidate(eq(onlineQueryId), eq(1), eq("anchor-aware"), eq(rewrittenQuery), any(), any(), anyDouble(), any());
         verify(repository).markRewriteCandidateAdopted(eq(rewriteCandidateId), eq(true), isNull());
+        verifyCreateRewriteCandidatePersistence(
+                onlineQueryId,
+                RagRetrievalExecutionService.NonAgenticExecutionKind.ANCHOR_AWARE_REWRITE,
+                "anchor-aware",
+                rewrittenQuery
+        );
+        verifyRewriteCandidateAdoptionPersistence(
+                onlineQueryId,
+                rewriteCandidateId,
+                RagRetrievalExecutionService.NonAgenticExecutionKind.ANCHOR_AWARE_REWRITE,
+                true,
+                null
+        );
         verify(repository).insertRetrievalResults(eq(onlineQueryId), isNull(), eq("raw"), anyList(), eq("selective_rewrite"), eq("local:dense_only:hash-embedding-v1"), any());
         verify(repository).insertRetrievalResults(eq(onlineQueryId), eq(rewriteCandidateId), eq("rewrite_candidate"), anyList(), eq("selective_rewrite"), eq("local:dense_only:hash-embedding-v1"), any());
         verify(repository, times(2)).findTopChunksByEmbedding(anyString(), anyInt(), eq(domainId));
@@ -489,6 +533,8 @@ class RagServiceTest {
         verify(repository, never()).findTopChunksByEmbedding(anyString(), anyInt(), any());
         verify(rewriteCandidateService, never()).buildCandidates(anyString(), any(), anyList(), anyInt(), anyString(), anyBoolean(), any());
         verify(ragTracePersistenceService, never()).persistRewriteCandidateTrace(any());
+        verify(ragTracePersistenceService, never()).createRewriteCandidateTrace(any());
+        verify(ragTracePersistenceService, never()).markRewriteCandidateAdopted(any());
         verify(repository).insertRerankResults(eq(onlineQueryId), isNull(), eq(mergedDocs), eq("agentic-rrf"));
         verify(chatAnswerService).generateAnswer(eq(query), eq(query), eq("Spring"), eq(mergedDocs));
         verify(repository).insertAnswer(eq(onlineQueryId), eq("agentic answer"), any(), any(), eq("test-answer-model"), any());
@@ -594,6 +640,47 @@ class RagServiceTest {
                 });
         assertThat(traceCaptor.getAllValues().get(0).retrievedDocs()).isNotEmpty();
         assertThat(traceCaptor.getAllValues().get(1).rerankedDocs()).isNotEmpty();
+    }
+
+    private void verifyCreateRewriteCandidatePersistence(
+            UUID onlineQueryId,
+            RagRetrievalExecutionService.NonAgenticExecutionKind executionKind,
+            String candidateLabel,
+            String candidateQuery
+    ) {
+        ArgumentCaptor<RagTracePersistenceService.CreateRewriteCandidateTracePersistenceRequest> createCaptor =
+                ArgumentCaptor.forClass(RagTracePersistenceService.CreateRewriteCandidateTracePersistenceRequest.class);
+        verify(ragTracePersistenceService).createRewriteCandidateTrace(createCaptor.capture());
+        RagTracePersistenceService.CreateRewriteCandidateTracePersistenceRequest request = createCaptor.getValue();
+        assertThat(request.persistPolicy()).isEqualTo(RagPersistPolicy.ONLINE_QUERY);
+        assertThat(request.onlineQueryId()).isEqualTo(onlineQueryId);
+        assertThat(request.executionKind()).isEqualTo(executionKind);
+        assertThat(request.candidateIndex()).isEqualTo(1);
+        assertThat(request.candidateLabel()).isEqualTo(candidateLabel);
+        assertThat(request.candidateQuery()).isEqualTo(candidateQuery);
+        assertThat(request.candidateMetadata().path("candidate_index").asInt()).isEqualTo(1);
+        assertThat(request.memorySourceIds().isArray()).isTrue();
+        assertThat(request.retrievalTopKDocs().isArray()).isTrue();
+        assertThat(request.scoreBreakdown().isObject()).isTrue();
+    }
+
+    private void verifyRewriteCandidateAdoptionPersistence(
+            UUID onlineQueryId,
+            UUID rewriteCandidateId,
+            RagRetrievalExecutionService.NonAgenticExecutionKind executionKind,
+            boolean adopted,
+            String rejectedReason
+    ) {
+        ArgumentCaptor<RagTracePersistenceService.RewriteCandidateAdoptionPersistenceRequest> adoptionCaptor =
+                ArgumentCaptor.forClass(RagTracePersistenceService.RewriteCandidateAdoptionPersistenceRequest.class);
+        verify(ragTracePersistenceService).markRewriteCandidateAdopted(adoptionCaptor.capture());
+        RagTracePersistenceService.RewriteCandidateAdoptionPersistenceRequest request = adoptionCaptor.getValue();
+        assertThat(request.persistPolicy()).isEqualTo(RagPersistPolicy.ONLINE_QUERY);
+        assertThat(request.onlineQueryId()).isEqualTo(onlineQueryId);
+        assertThat(request.rewriteCandidateId()).isEqualTo(rewriteCandidateId);
+        assertThat(request.executionKind()).isEqualTo(executionKind);
+        assertThat(request.adopted()).isEqualTo(adopted);
+        assertThat(request.rejectedReason()).isEqualTo(rejectedReason);
     }
 
     private void stubCommonAskDependencies(ChatRuntimeDtos.ChatRuntimeConfigResponse config, UUID onlineQueryId) {

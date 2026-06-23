@@ -263,6 +263,7 @@ public class RagService {
 
         stageStart = System.nanoTime();
         List<GeneratedCandidate> scoredCandidates = new ArrayList<>();
+        RagRetrievalExecutionService.NonAgenticExecutionKind candidateRootAdoptionPersistenceKind = null;
         if (!rawOnlyRoute) {
             List<RagRetrievalExecutionService.ExecutedRewriteCandidate> executedCandidates = null;
             RagRetrievalExecutionService.NonAgenticExecutionKind executedCandidateKind = null;
@@ -305,16 +306,24 @@ public class RagService {
                 for (int index = 0; index < executedCandidates.size(); index++) {
                     RagRetrievalExecutionService.ExecutedRewriteCandidate executed = executedCandidates.get(index);
                     int candidateIndex = executed.index() > 0 ? executed.index() : index + 1;
-                    UUID candidateId = repository.createRewriteCandidate(
-                            onlineQueryId,
-                            candidateIndex,
-                            executed.label(),
-                            executed.query(),
-                            memorySourceIds(memoryCandidates),
-                            objectMapper.valueToTree(executed.rerankedDocs()),
-                            executed.confidence(),
-                            scoreBreakdown(executed.rerankedDocs(), memoryCandidates)
-                    );
+                    RagTracePersistenceService.RewriteCandidatePersistenceResult candidatePersistence =
+                            ragTracePersistenceService.createRewriteCandidateTrace(
+                                    new RagTracePersistenceService.CreateRewriteCandidateTracePersistenceRequest(
+                                            RagPersistPolicy.ONLINE_QUERY,
+                                            onlineQueryId,
+                                            executedCandidateKind,
+                                            candidateIndex,
+                                            executed.label(),
+                                            executed.query(),
+                                            executed.metadata(),
+                                            memorySourceIds(memoryCandidates),
+                                            objectMapper.valueToTree(executed.rerankedDocs()),
+                                            executed.confidence(),
+                                            scoreBreakdown(executed.rerankedDocs(), memoryCandidates)
+                                    )
+                            );
+                    UUID candidateId = candidatePersistence.rewriteCandidateId();
+                    candidateRootAdoptionPersistenceKind = executedCandidateKind;
                     ragTracePersistenceService.persistRewriteCandidateTrace(
                             new RagTracePersistenceService.RewriteCandidateTracePersistenceRequest(
                                     RagPersistPolicy.ONLINE_QUERY,
@@ -410,15 +419,41 @@ public class RagService {
         if (decision.selectedCandidateId() != null) {
             for (GeneratedCandidate candidate : scoredCandidates) {
                 boolean adopted = candidate.rewriteCandidateId().equals(decision.selectedCandidateId());
-                repository.markRewriteCandidateAdopted(
-                        candidate.rewriteCandidateId(),
-                        adopted,
-                        adopted ? null : decision.rejectedReason()
-                );
+                if (candidateRootAdoptionPersistenceKind != null) {
+                    ragTracePersistenceService.markRewriteCandidateAdopted(
+                            new RagTracePersistenceService.RewriteCandidateAdoptionPersistenceRequest(
+                                    RagPersistPolicy.ONLINE_QUERY,
+                                    onlineQueryId,
+                                    candidate.rewriteCandidateId(),
+                                    candidateRootAdoptionPersistenceKind,
+                                    adopted,
+                                    adopted ? null : decision.rejectedReason()
+                            )
+                    );
+                } else {
+                    repository.markRewriteCandidateAdopted(
+                            candidate.rewriteCandidateId(),
+                            adopted,
+                            adopted ? null : decision.rejectedReason()
+                    );
+                }
             }
         } else {
             for (GeneratedCandidate candidate : scoredCandidates) {
-                repository.markRewriteCandidateAdopted(candidate.rewriteCandidateId(), false, decision.rejectedReason());
+                if (candidateRootAdoptionPersistenceKind != null) {
+                    ragTracePersistenceService.markRewriteCandidateAdopted(
+                            new RagTracePersistenceService.RewriteCandidateAdoptionPersistenceRequest(
+                                    RagPersistPolicy.ONLINE_QUERY,
+                                    onlineQueryId,
+                                    candidate.rewriteCandidateId(),
+                                    candidateRootAdoptionPersistenceKind,
+                                    false,
+                                    decision.rejectedReason()
+                            )
+                    );
+                } else {
+                    repository.markRewriteCandidateAdopted(candidate.rewriteCandidateId(), false, decision.rejectedReason());
+                }
             }
         }
         long decisionLatency = elapsedMs(stageStart);
