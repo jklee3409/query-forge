@@ -139,6 +139,7 @@ class RewriteOutcome:
     rewrite_llm_attempted: bool = False
     rewrite_llm_succeeded: bool = False
     rewrite_heuristic_fallback_used: bool = False
+    rewrite_llm_call_count: int = 0
     final_rewrite_latency_ms: float | None = None
     pure_rewrite_latency_ms: float | None = None
     multi_source_anchor_hints: dict[str, Any] | None = None
@@ -162,11 +163,82 @@ class AgenticQueryPlan:
     fallback_reason: str | None = None
     planner_model: str | None = None
     planner_latency_ms: float = 0.0
+    planner_call_count: int = 0
+    metadata: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass(slots=True)
+class StrategyRouterDecision:
+    selected_strategy: str
+    router_reason: str
     metadata: dict[str, Any] = field(default_factory=dict)
 
 
 RETRIEVAL_BACKEND_LOCAL = "local"
 RETRIEVAL_BACKEND_DB_ANN = "db_ann"
+STRATEGY_ROUTER_MODE = "strategy_router"
+STRATEGY_RAW_ONLY = "raw_only"
+STRATEGY_SELECTIVE_REWRITE = "selective_rewrite"
+STRATEGY_ANCHOR_AWARE_REWRITE = "anchor_aware_rewrite"
+STRATEGY_AGENTIC_MULTI_QUERY = "agentic_multi_query"
+STRATEGY_ROUTER_TOKEN_RE = re.compile(r"[A-Za-z0-9_./:$#-]+|[가-힣]+")
+STRATEGY_ROUTER_TECHNICAL_ANCHOR_RE = re.compile(
+    r"(?i)(\b[A-Za-z][A-Za-z0-9_$]*(?:Exception|Error|Config|Configuration|Properties|Client|Template|Repository|Controller|Service|Filter|Chain|Manager|Factory)\b)"
+    r"|(\b[A-Za-z][A-Za-z0-9_]*[./:$#-][A-Za-z0-9_./:$#-]*\b)"
+    r"|(\b[A-Z][A-Za-z0-9_]+[A-Z][A-Za-z0-9_]*\b)"
+    r"|(\b[A-Za-z]+\d+[A-Za-z0-9_]*\b)"
+)
+STRATEGY_ROUTER_COMPLEX_TERMS = (
+    "비교",
+    "차이",
+    "원인",
+    "해결",
+    "순서",
+    "장애",
+    "설정",
+    "확인",
+    "오류",
+    "에러",
+    "실패",
+    "compare",
+    "difference",
+    "cause",
+    "resolve",
+    "troubleshoot",
+    "sequence",
+    "order",
+    "failure",
+    "error",
+    "exception",
+    "setting",
+    "configuration",
+    "check",
+    "verify",
+)
+STRATEGY_ROUTER_TROUBLESHOOTING_TERMS = (
+    "장애",
+    "오류",
+    "에러",
+    "실패",
+    "연결 오류",
+    "원인",
+    "해결",
+    "troubleshoot",
+    "error",
+    "exception",
+    "failure",
+    "failed",
+    "timeout",
+    "connection error",
+)
+STRATEGY_ROUTER_MULTI_CONDITION_RE = (
+    re.compile(r"[A-Za-z0-9_./:$#-]+\s*(?:and|vs\.?|versus|/|,)\s*[A-Za-z0-9_./:$#-]+", re.IGNORECASE),
+    re.compile(r"[가-힣A-Za-z0-9_./:$#-]+(?:와|과)\s*[가-힣A-Za-z0-9_./:$#-]+"),
+    re.compile(r"(?:에서|when|while|during).+(?:할 때|오류|장애|error|failure|exception)", re.IGNORECASE),
+    re.compile(r"(?:연결 오류|배포 환경|확인해야 할 설정|설정.*확인|원인.*해결)"),
+    re.compile(r"(?:difference between|compare .+ and|check .+ configuration|deployment environment)", re.IGNORECASE),
+)
+
 
 
 def retrieval_candidates_to_payload(retrieval: list[RetrievalCandidate]) -> list[dict[str, Any]]:
@@ -210,6 +282,248 @@ def retrieval_candidates_from_payload(payload: Any) -> list[RetrievalCandidate]:
 def normalize_retrieval_backend(value: str | None) -> str:
     normalized = str(value or RETRIEVAL_BACKEND_LOCAL).strip().lower().replace("-", "_")
     return RETRIEVAL_BACKEND_DB_ANN if normalized == RETRIEVAL_BACKEND_DB_ANN else RETRIEVAL_BACKEND_LOCAL
+
+
+def _router_normalize(value: Any, fallback: str) -> str:
+    text = str(value or "").strip().lower().replace("-", "_")
+    return text or fallback
+
+
+def _router_bool_config(raw_config: Mapping[str, Any] | None, keys: tuple[str, ...], default: bool) -> bool:
+    if not raw_config:
+        return default
+    for key in keys:
+        if key not in raw_config:
+            continue
+        value = raw_config.get(key)
+        if isinstance(value, bool):
+            return value
+        normalized = str(value or "").strip().lower()
+        if normalized in {"true", "1", "yes", "y", "on"}:
+            return True
+        if normalized in {"false", "0", "no", "n", "off"}:
+            return False
+    return default
+
+
+def _router_int_config(
+    raw_config: Mapping[str, Any] | None,
+    keys: tuple[str, ...],
+    *,
+    default: int,
+    min_value: int = 1,
+    max_value: int | None = None,
+) -> int:
+    value = None
+    if raw_config:
+        for key in keys:
+            if key in raw_config:
+                value = raw_config.get(key)
+                break
+    try:
+        parsed = int(value)
+    except (TypeError, ValueError):
+        parsed = default
+    parsed = max(min_value, parsed)
+    if max_value is not None:
+        parsed = min(parsed, max_value)
+    return parsed
+
+
+def _strategy_router_count_tokens(query: str) -> int:
+    return len(STRATEGY_ROUTER_TOKEN_RE.findall(str(query or "")))
+
+
+def _strategy_router_technical_anchor_terms(query: str, *, max_items: int = 8) -> list[str]:
+    terms: list[str] = []
+    seen: set[str] = set()
+    for match in STRATEGY_ROUTER_TECHNICAL_ANCHOR_RE.finditer(str(query or "")):
+        term = str(match.group(0) or "").strip()
+        if not term:
+            continue
+        folded = term.casefold()
+        if folded in seen:
+            continue
+        seen.add(folded)
+        terms.append(term)
+        if len(terms) >= max_items:
+            break
+    return terms
+
+
+def _strategy_router_contains_korean(query: str) -> bool:
+    return any(0xAC00 <= ord(char) <= 0xD7A3 for char in str(query or ""))
+
+
+def _strategy_router_contains_english(query: str) -> bool:
+    return any(("A" <= char <= "Z") or ("a" <= char <= "z") for char in str(query or ""))
+
+
+def _strategy_router_term_hits(query: str, terms: tuple[str, ...]) -> list[str]:
+    folded = str(query or "").casefold()
+    return [term for term in terms if term.casefold() in folded]
+
+
+def _strategy_router_multi_condition_hits(query: str) -> list[str]:
+    text = str(query or "")
+    hits: list[str] = []
+    for pattern in STRATEGY_ROUTER_MULTI_CONDITION_RE:
+        if pattern.search(text):
+            hits.append(pattern.pattern)
+    return hits
+
+
+def _strategy_router_agentic_reason(
+    *,
+    query: str,
+    token_count: int,
+    technical_anchor_count: int,
+    min_tokens: int,
+) -> tuple[str | None, dict[str, Any]]:
+    complex_hits = _strategy_router_term_hits(query, STRATEGY_ROUTER_COMPLEX_TERMS)
+    troubleshooting_hits = _strategy_router_term_hits(query, STRATEGY_ROUTER_TROUBLESHOOTING_TERMS)
+    multi_condition_hits = _strategy_router_multi_condition_hits(query)
+    technical_troubleshooting = technical_anchor_count >= 2 and bool(troubleshooting_hits)
+    signals = {
+        "token_count": token_count,
+        "min_tokens": min_tokens,
+        "complex_term_hits": complex_hits[:8],
+        "troubleshooting_term_hits": troubleshooting_hits[:8],
+        "multi_condition_hits": multi_condition_hits[:4],
+        "technical_troubleshooting": technical_troubleshooting,
+    }
+    if token_count < min_tokens:
+        return None, signals
+
+    signal_names: list[str] = []
+    if complex_hits:
+        signal_names.append("complex_terms")
+    if multi_condition_hits:
+        signal_names.append("multi_condition")
+    if technical_troubleshooting:
+        signal_names.append("technical_troubleshooting")
+
+    if len(signal_names) >= 2:
+        return "_and_".join(signal_names[:3]), signals
+    return None, signals
+
+
+def route_strategy_router(
+    *,
+    raw_query: str,
+    raw_config: Mapping[str, Any] | None = None,
+    runtime_mode: str = STRATEGY_ROUTER_MODE,
+    rewrite_ready: bool = True,
+    readiness_blocking_reasons: list[str] | tuple[str, ...] | None = None,
+    memory_candidates_known: bool = True,
+    memory_candidates_available: bool = True,
+    anchor_injection_enabled: bool = True,
+    rewrite_query_profile: str | None = None,
+    query_language: str | None = None,
+    query_category: str | None = None,
+    raw_retrieval_confidence: float | None = None,
+) -> StrategyRouterDecision:
+    mode = _router_normalize(runtime_mode, STRATEGY_ROUTER_MODE)
+    profile = _router_normalize(rewrite_query_profile, "compact_anchor")
+    rewrite_ready = _router_bool_config(
+        raw_config,
+        ("strategy_router_rewrite_ready", "query_router_rewrite_ready"),
+        bool(rewrite_ready),
+    )
+    memory_candidates_known = _router_bool_config(
+        raw_config,
+        ("strategy_router_memory_candidates_known", "query_router_memory_candidates_known"),
+        bool(memory_candidates_known),
+    )
+    memory_candidates_available = _router_bool_config(
+        raw_config,
+        ("strategy_router_memory_candidates_available", "query_router_memory_candidates_available"),
+        bool(memory_candidates_available),
+    )
+    agentic_enabled = _router_bool_config(
+        raw_config,
+        ("strategy_router_agentic_enabled", "query_router_agentic_enabled"),
+        False,
+    )
+    agentic_min_tokens = _router_int_config(
+        raw_config,
+        ("strategy_router_agentic_min_tokens", "query_router_agentic_min_tokens"),
+        default=8,
+        min_value=1,
+    )
+    agentic_max_subqueries = _router_int_config(
+        raw_config,
+        ("strategy_router_agentic_max_subqueries", "query_router_agentic_max_subqueries"),
+        default=3,
+        min_value=1,
+        max_value=4,
+    )
+    token_count = _strategy_router_count_tokens(raw_query)
+    technical_anchor_terms = _strategy_router_technical_anchor_terms(raw_query)
+    technical_anchor_count = len(technical_anchor_terms)
+    contains_technical_anchor = technical_anchor_count > 0
+    contains_korean = (
+        str(query_language or "").strip().lower() == "ko"
+        or _strategy_router_contains_korean(raw_query)
+    )
+    contains_english = (
+        str(query_language or "").strip().lower() == "en"
+        or _strategy_router_contains_english(raw_query)
+    )
+    agentic_reason, agentic_signals = _strategy_router_agentic_reason(
+        query=raw_query,
+        token_count=token_count,
+        technical_anchor_count=technical_anchor_count,
+        min_tokens=agentic_min_tokens,
+    )
+    metadata: dict[str, Any] = {
+        "runtimeMode": mode,
+        "rewriteQueryProfile": profile,
+        "queryLength": len(str(raw_query or "")),
+        "queryTokenCount": token_count,
+        "queryLanguage": str(query_language or "").strip().lower() or None,
+        "queryCategory": str(query_category or "").strip() or None,
+        "containsKorean": contains_korean,
+        "containsEnglish": contains_english,
+        "containsTechnicalAnchor": contains_technical_anchor,
+        "technicalAnchorCount": technical_anchor_count,
+        "technicalAnchorTerms": technical_anchor_terms[:8],
+        "memoryCandidatesKnown": memory_candidates_known,
+        "memoryCandidatesAvailable": memory_candidates_available,
+        "rewriteReady": rewrite_ready,
+        "anchorInjectionEnabled": bool(anchor_injection_enabled),
+        "strategyRouterAgenticEnabled": agentic_enabled,
+        "strategyRouterAgenticMinTokens": agentic_min_tokens,
+        "strategyRouterAgenticMaxSubqueries": agentic_max_subqueries,
+        "strategyRouterAgenticSignals": agentic_signals,
+    }
+    if raw_retrieval_confidence is not None:
+        metadata["rawRetrievalConfidence"] = raw_retrieval_confidence
+
+    if mode == STRATEGY_RAW_ONLY:
+        return StrategyRouterDecision(STRATEGY_RAW_ONLY, "mode_raw_only", metadata)
+    if not rewrite_ready:
+        fallback_reason = "; ".join(str(item) for item in (readiness_blocking_reasons or []) if str(item).strip())
+        if fallback_reason:
+            metadata["rewriteReadinessBlockingReason"] = fallback_reason
+        return StrategyRouterDecision(STRATEGY_RAW_ONLY, "rewrite_readiness_failed", metadata)
+    if memory_candidates_known and not memory_candidates_available:
+        return StrategyRouterDecision(STRATEGY_RAW_ONLY, "memory_candidates_unavailable", metadata)
+    if agentic_enabled and agentic_reason:
+        return StrategyRouterDecision(
+            STRATEGY_AGENTIC_MULTI_QUERY,
+            f"agentic_complex_query:{agentic_reason}",
+            metadata,
+        )
+    if anchor_injection_enabled and contains_technical_anchor:
+        return StrategyRouterDecision(
+            STRATEGY_ANCHOR_AWARE_REWRITE,
+            "anchor_injection_enabled_and_technical_anchor_detected",
+            metadata,
+        )
+    if contains_technical_anchor and not contains_korean and technical_anchor_count >= 2 and token_count >= 3:
+        return StrategyRouterDecision(STRATEGY_RAW_ONLY, "specific_technical_query", metadata)
+    return StrategyRouterDecision(STRATEGY_SELECTIVE_REWRITE, "rewrite_backed_mode_ready", metadata)
 
 
 def _parse_halfvec_literal(raw: str) -> list[float]:
@@ -4153,6 +4467,7 @@ def _fallback_agentic_query_plan(
     raw_query: str,
     reason: str,
     planner_latency_ms: float,
+    planner_call_count: int = 0,
 ) -> AgenticQueryPlan:
     return AgenticQueryPlan(
         original_query=raw_query,
@@ -4168,6 +4483,7 @@ def _fallback_agentic_query_plan(
         fallback_reason=reason,
         planner_model="fallback-original-query",
         planner_latency_ms=planner_latency_ms,
+        planner_call_count=planner_call_count,
         metadata={},
     )
 
@@ -4179,6 +4495,7 @@ def _agentic_query_plan_payload(plan: AgenticQueryPlan) -> dict[str, Any]:
         "fallback_reason": plan.fallback_reason,
         "planner_model": plan.planner_model,
         "planner_latency_ms": plan.planner_latency_ms,
+        "planner_call_count": plan.planner_call_count,
         "subqueries": [
             {
                 "index": subquery.index,
@@ -4255,6 +4572,7 @@ def build_agentic_query_plan(
 ) -> AgenticQueryPlan:
     started = time.perf_counter()
     bounded_max_subqueries = _clamp_count(max_subqueries, default=3, max_value=4)
+    planner_call_count = 0
     try:
         client = _rewrite_client(raw_config=raw_config)
         domain_context = _rewrite_domain_context(source_product)
@@ -4271,6 +4589,7 @@ def build_agentic_query_plan(
             },
             "top_memory_hints": _memory_prompt_candidates(memory_hints)[:5],
         }
+        planner_call_count = 1
         response = client.chat_json(
             system_prompt=AGENTIC_QUERY_PLANNER_SYSTEM_PROMPT,
             user_prompt=json.dumps(payload, ensure_ascii=False, indent=2),
@@ -4288,6 +4607,7 @@ def build_agentic_query_plan(
                 raw_query=raw_query,
                 reason="empty_subqueries",
                 planner_latency_ms=planner_latency_ms,
+                planner_call_count=planner_call_count,
             )
         meta = response.get("_llm_meta") if isinstance(response, Mapping) else None
         planner_model = None
@@ -4300,6 +4620,7 @@ def build_agentic_query_plan(
             fallback_reason=None,
             planner_model=planner_model,
             planner_latency_ms=planner_latency_ms,
+            planner_call_count=planner_call_count,
             metadata={
                 "planner_notes": str(response.get("planner_notes") or "").strip()
                 if isinstance(response, Mapping)
@@ -4313,6 +4634,7 @@ def build_agentic_query_plan(
             raw_query=raw_query,
             reason=f"{type(exception).__name__}: {str(exception)[:240]}",
             planner_latency_ms=planner_latency_ms,
+            planner_call_count=planner_call_count,
         )
 
 
@@ -4437,10 +4759,12 @@ def run_agentic_multi_query(
     rewrite_llm_attempted = False
     rewrite_llm_succeeded = False
     rewrite_heuristic_fallback_used = False
+    rewrite_call_count = 0
     best_candidate_confidence = 0.0
     raw_confidence = 0.0
     for subquery in plan.subqueries[:bounded_max_subqueries]:
         sub_started = time.perf_counter()
+        sub_rewrite_call_count = 0
         sub_raw_retrieval = retrieve_top_k(
             subquery.query,
             chunks,
@@ -4501,6 +4825,8 @@ def run_agentic_multi_query(
             rewrite_heuristic_fallback_used = (
                 rewrite_heuristic_fallback_used or rewrite_outcome.rewrite_heuristic_fallback_used
             )
+            sub_rewrite_call_count = int(rewrite_outcome.rewrite_llm_call_count or 0)
+            rewrite_call_count += sub_rewrite_call_count
         except Exception as exception:  # noqa: BLE001 - one failed subquery must not abort the eval sample.
             sub_retrieval = sub_raw_retrieval
             final_query = subquery.query
@@ -4525,6 +4851,7 @@ def run_agentic_multi_query(
                 "selected_rewrite": selected_rewrite,
                 "rewrite_candidates": candidates,
                 "memory_top_n": memory_top,
+                "rewrite_call_count": sub_rewrite_call_count,
                 "retrieval_count": len(sub_retrieval),
                 "retrieved_top_k": retrieval_candidates_to_payload(sub_retrieval[:5]),
                 "latency_ms": (time.perf_counter() - sub_started) * 1000.0,
@@ -4567,6 +4894,9 @@ def run_agentic_multi_query(
             "rewrite_llm_attempted": rewrite_llm_attempted,
             "rewrite_llm_succeeded": rewrite_llm_succeeded,
             "rewrite_heuristic_fallback_used": rewrite_heuristic_fallback_used,
+            "planner_call_count": int(plan.planner_call_count or 0),
+            "rewrite_call_count": int(rewrite_call_count),
+            "llm_call_count": int(plan.planner_call_count or 0) + int(rewrite_call_count),
             "final_rewrite_latency_ms": elapsed_ms,
             "pure_rewrite_latency_ms": plan.planner_latency_ms,
             "memory_hint_query": None,
@@ -4817,6 +5147,7 @@ def run_selective_rewrite(
     rewrite_llm_attempted = rewrite_runtime_stats.get("llm_attempted_count", 0) > 0
     rewrite_llm_succeeded = rewrite_runtime_stats.get("llm_success_count", 0) > 0
     rewrite_heuristic_fallback_used = rewrite_runtime_stats.get("heuristic_fallback_count", 0) > 0
+    rewrite_llm_call_count = int(rewrite_runtime_stats.get("llm_call_count", 0) or 0)
     pure_rewrite_latency_ms = (
         float(rewrite_runtime_stats["pure_rewrite_latency_ms"])
         if "pure_rewrite_latency_ms" in rewrite_runtime_stats
@@ -5100,6 +5431,7 @@ def run_selective_rewrite(
                 rewrite_llm_attempted=rewrite_llm_attempted,
                 rewrite_llm_succeeded=rewrite_llm_succeeded,
                 rewrite_heuristic_fallback_used=rewrite_heuristic_fallback_used,
+                rewrite_llm_call_count=rewrite_llm_call_count,
                 final_rewrite_latency_ms=None,
                 pure_rewrite_latency_ms=pure_rewrite_latency_ms,
                 multi_source_anchor_hints=multi_source_anchor_hints,
@@ -5248,6 +5580,7 @@ def run_selective_rewrite(
             rewrite_llm_attempted=rewrite_llm_attempted,
             rewrite_llm_succeeded=rewrite_llm_succeeded,
             rewrite_heuristic_fallback_used=rewrite_heuristic_fallback_used,
+            rewrite_llm_call_count=rewrite_llm_call_count,
             final_rewrite_latency_ms=rewrite_elapsed_ms if should_apply else None,
             pure_rewrite_latency_ms=pure_rewrite_latency_ms,
             multi_source_anchor_hints=multi_source_anchor_hints,

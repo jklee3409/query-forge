@@ -34,6 +34,7 @@ try:
         retrieval_candidates_to_payload,
         retrieval_metrics,
         retrieve_top_k,
+        route_strategy_router,
         run_agentic_multi_query,
         run_selective_rewrite,
         runtime_retriever_label,
@@ -59,6 +60,7 @@ except ModuleNotFoundError:  # pragma: no cover
         retrieval_candidates_to_payload,
         retrieval_metrics,
         retrieve_top_k,
+        route_strategy_router,
         run_agentic_multi_query,
         run_selective_rewrite,
         runtime_retriever_label,
@@ -83,6 +85,7 @@ MODES = (
     *LEGACY_DEFAULT_MODES,
     "anchor_aware_rewrite",
     "agentic_multi_query",
+    "strategy_router",
 )
 
 
@@ -150,6 +153,62 @@ def _mean(rows: list[float]) -> float:
     if not rows:
         return 0.0
     return float(statistics.fmean(rows))
+
+
+def _selected_strategy_for_mode(mode: str) -> str | None:
+    if mode in {"raw_only", "selective_rewrite", "anchor_aware_rewrite", "agentic_multi_query"}:
+        return mode
+    if mode in {"rewrite_always", "selective_rewrite_with_session"}:
+        return "selective_rewrite"
+    return None
+
+
+def _with_llm_trace_defaults(mode: str, rewrite_info: dict[str, Any]) -> dict[str, Any]:
+    selected_strategy = str(
+        rewrite_info.get("selected_strategy")
+        or _selected_strategy_for_mode(mode)
+        or ""
+    ).strip() or None
+    router_reason = str(rewrite_info.get("router_reason") or f"mode_{mode}").strip()
+    try:
+        planner_call_count = int(rewrite_info.get("planner_call_count") or 0)
+    except (TypeError, ValueError):
+        planner_call_count = 0
+    try:
+        rewrite_call_count = int(rewrite_info.get("rewrite_call_count") or 0)
+    except (TypeError, ValueError):
+        rewrite_call_count = 0
+    try:
+        llm_call_count = int(rewrite_info.get("llm_call_count"))
+    except (TypeError, ValueError):
+        llm_call_count = planner_call_count + rewrite_call_count
+    return {
+        **rewrite_info,
+        "selected_strategy": selected_strategy,
+        "router_reason": router_reason,
+        "planner_call_count": planner_call_count,
+        "rewrite_call_count": rewrite_call_count,
+        "llm_call_count": llm_call_count,
+    }
+
+
+def _strategy_selection_counts(rows: list[dict[str, Any]]) -> dict[str, int]:
+    return {
+        "selected_raw_count": sum(1 for row in rows if row.get("selected_strategy") == "raw_only"),
+        "selected_selective_count": sum(1 for row in rows if row.get("selected_strategy") == "selective_rewrite"),
+        "selected_anchor_count": sum(1 for row in rows if row.get("selected_strategy") == "anchor_aware_rewrite"),
+        "selected_agentic_count": sum(1 for row in rows if row.get("selected_strategy") == "agentic_multi_query"),
+    }
+
+
+def _llm_call_summary(rows: list[dict[str, Any]]) -> dict[str, Any]:
+    return {
+        "avg_llm_calls": _mean([float(row.get("llm_call_count") or 0) for row in rows]),
+        "llm_call_count": sum(int(row.get("llm_call_count") or 0) for row in rows),
+        "planner_call_count": sum(int(row.get("planner_call_count") or 0) for row in rows),
+        "rewrite_call_count": sum(int(row.get("rewrite_call_count") or 0) for row in rows),
+        **_strategy_selection_counts(rows),
+    }
 
 
 def _multi_source_anchor_diagnostics(payload: Any) -> dict[str, Any]:
@@ -445,6 +504,9 @@ def _evaluate_mode(
             "rewrite_llm_attempted": False,
             "rewrite_llm_succeeded": False,
             "rewrite_heuristic_fallback_used": False,
+            "planner_call_count": 0,
+            "rewrite_call_count": 0,
+            "llm_call_count": 0,
             "final_rewrite_latency_ms": None,
             "pure_rewrite_latency_ms": None,
         }
@@ -549,9 +611,53 @@ def _evaluate_mode(
                 "rewrite_llm_attempted": False,
                 "rewrite_llm_succeeded": False,
                 "rewrite_heuristic_fallback_used": False,
+                "planner_call_count": 0,
+                "rewrite_call_count": 0,
+                "llm_call_count": 0,
                 "final_rewrite_latency_ms": None,
                 "pure_rewrite_latency_ms": None,
             },
+            retrieval,
+        )
+
+    if mode == "strategy_router":
+        memory_candidates_known = retrieval_adapter is None
+        decision = route_strategy_router(
+            raw_query=sample.query_text,
+            raw_config=config.raw,
+            runtime_mode=mode,
+            rewrite_ready=True,
+            memory_candidates_known=memory_candidates_known,
+            memory_candidates_available=(bool(memories) if memory_candidates_known else True),
+            anchor_injection_enabled=_is_rewrite_anchor_injection_enabled(config.raw),
+            rewrite_query_profile=str(config.raw.get("rewrite_query_profile") or "compact_anchor"),
+            query_language=sample.query_language,
+            query_category=sample.query_category,
+        )
+        metrics, rewrite_info, retrieval = _evaluate_mode(
+            mode=decision.selected_strategy,
+            sample=sample,
+            chunks=chunks,
+            memories=memories,
+            config=config,
+            memory_strategy_filters=memory_strategy_filters,
+            source_gating_run_id=source_gating_run_id,
+            comparison_source_runs=comparison_source_runs,
+            retrieval_adapter=retrieval_adapter,
+            multi_source_anchor_index=multi_source_anchor_index,
+            raw_retrieval=raw_retrieval,
+        )
+        return (
+            metrics,
+            _with_llm_trace_defaults(
+                "strategy_router",
+                {
+                    **rewrite_info,
+                    "selected_strategy": decision.selected_strategy,
+                    "router_reason": decision.router_reason,
+                    "strategy_router_metadata": decision.metadata,
+                },
+            ),
             retrieval,
         )
 
@@ -590,6 +696,7 @@ def _evaluate_mode(
             memory_candidate_pool_n=config.raw.get("rewrite_memory_candidate_pool_n"),
             max_subqueries=_int_config(
                 config.raw,
+                "strategy_router_agentic_max_subqueries",
                 "agentic_max_subqueries",
                 "maxSubqueries",
                 "max_subqueries",
@@ -675,6 +782,9 @@ def _evaluate_mode(
             "rewrite_llm_attempted": rewrite_outcome.rewrite_llm_attempted,
             "rewrite_llm_succeeded": rewrite_outcome.rewrite_llm_succeeded,
             "rewrite_heuristic_fallback_used": rewrite_outcome.rewrite_heuristic_fallback_used,
+            "planner_call_count": 0,
+            "rewrite_call_count": int(rewrite_outcome.rewrite_llm_call_count or 0),
+            "llm_call_count": int(rewrite_outcome.rewrite_llm_call_count or 0),
             "final_rewrite_latency_ms": rewrite_outcome.final_rewrite_latency_ms,
             "pure_rewrite_latency_ms": rewrite_outcome.pure_rewrite_latency_ms,
             "multi_source_anchor_hints": rewrite_outcome.multi_source_anchor_hints,
@@ -714,6 +824,7 @@ def _evaluate_sample_mode(
         multi_source_anchor_index=multi_source_anchor_index,
         raw_retrieval=raw_retrieval,
     )
+    rewrite_info = _with_llm_trace_defaults(mode, rewrite_info)
     elapsed_ms = (time.perf_counter() - started) * 1000.0
     return {
         "sample": sample,
@@ -900,6 +1011,9 @@ def run_retrieval_eval(
                 "rewrite_llm_success_count": 0,
                 "rewrite_llm_failure_count": 0,
                 "rewrite_heuristic_fallback_count": 0,
+                "planner_call_count": 0,
+                "rewrite_call_count": 0,
+                "llm_call_count": 0,
             }
         )
 
@@ -1002,12 +1116,20 @@ def run_retrieval_eval(
                 if rewrite_info.get("rewrite_llm_attempted") and not rewrite_info.get("rewrite_llm_succeeded")
                 else 0
             )
+            rewrite_generation_stats["planner_call_count"] += int(rewrite_info.get("planner_call_count") or 0)
+            rewrite_generation_stats["rewrite_call_count"] += int(rewrite_info.get("rewrite_call_count") or 0)
+            rewrite_generation_stats["llm_call_count"] += int(rewrite_info.get("llm_call_count") or 0)
             mode_scores[mode].append(
                 {
                     "sample_id": sample.sample_id,
                     "split": sample.split,
                     "category": sample.query_category,
                     "mode": mode,
+                    "selected_strategy": rewrite_info.get("selected_strategy"),
+                    "router_reason": rewrite_info.get("router_reason"),
+                    "llm_call_count": int(rewrite_info.get("llm_call_count") or 0),
+                    "planner_call_count": int(rewrite_info.get("planner_call_count") or 0),
+                    "rewrite_call_count": int(rewrite_info.get("rewrite_call_count") or 0),
                     **metrics,
                     "rewrite_applied": bool(rewrite_info["rewrite_applied"]),
                     "confidence_delta": float(
@@ -1028,6 +1150,12 @@ def run_retrieval_eval(
                     "sample_id": sample.sample_id,
                     "mode": mode,
                     "raw_query": sample.query_text,
+                    "selected_strategy": rewrite_info.get("selected_strategy"),
+                    "router_reason": rewrite_info.get("router_reason"),
+                    "llm_call_count": int(rewrite_info.get("llm_call_count") or 0),
+                    "planner_call_count": int(rewrite_info.get("planner_call_count") or 0),
+                    "rewrite_call_count": int(rewrite_info.get("rewrite_call_count") or 0),
+                    "strategy_router_metadata": rewrite_info.get("strategy_router_metadata"),
                     "rewrite_applied": bool(rewrite_info["rewrite_applied"]),
                     "raw_confidence": rewrite_info["raw_confidence"],
                     "best_candidate_confidence": rewrite_info["best_candidate_confidence"],
@@ -1051,6 +1179,7 @@ def run_retrieval_eval(
                             "selective_rewrite_with_session",
                             "anchor_aware_rewrite",
                             "agentic_multi_query",
+                            "strategy_router",
                         }
                         and bool(rewrite_info["rewrite_applied"])
                         else None
@@ -1158,18 +1287,26 @@ def run_retrieval_eval(
             bad_rewrite_rate = bad_rewrite_cases / rewrite_total if rewrite_total else 0.0
             rewrite_rejection_rate = (
                 sum(1 for row in rows if not row["rewrite_applied"]) / len(rows)
-                if mode in {"rewrite_always", "selective_rewrite", "selective_rewrite_with_session", "anchor_aware_rewrite"}
+                if mode in {
+                    "rewrite_always",
+                    "selective_rewrite",
+                    "selective_rewrite_with_session",
+                    "anchor_aware_rewrite",
+                    "strategy_router",
+                }
                 else 0.0
             )
             avg_confidence_delta = _mean([float(row.get("confidence_delta", 0.0)) for row in rows])
             avg_latency_ms = _mean([float(row.get("elapsed_ms", 0.0)) for row in rows])
             degraded_query_count = sum(1 for row in rows if bool(row.get("degraded_vs_raw")))
+            llm_summary = _llm_call_summary(rows)
 
             summary_rows.append(
                 {
                     "mode": mode,
                     **aggregates,
                     "avg_latency_ms": avg_latency_ms,
+                    **llm_summary,
                     "degraded_query_count": degraded_query_count,
                     "adoption_rate": adoption_rate,
                     "rewrite_rejection_rate": rewrite_rejection_rate,
@@ -1206,6 +1343,9 @@ def run_retrieval_eval(
                 "rewrite_llm_success_count": int(stats.get("rewrite_llm_success_count", 0)),
                 "rewrite_llm_failure_count": int(stats.get("rewrite_llm_failure_count", 0)),
                 "rewrite_heuristic_fallback_count": int(stats.get("rewrite_heuristic_fallback_count", 0)),
+                "planner_call_count": int(stats.get("planner_call_count", 0)),
+                "rewrite_call_count": int(stats.get("rewrite_call_count", 0)),
+                "llm_call_count": int(stats.get("llm_call_count", 0)),
                 # backward-compatible aliases
                 "llm_attempted_count": int(stats.get("rewrite_llm_attempted_count", 0)),
                 "llm_success_count": int(stats.get("rewrite_llm_success_count", 0)),
@@ -1226,8 +1366,19 @@ def run_retrieval_eval(
         rewrite_heuristic_fallback_total = sum(
             int(stats.get("rewrite_heuristic_fallback_count", 0)) for stats in rewrite_generation_stats_by_mode.values()
         )
+        planner_call_total = sum(
+            int(stats.get("planner_call_count", 0)) for stats in rewrite_generation_stats_by_mode.values()
+        )
+        rewrite_call_total = sum(
+            int(stats.get("rewrite_call_count", 0)) for stats in rewrite_generation_stats_by_mode.values()
+        )
+        llm_call_total = sum(
+            int(stats.get("llm_call_count", 0)) for stats in rewrite_generation_stats_by_mode.values()
+        )
 
         rewrite_flat_rows = [row for rows in rewrite_rows.values() for row in rows]
+        llm_metric_rows = rewrite_rows.get("strategy_router") or rewrite_flat_rows
+        llm_summary_payload = _llm_call_summary(llm_metric_rows)
         canonical_version_payload = canonical_anchor_version_payload(config.raw)
         summary_payload = {
             "experiment_key": config.experiment_key,
@@ -1249,6 +1400,18 @@ def run_retrieval_eval(
             "rewrite_llm_success_count": rewrite_llm_success_total,
             "rewrite_llm_failure_count": rewrite_llm_failure_total,
             "rewrite_heuristic_fallback_count": rewrite_heuristic_fallback_total,
+            "llm_metric_scope": "strategy_router" if rewrite_rows.get("strategy_router") else "all_modes",
+            "avg_llm_calls": llm_summary_payload["avg_llm_calls"],
+            "planner_call_count": llm_summary_payload["planner_call_count"],
+            "rewrite_call_count": llm_summary_payload["rewrite_call_count"],
+            "llm_call_count": llm_summary_payload["llm_call_count"],
+            "total_planner_call_count": planner_call_total,
+            "total_rewrite_call_count": rewrite_call_total,
+            "total_llm_call_count": llm_call_total,
+            "selected_raw_count": llm_summary_payload["selected_raw_count"],
+            "selected_selective_count": llm_summary_payload["selected_selective_count"],
+            "selected_anchor_count": llm_summary_payload["selected_anchor_count"],
+            "selected_agentic_count": llm_summary_payload["selected_agentic_count"],
             "rewrite_generation_stats": rewrite_stats_by_mode_payload,
             "multi_source_anchor_expansion_enabled": _is_multi_source_anchor_expansion_enabled(config.raw),
             "multi_source_anchor_diagnostics": _aggregate_multi_source_anchor_diagnostics(rewrite_flat_rows),
@@ -1267,6 +1430,14 @@ def run_retrieval_eval(
                 "mode",
                 *METRIC_KEYS,
                 "avg_latency_ms",
+                "avg_llm_calls",
+                "llm_call_count",
+                "planner_call_count",
+                "rewrite_call_count",
+                "selected_raw_count",
+                "selected_selective_count",
+                "selected_anchor_count",
+                "selected_agentic_count",
                 "degraded_query_count",
                 "adoption_rate",
                 "rewrite_rejection_rate",

@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-06-23] Session Summary (Strategy Router Retrieval Eval Mode)
+- What was done: Added an explicit Python retrieval-eval `strategy_router` mode that mirrors the live Java QueryStrategyRouter decision order, delegates each sample to one concrete raw/selective/anchor/agentic strategy, and records sample-level selected strategy, router reason, and LLM call counts.
+- Key decisions: Kept `LEGACY_DEFAULT_MODES` unchanged, left Java/DB/UI paths untouched, made agentic routing opt-in via `strategy_router_agentic_enabled`, and used conservative multi-signal rules before selecting expensive agentic multi-query.
+- Issues encountered: Validation was limited to targeted py_compile and unit tests; no DB-backed retrieval evaluation was run.
+- Next steps: Run a same-snapshot config with `retrieval_modes: [strategy_router]` and inspect selection counts plus `rewrite_cases_*` traces before comparing against explicit modes.
+
 ## [2026-06-22] Session Summary (Agentic Multi-Query Retrieval Eval Mode)
 - What was done: Added Python retrieval-eval support for explicit `anchor_aware_rewrite` and `agentic_multi_query` modes, including agentic planner fallback, sequential subquery selective rewrite/retrieval, chunk-id RRF merge, per-sample latency, and degraded-query summary counts.
 - Key decisions: Kept Java live path untouched, preserved legacy default eval modes, retained snapshot/domain scoping through existing corpus and memory filters, and excluded token-usage aggregation for this step.

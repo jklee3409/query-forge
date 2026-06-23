@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-06-23] Session Summary (Python Strategy Router Eval Mode)
+- What was done: Added opt-in Python retrieval-eval `strategy_router` mode that mirrors the Java live router rules, runs only the selected concrete strategy per sample, and emits selected strategy/reason plus planner/rewrite/total LLM call counts in sample traces and summaries.
+- Key decisions: Preserved existing default retrieval modes, kept Java code, DB schema, UI, DomainRouter, and cross-domain retrieval unchanged, and kept agentic routing behind `strategy_router_agentic_enabled` with conservative complex-query rules.
+- Issues encountered: Full DB-backed eval was not run; validation covered py_compile, new strategy-router unit tests, and existing eval runtime tests.
+- Next steps: Execute a controlled same-snapshot run with `retrieval_modes: [strategy_router]` and compare selected strategy counts/avg LLM calls against explicit raw/selective/anchor/agentic runs.
+
 ## [2026-06-22] Session Summary (Python Agentic Multi-Query Eval Mode)
 - What was done: Extended the Python retrieval evaluation path with explicit `anchor_aware_rewrite` and `agentic_multi_query` modes so raw, selective, anchor-aware, and agentic retrieval can be compared under one snapshot.
 - Key decisions: Preserved legacy default eval modes, kept the Java live path and DB schema unchanged, made agentic eval single-domain/snapshot-scoped, and added only latency/degraded-query summary metrics while leaving token usage for later.
