@@ -281,9 +281,10 @@ public class RagService {
             if (executedCandidates != null) {
                 for (int index = 0; index < executedCandidates.size(); index++) {
                     RagRetrievalExecutionService.ExecutedRewriteCandidate executed = executedCandidates.get(index);
+                    int candidateIndex = executed.index() > 0 ? executed.index() : index + 1;
                     UUID candidateId = repository.createRewriteCandidate(
                             onlineQueryId,
-                            index + 1,
+                            candidateIndex,
                             executed.label(),
                             executed.query(),
                             memorySourceIds(memoryCandidates),
@@ -297,8 +298,8 @@ public class RagService {
                             "rewrite_candidate",
                             executed.localRetrievedDocs(),
                             mode,
-                            retrievalRuntime.retrieverName(),
-                            retrievalMetadata(retrievalRuntime)
+                            executed.retrieverName(),
+                            executed.retrievalMetadata()
                     );
                     scoredCandidates.add(new GeneratedCandidate(
                             executed.label(),

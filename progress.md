@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-06-23] Session Summary (RAG Java Source-of-Truth Migration Guide Phase 4E)
+- What was done: Added a common backend non-agentic execution result contract inside `RagRetrievalExecutionService` and normalized raw/selective/anchor-aware retrieval material around shared docs, confidence, retriever/reranker metadata, chunk ids, and latency fields.
+- Scope: Preserved existing Java `/ask` orchestration, response shape, raw/selective/anchor behavior, answer generation, online persistence writes, agentic logic, DB schema, eval endpoint surface, Python eval code, and Phase 2 public model shape.
+- Validation: `.\gradlew.bat compileJava` passed; requested targeted RAG regression command passed; `git diff --check` passed.
+- Remaining risks: Phase 5 still needs a separate persistence adapter design; route decision/final adoption remain in `RagService` and must be mapped carefully without changing write timing.
+
 ## [2026-06-23] Session Summary (RAG Java Source-of-Truth Migration Guide Phase 4D)
 - What was done: Added `RagRetrievalExecutionService.executeAnchorAwareRewrite(...)` and connected Java `/ask` anchor-aware rewrite candidate execution to it.
 - Scope: Anchor-aware candidate generation/retrieval/rerank/confidence material moved to the execution service only; `/ask` response shape, orchestration after candidate materialization, answer generation, online persistence writes, raw_only, non-anchor selective, agentic, DB schema, eval endpoint, and Python code were not changed.

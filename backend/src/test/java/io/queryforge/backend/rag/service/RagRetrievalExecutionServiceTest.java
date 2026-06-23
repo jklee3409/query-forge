@@ -76,6 +76,7 @@ class RagRetrievalExecutionServiceTest {
         ));
         when(repository.findTopChunksByEmbedding("embedding", 20, domainId)).thenReturn(localDocs);
         when(cohereRerankService.rerank(query, localDocs, 3)).thenReturn(rerankedDocs);
+        when(cohereRerankService.modelName()).thenReturn("local-rerank-fallback");
 
         RagRetrievalExecutionService.RawOnlyExecutionResult result = service.executeRawOnly(
                 new RagRetrievalExecutionService.RawOnlyExecutionRequest(
@@ -97,6 +98,13 @@ class RagRetrievalExecutionServiceTest {
         assertThat(result.retrieverName()).isEqualTo("local:dense_only:hash-embedding-v1");
         assertThat(result.retrievalMetadata().path("retriever_mode").asText()).isEqualTo("dense_only");
         assertThat(result.latencyMs()).isGreaterThanOrEqualTo(0L);
+        assertThat(result.executionKind()).isEqualTo(RagRetrievalExecutionService.NonAgenticExecutionKind.RAW_ONLY);
+        assertThat(result.rawQuery()).isEqualTo(query);
+        assertThat(result.rawRetrieval().query()).isEqualTo(query);
+        assertThat(result.rawRetrieval().rerankerModel()).isEqualTo("local-rerank-fallback");
+        assertThat(result.rawRerankedChunkIds()).containsExactly("chunk-1");
+        assertThat(result.candidateExecutions()).isEmpty();
+        assertThat(result.anchorInjectionApplied()).isFalse();
 
         verify(repository).findTopChunksByEmbedding("embedding", 20, domainId);
         verify(repository, never()).findMemoryTopN(anyString(), anyInt(), anyString(), any(), anyList(), anyList(), anyList());
@@ -109,6 +117,7 @@ class RagRetrievalExecutionServiceTest {
         DomainScopedRetrievalService.RetrievalRuntime runtime = localDenseRuntime(20);
         when(repository.findTopChunksByEmbedding("embedding", 20, domainId)).thenReturn(List.of());
         when(cohereRerankService.rerank(query, List.of(), 3)).thenReturn(List.of());
+        when(cohereRerankService.modelName()).thenReturn("local-rerank-fallback");
 
         RagRetrievalExecutionService.RawOnlyExecutionResult result = service.executeRawOnly(
                 new RagRetrievalExecutionService.RawOnlyExecutionRequest(
@@ -126,6 +135,7 @@ class RagRetrievalExecutionServiceTest {
         assertThat(result.localRetrievedDocs()).isEmpty();
         assertThat(result.rerankedDocs()).isEmpty();
         assertThat(result.rawRetrievalConfidence()).isZero();
+        assertThat(result.rawRerankedChunkIds()).isEmpty();
         verify(repository).findTopChunksByEmbedding("embedding", 20, domainId);
         verifyNoRepositoryWrites();
     }
@@ -161,6 +171,7 @@ class RagRetrievalExecutionServiceTest {
         when(embeddingService.toHalfvecLiteral(List.of(1.0d, 0.0d))).thenReturn("embedding");
         when(repository.findTopChunksByEmbedding("embedding", 20, domainId)).thenReturn(localDocs);
         when(cohereRerankService.rerank(rewrittenQuery, localDocs, 3)).thenReturn(rerankedDocs);
+        when(cohereRerankService.modelName()).thenReturn("local-rerank-fallback");
 
         RagRetrievalExecutionService.SelectiveRewriteExecutionResult result = service.executeSelectiveRewrite(
                 new RagRetrievalExecutionService.SelectiveRewriteExecutionRequest(
@@ -178,13 +189,28 @@ class RagRetrievalExecutionServiceTest {
                 )
         );
 
+        assertThat(result.executionKind()).isEqualTo(RagRetrievalExecutionService.NonAgenticExecutionKind.SELECTIVE_REWRITE);
+        assertThat(result.rawQuery()).isEqualTo(query);
+        assertThat(result.rawRetrieval()).isNull();
+        assertThat(result.candidateExecutions()).hasSize(1);
+        assertThat(result.anchorInjectionApplied()).isFalse();
+        assertThat(result.retrieverName()).isEqualTo("local:dense_only:hash-embedding-v1");
+        assertThat(result.retrievalMetadata().path("retriever_mode").asText()).isEqualTo("dense_only");
         assertThat(result.candidates()).hasSize(1);
         RagRetrievalExecutionService.ExecutedRewriteCandidate candidate = result.candidates().getFirst();
+        assertThat(candidate.index()).isEqualTo(1);
         assertThat(candidate.label()).isEqualTo("candidate-1");
         assertThat(candidate.query()).isEqualTo(rewrittenQuery);
+        assertThat(candidate.metadata().path("candidate_index").asInt()).isEqualTo(1);
+        assertThat(candidate.metadata().path("label").asText()).isEqualTo("candidate-1");
         assertThat(candidate.localRetrievedDocs()).isEqualTo(localDocs);
         assertThat(candidate.rerankedDocs()).isEqualTo(rerankedDocs);
+        assertThat(candidate.rerankedChunkIds()).containsExactly("chunk-1");
         assertThat(candidate.confidence()).isGreaterThan(0.0d);
+        assertThat(candidate.retrieverName()).isEqualTo("local:dense_only:hash-embedding-v1");
+        assertThat(candidate.rerankerModel()).isEqualTo("local-rerank-fallback");
+        assertThat(candidate.retrievalMetadata().path("retriever_mode").asText()).isEqualTo("dense_only");
+        assertThat(candidate.latencyMs()).isGreaterThanOrEqualTo(0L);
         assertThat(result.latencyMs()).isGreaterThanOrEqualTo(0L);
 
         verify(rewriteCandidateService).buildCandidates(
@@ -231,6 +257,7 @@ class RagRetrievalExecutionServiceTest {
         when(embeddingService.toHalfvecLiteral(List.of(1.0d, 0.0d))).thenReturn("embedding");
         when(repository.findTopChunksByEmbedding("embedding", 20, domainId)).thenReturn(localDocs);
         when(cohereRerankService.rerank(rewrittenQuery, localDocs, 3)).thenReturn(rerankedDocs);
+        when(cohereRerankService.modelName()).thenReturn("local-rerank-fallback");
 
         RagRetrievalExecutionService.AnchorAwareRewriteExecutionResult result = service.executeAnchorAwareRewrite(
                 new RagRetrievalExecutionService.AnchorAwareRewriteExecutionRequest(
@@ -248,14 +275,28 @@ class RagRetrievalExecutionServiceTest {
                 )
         );
 
+        assertThat(result.executionKind()).isEqualTo(RagRetrievalExecutionService.NonAgenticExecutionKind.ANCHOR_AWARE_REWRITE);
+        assertThat(result.rawQuery()).isEqualTo(query);
+        assertThat(result.rawRetrieval()).isNull();
+        assertThat(result.candidateExecutions()).hasSize(1);
         assertThat(result.anchorInjectionApplied()).isTrue();
+        assertThat(result.retrieverName()).isEqualTo("local:dense_only:hash-embedding-v1");
+        assertThat(result.retrievalMetadata().path("retriever_mode").asText()).isEqualTo("dense_only");
         assertThat(result.candidates()).hasSize(1);
         RagRetrievalExecutionService.ExecutedRewriteCandidate candidate = result.candidates().getFirst();
+        assertThat(candidate.index()).isEqualTo(1);
         assertThat(candidate.label()).isEqualTo("anchor-aware");
         assertThat(candidate.query()).isEqualTo(rewrittenQuery);
+        assertThat(candidate.metadata().path("candidate_index").asInt()).isEqualTo(1);
+        assertThat(candidate.metadata().path("label").asText()).isEqualTo("anchor-aware");
         assertThat(candidate.localRetrievedDocs()).isEqualTo(localDocs);
         assertThat(candidate.rerankedDocs()).isEqualTo(rerankedDocs);
+        assertThat(candidate.rerankedChunkIds()).containsExactly("chunk-1");
         assertThat(candidate.confidence()).isGreaterThan(0.0d);
+        assertThat(candidate.retrieverName()).isEqualTo("local:dense_only:hash-embedding-v1");
+        assertThat(candidate.rerankerModel()).isEqualTo("local-rerank-fallback");
+        assertThat(candidate.retrievalMetadata().path("retriever_mode").asText()).isEqualTo("dense_only");
+        assertThat(candidate.latencyMs()).isGreaterThanOrEqualTo(0L);
         assertThat(result.latencyMs()).isGreaterThanOrEqualTo(0L);
 
         verify(rewriteCandidateService).buildCandidates(
