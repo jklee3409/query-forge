@@ -13,6 +13,7 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyDouble;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyList;
@@ -267,9 +268,15 @@ class RagRetrievalExecutionServiceTest {
 
     private void verifyNoRepositoryWrites() {
         verify(repository, never()).createOnlineQuery(any(), any(), anyString(), any(), anyString(), anyDouble(), any());
+        verify(repository, never()).createRewriteCandidate(any(), anyInt(), anyString(), anyString(), any(), any(), anyDouble(), any());
+        verify(repository, never()).markRewriteCandidateAdopted(any(), anyBoolean(), any());
         verify(repository, never()).insertRetrievalResults(any(), any(), anyString(), anyList(), anyString(), anyString(), any());
-        verify(repository, never()).insertRerankResults(any(), isNull(), anyList(), anyString());
+        verify(repository, never()).insertRerankResults(any(), any(), anyList(), anyString());
         verify(repository, never()).insertAnswer(any(), anyString(), any(), any(), anyString(), any());
+        verify(repository, never()).upsertOnlineQueryDecision(any(), anyString(), anyBoolean(), any(), any(), any(), anyString(), any(), any());
         verify(repository, never()).mergeOnlineQueryMetadata(any(), any());
+        verify(repository, never()).createOnlineRewriteLog(any(), any(), anyString(), anyString(), anyString(), any(), any(), anyBoolean(), anyString(), anyBoolean(), any(), any(), any(), any(), any(), any(), any(), any());
+        verify(repository, never()).insertMemoryRetrievalLog(any(), any(), anyInt(), any(), any());
+        verify(repository, never()).insertRewriteCandidateLog(any(), any(), any(), anyInt(), anyString(), anyString(), any(), anyBoolean(), any(), any(), any(), any());
     }
 }

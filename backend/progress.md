@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-06-23] Session Summary (RAG Java Source-of-Truth Migration Guide Phase 4C)
+- What was done: Extended backend `RagService` so router-selected non-anchor `SYNTHETIC_SELECTIVE_REWRITE` reuses `RagRetrievalExecutionService.executeSelectiveRewrite(...)`, while forced non-anchor selective remains on the same service path.
+- Scope: Preserved raw_only Phase 4A wiring, `/ask` response shape, answer generation, online persistence writes, selective adoption logic, router rules/metadata, anchor-aware path, agentic production logic, DB schema, eval endpoint surface, and Python pipeline code.
+- Validation: `.\gradlew.bat compileJava` passed; requested targeted RAG test command including `io.queryforge.backend.rag.service.RagRetrievalExecutionServiceTest` passed after correcting the new test input to avoid the existing router raw-only heuristic; `git diff --check` passed.
+- Remaining risks: Anchor-aware/router broader extraction, trace persistence, eval endpoint, persistence policy application, and Phase 2 model wiring remain later-phase work.
+
 ## [2026-06-23] Session Summary (RAG Java Source-of-Truth Migration Guide Phase 3A)
 - What was done: Extracted RagService's general non-agentic low-level retrieval helpers into `DomainScopedRetrievalService` while leaving `/ask` orchestration, answer generation, persistence writes, router decisions, and agentic execution wiring unchanged.
 - Extracted helper/service: `DomainScopedRetrievalService` owns retrieval runtime option parsing, embedding literal creation, domain-scoped chunk/memory retrieval, candidate pool merge/ranking, and fused-score calculation.

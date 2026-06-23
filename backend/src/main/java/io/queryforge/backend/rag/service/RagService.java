@@ -1057,9 +1057,13 @@ public class RagService {
     }
 
     private boolean usesSelectiveRewriteExecutionService(String mode, QueryRouteDecision routeDecision) {
-        return mode.startsWith("selective_rewrite")
+        boolean forcedNonAnchorSelective = mode.startsWith("selective_rewrite")
                 && !routeDecision.routerEnabled()
                 && !routeDecision.anchorInjectionEnabled();
+        boolean routerSelectedNonAnchorSelective =
+                routeDecision.strategy() == QueryStrategy.SYNTHETIC_SELECTIVE_REWRITE
+                        && !routeDecision.anchorInjectionEnabled();
+        return forcedNonAnchorSelective || routerSelectedNonAnchorSelective;
     }
 
     private Decision decide(

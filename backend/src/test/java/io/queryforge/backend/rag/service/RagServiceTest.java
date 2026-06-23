@@ -29,6 +29,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.ArgumentMatchers.nullable;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -59,6 +60,7 @@ class RagServiceTest {
     private AgenticRetrievalService agenticRetrievalService;
 
     private RagService ragService;
+    private RagRetrievalExecutionService ragRetrievalExecutionService;
 
     @BeforeEach
     void setUp() {
@@ -67,12 +69,12 @@ class RagServiceTest {
                 embeddingService,
                 denseEmbeddingService
         );
-        RagRetrievalExecutionService ragRetrievalExecutionService = new RagRetrievalExecutionService(
+        ragRetrievalExecutionService = spy(new RagRetrievalExecutionService(
                 domainScopedRetrievalService,
                 cohereRerankService,
                 rewriteCandidateService,
                 objectMapper
-        );
+        ));
         ragService = new RagService(
                 repository,
                 domainScopedRetrievalService,
@@ -233,6 +235,12 @@ class RagServiceTest {
 
         verify(repository).findMemoryTopN(anyString(), anyInt(), eq("full_gating"), eq(domainId), eq(List.of("C")), eq(List.of(sourceGatingRunId)), eq(List.of(sourceGatingBatchId)));
         verify(repository, times(2)).findTopChunksByEmbedding(anyString(), anyInt(), eq(domainId));
+        ArgumentCaptor<RagRetrievalExecutionService.SelectiveRewriteExecutionRequest> executionRequestCaptor =
+                ArgumentCaptor.forClass(RagRetrievalExecutionService.SelectiveRewriteExecutionRequest.class);
+        verify(ragRetrievalExecutionService).executeSelectiveRewrite(executionRequestCaptor.capture());
+        assertThat(executionRequestCaptor.getValue().domainId()).isEqualTo(domainId);
+        assertThat(executionRequestCaptor.getValue().memoryCandidates()).isEqualTo(memories);
+        assertThat(executionRequestCaptor.getValue().rewriteQueryProfile()).isEqualTo("compact_anchor");
         verify(rewriteCandidateService).buildCandidates(eq(query), any(), eq(memories), eq(2), eq("compact_anchor"), eq(false), any());
         verify(repository).createRewriteCandidate(eq(onlineQueryId), eq(1), eq("candidate-1"), eq(rewrittenQuery), any(), any(), anyDouble(), any());
         verify(repository).markRewriteCandidateAdopted(eq(rewriteCandidateId), eq(true), isNull());
@@ -245,6 +253,67 @@ class RagServiceTest {
         verify(repository).insertMemoryRetrievalLog(eq(rewriteLogId), eq(onlineQueryId), eq(1), eq(memories.getFirst()), any());
         verify(repository).insertRewriteCandidateLog(eq(rewriteLogId), eq(onlineQueryId), eq(rewriteCandidateId), eq(1), eq("candidate-1"), eq(rewrittenQuery), anyDouble(), eq(true), isNull(), any(), any(), any());
         verify(agenticRetrievalService, never()).execute(any());
+    }
+
+    @Test
+    void routerSelectedSelectiveRewriteUsesExecutionServiceAndKeepsPersistenceWrites() {
+        UUID onlineQueryId = UUID.fromString("44444444-4444-4444-4444-444444444448");
+        UUID rewriteCandidateId = UUID.fromString("66666666-6666-6666-6666-666666666668");
+        UUID rewriteLogId = UUID.fromString("77777777-7777-7777-7777-777777777780");
+        String query = "spring";
+        String rewrittenQuery = "FilterChainProxy SecurityFilterChain order";
+        ChatRuntimeDtos.ChatRuntimeConfigResponse config = config("selective_rewrite", true, false);
+        List<RagRepository.MemoryCandidate> memories = memories();
+        List<RagRepository.RetrievalDoc> rawDocs = docs("raw-doc", "raw-chunk", 0.10d);
+        List<RagRepository.RetrievalDoc> rewriteDocs = docs("rewrite-doc", "rewrite-chunk", 0.95d);
+        stubCommonAskDependencies(config, onlineQueryId);
+        when(repository.findMemoryTopN(anyString(), anyInt(), eq("full_gating"), eq(domainId), eq(List.of("C")), eq(List.of(sourceGatingRunId)), eq(List.of(sourceGatingBatchId))))
+                .thenReturn(memories);
+        when(repository.findTopChunksByEmbedding(anyString(), anyInt(), eq(domainId))).thenReturn(rawDocs, rewriteDocs);
+        when(cohereRerankService.rerank(anyString(), anyList(), anyInt())).thenAnswer(invocation -> invocation.getArgument(1));
+        when(cohereRerankService.modelName()).thenReturn("local-rerank-fallback");
+        when(rewriteCandidateService.buildCandidates(eq(query), any(), eq(memories), eq(2), eq("compact_anchor"), eq(false), any()))
+                .thenReturn(List.of(new RewriteCandidateService.CandidateTemplate("candidate-1", rewrittenQuery)));
+        when(repository.createRewriteCandidate(eq(onlineQueryId), eq(1), eq("candidate-1"), eq(rewrittenQuery), any(), any(), anyDouble(), any()))
+                .thenReturn(rewriteCandidateId);
+        stubRewriteLog(rewriteLogId);
+        when(chatAnswerService.generateAnswer(anyString(), anyString(), anyString(), anyList()))
+                .thenReturn(generatedAnswer("router selective answer"));
+
+        RagDtos.AskResponse response = ragService.ask(request(query));
+
+        assertThat(response.finalQueryUsed()).isEqualTo(rewrittenQuery);
+        assertThat(response.rewriteApplied()).isTrue();
+        assertThat(response.answer()).isEqualTo("router selective answer");
+        assertThat(response.answerModel()).isEqualTo("test-answer-model");
+        assertThat(response.rewriteCandidates()).hasSize(1);
+        assertThat(response.rewriteCandidates().getFirst().adopted()).isTrue();
+
+        ArgumentCaptor<RagRetrievalExecutionService.SelectiveRewriteExecutionRequest> executionRequestCaptor =
+                ArgumentCaptor.forClass(RagRetrievalExecutionService.SelectiveRewriteExecutionRequest.class);
+        verify(ragRetrievalExecutionService).executeSelectiveRewrite(executionRequestCaptor.capture());
+        assertThat(executionRequestCaptor.getValue().domainId()).isEqualTo(domainId);
+        assertThat(executionRequestCaptor.getValue().memoryCandidates()).isEqualTo(memories);
+        assertThat(executionRequestCaptor.getValue().rewriteQueryProfile()).isEqualTo("compact_anchor");
+        verify(rewriteCandidateService).buildCandidates(eq(query), any(), eq(memories), eq(2), eq("compact_anchor"), eq(false), any());
+        verify(repository).createRewriteCandidate(eq(onlineQueryId), eq(1), eq("candidate-1"), eq(rewrittenQuery), any(), any(), anyDouble(), any());
+        verify(repository).markRewriteCandidateAdopted(eq(rewriteCandidateId), eq(true), isNull());
+        verify(repository).insertRetrievalResults(eq(onlineQueryId), isNull(), eq("raw"), anyList(), eq("selective_rewrite"), eq("local:dense_only:hash-embedding-v1"), any());
+        verify(repository).insertRetrievalResults(eq(onlineQueryId), eq(rewriteCandidateId), eq("rewrite_candidate"), anyList(), eq("selective_rewrite"), eq("local:dense_only:hash-embedding-v1"), any());
+        verify(repository).insertRerankResults(eq(onlineQueryId), eq(rewriteCandidateId), anyList(), eq("local-rerank-fallback"));
+        verify(chatAnswerService).generateAnswer(eq(query), eq(rewrittenQuery), eq("Spring"), anyList());
+        verify(repository).insertAnswer(eq(onlineQueryId), eq("router selective answer"), any(), any(), eq("test-answer-model"), any());
+        verify(repository).createOnlineRewriteLog(eq(onlineQueryId), isNull(), eq(query), eq(rewrittenQuery), eq("selective_rewrite"), any(), any(), eq(true), eq("full_gating"), eq(true), eq(true), eq(false), anyDouble(), anyDouble(), anyDouble(), eq("delta_above_threshold"), isNull(), any());
+        verify(repository).insertMemoryRetrievalLog(eq(rewriteLogId), eq(onlineQueryId), eq(1), eq(memories.getFirst()), any());
+        verify(repository).insertRewriteCandidateLog(eq(rewriteLogId), eq(onlineQueryId), eq(rewriteCandidateId), eq(1), eq("candidate-1"), eq(rewrittenQuery), anyDouble(), eq(true), isNull(), any(), any(), any());
+        verify(agenticRetrievalService, never()).execute(any());
+
+        ArgumentCaptor<JsonNode> metadataCaptor = ArgumentCaptor.forClass(JsonNode.class);
+        verify(repository).mergeOnlineQueryMetadata(eq(onlineQueryId), metadataCaptor.capture());
+        JsonNode router = metadataCaptor.getValue().path("router");
+        assertThat(router.path("enabled").asBoolean()).isTrue();
+        assertThat(router.path("strategy").asText()).isEqualTo("SYNTHETIC_SELECTIVE_REWRITE");
+        assertThat(router.path("anchorInjectionEnabled").asBoolean()).isFalse();
     }
 
     @Test
@@ -276,6 +345,7 @@ class RagServiceTest {
 
         assertThat(response.answer()).isEqualTo("anchor answer");
         assertThat(response.answerModel()).isEqualTo("test-answer-model");
+        verify(ragRetrievalExecutionService, never()).executeSelectiveRewrite(any());
         verify(rewriteCandidateService).buildCandidates(eq(query), any(), eq(memories), eq(2), eq("compact_anchor"), eq(true), any());
         verify(repository, times(2)).findTopChunksByEmbedding(anyString(), anyInt(), eq(domainId));
         verify(chatAnswerService).generateAnswer(eq(query), eq(rewrittenQuery), eq("Spring"), anyList());
