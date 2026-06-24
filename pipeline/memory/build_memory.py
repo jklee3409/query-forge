@@ -555,10 +555,16 @@ def _delete_existing_snapshot_memory_entries(
         cursor.execute(
             f"""
             WITH deleted AS (
-                DELETE FROM memory_entries m
+                SELECT m.memory_id
+                FROM memory_entries m
                 WHERE {" AND ".join(conditions)}
                   AND ({" OR ".join(snapshot_conditions)})
-                RETURNING m.memory_id
+            ),
+            removed_retrieval_logs AS (
+                DELETE FROM memory_retrieval_log mrl
+                USING deleted d
+                WHERE mrl.memory_id = d.memory_id
+                RETURNING 1
             ),
             removed_embeddings AS (
                 DELETE FROM query_embeddings qe
@@ -566,9 +572,15 @@ def _delete_existing_snapshot_memory_entries(
                 WHERE qe.owner_type = 'memory'
                   AND qe.owner_id = d.memory_id::text
                 RETURNING 1
+            ),
+            removed_memory AS (
+                DELETE FROM memory_entries m
+                USING deleted d
+                WHERE m.memory_id = d.memory_id
+                RETURNING m.memory_id
             )
             SELECT COUNT(*) AS deleted_count
-            FROM deleted
+            FROM removed_memory
             """,
             parameters,
         )

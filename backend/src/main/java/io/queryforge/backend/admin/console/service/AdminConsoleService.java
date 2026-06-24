@@ -897,6 +897,34 @@ public class AdminConsoleService {
         boolean rewriteEnabled = request.rewriteEnabled() == null || request.rewriteEnabled();
         boolean selectiveRewrite = request.selectiveRewrite() == null || request.selectiveRewrite();
         boolean useSessionContext = request.useSessionContext() != null && request.useSessionContext();
+        boolean explicitRetrievalExecutionMode = request.routerEnabled() != null
+                || (request.forcedRetrievalMode() != null && !request.forcedRetrievalMode().isBlank());
+        boolean routerEnabled = Boolean.TRUE.equals(request.routerEnabled());
+        String forcedRetrievalMode = normalizeRetrievalExecutionMode(
+                request.forcedRetrievalMode(),
+                rewriteEnabled,
+                selectiveRewrite,
+                useSessionContext
+        );
+        boolean requestedAgenticMultiQuery = request.agenticMultiQueryEnabled() == null
+                ? routerEnabled
+                : Boolean.TRUE.equals(request.agenticMultiQueryEnabled());
+        if (explicitRetrievalExecutionMode && routerEnabled) {
+            forcedRetrievalMode = "strategy_router";
+            rewriteEnabled = true;
+            selectiveRewrite = true;
+            useSessionContext = false;
+        } else if (explicitRetrievalExecutionMode) {
+            rewriteEnabled = !"raw_only".equals(forcedRetrievalMode);
+            selectiveRewrite = List.of(
+                    "selective_rewrite",
+                    "anchor_aware_rewrite",
+                    "agentic_multi_query"
+            ).contains(forcedRetrievalMode);
+            useSessionContext = false;
+        }
+        boolean agenticMultiQueryEnabled = "agentic_multi_query".equals(forcedRetrievalMode)
+                || (routerEnabled && requestedAgenticMultiQuery);
         boolean rewriteAnchorInjectionEnabled = Boolean.TRUE.equals(request.rewriteAnchorInjectionEnabled());
         boolean multiSourceAnchorExpansionEnabled = Boolean.TRUE.equals(request.multiSourceAnchorExpansionEnabled());
         RuntimeCatalog runtimeCatalog = loadRuntimeCatalog();
@@ -975,6 +1003,9 @@ public class AdminConsoleService {
             rewriteEnabled = false;
             selectiveRewrite = false;
             useSessionContext = false;
+            routerEnabled = false;
+            forcedRetrievalMode = "raw_only";
+            agenticMultiQueryEnabled = false;
             rewriteAnchorInjectionEnabled = false;
             multiSourceAnchorExpansionEnabled = false;
         }
@@ -1013,6 +1044,9 @@ public class AdminConsoleService {
             rewriteEnabled = true;
             selectiveRewrite = true;
             useSessionContext = false;
+            routerEnabled = false;
+            forcedRetrievalMode = "selective_rewrite";
+            agenticMultiQueryEnabled = false;
         }
 
         if (!syntheticFreeBaseline
@@ -1030,6 +1064,9 @@ public class AdminConsoleService {
             rewriteEnabled = false;
             selectiveRewrite = false;
             useSessionContext = false;
+            routerEnabled = false;
+            forcedRetrievalMode = "raw_only";
+            agenticMultiQueryEnabled = false;
             rewriteAnchorInjectionEnabled = false;
             multiSourceAnchorExpansionEnabled = false;
             stageCutoffEnabled = false;
@@ -1067,6 +1104,14 @@ public class AdminConsoleService {
         config.put("rewrite_enabled", rewriteEnabled);
         config.put("selective_rewrite", selectiveRewrite);
         config.put("use_session_context", useSessionContext);
+        config.put("retrieval_eval_backend", "java");
+        config.put("java_backend_domain_id", domainId == null ? null : domainId.toString());
+        config.put("mode", routerEnabled ? "strategy_router" : forcedRetrievalMode);
+        config.put("router_enabled", routerEnabled);
+        config.put("routerEnabled", routerEnabled);
+        config.put("forced_retrieval_mode", routerEnabled ? "strategy_router" : forcedRetrievalMode);
+        config.put("agentic_multi_query_enabled", agenticMultiQueryEnabled);
+        config.put("agenticMultiQueryEnabled", agenticMultiQueryEnabled);
         config.put("rewrite_threshold", threshold);
         config.put("rewrite_query_profile", rewriteQueryProfile);
         config.put("rewrite_anchor_injection_enabled", rewriteAnchorInjectionEnabled);
@@ -1157,7 +1202,12 @@ public class AdminConsoleService {
             config.put("snapshot_id", sourceGatingBatchId.toString());
             sourceGatingRunId.ifPresent(uuid -> config.put("source_gating_run_id", uuid.toString()));
         } else {
-            config.put("retrieval_modes", resolveRetrievalModes(rewriteEnabled, selectiveRewrite, useSessionContext));
+            config.put(
+                    "retrieval_modes",
+                    explicitRetrievalExecutionMode
+                            ? List.of(routerEnabled ? "strategy_router" : forcedRetrievalMode)
+                            : resolveRetrievalModes(rewriteEnabled, selectiveRewrite, useSessionContext)
+            );
             Optional<UUID> sourceGatingRunId = stageCutoffEnabled
                     ? resolveStageCutoffSourceGatingRunId(methodCodes, sourceGatingBatchId)
                     : resolveSourceGatingRunId(
@@ -1224,6 +1274,10 @@ public class AdminConsoleService {
         initialRetrievalConfig.put("retrieval_top_k", retrievalTopK);
         initialRetrievalConfig.put("rerank_top_n", rerankTopN);
         initialRetrievalConfig.put("retrieval_modes", config.get("retrieval_modes"));
+        initialRetrievalConfig.put("retrieval_eval_backend", "java");
+        initialRetrievalConfig.put("router_enabled", routerEnabled);
+        initialRetrievalConfig.put("forced_retrieval_mode", routerEnabled ? "strategy_router" : forcedRetrievalMode);
+        initialRetrievalConfig.put("agentic_multi_query_enabled", agenticMultiQueryEnabled);
         initialRetrievalConfig.put("synthetic_free_baseline", syntheticFreeBaseline);
         initialRetrievalConfig.put("retriever_config", retrieverConfig);
         CanonicalAnchorVersionMetadata.putDefaults(initialRetrievalConfig);
@@ -2334,6 +2388,33 @@ public class AdminConsoleService {
             return List.of("raw_only", "selective_rewrite_with_session");
         }
         return List.of("raw_only", "selective_rewrite");
+    }
+
+    private String normalizeRetrievalExecutionMode(
+            String requestedMode,
+            boolean rewriteEnabled,
+            boolean selectiveRewrite,
+            boolean useSessionContext
+    ) {
+        String normalized = requestedMode == null || requestedMode.isBlank()
+                ? null
+                : requestedMode.trim().toLowerCase(Locale.ROOT).replace("-", "_");
+        if (normalized == null) {
+            return resolveRetrievalModes(rewriteEnabled, selectiveRewrite, useSessionContext).getLast();
+        }
+        if ("multi_agentic".equals(normalized) || "multi_agentic_query".equals(normalized)) {
+            normalized = "agentic_multi_query";
+        }
+        if (!List.of(
+                "raw_only",
+                "selective_rewrite",
+                "anchor_aware_rewrite",
+                "agentic_multi_query",
+                "strategy_router"
+        ).contains(normalized)) {
+            throw new IllegalArgumentException("forced_retrieval_mode is not supported: " + normalized);
+        }
+        return normalized;
     }
 
     private Map<String, Object> resolveRetrieverConfig(AdminConsoleDtos.RetrieverConfigRequest request) {

@@ -171,33 +171,58 @@ class RagRetrievalEvalControllerTest {
     }
 
     @Test
-    void agenticForcedModeMapsToBadRequestProblemDetail() throws Exception {
-        assertEvalProblem(
-                """
-                        {
-                          "domainId": "11111111-1111-1111-1111-111111111111",
-                          "query": "FilterChainProxy order",
-                          "forcedMode": "agentic_multi_query"
-                        }
-                        """,
-                "unsupported_agentic_eval",
-                "unsupported_agentic_eval: agentic_multi_query retrieval eval is blocked until agentic persistPolicy=NONE is implemented"
-        );
+    void agenticForcedModePassesToService() throws Exception {
+        when(ragRetrievalEvalService.evaluate(any())).thenReturn(successResponse(
+                "agentic_multi_query",
+                "agentic_multi_query"
+        ));
+
+        mockMvc.perform(post("/api/rag/eval/retrieval")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "domainId": "11111111-1111-1111-1111-111111111111",
+                                  "query": "FilterChainProxy order",
+                                  "forcedMode": "agentic_multi_query"
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.forcedMode").value("agentic_multi_query"))
+                .andExpect(jsonPath("$.selectedMode").value("agentic_multi_query"))
+                .andExpect(jsonPath("$.persistPolicy").value("NONE"));
+
+        ArgumentCaptor<RagRetrievalEvalDtos.RagRetrievalEvalRequest> captor =
+                ArgumentCaptor.forClass(RagRetrievalEvalDtos.RagRetrievalEvalRequest.class);
+        verify(ragRetrievalEvalService).evaluate(captor.capture());
+        assertThat(captor.getValue().forcedMode()).isEqualTo("agentic_multi_query");
     }
 
     @Test
-    void routerSelectedAgenticMapsToBadRequestProblemDetail() throws Exception {
-        assertEvalProblem(
-                """
-                        {
-                          "domainId": "11111111-1111-1111-1111-111111111111",
-                          "query": "compare spring request lifecycle and mvc routing flow then explain sequence",
-                          "forcedMode": "strategy_router"
-                        }
-                        """,
-                "unsupported_router_agentic_eval",
-                "unsupported_router_agentic_eval: strategy_router selected AGENTIC_MULTI_QUERY, but retrieval eval blocks agentic execution until agentic persistPolicy=NONE is implemented"
-        );
+    void runtimeConfigPassesThroughRequestBody() throws Exception {
+        when(ragRetrievalEvalService.evaluate(any())).thenReturn(successResponse());
+
+        mockMvc.perform(post("/api/rag/eval/retrieval")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "domainId": "11111111-1111-1111-1111-111111111111",
+                                  "query": "FilterChainProxy order",
+                                  "forcedMode": "strategy_router",
+                                  "runtimeConfig": {
+                                    "router_enabled": true,
+                                    "agentic_multi_query_enabled": true,
+                                    "retrieval_top_k": 7
+                                  }
+                                }
+                                """))
+                .andExpect(status().isOk());
+
+        ArgumentCaptor<RagRetrievalEvalDtos.RagRetrievalEvalRequest> captor =
+                ArgumentCaptor.forClass(RagRetrievalEvalDtos.RagRetrievalEvalRequest.class);
+        verify(ragRetrievalEvalService).evaluate(captor.capture());
+        assertThat(captor.getValue().runtimeConfig().path("router_enabled").asBoolean()).isTrue();
+        assertThat(captor.getValue().runtimeConfig().path("agentic_multi_query_enabled").asBoolean()).isTrue();
+        assertThat(captor.getValue().runtimeConfig().path("retrieval_top_k").asInt()).isEqualTo(7);
     }
 
     @Test
@@ -246,12 +271,16 @@ class RagRetrievalEvalControllerTest {
     }
 
     private RagRetrievalEvalDtos.RagRetrievalEvalResponse successResponse() {
+        return successResponse("raw_only", "raw_only");
+    }
+
+    private RagRetrievalEvalDtos.RagRetrievalEvalResponse successResponse(String forcedMode, String selectedMode) {
         return new RagRetrievalEvalDtos.RagRetrievalEvalResponse(
                 DOMAIN_ID,
                 "FilterChainProxy order",
                 "FilterChainProxy order",
-                "raw_only",
-                "raw_only",
+                forcedMode,
+                selectedMode,
                 List.of("chunk-1", "chunk-2"),
                 List.of(
                         new RagRetrievalEvalDtos.RagRetrievalEvalDoc(

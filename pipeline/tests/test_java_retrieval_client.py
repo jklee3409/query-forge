@@ -87,8 +87,8 @@ class _RecordingJavaClient:
 
 
 class JavaRetrievalClientContractTests(unittest.TestCase):
-    def test_java_backend_disabled_config_does_not_build_client(self) -> None:
-        self.assertIsNone(
+    def test_legacy_java_opt_out_flag_does_not_disable_official_java_backend(self) -> None:
+        self.assertIsNotNone(
             build_java_retrieval_client_from_config(
                 {"use_java_backend": False},
                 session=_RecordingSession(),
@@ -138,16 +138,16 @@ class JavaRetrievalClientContractTests(unittest.TestCase):
         self.assertFalse(java_backend_enabled(raw_config))
         self.assertIsNone(build_java_retrieval_client_from_config(raw_config, session=_RecordingSession()))
 
-    def test_implicit_default_remains_legacy_without_java_client(self) -> None:
+    def test_implicit_default_is_java_runtime_backend(self) -> None:
         raw_config = {
             "java_backend_base_url": "http://java-backend",
             "domain_id": "11111111-1111-1111-1111-111111111111",
         }
 
-        self.assertEqual(retrieval_eval_backend_policy(raw_config), RETRIEVAL_EVAL_BACKEND_LEGACY)
-        self.assertFalse(java_backend_enabled(raw_config))
-        self.assertIsNone(java_retrieval_settings_from_config(raw_config))
-        self.assertIsNone(build_java_retrieval_client_from_config(raw_config, session=_RecordingSession()))
+        self.assertEqual(retrieval_eval_backend_policy(raw_config), RETRIEVAL_EVAL_BACKEND_JAVA)
+        self.assertTrue(java_backend_enabled(raw_config))
+        self.assertIsNotNone(java_retrieval_settings_from_config(raw_config))
+        self.assertIsNotNone(build_java_retrieval_client_from_config(raw_config, session=_RecordingSession()))
 
     def test_invalid_retrieval_eval_backend_fails_fast(self) -> None:
         with self.assertRaises(JavaRetrievalClientError) as context:
@@ -174,24 +174,28 @@ class JavaRetrievalClientContractTests(unittest.TestCase):
         self.assertTrue(payload["includeScores"])
         self.assertFalse(payload["includeMetadata"])
 
-    def test_agentic_mode_is_rejected_before_http_request(self) -> None:
+    def test_agentic_mode_is_sent_to_java_endpoint(self) -> None:
         session = _RecordingSession(
             _FakeResponse(
                 status_code=200,
-                body={"retrievedChunkIds": []},
+                body={
+                    "forcedMode": "agentic_multi_query",
+                    "selectedMode": "agentic_multi_query",
+                    "retrievedChunkIds": [],
+                },
             )
         )
         client = JavaRetrievalEvalClient("http://localhost:8080", session=session)
 
-        with self.assertRaises(JavaRetrievalClientError) as context:
-            client.retrieve(
-                domain_id="11111111-1111-1111-1111-111111111111",
-                query="agentic query",
-                forced_mode="agentic_multi_query",
-            )
+        result = client.retrieve(
+            domain_id="11111111-1111-1111-1111-111111111111",
+            query="agentic query",
+            forced_mode="agentic_multi_query",
+        )
 
-        self.assertEqual(context.exception.code, "unsupported_agentic_eval")
-        self.assertEqual(session.calls, [])
+        self.assertEqual(result.forced_mode, "agentic_multi_query")
+        self.assertEqual(session.calls[0]["json"]["forcedMode"], "agentic_multi_query")
+        self.assertEqual(session.calls[0]["json"]["persistPolicy"], "NONE")
 
     def test_response_maps_retrieved_chunk_ids_preserving_order_and_duplicates(self) -> None:
         result = parse_retrieval_eval_response(
@@ -414,7 +418,7 @@ class RetrievalEvalJavaAdapterTests(unittest.TestCase):
                 self.assertEqual(metrics["hit@5"], 1.0)
                 self.assertEqual(rewrite_info["backend"], "java")
 
-    def test_official_java_backend_allows_supported_non_agentic_modes(self) -> None:
+    def test_official_java_backend_allows_supported_modes(self) -> None:
         class Config:
             raw = {}
             retrieval_top_k = 2
@@ -453,7 +457,7 @@ class RetrievalEvalJavaAdapterTests(unittest.TestCase):
                 self.assertEqual(metrics["hit@5"], 1.0)
                 self.assertTrue(rewrite_info["java_backend_enabled"])
 
-    def test_java_backend_agentic_mode_is_blocked_before_runtime_client_call(self) -> None:
+    def test_java_backend_agentic_mode_uses_runtime_client(self) -> None:
         class Config:
             raw = {}
             retrieval_top_k = 2
@@ -469,27 +473,28 @@ class RetrievalEvalJavaAdapterTests(unittest.TestCase):
             include_metadata=False,
         )
 
-        with self.assertRaises(JavaRetrievalClientError) as context:
-            retrieval_eval._evaluate_mode(
-                mode="agentic_multi_query",
-                sample=_sample(),
-                chunks=[],
-                memories=[],
-                config=Config(),
-                memory_strategy_filters=[],
-                source_gating_run_id=None,
-                comparison_source_runs={},
-                retrieval_adapter=None,
-                multi_source_anchor_index=None,
-                raw_retrieval=[],
-                java_client=java_client,
-                java_settings=java_settings,
-            )
+        metrics, rewrite_info, retrieval = retrieval_eval._evaluate_mode(
+            mode="agentic_multi_query",
+            sample=_sample(),
+            chunks=[],
+            memories=[],
+            config=Config(),
+            memory_strategy_filters=[],
+            source_gating_run_id=None,
+            comparison_source_runs={},
+            retrieval_adapter=None,
+            multi_source_anchor_index=None,
+            raw_retrieval=[],
+            java_client=java_client,
+            java_settings=java_settings,
+        )
 
-        self.assertEqual(context.exception.code, "unsupported_agentic_eval")
-        self.assertEqual(java_client.calls, [])
+        self.assertEqual(java_client.calls[0]["forced_mode"], "agentic_multi_query")
+        self.assertEqual([item.chunk_id for item in retrieval], ["chunk-2", "chunk-1"])
+        self.assertEqual(metrics["hit@5"], 1.0)
+        self.assertTrue(rewrite_info["java_backend_enabled"])
 
-    def test_java_backend_forced_agentic_mode_is_blocked_before_runtime_client_call(self) -> None:
+    def test_java_backend_forced_agentic_mode_uses_runtime_client(self) -> None:
         class Config:
             raw = {}
             retrieval_top_k = 2
@@ -506,25 +511,26 @@ class RetrievalEvalJavaAdapterTests(unittest.TestCase):
             forced_mode="agentic_multi_query",
         )
 
-        with self.assertRaises(JavaRetrievalClientError) as context:
-            retrieval_eval._evaluate_mode(
-                mode="raw_only",
-                sample=_sample(),
-                chunks=[],
-                memories=[],
-                config=Config(),
-                memory_strategy_filters=[],
-                source_gating_run_id=None,
-                comparison_source_runs={},
-                retrieval_adapter=None,
-                multi_source_anchor_index=None,
-                raw_retrieval=[],
-                java_client=java_client,
-                java_settings=java_settings,
-            )
+        metrics, rewrite_info, retrieval = retrieval_eval._evaluate_mode(
+            mode="raw_only",
+            sample=_sample(),
+            chunks=[],
+            memories=[],
+            config=Config(),
+            memory_strategy_filters=[],
+            source_gating_run_id=None,
+            comparison_source_runs={},
+            retrieval_adapter=None,
+            multi_source_anchor_index=None,
+            raw_retrieval=[],
+            java_client=java_client,
+            java_settings=java_settings,
+        )
 
-        self.assertEqual(context.exception.code, "unsupported_agentic_eval")
-        self.assertEqual(java_client.calls, [])
+        self.assertEqual(java_client.calls[0]["forced_mode"], "agentic_multi_query")
+        self.assertEqual([item.chunk_id for item in retrieval], ["chunk-2", "chunk-1"])
+        self.assertEqual(metrics["hit@5"], 1.0)
+        self.assertTrue(rewrite_info["java_backend_enabled"])
 
     def test_java_backend_client_error_is_fail_fast_runtime_error(self) -> None:
         class Config:

@@ -1,5 +1,12 @@
 # progress.md
 
+## [2026-06-25] Session Summary (Java Runtime Retrieval Eval and Memory FK Fix)
+- What was done: Switched the official retrieval-eval default policy to the Java endpoint, allowed Java-backed `agentic_multi_query`, and passed Admin run config through `runtimeConfig` so Java execution uses GUI-provided parameters.
+- Runner result: `JavaRetrievalEvalClient` now includes `runtimeConfig` in `/api/rag/eval/retrieval` requests, recognizes `forced_retrieval_mode`, and reports `agentic_multi_query` as a supported Java forced mode. Default modes for Java-backed runs are narrowed to Java-supported modes when no explicit `retrieval_modes` is present.
+- Memory build root cause/fix: The RAG test failure came from deleting snapshot `memory_entries` before child rows in `memory_retrieval_log`; `_delete_existing_snapshot_memory_entries` now deletes dependent retrieval logs and query embeddings before deleting memory rows.
+- Boundary result: Retrieval execution, rewrite, router, agentic retrieval, and RRF merge are now expected to run through Java for official eval; Python remains responsible for runner orchestration, metrics, reports, and memory materialization.
+- Validation: `python -m py_compile pipeline/eval/java_retrieval_client.py pipeline/eval/retrieval_eval.py pipeline/memory/build_memory.py` passed; Java client and comparison unittests passed with `PYTHONPATH` set to the repo root.
+
 ## [2026-06-25] Session Summary (Phase 11A Agentic No-Write Retrieval Eval Design)
 - What was done: Recorded the pipeline/Python-facing design for Java-backed agentic retrieval eval; no Python eval code was changed.
 - Design result: Python Java-backed agentic enablement remains Phase 11C and depends on Phase 11B backend no-write support.

@@ -1,5 +1,12 @@
 # progress.md
 
+## [2026-06-25] Session Summary (Admin RAG Router Eval Java Runtime Integration)
+- What was done: Implemented Java source-of-truth retrieval eval for Admin GUI runtime settings, including router on/off, forced `raw_only` / `selective_rewrite` / `anchor_aware_rewrite` / `agentic_multi_query`, request-local `runtimeConfig`, no-write agentic eval, and successful-run Apply-to-Chat promotion.
+- Admin/online behavior: Retrieval Eval Lab now sends router/forced-mode/agentic controls; Admin run config records `retrieval_eval_backend=java` plus GUI parameters; Apply-to-Chat promotes router and agentic flags only when router or forced-agentic mode requires them; online chat executes agentic only for forced `agentic_multi_query` or router-selected `AGENTIC_MULTI_QUERY`.
+- Python runner boundary: Official retrieval execution defaults to the Java endpoint, passes GUI config as `runtimeConfig`, and allows Java-backed `agentic_multi_query`; Python remains for metrics/reporting and memory build.
+- FK error root cause/fix: Snapshot memory rebuild deleted `memory_entries` while `memory_retrieval_log.memory_id` still referenced them. `pipeline/memory/build_memory.py` now deletes dependent retrieval logs and embeddings before deleting snapshot memory rows.
+- Validation: Java compile/testClasses passed; focused RAG eval/controller/RagService/Agentic/Router/AdminConsole tests passed; Python Java client/comparison tests and py_compile passed; `npm run build` passed and refreshed backend-served React assets.
+
 ## [2026-06-25] Session Summary (Phase 11A Agentic No-Write Retrieval Eval Design)
 - What was done: Added `docs/rag-agentic-no-write-eval-design.md` and registered it in `docs/index.md`; no production Java, frontend, Python eval, DB schema, migration, `/api/chat/ask`, StrategyRouter rule, or blocker-unlock change was made.
 - Design decision: Selected the minimal-change Option A for Phase 11B, adding no-write mode to `AgenticRetrievalService` behind the existing eval boundary, with explicit `persistPolicy=NONE`, nullable `onlineQueryId`, and transient trace identity.

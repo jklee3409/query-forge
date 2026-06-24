@@ -2018,6 +2018,9 @@ export function RagPage({ notify, domainId = null }) {
     gatingApplied: true,
     stageCutoffEnabled: false,
     stageCutoffLevel: 'rule_only',
+    queryRouterEnabled: false,
+    forcedRetrievalMode: 'selective_rewrite',
+    agenticMultiQueryEnabled: true,
     rewriteEnabled: true,
     selectiveRewrite: true,
     useSessionContext: false,
@@ -2598,12 +2601,18 @@ export function RagPage({ notify, domainId = null }) {
     }
     try {
       const gatingApplied = syntheticFreeBaseline ? false : Boolean(form.gatingApplied)
-      const rewriteEnabled = syntheticFreeBaseline ? false : Boolean(form.rewriteEnabled)
-      const selectiveRewrite = syntheticFreeBaseline ? false : Boolean(form.selectiveRewrite)
-      const useSessionContext = syntheticFreeBaseline ? false : Boolean(form.useSessionContext)
+      const routerEnabled = !syntheticFreeBaseline && Boolean(form.queryRouterEnabled)
+      const forcedRetrievalMode = routerEnabled ? 'strategy_router' : (form.forcedRetrievalMode || 'selective_rewrite')
+      const agenticMultiQueryEnabled = !syntheticFreeBaseline
+        && (routerEnabled ? Boolean(form.agenticMultiQueryEnabled) : forcedRetrievalMode === 'agentic_multi_query')
+      const rewriteEnabled = syntheticFreeBaseline ? false : forcedRetrievalMode !== 'raw_only'
+      const selectiveRewrite = syntheticFreeBaseline
+        ? false
+        : ['selective_rewrite', 'anchor_aware_rewrite', 'agentic_multi_query', 'strategy_router'].includes(forcedRetrievalMode)
+      const useSessionContext = syntheticFreeBaseline || routerEnabled ? false : Boolean(form.useSessionContext)
       const rewriteAnchorInjectionEnabled = syntheticFreeBaseline
         ? false
-        : rewriteEnabled && Boolean(form.rewriteAnchorInjectionEnabled)
+        : rewriteEnabled && (forcedRetrievalMode === 'anchor_aware_rewrite' || Boolean(form.rewriteAnchorInjectionEnabled))
       const multiSourceAnchorExpansionEnabled = syntheticFreeBaseline
         ? false
         : rewriteEnabled && rewriteAnchorInjectionEnabled && Boolean(form.multiSourceAnchorExpansionEnabled)
@@ -2640,6 +2649,9 @@ export function RagPage({ notify, domainId = null }) {
           rewriteEnabled,
           selectiveRewrite,
           useSessionContext,
+          routerEnabled,
+          forcedRetrievalMode,
+          agenticMultiQueryEnabled,
           rewriteAnchorInjectionEnabled,
           multiSourceAnchorExpansionEnabled,
           rewriteQueryProfile: rewriteEnabled ? (form.rewriteQueryProfile || runtimeOptions.defaultRewriteQueryProfile || 'compact_anchor') : 'compact_anchor',
@@ -3062,6 +3074,12 @@ export function RagPage({ notify, domainId = null }) {
   const selectedSnapshotSummary = selectedSnapshot
     ? `${shortId(selectedSnapshot.gatingBatchId)} / ${selectedSnapshot.gatingPreset} / ${selectedSnapshot.methodCode || '-'}`
     : (form.syntheticFreeBaseline ? '미사용' : '필수')
+  const effectiveRouterEnabled = !form.syntheticFreeBaseline && Boolean(form.queryRouterEnabled)
+  const effectiveForcedRetrievalMode = effectiveRouterEnabled
+    ? 'strategy_router'
+    : (form.forcedRetrievalMode || 'selective_rewrite')
+  const effectiveAgenticMultiQueryEnabled = !form.syntheticFreeBaseline
+    && (effectiveRouterEnabled ? Boolean(form.agenticMultiQueryEnabled) : effectiveForcedRetrievalMode === 'agentic_multi_query')
   const retrievalBalanceItems = [
     { label: 'Dense', value: form.retrieverDenseWeight, tone: 'blue' },
     { label: 'BM25', value: form.retrieverBm25Weight, tone: 'green' },
@@ -3075,6 +3093,9 @@ export function RagPage({ notify, domainId = null }) {
     { label: '스냅샷', value: selectedSnapshotSummary },
     { label: '게이팅', value: runGatingPreset },
     { label: '재작성', value: form.rewriteEnabled ? (form.selectiveRewrite ? '선택적' : '항상') : '꺼짐' },
+    { label: 'Router', value: effectiveRouterEnabled ? 'on' : 'off' },
+    { label: 'Execution mode', value: effectiveForcedRetrievalMode },
+    { label: 'Agentic', value: effectiveAgenticMultiQueryEnabled ? 'enabled' : 'disabled' },
     { label: '재작성 프로필', value: form.rewriteEnabled ? form.rewriteQueryProfile : 'compact_anchor' },
     { label: 'Rewrite LLM', value: form.rewriteLlmModel || form.llmModel || runtimeOptions.defaultLlmModel || '-' },
     { label: '검색', value: `${form.retrievalBackend} / ${retrieverModeLabel(form.retrieverMode)}` },
@@ -3267,6 +3288,57 @@ export function RagPage({ notify, domainId = null }) {
                 badge={form.rewriteEnabled ? '재작성 켬' : '재작성 끔'}
               >
                 <div className="form-grid form-grid--3">
+            <label className={`check-pill ${form.queryRouterEnabled ? 'is-active' : ''} ${form.syntheticFreeBaseline ? 'is-disabled' : ''}`}>
+              <input
+                type="checkbox"
+                checked={form.queryRouterEnabled}
+                disabled={form.syntheticFreeBaseline}
+                onChange={(event) => setForm((prev) => ({
+                  ...prev,
+                  queryRouterEnabled: event.target.checked,
+                  rewriteEnabled: event.target.checked ? true : prev.rewriteEnabled,
+                  selectiveRewrite: event.target.checked ? true : prev.selectiveRewrite,
+                  useSessionContext: event.target.checked ? false : prev.useSessionContext,
+                  agenticMultiQueryEnabled: event.target.checked ? true : prev.forcedRetrievalMode === 'agentic_multi_query',
+                }))}
+              />
+              <span className="check-pill__box" aria-hidden="true">{form.queryRouterEnabled ? '✓' : ''}</span>
+              <span className="check-pill__text">Strategy Router</span>
+            </label>
+            <label className="filter-field filter-field--small">Execution mode
+              <select
+                value={form.forcedRetrievalMode}
+                disabled={form.syntheticFreeBaseline || form.queryRouterEnabled}
+                onChange={(event) => setForm((prev) => {
+                  const mode = event.target.value
+                  return {
+                    ...prev,
+                    forcedRetrievalMode: mode,
+                    rewriteEnabled: mode !== 'raw_only',
+                    selectiveRewrite: ['selective_rewrite', 'anchor_aware_rewrite', 'agentic_multi_query'].includes(mode),
+                    useSessionContext: false,
+                    rewriteAnchorInjectionEnabled: mode === 'anchor_aware_rewrite' ? true : prev.rewriteAnchorInjectionEnabled,
+                    agenticMultiQueryEnabled: mode === 'agentic_multi_query',
+                  }
+                })}
+              >
+                <option value="raw_only">raw_only</option>
+                <option value="selective_rewrite">selective_rewrite</option>
+                <option value="anchor_aware_rewrite">anchor_aware_rewrite</option>
+                <option value="agentic_multi_query">agentic_multi_query</option>
+              </select>
+              <span className="field-hint">Router off Java forcedMode</span>
+            </label>
+            <label className={`check-pill ${effectiveAgenticMultiQueryEnabled ? 'is-active' : ''} ${form.syntheticFreeBaseline || !form.queryRouterEnabled ? 'is-disabled' : ''}`}>
+              <input
+                type="checkbox"
+                checked={effectiveAgenticMultiQueryEnabled}
+                disabled={form.syntheticFreeBaseline || !form.queryRouterEnabled}
+                onChange={(event) => setForm((prev) => ({ ...prev, agenticMultiQueryEnabled: event.target.checked }))}
+              />
+              <span className="check-pill__box" aria-hidden="true">{form.agenticMultiQueryEnabled ? '✓' : ''}</span>
+              <span className="check-pill__text">Agentic Multi-Query</span>
+            </label>
             <label className="filter-field filter-field--small">컷오프 단계
               <select
                 value={form.stageCutoffLevel}

@@ -1,5 +1,13 @@
 # progress.md
 
+## [2026-06-25] Session Summary (Admin RAG Router Eval Java Runtime Integration)
+- What was done: Added backend support for GUI-driven retrieval eval execution settings and no-write Java agentic retrieval eval.
+- Eval endpoint result: `RagRetrievalEvalRequest` accepts `runtimeConfig`; `RagRetrievalEvalService` overlays request-local runtime settings on chat config, supports forced `agentic_multi_query`, and routes `strategy_router` decisions including `AGENTIC_MULTI_QUERY` through `AgenticRetrievalService` with `RagPersistPolicy.NONE`.
+- Agentic no-write result: `AgenticRetrievalService.AgenticExecutionRequest` now carries `persistPolicy`; no-write eval uses transient candidate keys when DB candidate IDs are absent and still returns final RRF merged docs.
+- Admin/apply result: `AdminConsoleService` records Java backend, router/forced mode, and agentic flags from GUI request values; `ChatRuntimeConfigService.applyRagRunConfig` promotes successful runs to online chat without leaking agentic enablement into non-agentic forced modes.
+- Online chat result: `/api/chat/ask` now enters agentic execution only when mode is forced `agentic_multi_query` or the Java router selects `AGENTIC_MULTI_QUERY`; a mere metadata flag no longer forces all non-agentic modes into agentic execution.
+- Validation: `.\gradlew.bat compileJava`, `.\gradlew.bat testClasses`, focused `RagRetrievalEvalServiceTest`, `RagRetrievalEvalControllerTest`, `RagServiceTest`, `AgenticRetrievalServiceTest`, `QueryStrategyRouterTest`, `RagRetrievalExecutionModelTest`, and `AdminConsoleRagIntegrationTest` passed.
+
 ## [2026-06-25] Session Summary (Phase 11A Agentic No-Write Retrieval Eval Design)
 - What was done: Completed the backend-facing Phase 11A design audit and documented the no-write agentic eval plan without modifying production Java code.
 - Current blocker recorded: `AgenticRetrievalService` request/result records are inner records, the service hardcodes `RagPersistPolicy.ONLINE_QUERY` for adapter calls, and eval still blocks forced/router-selected agentic modes.

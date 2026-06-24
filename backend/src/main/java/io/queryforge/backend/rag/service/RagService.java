@@ -102,11 +102,11 @@ public class RagService {
         JsonNode sessionContextSnapshot = useSessionContext ? nullSafeJson(request.sessionContext()) : objectMapper.createObjectNode();
         DomainScopedRetrievalService.RetrievalRuntime retrievalRuntime =
                 domainScopedRetrievalService.retrievalRuntime(config);
-        AgenticSettings agenticSettings = agenticSettings(config.metadata());
+        AgenticSettings configuredAgenticSettings = agenticSettings(config.metadata());
         ObjectNode runtimeMetadata = runtimeMetadata(config);
         runtimeMetadata.set("router", routerMetadata(routeDecision));
-        if (agenticSettings.enabled()) {
-            runtimeMetadata.set("agentic_retrieval", agenticSettingsMetadata(agenticSettings, retrievalTopK));
+        if (configuredAgenticSettings.enabled()) {
+            runtimeMetadata.set("agentic_retrieval", agenticSettingsMetadata(configuredAgenticSettings, retrievalTopK));
         }
         boolean rawOnlyRoute = routeDecision.routerEnabled() && routeDecision.strategy() == QueryStrategy.RAW_ONLY;
 
@@ -169,7 +169,14 @@ public class RagService {
 
         boolean routerSelectedAgentic = routeDecision.routerEnabled()
                 && routeDecision.strategy() == QueryStrategy.AGENTIC_MULTI_QUERY;
-        if (agenticSettings.enabled() || routerSelectedAgentic) {
+        boolean forcedAgentic = "agentic_multi_query".equals(mode);
+        if (forcedAgentic || routerSelectedAgentic) {
+            AgenticSettings agenticSettings = new AgenticSettings(
+                    true,
+                    configuredAgenticSettings.maxSubqueries(),
+                    configuredAgenticSettings.mergeStrategy(),
+                    configuredAgenticSettings.rrfK()
+            );
             return askAgentic(
                     request,
                     rawQuery,

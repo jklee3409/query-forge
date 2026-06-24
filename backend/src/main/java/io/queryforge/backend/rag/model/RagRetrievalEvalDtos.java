@@ -20,7 +20,8 @@ public final class RagRetrievalEvalDtos {
             Boolean answerGeneration,
             Boolean includeTrace,
             Boolean includeScores,
-            Boolean includeMetadata
+            Boolean includeMetadata,
+            JsonNode runtimeConfig
     ) {
         public RagRetrievalEvalRequest {
             forcedMode = normalizeMode(forcedMode);
@@ -29,6 +30,31 @@ public final class RagRetrievalEvalDtos {
             includeTrace = includeTrace != null && includeTrace;
             includeScores = includeScores == null || includeScores;
             includeMetadata = includeMetadata != null && includeMetadata;
+        }
+
+        public RagRetrievalEvalRequest(
+                UUID domainId,
+                String query,
+                String forcedMode,
+                Integer topK,
+                RagPersistPolicy persistPolicy,
+                Boolean answerGeneration,
+                Boolean includeTrace,
+                Boolean includeScores,
+                Boolean includeMetadata
+        ) {
+            this(
+                    domainId,
+                    query,
+                    forcedMode,
+                    topK,
+                    persistPolicy,
+                    answerGeneration,
+                    includeTrace,
+                    includeScores,
+                    includeMetadata,
+                    null
+            );
         }
     }
 

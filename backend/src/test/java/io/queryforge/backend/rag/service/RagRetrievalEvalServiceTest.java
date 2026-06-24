@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import io.queryforge.backend.rag.model.ChatRuntimeDtos;
 import io.queryforge.backend.rag.model.QueryRouteDecision;
 import io.queryforge.backend.rag.model.QueryStrategy;
+import io.queryforge.backend.rag.model.RagDtos;
 import io.queryforge.backend.rag.model.RagPersistPolicy;
 import io.queryforge.backend.rag.model.RagRetrievalEvalDtos;
 import io.queryforge.backend.rag.repository.RagRepository;
@@ -45,10 +46,6 @@ class RagRetrievalEvalServiceTest {
             "unsupported_answer_generation: answerGeneration=true is unsupported for retrieval eval";
     private static final String UNSUPPORTED_FORCED_MODE_MESSAGE =
             "unsupported_forced_mode: forcedMode is not supported for retrieval eval: unknown_mode";
-    private static final String UNSUPPORTED_AGENTIC_EVAL_MESSAGE =
-            "unsupported_agentic_eval: agentic_multi_query retrieval eval is blocked until agentic persistPolicy=NONE is implemented";
-    private static final String UNSUPPORTED_ROUTER_AGENTIC_EVAL_MESSAGE =
-            "unsupported_router_agentic_eval: strategy_router selected AGENTIC_MULTI_QUERY, but retrieval eval blocks agentic execution until agentic persistPolicy=NONE is implemented";
 
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final DomainScopedRetrievalService.RetrievalRuntime retrievalRuntime =
@@ -70,6 +67,8 @@ class RagRetrievalEvalServiceTest {
     private QueryStrategyRouter queryStrategyRouter;
     @Mock
     private RagRetrievalExecutionService ragRetrievalExecutionService;
+    @Mock
+    private AgenticRetrievalService agenticRetrievalService;
 
     private RagRetrievalEvalService service;
 
@@ -80,6 +79,7 @@ class RagRetrievalEvalServiceTest {
                 domainScopedRetrievalService,
                 queryStrategyRouter,
                 ragRetrievalExecutionService,
+                agenticRetrievalService,
                 objectMapper
         );
     }
@@ -398,31 +398,45 @@ class RagRetrievalEvalServiceTest {
     }
 
     @Test
-    void strategyRouterSelectedAgenticIsUnsupportedForRetrievalEval() {
+    void strategyRouterSelectedAgenticRunsNoWriteAgenticEval() {
         givenRuntime();
         givenMemoryCandidates(List.of(memory()));
         when(queryStrategyRouter.route(any())).thenReturn(routeDecision(QueryStrategy.AGENTIC_MULTI_QUERY));
+        when(agenticRetrievalService.execute(any()))
+                .thenReturn(agenticResult(List.of(doc("chunk-agentic-router", 0.89d))));
 
-        assertEvalError(
-                request(null, null, null),
-                "unsupported_router_agentic_eval",
-                UNSUPPORTED_ROUTER_AGENTIC_EVAL_MESSAGE
-        );
+        RagRetrievalEvalDtos.RagRetrievalEvalResponse response = service.execute(request(null, null, null));
 
+        ArgumentCaptor<AgenticRetrievalService.AgenticExecutionRequest> captor =
+                ArgumentCaptor.forClass(AgenticRetrievalService.AgenticExecutionRequest.class);
+        verify(agenticRetrievalService).execute(captor.capture());
+        assertThat(captor.getValue().persistPolicy()).isEqualTo(RagPersistPolicy.NONE);
+        assertThat(captor.getValue().onlineQueryId()).isNull();
+        assertThat(response.forcedMode()).isEqualTo("strategy_router");
+        assertThat(response.selectedMode()).isEqualTo("agentic_multi_query");
+        assertThat(response.retrievedChunkIds()).containsExactly("chunk-agentic-router");
         verify(ragRetrievalExecutionService, never()).executeRawOnly(any());
         verify(ragRetrievalExecutionService, never()).executeSelectiveRewrite(any());
         verify(ragRetrievalExecutionService, never()).executeAnchorAwareRewrite(any());
     }
 
     @Test
-    void agenticMultiQueryIsUnsupported() {
-        RagRetrievalEvalDtos.RagRetrievalEvalRequest request = request("agentic_multi_query", null, null);
+    void forcedAgenticMultiQueryRunsNoWriteAgenticEval() {
+        givenRuntime();
+        givenMemoryCandidates(List.of(memory()));
+        when(agenticRetrievalService.execute(any()))
+                .thenReturn(agenticResult(List.of(doc("chunk-agentic", 0.91d))));
 
-        assertEvalError(
-                request,
-                "unsupported_agentic_eval",
-                UNSUPPORTED_AGENTIC_EVAL_MESSAGE
-        );
+        RagRetrievalEvalDtos.RagRetrievalEvalResponse response =
+                service.execute(request("agentic_multi_query", null, null));
+
+        ArgumentCaptor<AgenticRetrievalService.AgenticExecutionRequest> captor =
+                ArgumentCaptor.forClass(AgenticRetrievalService.AgenticExecutionRequest.class);
+        verify(agenticRetrievalService).execute(captor.capture());
+        assertThat(captor.getValue().persistPolicy()).isEqualTo(RagPersistPolicy.NONE);
+        assertThat(captor.getValue().onlineQueryId()).isNull();
+        assertThat(response.selectedMode()).isEqualTo("agentic_multi_query");
+        assertThat(response.retrievedChunkIds()).containsExactly("chunk-agentic");
     }
 
     @Test
@@ -673,6 +687,39 @@ class RagRetrievalEvalServiceTest {
                 "compact_anchor",
                 true,
                 Map.of()
+        );
+    }
+
+    private AgenticRetrievalService.AgenticExecutionResult agenticResult(List<RagRepository.RetrievalDoc> docs) {
+        RagDtos.AgenticQueryPlan plan = new RagDtos.AgenticQueryPlan(
+                QUERY,
+                DOMAIN_ID,
+                "spring-security",
+                "Spring Security",
+                4,
+                List.of(new RagDtos.AgenticSubquery(
+                        1,
+                        QUERY,
+                        "original_query",
+                        1.0d,
+                        objectMapper.createObjectNode()
+                )),
+                "fallback-original-query",
+                true,
+                "test",
+                objectMapper.createObjectNode()
+        );
+        return new AgenticRetrievalService.AgenticExecutionResult(
+                plan,
+                List.of(),
+                List.of(),
+                docs,
+                false,
+                "agentic_multi_query_rrf",
+                null,
+                1L,
+                14L,
+                objectMapper.createObjectNode()
         );
     }
 

@@ -573,10 +573,10 @@ class RagServiceTest {
     }
 
     @Test
-    void agenticEnabledBranchesToAgenticExecutionAndReturnsMetadata() {
+    void forcedAgenticModeBranchesToAgenticExecutionAndReturnsMetadata() {
         UUID onlineQueryId = UUID.fromString("44444444-4444-4444-4444-444444444447");
         String query = "spring security and mvc filter order";
-        ChatRuntimeDtos.ChatRuntimeConfigResponse config = config("selective_rewrite", false, false, true);
+        ChatRuntimeDtos.ChatRuntimeConfigResponse config = config("agentic_multi_query", false, false, true);
         List<RagRepository.MemoryCandidate> memories = memories();
         List<RagRepository.RetrievalDoc> mergedDocs = docs("agentic-doc", "agentic-chunk", 0.88d);
         UUID agenticCandidateId = UUID.fromString("99999999-9999-9999-9999-999999999997");
@@ -655,7 +655,7 @@ class RagServiceTest {
         assertThat(executionRequest.plannerMemoryHints()).isEqualTo(memories);
         assertThat(executionRequest.memoryPreset()).isEqualTo("full_gating");
 
-        verify(repository).createOnlineQuery(eq(domainId), eq("session-1"), eq(query), any(), eq("selective_rewrite"), eq(0.05d), any());
+        verify(repository).createOnlineQuery(eq(domainId), eq("session-1"), eq(query), any(), eq("agentic_multi_query"), eq(0.05d), any());
         verify(repository).findMemoryTopN(anyString(), anyInt(), eq("full_gating"), eq(domainId), eq(List.of("C")), eq(List.of(sourceGatingRunId)), eq(List.of(sourceGatingBatchId)));
         verify(repository, never()).findTopChunksByEmbedding(anyString(), anyInt(), any());
         verify(rewriteCandidateService, never()).buildCandidates(anyString(), any(), anyList(), anyInt(), anyString(), anyBoolean(), any());
@@ -678,7 +678,7 @@ class RagServiceTest {
         );
         assertThat(rewriteLogRequest.rawQuery()).isEqualTo(query);
         assertThat(rewriteLogRequest.finalQuery()).isEqualTo(query);
-        assertThat(rewriteLogRequest.rewriteStrategy()).isEqualTo("selective_rewrite");
+        assertThat(rewriteLogRequest.rewriteStrategy()).isEqualTo("agentic_multi_query");
         assertThat(rewriteLogRequest.rewriteApplied()).isFalse();
         assertThat(rewriteLogRequest.decisionReason()).isEqualTo("agentic_multi_query_rrf");
         assertThat(rewriteLogRequest.metadata().path("agentic_retrieval").isObject()).isTrue();
@@ -767,7 +767,7 @@ class RagServiceTest {
         verify(repository).insertAnswer(eq(onlineQueryId), eq("agentic answer"), any(), any(), eq("test-answer-model"), any());
         verify(repository).upsertOnlineQueryDecision(eq(onlineQueryId), eq(query), eq(false), any(), anyDouble(), isNull(), eq("agentic_multi_query_rrf"), isNull(), any());
         verify(repository).mergeOnlineQueryMetadata(eq(onlineQueryId), any());
-        verify(repository).createOnlineRewriteLog(eq(onlineQueryId), isNull(), eq(query), eq(query), eq("selective_rewrite"), any(), any(), eq(true), eq("full_gating"), eq(false), eq(true), eq(false), anyDouble(), anyDouble(), eq(0.0d), eq("agentic_multi_query_rrf"), isNull(), any());
+        verify(repository).createOnlineRewriteLog(eq(onlineQueryId), isNull(), eq(query), eq(query), eq("agentic_multi_query"), any(), any(), eq(true), eq("full_gating"), eq(false), eq(false), eq(false), anyDouble(), anyDouble(), eq(0.0d), eq("agentic_multi_query_rrf"), isNull(), any());
         verify(repository).insertMemoryRetrievalLog(eq(rewriteLogId), eq(onlineQueryId), eq(1), eq(memories.getFirst()), any());
         verify(repository).insertRewriteCandidateLog(eq(rewriteLogId), eq(onlineQueryId), eq(agenticCandidateId), eq(1), eq("agentic-candidate-1"), eq("FilterChainProxy order"), eq(0.88d), eq(false), eq("agentic_not_selected"), any(), eq(agenticCandidateScoreBreakdown), any());
         verify(ragTracePersistenceService, never()).persistOnlineQueryDecision(any());

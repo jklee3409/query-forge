@@ -27,7 +27,10 @@ public class ChatRuntimeConfigService {
 
     private static final Set<String> MODES = Set.of(
             "raw_only",
+            "strategy_router",
             "selective_rewrite",
+            "anchor_aware_rewrite",
+            "agentic_multi_query",
             "selective_rewrite_with_session",
             "rewrite_always",
             "memory_only_gated",
@@ -499,7 +502,15 @@ public class ChatRuntimeConfigService {
         boolean rewriteEnabled = configBoolean(run.rewriteEnabled(), config, "rewrite_enabled", false);
         boolean selectiveRewrite = configBoolean(run.selectiveRewrite(), config, "selective_rewrite", true);
         boolean useSessionContext = configBoolean(run.useSessionContext(), config, "use_session_context", false);
-        String mode = modeFromRagRun(rewriteEnabled, selectiveRewrite, useSessionContext);
+        boolean routerEnabled = configBoolean(null, config, "router_enabled", current.routerEnabled())
+                || configBoolean(null, config, "routerEnabled", false);
+        String mode = routerEnabled
+                ? "strategy_router"
+                : configText(
+                config,
+                "forced_retrieval_mode",
+                modeFromRagRun(rewriteEnabled, selectiveRewrite, useSessionContext)
+        );
         String gatingPreset = configText(config, "gating_preset", run.gatingPreset());
         List<String> generationStrategies = firstNonEmpty(
                 readStringList(run.generationMethodCodes()),
@@ -526,6 +537,17 @@ public class ChatRuntimeConfigService {
                 "rewrite_anchor_injection_enabled",
                 current.rewriteAnchorInjectionEnabled()
         );
+        ObjectNode metadata = mutableMetadata(current.metadata());
+        boolean configuredAgenticMultiQueryEnabled = configBoolean(
+                null,
+                config,
+                "agentic_multi_query_enabled",
+                configBoolean(null, config, "agenticMultiQueryEnabled", metadata.path("agenticMultiQueryEnabled").asBoolean(false))
+        );
+        boolean agenticMultiQueryEnabled = "agentic_multi_query".equals(mode)
+                || (routerEnabled && configuredAgenticMultiQueryEnabled);
+        metadata.put("routerEnabled", routerEnabled);
+        metadata.put("agenticMultiQueryEnabled", agenticMultiQueryEnabled);
         JsonNode retrieverConfig = config.path("retriever_config");
         JsonNode fusionWeights = firstPresentObject(
                 retrieverConfig.path("retriever_fusion_weights"),
@@ -567,8 +589,8 @@ public class ChatRuntimeConfigService {
                 configInt(config, "rewrite_candidate_count", current.rewriteCandidateCount()),
                 firstNonNull(run.threshold(), configDouble(config, "rewrite_threshold", current.rewriteThreshold())),
                 rewriteFailurePolicy,
-                current.routerEnabled(),
-                current.metadata() == null ? objectMapper.createObjectNode() : current.metadata(),
+                routerEnabled,
+                metadata,
                 blankToNull(request.updatedBy())
         );
         return updateConfig(

@@ -5,7 +5,10 @@ import { appendQuery, fetchSyntheticMethods, requestJson, toNumber } from '../li
 import { fmtTime } from '../lib/format.js'
 
 const MODE_OPTIONS = [
+  { value: 'strategy_router', label: 'strategy router' },
   { value: 'selective_rewrite', label: 'selective rewrite' },
+  { value: 'anchor_aware_rewrite', label: 'anchor aware rewrite' },
+  { value: 'agentic_multi_query', label: 'agentic multi query' },
   { value: 'raw_only', label: 'raw only' },
   { value: 'selective_rewrite_with_session', label: 'selective rewrite with session' },
   { value: 'rewrite_always', label: 'rewrite always' },

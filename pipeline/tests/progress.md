@@ -1,5 +1,10 @@
 # progress.md
 
+## [2026-06-25] Java Runtime Retrieval Eval Tests
+- Updated Java retrieval client tests for official Java default behavior, GUI runtime config propagation, and Java-backed `agentic_multi_query` execution instead of client-side blocking.
+- Kept comparison runner tests DB-free and Java-server-free; comparison-mode agentic remains a separate comparison policy while direct Java retrieval eval can execute agentic through the endpoint.
+- Validation: `PYTHONPATH=E:\dev_factory\univ\query-forge python -m unittest discover -s pipeline/tests -p test_java_retrieval_client.py` passed; `PYTHONPATH=E:\dev_factory\univ\query-forge python -m unittest discover -s pipeline/tests -p test_retrieval_eval_compare.py` passed.
+
 ## [2026-06-24] Official Java-backed Eval Policy Regression Tests
 - Added Phase 9B regression coverage for `retrieval_eval_backend=java`, `official_eval_backend=java`, and `eval_retrieval_backend=java` selecting the Java client branch.
 - Added audit coverage that `retrieval_eval_backend=legacy` avoids Java client construction, explicit legacy overrides old `use_java_backend=true`, and the implicit default remains legacy.

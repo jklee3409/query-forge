@@ -18,11 +18,12 @@ JAVA_RETRIEVAL_SUPPORTED_FORCED_MODES = frozenset(
         "raw_only",
         "selective_rewrite",
         "anchor_aware_rewrite",
+        "agentic_multi_query",
         "strategy_router",
     }
 )
 JAVA_RETRIEVAL_AGENTIC_MODE = "agentic_multi_query"
-JAVA_RETRIEVAL_BLOCKED_FORCED_MODES = frozenset({JAVA_RETRIEVAL_AGENTIC_MODE})
+JAVA_RETRIEVAL_BLOCKED_FORCED_MODES = frozenset()
 OFFICIAL_RETRIEVAL_EVAL_BACKEND = "java"
 RETRIEVAL_EVAL_BACKEND_JAVA = "java"
 RETRIEVAL_EVAL_BACKEND_LEGACY = "legacy"
@@ -59,6 +60,7 @@ class JavaRetrievalEvalSettings:
     include_scores: bool
     include_metadata: bool
     forced_mode: str | None = None
+    runtime_config: dict[str, Any] | None = None
 
 
 @dataclass(slots=True)
@@ -130,6 +132,7 @@ class JavaRetrievalEvalClient:
         include_trace: bool | None = None,
         include_scores: bool | None = None,
         include_metadata: bool | None = None,
+        runtime_config: dict[str, Any] | None = None,
     ) -> JavaRetrievalEvalResult:
         payload = build_retrieval_eval_payload(
             domain_id=domain_id,
@@ -139,6 +142,7 @@ class JavaRetrievalEvalClient:
             include_trace=include_trace,
             include_scores=include_scores,
             include_metadata=include_metadata,
+            runtime_config=runtime_config,
         )
         try:
             response = self.session.post(
@@ -181,6 +185,7 @@ def build_retrieval_eval_payload(
     include_trace: bool | None = None,
     include_scores: bool | None = None,
     include_metadata: bool | None = None,
+    runtime_config: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     normalized_domain_id = str(domain_id or "").strip()
     if not normalized_domain_id:
@@ -196,11 +201,6 @@ def build_retrieval_eval_payload(
         )
 
     normalized_mode = normalize_forced_mode(forced_mode)
-    if normalized_mode == JAVA_RETRIEVAL_AGENTIC_MODE:
-        raise JavaRetrievalClientError(
-            code="unsupported_agentic_eval",
-            detail="agentic_multi_query is not supported by the Java retrieval eval client in Phase 9A",
-        )
     if normalized_mode not in JAVA_RETRIEVAL_SUPPORTED_FORCED_MODES:
         raise JavaRetrievalClientError(
             code="unsupported_forced_mode",
@@ -228,6 +228,8 @@ def build_retrieval_eval_payload(
         payload["includeScores"] = bool(include_scores)
     if include_metadata is not None:
         payload["includeMetadata"] = bool(include_metadata)
+    if runtime_config:
+        payload["runtimeConfig"] = dict(runtime_config)
     return payload
 
 
@@ -310,7 +312,7 @@ def retrieval_eval_backend_policy(raw_config: dict[str, Any] | None) -> str:
         return normalize_retrieval_eval_backend(value)
     if _legacy_java_backend_opt_in_enabled(source):
         return RETRIEVAL_EVAL_BACKEND_JAVA
-    return RETRIEVAL_EVAL_BACKEND_LEGACY
+    return RETRIEVAL_EVAL_BACKEND_JAVA
 
 
 def java_backend_enabled(raw_config: dict[str, Any] | None) -> bool:
@@ -346,7 +348,7 @@ def java_retrieval_settings_from_config(raw_config: dict[str, Any] | None) -> Ja
     )
     forced_mode = _str_from_config(
         source,
-        keys=("java_forced_mode", "java_retrieval_forced_mode"),
+        keys=("java_forced_mode", "java_retrieval_forced_mode", "forced_retrieval_mode"),
         default="",
     )
     return JavaRetrievalEvalSettings(
@@ -374,6 +376,7 @@ def java_retrieval_settings_from_config(raw_config: dict[str, Any] | None) -> Ja
             default=False,
         ),
         forced_mode=normalize_forced_mode(forced_mode) if forced_mode else None,
+        runtime_config=dict(source),
     )
 
 

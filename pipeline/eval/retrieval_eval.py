@@ -41,7 +41,6 @@ try:
         runtime_retriever_metadata,
     )
     from eval.java_retrieval_client import (
-        JAVA_RETRIEVAL_AGENTIC_MODE,
         JAVA_RETRIEVAL_BLOCKED_FORCED_MODES,
         JAVA_RETRIEVAL_ENDPOINT_PATH,
         JAVA_RETRIEVAL_SUPPORTED_FORCED_MODES,
@@ -83,7 +82,6 @@ except ModuleNotFoundError:  # pragma: no cover
         runtime_retriever_metadata,
     )
     from pipeline.eval.java_retrieval_client import (
-        JAVA_RETRIEVAL_AGENTIC_MODE,
         JAVA_RETRIEVAL_BLOCKED_FORCED_MODES,
         JAVA_RETRIEVAL_ENDPOINT_PATH,
         JAVA_RETRIEVAL_SUPPORTED_FORCED_MODES,
@@ -113,6 +111,10 @@ LEGACY_DEFAULT_MODES = (
     "selective_rewrite",
     "selective_rewrite_with_session",
 )
+JAVA_DEFAULT_MODES = (
+    "raw_only",
+    "selective_rewrite",
+)
 MODES = (
     *LEGACY_DEFAULT_MODES,
     "anchor_aware_rewrite",
@@ -121,12 +123,11 @@ MODES = (
 )
 PHASE_8D_COMPARISON_READINESS_CRITERIA = (
     "Java endpoint smoke tests pass.",
-    "Comparison runner passes for supported non-agentic modes.",
+    "Comparison runner passes for supported Java modes.",
     "Metric delta report is reviewed.",
     "Mismatch sample report is reviewed.",
-    "agentic_multi_query remains blocked or has a separate approved policy.",
-    "Python legacy eval remains available as fallback/regression path.",
-    "Admin GUI impact is none or explicitly tested.",
+    "agentic_multi_query is executed through the Java retrieval endpoint when selected.",
+    "Admin GUI runtime settings are explicitly tested.",
 )
 
 
@@ -475,15 +476,6 @@ def _raise_unsupported_java_modes(modes: list[str] | tuple[str, ...]) -> None:
         return
     unique_unsupported = sorted(set(unsupported))
     supported = ", ".join(sorted(JAVA_RETRIEVAL_SUPPORTED_FORCED_MODES))
-    if JAVA_RETRIEVAL_AGENTIC_MODE in unique_unsupported:
-        raise JavaRetrievalClientError(
-            code="unsupported_agentic_eval",
-            detail=(
-                "Java-backed retrieval eval supports only "
-                f"{supported}; unsupported modes: {', '.join(unique_unsupported)}. "
-                "agentic_multi_query remains blocked in Phase 9A."
-            ),
-        )
     raise JavaRetrievalClientError(
         code="unsupported_forced_mode",
         detail=(
@@ -698,6 +690,7 @@ def _evaluate_mode(
             include_trace=java_settings.include_trace,
             include_scores=java_settings.include_scores,
             include_metadata=java_settings.include_metadata,
+            runtime_config=java_settings.runtime_config,
         )
         retrieval = result.to_retrieval_candidates()
         metrics = retrieval_metrics(
@@ -1151,7 +1144,9 @@ def run_retrieval_eval(
             for item in (config.raw.get("retrieval_modes") or [])
             if str(item).strip()
         ]
-        active_modes = [mode for mode in configured_modes if mode in MODES] or list(LEGACY_DEFAULT_MODES)
+        active_modes = [mode for mode in configured_modes if mode in MODES] or list(
+            JAVA_DEFAULT_MODES if java_settings else LEGACY_DEFAULT_MODES
+        )
         if synthetic_free_baseline:
             active_modes = ["raw_only"]
         eval_concurrency = _resolve_eval_concurrency(config.raw)

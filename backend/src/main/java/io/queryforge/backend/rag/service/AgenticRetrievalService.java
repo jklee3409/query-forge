@@ -97,6 +97,7 @@ public class AgenticRetrievalService {
             RetrievalRuntime retrievalRuntime
     ) {
         long started = System.nanoTime();
+        RagPersistPolicy persistPolicy = request.persistPolicy();
         String query = normalizeWhitespace(subquery.query());
         long routeStarted = System.nanoTime();
         QueryRouteDecision routeDecision = queryStrategyRouter.route(routeContext(
@@ -210,7 +211,7 @@ public class AgenticRetrievalService {
                 JsonNode candidateScoreBreakdown = scoreBreakdown(candidateRetrieved, memories);
                 UUID candidateId = ragTracePersistenceService.createAgenticRewriteCandidateTrace(
                         new RagTracePersistenceService.AgenticRewriteCandidateTracePersistenceRequest(
-                                RagPersistPolicy.ONLINE_QUERY,
+                                persistPolicy,
                                 request.onlineQueryId(),
                                 RagTracePersistenceService.AgenticRetrievalExecutionKind.AGENTIC_MULTI_QUERY,
                                 subquery.index(),
@@ -237,6 +238,8 @@ public class AgenticRetrievalService {
                         RagTracePersistenceService.AgenticSubqueryRetrievalTraceWriteScope.SUBQUERY_CANDIDATE_RETRIEVAL
                 );
                 generatedCandidates.add(new GeneratedCandidate(
+                        candidateKey(subquery.index(), candidateRank, candidateLabel),
+                        candidateRank,
                         candidateLabel,
                         template.query(),
                         candidateRetrieved,
@@ -261,11 +264,10 @@ public class AgenticRetrievalService {
                 retrievalRuntime
         );
         for (GeneratedCandidate candidate : generatedCandidates) {
-            boolean selected = decision.selectedCandidateId() != null
-                    && decision.selectedCandidateId().equals(candidate.rewriteCandidateId());
+            boolean selected = isSelectedCandidate(decision, candidate);
             ragTracePersistenceService.markAgenticRewriteCandidateAdopted(
                     new RagTracePersistenceService.AgenticRewriteCandidateAdoptionPersistenceRequest(
-                            RagPersistPolicy.ONLINE_QUERY,
+                            persistPolicy,
                             request.onlineQueryId(),
                             candidate.rewriteCandidateId(),
                             RagTracePersistenceService.AgenticRetrievalExecutionKind.AGENTIC_MULTI_QUERY,
@@ -295,7 +297,7 @@ public class AgenticRetrievalService {
                 decision.selectedReason(),
                 decision.rejectedReason(),
                 toScoredDocs(decision.finalRetrieved()),
-                toRewriteDtos(generatedCandidates, decision.selectedCandidateId()),
+                toRewriteDtos(generatedCandidates, decision),
                 objectMapper.valueToTree(memories),
                 elapsedMs(started),
                 traceMetadata(routeDecision, rawConfidence, decision, memories.size())
@@ -316,7 +318,7 @@ public class AgenticRetrievalService {
     ) {
         ragTracePersistenceService.persistAgenticSubqueryRetrievalTrace(
                 new RagTracePersistenceService.AgenticSubqueryRetrievalTracePersistenceRequest(
-                        RagPersistPolicy.ONLINE_QUERY,
+                        request.persistPolicy(),
                         request.onlineQueryId(),
                         RagTracePersistenceService.AgenticRetrievalExecutionKind.AGENTIC_MULTI_QUERY,
                         subquery.index(),
@@ -344,11 +346,11 @@ public class AgenticRetrievalService {
             RetrievalRuntime retrievalRuntime
     ) {
         if ("raw_only".equals(mode)) {
-            return new Decision(rawQuery, false, rawRetrieved, null, "raw_only", "mode=raw_only");
+            return new Decision(rawQuery, false, rawRetrieved, null, null, "raw_only", "mode=raw_only");
         }
         if ("memory_only_ungated".equals(mode) || "memory_only_gated".equals(mode)) {
             if (memoryCandidates.isEmpty()) {
-                return new Decision(rawQuery, false, rawRetrieved, null, "memory_empty", "no memory candidate");
+                return new Decision(rawQuery, false, rawRetrieved, null, null, "memory_empty", "no memory candidate");
             }
             String memoryQuery = memoryCandidates.getFirst().queryText();
             String embedding = embeddingLiteral(memoryQuery, retrievalRuntime);
@@ -364,23 +366,39 @@ public class AgenticRetrievalService {
                     retrievedLocal,
                     rawRetrieved.size()
             );
-            return new Decision(memoryQuery, true, retrieved, null, "memory_only", null);
+            return new Decision(memoryQuery, true, retrieved, null, null, "memory_only", null);
         }
 
         GeneratedCandidate best = candidates.stream()
                 .max(Comparator.comparingDouble(GeneratedCandidate::confidence))
                 .orElse(null);
         if (best == null) {
-            return new Decision(rawQuery, false, rawRetrieved, null, "no_candidate", "rewrite candidate missing");
+            return new Decision(rawQuery, false, rawRetrieved, null, null, "no_candidate", "rewrite candidate missing");
         }
         if ("rewrite_always".equals(mode)) {
-            return new Decision(best.query(), true, best.retrieved(), best.rewriteCandidateId(), "forced", null);
+            return new Decision(
+                    best.query(),
+                    true,
+                    best.retrieved(),
+                    best.rewriteCandidateId(),
+                    best.candidateKey(),
+                    "forced",
+                    null
+            );
         }
         double delta = best.confidence() - rawConfidence;
         if (delta >= threshold) {
-            return new Decision(best.query(), true, best.retrieved(), best.rewriteCandidateId(), "delta_above_threshold", null);
+            return new Decision(
+                    best.query(),
+                    true,
+                    best.retrieved(),
+                    best.rewriteCandidateId(),
+                    best.candidateKey(),
+                    "delta_above_threshold",
+                    null
+            );
         }
-        return new Decision(rawQuery, false, rawRetrieved, null, "delta_below_threshold", "best-candidate delta below threshold");
+        return new Decision(rawQuery, false, rawRetrieved, null, null, "delta_below_threshold", "best-candidate delta below threshold");
     }
 
     private Decision routerRawOnlyDecision(
@@ -391,12 +409,24 @@ public class AgenticRetrievalService {
         String rejectedReason = routeDecision.fallbackApplied()
                 ? routeDecision.fallbackReason()
                 : "query_router_strategy=" + routeDecision.strategy().name().toLowerCase(Locale.ROOT);
-        return new Decision(rawQuery, false, rawRetrieved, null, routeDecision.reason(), rejectedReason);
+        return new Decision(rawQuery, false, rawRetrieved, null, null, routeDecision.reason(), rejectedReason);
     }
 
     private String subqueryLabel(RagDtos.AgenticSubquery subquery, String label) {
         String suffix = label == null || label.isBlank() ? "candidate" : label.trim();
         return "subquery_" + subquery.index() + "_" + suffix;
+    }
+
+    private String candidateKey(int subqueryIndex, int candidateRank, String candidateLabel) {
+        return subqueryIndex + ":" + candidateRank + ":" + (candidateLabel == null ? "" : candidateLabel);
+    }
+
+    private boolean isSelectedCandidate(Decision decision, GeneratedCandidate candidate) {
+        if (decision.selectedCandidateId() != null && candidate.rewriteCandidateId() != null) {
+            return decision.selectedCandidateId().equals(candidate.rewriteCandidateId());
+        }
+        return decision.selectedCandidateKey() != null
+                && decision.selectedCandidateKey().equals(candidate.candidateKey());
     }
 
     private ObjectNode agenticCandidateMetadata(RagDtos.AgenticSubquery subquery, String templateLabel) {
@@ -682,6 +712,9 @@ public class AgenticRetrievalService {
         node.put("raw_confidence", rawConfidence);
         node.put("memory_candidate_count", memoryCandidateCount);
         node.put("selected_candidate_id", decision.selectedCandidateId() == null ? "" : decision.selectedCandidateId().toString());
+        if (decision.selectedCandidateKey() != null) {
+            node.put("selected_candidate_key", decision.selectedCandidateKey());
+        }
         node.put("router_enabled", routeDecision.routerEnabled());
         node.put("route_reason", routeDecision.reason());
         node.put("route_fallback_applied", routeDecision.fallbackApplied());
@@ -758,18 +791,15 @@ public class AgenticRetrievalService {
         return array;
     }
 
-    private List<RagDtos.RewriteCandidateDto> toRewriteDtos(
-            List<GeneratedCandidate> candidates,
-            UUID selectedCandidateId
-    ) {
+    private List<RagDtos.RewriteCandidateDto> toRewriteDtos(List<GeneratedCandidate> candidates, Decision decision) {
         return candidates.stream()
                 .map(candidate -> new RagDtos.RewriteCandidateDto(
                         candidate.rewriteCandidateId(),
                         candidate.label(),
                         candidate.query(),
                         candidate.confidence(),
-                        selectedCandidateId != null && selectedCandidateId.equals(candidate.rewriteCandidateId()),
-                        selectedCandidateId != null && !selectedCandidateId.equals(candidate.rewriteCandidateId())
+                        isSelectedCandidate(decision, candidate),
+                        decision.selectedCandidateKey() != null && !isSelectedCandidate(decision, candidate)
                                 ? "not_selected"
                                 : null,
                         objectMapper.valueToTree(candidate.retrieved()),
@@ -937,8 +967,53 @@ public class AgenticRetrievalService {
             double threshold,
             int maxSubqueries,
             int rrfK,
-            int finalTopK
+            int finalTopK,
+            RagPersistPolicy persistPolicy
     ) {
+        public AgenticExecutionRequest {
+            persistPolicy = persistPolicy == null ? RagPersistPolicy.ONLINE_QUERY : persistPolicy;
+        }
+
+        public AgenticExecutionRequest(
+                String rawQuery,
+                UUID onlineQueryId,
+                ChatRuntimeDtos.ChatRuntimeConfigResponse config,
+                ChatRuntimeDtos.ChatDomainReadinessResponse readiness,
+                JsonNode sessionContext,
+                List<RagRepository.MemoryCandidate> plannerMemoryHints,
+                String mode,
+                String rewriteQueryProfile,
+                String memoryPreset,
+                int retrievalTopK,
+                int rerankTopN,
+                int memoryTopN,
+                int candidateCount,
+                double threshold,
+                int maxSubqueries,
+                int rrfK,
+                int finalTopK
+        ) {
+            this(
+                    rawQuery,
+                    onlineQueryId,
+                    config,
+                    readiness,
+                    sessionContext,
+                    plannerMemoryHints,
+                    mode,
+                    rewriteQueryProfile,
+                    memoryPreset,
+                    retrievalTopK,
+                    rerankTopN,
+                    memoryTopN,
+                    candidateCount,
+                    threshold,
+                    maxSubqueries,
+                    rrfK,
+                    finalTopK,
+                    RagPersistPolicy.ONLINE_QUERY
+            );
+        }
     }
 
     public record AgenticExecutionResult(
@@ -975,6 +1050,8 @@ public class AgenticRetrievalService {
     }
 
     private record GeneratedCandidate(
+            String candidateKey,
+            int candidateRank,
             String label,
             String query,
             List<RagRepository.RetrievalDoc> retrieved,
@@ -989,6 +1066,7 @@ public class AgenticRetrievalService {
             boolean rewriteApplied,
             List<RagRepository.RetrievalDoc> finalRetrieved,
             UUID selectedCandidateId,
+            String selectedCandidateKey,
             String selectedReason,
             String rejectedReason
     ) {

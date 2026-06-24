@@ -1,5 +1,12 @@
 # progress.md
 
+## [2026-06-25] Session Summary (Retrieval Eval Lab Router Controls)
+- What was done: Updated `/admin/rag-tests` Retrieval Eval Lab controls so an operator can turn Strategy Router on/off, choose a forced execution mode when router is off, and see the effective router/mode/agentic state in the run preview.
+- Payload result: RAG run creation now sends `routerEnabled`, `forcedRetrievalMode`, and `agenticMultiQueryEnabled` along with the existing runtime parameters; non-agentic forced modes display agentic as disabled, while forced `agentic_multi_query` and router-enabled runs show the effective agentic state.
+- Chat Settings result: Added `strategy_router`, `anchor_aware_rewrite`, and `agentic_multi_query` to the editable online-chat mode list so promoted runs and manual config editing use the same Java runtime mode names.
+- Build result: `npm run build` passed and refreshed the backend-served React bundle under `backend/src/main/resources/static/react`.
+- Remaining risk: No browser click-through against a live backend/domain was run in this session.
+
 ## [2026-06-25] Session Summary (RAG Java Source-of-Truth Migration Phase 11-0 Audit)
 - What was done: Completed the frontend/Admin GUI Phase 11-0 audit without frontend source changes.
 - Audit result: Confirmed Chat Settings loads/saves `routerEnabled` and metadata-backed `agenticMultiQueryEnabled`, preserves metadata while removing stale aliases, and Live Chat displays router/agentic on/off in the config strip.
