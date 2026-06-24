@@ -3,6 +3,13 @@
 ## Overview
 High-level progress tracking for the `docs` directory.
 
+## [2026-06-24] Session Summary (RAG Java Source-of-Truth Migration Phase 6F)
+- What was done: Recorded that Phase 6F used `rag-java-source-of-truth-migration-guide.md` for the persistence boundary audit and retrieval-only eval readiness check.
+- Key decisions: The guide document itself was not changed; no eval endpoint, DB schema, Python eval path, `/ask` response behavior, answer generation movement, `createOnlineQuery` movement, or `insertAnswer` movement was introduced.
+- Validation: Backend compile, focused adapter/service tests, agentic boundary test, requested targeted RAG regression command, and final diff whitespace check passed.
+- Issues encountered: The guide remains untracked in the current working tree and was left untouched as instructed.
+- Next steps: Phase 7A can design the retrieval-only endpoint boundary around execution services plus `persistPolicy.NONE`, with explicit handling for skipping online root and answer persistence.
+
 ## [2026-06-24] Session Summary (RAG Java Source-of-Truth Migration Phase 6E)
 - What was done: Recorded that Phase 6E used `rag-java-source-of-truth-migration-guide.md` as the boundary document while moving only backend agentic decision/metadata writes behind the persistence adapter.
 - Key decisions: The guide document itself was not changed; no `/ask` response behavior, answer generation, answer storage, online query root creation, eval endpoint, DB schema, or Python eval path change was introduced.

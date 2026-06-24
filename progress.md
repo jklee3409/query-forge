@@ -1,5 +1,13 @@
 # progress.md
 
+## [2026-06-24] Session Summary (RAG Java Source-of-Truth Migration Guide Phase 6F)
+- What was done: Completed the backend persistence boundary audit before Phase 7 and added focused `AgenticRetrievalServiceTest` coverage proving the agentic execution service does not write online root, final rerank, answer, decision, metadata, or rewrite/memory/candidate logs directly.
+- Audit result: Current target non-agentic and agentic retrieval/candidate/log/decision/metadata writes are adapter-owned through phase-specific `RagTracePersistenceService` methods; `createOnlineQuery` and `insertAnswer` remain direct in `RagService` by design. Legacy non-agentic fallback direct write branches still exist for paths outside the current execution-service target path and remain a Phase 7 readiness risk to account for.
+- Retrieval-only readiness: Non-agentic execution service can return retrieved/reranked docs without answer generation; agentic execution returns merged docs without answer generation inside `AgenticRetrievalService`. `persistPolicy.NONE` adapter methods are no-write and can skip `onlineQueryId`, but current `RagService.ask` still creates `onlineQueryId` and generates/stores answers, so Phase 7 needs a controller/service boundary that bypasses `RagService.ask` persistence and answer stages.
+- Scope: Production execution logic, `/ask` response shape, answer generation, `insertAnswer`, `createOnlineQuery`, persistence write movement, DB schema, eval endpoint, Python eval, router rules, and Phase 7 work were not changed.
+- Validation: `.\gradlew.bat compileJava` passed; `.\gradlew.bat test --tests io.queryforge.backend.rag.service.RagTracePersistenceServiceTest` passed; `.\gradlew.bat test --tests io.queryforge.backend.rag.service.RagServiceTest` passed; `.\gradlew.bat test --tests io.queryforge.backend.rag.service.AgenticRetrievalServiceTest` passed; requested targeted RAG regression command passed.
+- Remaining risks: Phase 7A must define retrieval-only request orchestration, answerGeneration=false boundary, online root skip path, and how to avoid legacy direct-write fallback branches before exposing `/api/rag/eval/retrieval`.
+
 ## [2026-06-24] Session Summary (RAG Java Source-of-Truth Migration Guide Phase 6E)
 - What was done: Connected `RagService.askAgentic` agentic online query decision and metadata merge writes to Phase 6E-specific `RagTracePersistenceService` methods.
 - Scope: Only agentic `upsertOnlineQueryDecision` and `mergeOnlineQueryMetadata` moved behind the adapter. `createOnlineQuery`, `ChatAnswerService.generateAnswer`, `insertAnswer`, Phase 6A/6B/6C/6D adapters, `AgenticRetrievalService`, non-agentic adapters, `/ask` response shape, DB schema, eval endpoints, and Python code stayed unchanged.

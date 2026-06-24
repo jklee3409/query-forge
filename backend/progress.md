@@ -1,5 +1,13 @@
 # progress.md
 
+## [2026-06-24] Session Summary (RAG Java Source-of-Truth Migration Guide Phase 6F)
+- What was done: Audited backend non-agentic and agentic persistence boundaries for Phase 6F and strengthened `AgenticRetrievalServiceTest` with a no-direct-online-root/answer/decision/log-write assertion.
+- Persistence boundary audit: Target non-agentic raw/selective/router-selected selective/anchor-aware writes are adapter-owned where the Phase 4 execution-service path is used, and target agentic subquery/final/log/decision/metadata writes are adapter-owned. `RagService` still directly owns `createOnlineQuery` and `insertAnswer`; legacy non-agentic fallback direct branches remain in code and should be kept out of the retrieval-only eval path.
+- Retrieval-only eval readiness: `RagRetrievalExecutionService` returns docs without answer generation for non-agentic execution; `AgenticRetrievalService` returns merged docs without answer generation. `RagTracePersistenceService` keeps `NONE` as no-write and `TRACE_ONLY` / generic `ONLINE_QUERY` unsupported, but current `/ask` orchestration always creates an online root and stores an answer.
+- `/ask` impact: No production execution logic, response shape, answer generation location, `insertAnswer`, `createOnlineQuery`, persistence movement, DB schema, eval endpoint, Python eval, router rule, or Phase 7 change was made.
+- Validation: `.\gradlew.bat compileJava` passed; `.\gradlew.bat test --tests io.queryforge.backend.rag.service.RagTracePersistenceServiceTest` passed; `.\gradlew.bat test --tests io.queryforge.backend.rag.service.RagServiceTest` passed; `.\gradlew.bat test --tests io.queryforge.backend.rag.service.AgenticRetrievalServiceTest` passed; requested targeted RAG regression command passed.
+- Remaining risks: Phase 7A needs an eval-specific orchestration boundary to skip `createOnlineQuery`, `ChatAnswerService.generateAnswer`, and `insertAnswer`, and should avoid legacy direct persistence branches by calling execution services plus `persistPolicy.NONE` explicitly.
+
 ## [2026-06-24] Session Summary (RAG Java Source-of-Truth Migration Guide Phase 6E)
 - What was done: Added agentic-only online query decision and metadata merge persistence methods to `RagTracePersistenceService` and wired only `RagService.askAgentic` decision/metadata writes through them.
 - Adapter connection: `ONLINE_QUERY + AGENTIC_MULTI_QUERY` now delegates agentic `upsertOnlineQueryDecision` and `mergeOnlineQueryMetadata` while preserving the existing online query ID, final query, decision reason, latency, and metadata envelope.

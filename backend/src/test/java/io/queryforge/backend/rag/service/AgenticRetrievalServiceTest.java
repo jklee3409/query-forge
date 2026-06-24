@@ -156,6 +156,7 @@ class AgenticRetrievalServiceTest {
         verify(ragTracePersistenceService, never()).markAgenticRewriteCandidateAdopted(any());
         verify(repository, never()).findMemoryTopN(anyString(), anyInt(), anyString(), any(), anyList(), anyList(), anyList());
         verify(rewriteCandidateService, never()).buildCandidates(anyString(), any(), anyList(), anyInt(), anyString(), anyBoolean(), any());
+        verifyNoOnlineRootAnswerDecisionOrLogWrites();
     }
 
     @Test
@@ -291,6 +292,60 @@ class AgenticRetrievalServiceTest {
         verify(repository, never()).createRewriteCandidate(any(), anyInt(), anyString(), anyString(), any(), any(), anyDouble(), any());
         verify(repository, never()).markRewriteCandidateAdopted(any(), anyBoolean(), any());
         verify(repository, never()).insertRetrievalResults(any(), any(), anyString(), anyList(), anyString(), anyString(), any());
+        verifyNoOnlineRootAnswerDecisionOrLogWrites();
+    }
+
+    private void verifyNoOnlineRootAnswerDecisionOrLogWrites() {
+        verify(repository, never()).createOnlineQuery(any(), any(), any(), any(), any(), anyDouble(), any());
+        verify(repository, never()).insertRerankResults(any(), any(), anyList(), anyString());
+        verify(repository, never()).insertAnswer(any(), any(), any(), any(), any(), any());
+        verify(repository, never()).upsertOnlineQueryDecision(
+                any(),
+                any(),
+                anyBoolean(),
+                any(),
+                any(),
+                any(),
+                any(),
+                any(),
+                any()
+        );
+        verify(repository, never()).mergeOnlineQueryMetadata(any(), any());
+        verify(repository, never()).createOnlineRewriteLog(
+                any(),
+                any(),
+                any(),
+                any(),
+                any(),
+                any(),
+                any(),
+                anyBoolean(),
+                any(),
+                anyBoolean(),
+                any(),
+                any(),
+                any(),
+                any(),
+                any(),
+                any(),
+                any(),
+                any()
+        );
+        verify(repository, never()).insertMemoryRetrievalLog(any(), any(), anyInt(), any(), any());
+        verify(repository, never()).insertRewriteCandidateLog(
+                any(),
+                any(),
+                any(),
+                anyInt(),
+                any(),
+                any(),
+                any(),
+                anyBoolean(),
+                any(),
+                any(),
+                any(),
+                any()
+        );
     }
 
     private ChatRuntimeDtos.ChatRuntimeConfigResponse config() {
