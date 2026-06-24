@@ -1,5 +1,13 @@
 # progress.md
 
+## [2026-06-24] Session Summary (RAG Java Source-of-Truth Migration Guide Phase 7B)
+- What was done: Added retrieval-only eval DTOs and a `RagRetrievalEvalService` for the Phase 7B non-agentic minimum slice.
+- DTO/service result: Added request/response/doc/trace DTOs with `persistPolicy=NONE`, `answerGeneration=false`, `retrievedChunkIds`, preview-only docs, and no answer text; the service validates requests, calls `RagRetrievalExecutionService` for raw/selective/anchor/current-router paths, and returns `persisted=false`.
+- Mode coverage: `raw_only`, `selective_rewrite`, `anchor_aware_rewrite`, and current Java `strategy_router` are supported; `agentic_multi_query` is explicitly blocked because agentic no-write still needs the Phase 7A blocker resolved.
+- Scope: No controller, endpoint, `RagService.ask()` call, `ChatAnswerService.generateAnswer`, `buildAnswer`, `createOnlineQuery`, `insertAnswer`, `AgenticRetrievalService` change, DB schema, Python eval, router enum/rule change, or Phase 7C work was added.
+- Validation: `.\gradlew.bat compileJava` passed; `.\gradlew.bat test --tests io.queryforge.backend.rag.service.RagRetrievalEvalServiceTest` passed; requested targeted RAG regression command passed; `git diff --check` passed.
+- Remaining risks: `TRACE_ONLY` and `ONLINE_QUERY` remain unsupported for eval; Phase 7C should expose the service only after deciding controller error shape and keeping agentic blocked.
+
 ## [2026-06-24] Session Summary (RAG Java Source-of-Truth Migration Guide Phase 7A)
 - What was done: Completed a read-only backend boundary audit for retrieval-only eval and documented the Phase 7A service/DTO/no-write design in the migration guide.
 - Design result: Non-agentic eval should bypass `RagService.ask()` and call `RagRetrievalExecutionService.executeRawOnly(...)`, `executeSelectiveRewrite(...)`, or `executeAnchorAwareRewrite(...)` through a future eval orchestration service.
