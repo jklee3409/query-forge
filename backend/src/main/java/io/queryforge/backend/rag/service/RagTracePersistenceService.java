@@ -157,6 +157,67 @@ public class RagTracePersistenceService {
         };
     }
 
+    public OnlineRewriteLogPersistenceResult createAgenticOnlineRewriteLogTrace(
+            AgenticOnlineRewriteLogPersistenceRequest request
+    ) {
+        if (request == null) {
+            throw new IllegalArgumentException("request is required");
+        }
+        return switch (request.persistPolicy()) {
+            case NONE -> new OnlineRewriteLogPersistenceResult(
+                    RagPersistPolicy.NONE,
+                    request.onlineQueryId(),
+                    null,
+                    false,
+                    "skipped_none"
+            );
+            case TRACE_ONLY -> throw new UnsupportedOperationException(
+                    "TRACE_ONLY persistence is not implemented for Phase 6D agentic rewrite log persistence"
+            );
+            case ONLINE_QUERY -> createAgenticOnlineRewriteLogOnlineQueryTrace(request);
+        };
+    }
+
+    public RagTracePersistenceResult insertAgenticMemoryRetrievalTrace(
+            AgenticMemoryRetrievalLogPersistenceRequest request
+    ) {
+        if (request == null) {
+            throw new IllegalArgumentException("request is required");
+        }
+        return switch (request.persistPolicy()) {
+            case NONE -> new RagTracePersistenceResult(
+                    RagPersistPolicy.NONE,
+                    request.onlineQueryId(),
+                    false,
+                    "skipped_none"
+            );
+            case TRACE_ONLY -> throw new UnsupportedOperationException(
+                    "TRACE_ONLY persistence is not implemented for Phase 6D agentic memory retrieval log persistence"
+            );
+            case ONLINE_QUERY -> insertAgenticMemoryRetrievalOnlineQueryTrace(request);
+        };
+    }
+
+    public RagTracePersistenceResult insertAgenticRewriteCandidateTrace(
+            AgenticRewriteCandidateLogPersistenceRequest request
+    ) {
+        if (request == null) {
+            throw new IllegalArgumentException("request is required");
+        }
+        return switch (request.persistPolicy()) {
+            case NONE -> new RagTracePersistenceResult(
+                    RagPersistPolicy.NONE,
+                    request.onlineQueryId(),
+                    false,
+                    "skipped_none"
+            );
+            case TRACE_ONLY -> throw new UnsupportedOperationException(
+                    "TRACE_ONLY persistence is not implemented for Phase 6D agentic rewrite candidate log persistence"
+            );
+            case ONLINE_QUERY -> insertAgenticRewriteCandidateOnlineQueryTrace(request);
+        };
+    }
+
     public RewriteCandidatePersistenceResult createRewriteCandidateTrace(
             CreateRewriteCandidateTracePersistenceRequest request
     ) {
@@ -445,6 +506,105 @@ public class RagTracePersistenceService {
                 request.onlineQueryId(),
                 true,
                 "persisted_" + request.executionKind().name().toLowerCase(Locale.ROOT) + "_final_rrf_rerank"
+        );
+    }
+
+    private OnlineRewriteLogPersistenceResult createAgenticOnlineRewriteLogOnlineQueryTrace(
+            AgenticOnlineRewriteLogPersistenceRequest request
+    ) {
+        if (request.onlineQueryId() == null) {
+            throw new IllegalArgumentException("onlineQueryId is required for ONLINE_QUERY agentic rewrite log persistence");
+        }
+        validateAgenticExecutionKind(request.executionKind(), "agentic rewrite log persistence");
+        UUID rewriteLogId = repository.createOnlineRewriteLog(
+                request.onlineQueryId(),
+                request.runId(),
+                request.rawQuery(),
+                request.finalQuery(),
+                request.rewriteStrategy(),
+                request.generationMethodCodes(),
+                request.generationBatchIds(),
+                request.gatingApplied(),
+                request.gatingPreset(),
+                request.rewriteApplied(),
+                request.selectiveRewrite(),
+                request.useSessionContext(),
+                request.rawConfidence(),
+                request.selectedConfidence(),
+                request.confidenceDelta(),
+                request.decisionReason(),
+                request.rejectionReason(),
+                request.metadata()
+        );
+        return new OnlineRewriteLogPersistenceResult(
+                RagPersistPolicy.ONLINE_QUERY,
+                request.onlineQueryId(),
+                rewriteLogId,
+                true,
+                "persisted_" + request.executionKind().name().toLowerCase(Locale.ROOT) + "_rewrite_log"
+        );
+    }
+
+    private RagTracePersistenceResult insertAgenticMemoryRetrievalOnlineQueryTrace(
+            AgenticMemoryRetrievalLogPersistenceRequest request
+    ) {
+        if (request.onlineQueryId() == null) {
+            throw new IllegalArgumentException("onlineQueryId is required for ONLINE_QUERY agentic memory retrieval log persistence");
+        }
+        if (request.rewriteLogId() == null) {
+            throw new IllegalArgumentException("rewriteLogId is required for ONLINE_QUERY agentic memory retrieval log persistence");
+        }
+        if (request.candidate() == null) {
+            throw new IllegalArgumentException("candidate is required for ONLINE_QUERY agentic memory retrieval log persistence");
+        }
+        validateAgenticExecutionKind(request.executionKind(), "agentic memory retrieval log persistence");
+        repository.insertMemoryRetrievalLog(
+                request.rewriteLogId(),
+                request.onlineQueryId(),
+                request.retrievalRank(),
+                request.candidate(),
+                request.metadata()
+        );
+        return new RagTracePersistenceResult(
+                RagPersistPolicy.ONLINE_QUERY,
+                request.onlineQueryId(),
+                true,
+                "persisted_" + request.executionKind().name().toLowerCase(Locale.ROOT) + "_memory_retrieval_log"
+        );
+    }
+
+    private RagTracePersistenceResult insertAgenticRewriteCandidateOnlineQueryTrace(
+            AgenticRewriteCandidateLogPersistenceRequest request
+    ) {
+        if (request.onlineQueryId() == null) {
+            throw new IllegalArgumentException("onlineQueryId is required for ONLINE_QUERY agentic rewrite candidate log persistence");
+        }
+        if (request.rewriteLogId() == null) {
+            throw new IllegalArgumentException("rewriteLogId is required for ONLINE_QUERY agentic rewrite candidate log persistence");
+        }
+        if (request.rewriteCandidateId() == null) {
+            throw new IllegalArgumentException("rewriteCandidateId is required for ONLINE_QUERY agentic rewrite candidate log persistence");
+        }
+        validateAgenticExecutionKind(request.executionKind(), "agentic rewrite candidate log persistence");
+        repository.insertRewriteCandidateLog(
+                request.rewriteLogId(),
+                request.onlineQueryId(),
+                request.rewriteCandidateId(),
+                request.candidateRank(),
+                request.candidateLabel(),
+                request.candidateQuery(),
+                request.confidenceScore(),
+                request.selected(),
+                request.rejectionReason(),
+                request.retrievalTopKDocs(),
+                request.scoreBreakdown(),
+                request.metadata()
+        );
+        return new RagTracePersistenceResult(
+                RagPersistPolicy.ONLINE_QUERY,
+                request.onlineQueryId(),
+                true,
+                "persisted_" + request.executionKind().name().toLowerCase(Locale.ROOT) + "_rewrite_candidate_log"
         );
     }
 
@@ -946,6 +1106,83 @@ public class RagTracePersistenceService {
             resultScope = resultScope == null || resultScope.isBlank() ? "agentic-rrf" : resultScope;
             rerankerModel = rerankerModel == null || rerankerModel.isBlank() ? resultScope : rerankerModel;
             latencyMs = Math.max(0L, latencyMs);
+        }
+    }
+
+    public record AgenticOnlineRewriteLogPersistenceRequest(
+            RagPersistPolicy persistPolicy,
+            UUID onlineQueryId,
+            UUID runId,
+            AgenticRetrievalExecutionKind executionKind,
+            String rawQuery,
+            String finalQuery,
+            String rewriteStrategy,
+            JsonNode generationMethodCodes,
+            JsonNode generationBatchIds,
+            boolean gatingApplied,
+            String gatingPreset,
+            boolean rewriteApplied,
+            Boolean selectiveRewrite,
+            Boolean useSessionContext,
+            Double rawConfidence,
+            Double selectedConfidence,
+            Double confidenceDelta,
+            String decisionReason,
+            String rejectionReason,
+            JsonNode metadata
+    ) {
+        public AgenticOnlineRewriteLogPersistenceRequest {
+            persistPolicy = persistPolicy == null ? RagPersistPolicy.NONE : persistPolicy;
+            rawQuery = rawQuery == null ? "" : rawQuery;
+            finalQuery = finalQuery == null ? rawQuery : finalQuery;
+            rewriteStrategy = rewriteStrategy == null ? "" : rewriteStrategy;
+            generationMethodCodes = generationMethodCodes == null ? JsonNodeFactory.instance.arrayNode() : generationMethodCodes;
+            generationBatchIds = generationBatchIds == null ? JsonNodeFactory.instance.arrayNode() : generationBatchIds;
+            gatingPreset = gatingPreset == null ? "" : gatingPreset;
+            metadata = metadata == null ? JsonNodeFactory.instance.objectNode() : metadata;
+        }
+    }
+
+    public record AgenticMemoryRetrievalLogPersistenceRequest(
+            RagPersistPolicy persistPolicy,
+            UUID onlineQueryId,
+            UUID rewriteLogId,
+            AgenticRetrievalExecutionKind executionKind,
+            int retrievalRank,
+            RagRepository.MemoryCandidate candidate,
+            JsonNode metadata
+    ) {
+        public AgenticMemoryRetrievalLogPersistenceRequest {
+            persistPolicy = persistPolicy == null ? RagPersistPolicy.NONE : persistPolicy;
+            retrievalRank = Math.max(0, retrievalRank);
+            metadata = metadata == null ? JsonNodeFactory.instance.objectNode() : metadata;
+        }
+    }
+
+    public record AgenticRewriteCandidateLogPersistenceRequest(
+            RagPersistPolicy persistPolicy,
+            UUID onlineQueryId,
+            UUID rewriteLogId,
+            UUID rewriteCandidateId,
+            AgenticRetrievalExecutionKind executionKind,
+            int candidateRank,
+            String candidateLabel,
+            String candidateQuery,
+            Double confidenceScore,
+            boolean selected,
+            String rejectionReason,
+            JsonNode retrievalTopKDocs,
+            JsonNode scoreBreakdown,
+            JsonNode metadata
+    ) {
+        public AgenticRewriteCandidateLogPersistenceRequest {
+            persistPolicy = persistPolicy == null ? RagPersistPolicy.NONE : persistPolicy;
+            candidateRank = Math.max(0, candidateRank);
+            candidateLabel = candidateLabel == null ? "" : candidateLabel;
+            candidateQuery = candidateQuery == null ? "" : candidateQuery;
+            retrievalTopKDocs = retrievalTopKDocs == null ? JsonNodeFactory.instance.arrayNode() : retrievalTopKDocs;
+            scoreBreakdown = scoreBreakdown == null ? JsonNodeFactory.instance.objectNode() : scoreBreakdown;
+            metadata = metadata == null ? JsonNodeFactory.instance.objectNode() : metadata;
         }
     }
 

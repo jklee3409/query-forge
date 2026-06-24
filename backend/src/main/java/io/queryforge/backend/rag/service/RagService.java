@@ -860,41 +860,51 @@ public class RagService {
                 routeDecision
         );
         rewriteMetadata.set("agentic_retrieval", agenticEnvelope);
-        UUID rewriteLogId = repository.createOnlineRewriteLog(
-                onlineQueryId,
-                null,
-                rawQuery,
-                rawQuery,
-                mode,
-                generationMethodCodes(plannerMemoryCandidates),
-                generationBatchIds(plannerMemoryCandidates),
-                gatingApplied,
-                gatingPreset,
-                agenticResult.rewriteApplied(),
-                selectiveRewrite,
-                useSessionContext,
-                selectedConfidence,
-                selectedConfidence,
-                0.0d,
-                agenticResult.selectedReason(),
-                agenticResult.rejectedReason(),
-                rewriteMetadata
-        );
+        RagTracePersistenceService.OnlineRewriteLogPersistenceResult rewriteLogPersistence =
+                ragTracePersistenceService.createAgenticOnlineRewriteLogTrace(
+                        new RagTracePersistenceService.AgenticOnlineRewriteLogPersistenceRequest(
+                                RagPersistPolicy.ONLINE_QUERY,
+                                onlineQueryId,
+                                null,
+                                RagTracePersistenceService.AgenticRetrievalExecutionKind.AGENTIC_MULTI_QUERY,
+                                rawQuery,
+                                rawQuery,
+                                mode,
+                                generationMethodCodes(plannerMemoryCandidates),
+                                generationBatchIds(plannerMemoryCandidates),
+                                gatingApplied,
+                                gatingPreset,
+                                agenticResult.rewriteApplied(),
+                                selectiveRewrite,
+                                useSessionContext,
+                                selectedConfidence,
+                                selectedConfidence,
+                                0.0d,
+                                agenticResult.selectedReason(),
+                                agenticResult.rejectedReason(),
+                                rewriteMetadata
+                        )
+                );
+        UUID rewriteLogId = rewriteLogPersistence.rewriteLogId();
 
         for (int index = 0; index < plannerMemoryCandidates.size(); index++) {
             RagRepository.MemoryCandidate memoryCandidate = plannerMemoryCandidates.get(index);
-            repository.insertMemoryRetrievalLog(
-                    rewriteLogId,
-                    onlineQueryId,
-                    index + 1,
-                    memoryCandidate,
-                    objectMapper.valueToTree(Map.of(
-                            "gating_preset", gatingPreset,
-                            "generation_batch_id", memoryCandidate.generationBatchId() == null ? "" : memoryCandidate.generationBatchId().toString(),
-                            "source_gate_run_id", memoryCandidate.sourceGateRunId() == null ? "" : memoryCandidate.sourceGateRunId(),
-                            "source_gating_batch_id", memoryCandidate.sourceGatingBatchId() == null ? "" : memoryCandidate.sourceGatingBatchId(),
-                            "agentic_role", "planner_memory_hint"
-                    ))
+            ragTracePersistenceService.insertAgenticMemoryRetrievalTrace(
+                    new RagTracePersistenceService.AgenticMemoryRetrievalLogPersistenceRequest(
+                            RagPersistPolicy.ONLINE_QUERY,
+                            onlineQueryId,
+                            rewriteLogId,
+                            RagTracePersistenceService.AgenticRetrievalExecutionKind.AGENTIC_MULTI_QUERY,
+                            index + 1,
+                            memoryCandidate,
+                            objectMapper.valueToTree(Map.of(
+                                    "gating_preset", gatingPreset,
+                                    "generation_batch_id", memoryCandidate.generationBatchId() == null ? "" : memoryCandidate.generationBatchId().toString(),
+                                    "source_gate_run_id", memoryCandidate.sourceGateRunId() == null ? "" : memoryCandidate.sourceGateRunId(),
+                                    "source_gating_batch_id", memoryCandidate.sourceGatingBatchId() == null ? "" : memoryCandidate.sourceGatingBatchId(),
+                                    "agentic_role", "planner_memory_hint"
+                            ))
+                    )
             );
         }
 
@@ -905,19 +915,23 @@ public class RagService {
             candidateMetadata.put("mode", mode);
             candidateMetadata.put("selected_reason", agenticResult.selectedReason());
             candidateMetadata.put("agentic_multi_query", true);
-            repository.insertRewriteCandidateLog(
-                    rewriteLogId,
-                    onlineQueryId,
-                    candidate.rewriteCandidateId(),
-                    index + 1,
-                    candidate.label(),
-                    candidate.query(),
-                    candidate.confidence(),
-                    candidate.selected(),
-                    candidate.selected() ? null : candidate.rejectedReason(),
-                    objectMapper.valueToTree(candidate.retrieved()),
-                    candidate.scoreBreakdown(),
-                    candidateMetadata
+            ragTracePersistenceService.insertAgenticRewriteCandidateTrace(
+                    new RagTracePersistenceService.AgenticRewriteCandidateLogPersistenceRequest(
+                            RagPersistPolicy.ONLINE_QUERY,
+                            onlineQueryId,
+                            rewriteLogId,
+                            candidate.rewriteCandidateId(),
+                            RagTracePersistenceService.AgenticRetrievalExecutionKind.AGENTIC_MULTI_QUERY,
+                            index + 1,
+                            candidate.label(),
+                            candidate.query(),
+                            candidate.confidence(),
+                            candidate.selected(),
+                            candidate.selected() ? null : candidate.rejectedReason(),
+                            objectMapper.valueToTree(candidate.retrieved()),
+                            candidate.scoreBreakdown(),
+                            candidateMetadata
+                    )
             );
         }
 

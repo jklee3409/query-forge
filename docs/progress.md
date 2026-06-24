@@ -3,6 +3,13 @@
 ## Overview
 High-level progress tracking for the `docs` directory.
 
+## [2026-06-24] Session Summary (RAG Java Source-of-Truth Migration Phase 6D)
+- What was done: Recorded that Phase 6D used `rag-java-source-of-truth-migration-guide.md` as the boundary document while moving only backend agentic rewrite/memory/candidate log writes behind the persistence adapter.
+- Key decisions: The guide document itself was not changed; no eval endpoint, DB schema, Python eval path, or `/ask` response behavior change was introduced.
+- Validation: Backend compile, focused adapter/service tests, requested targeted RAG regression command, and `git diff --check` passed.
+- Issues encountered: The guide remains untracked in the current working tree and was left untouched as instructed.
+- Next steps: Continue Phase 6 with the remaining allowed agentic side-effect work without moving answer generation, answer storage, or decision/metadata writes prematurely.
+
 ## [2026-06-23] Session Summary (RAG Java Source-of-Truth Migration Phase 1 Follow-up)
 - What was done: Recorded that Phase 1 proceeded as backend `/ask` characterization tests against the existing migration guide.
 - Key decisions: The guide document itself was not changed; no eval endpoint, DB schema, or production runtime behavior was introduced.

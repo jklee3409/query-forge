@@ -1,5 +1,12 @@
 # progress.md
 
+## [2026-06-24] Session Summary (RAG Java Source-of-Truth Migration Guide Phase 6D)
+- What was done: Connected `RagService.askAgentic` agentic rewrite log, planner memory hint log, and persisted rewrite candidate log writes to Phase 6D-specific `RagTracePersistenceService` methods.
+- Scope: Only `createOnlineRewriteLog`, `insertMemoryRetrievalLog`, and `insertRewriteCandidateLog` in the agentic `/ask` path moved behind the adapter. `createOnlineQuery`, `ChatAnswerService.generateAnswer`, `insertAnswer`, `upsertOnlineQueryDecision`, `mergeOnlineQueryMetadata`, `AgenticRetrievalService`, Phase 6A/6B/6C adapters, non-agentic adapters, `/ask` response shape, DB schema, eval endpoints, and Python code stayed unchanged.
+- Adapter result: `ONLINE_QUERY + AGENTIC_MULTI_QUERY` now supports agentic rewrite/memory/candidate log persistence only; `NONE` remains no-write and `TRACE_ONLY` / generic `ONLINE_QUERY` remain unsupported.
+- Validation: `.\gradlew.bat compileJava` passed; `.\gradlew.bat test --tests io.queryforge.backend.rag.service.RagTracePersistenceServiceTest` passed; `.\gradlew.bat test --tests io.queryforge.backend.rag.service.RagServiceTest` passed; requested targeted RAG regression command passed; `git diff --check` passed.
+- Remaining risks: Agentic answer, decision, and metadata persistence intentionally remain direct in `RagService.askAgentic`; no retrieval-only eval endpoint exists yet.
+
 ## [2026-06-24] Session Summary (RAG Java Source-of-Truth Migration Guide Phase 6C)
 - What was done: Connected `RagService.askAgentic` final merged RRF rerank trace persistence to a Phase 6C-specific `RagTracePersistenceService.persistAgenticFinalRerankTrace(...)` method.
 - Scope: Only the agentic final `insertRerankResults` write for `agentic-rrf` moved behind the adapter. Phase 6A subquery retrieval trace adapter, Phase 6B candidate root/adoption adapter, non-agentic adapters, `createOnlineQuery`, answer generation, `insertAnswer`, decision/metadata/log writes, `/ask` response shape, DB schema, eval endpoints, and Python code stayed unchanged.

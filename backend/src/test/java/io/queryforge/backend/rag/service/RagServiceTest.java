@@ -666,6 +666,57 @@ class RagServiceTest {
         verify(ragTracePersistenceService, never()).createOnlineRewriteLogTrace(any());
         verify(ragTracePersistenceService, never()).insertMemoryRetrievalTrace(any());
         verify(ragTracePersistenceService, never()).insertRewriteCandidateTrace(any());
+        ArgumentCaptor<RagTracePersistenceService.AgenticOnlineRewriteLogPersistenceRequest> rewriteLogCaptor =
+                ArgumentCaptor.forClass(RagTracePersistenceService.AgenticOnlineRewriteLogPersistenceRequest.class);
+        verify(ragTracePersistenceService).createAgenticOnlineRewriteLogTrace(rewriteLogCaptor.capture());
+        RagTracePersistenceService.AgenticOnlineRewriteLogPersistenceRequest rewriteLogRequest =
+                rewriteLogCaptor.getValue();
+        assertThat(rewriteLogRequest.persistPolicy()).isEqualTo(RagPersistPolicy.ONLINE_QUERY);
+        assertThat(rewriteLogRequest.onlineQueryId()).isEqualTo(onlineQueryId);
+        assertThat(rewriteLogRequest.executionKind()).isEqualTo(
+                RagTracePersistenceService.AgenticRetrievalExecutionKind.AGENTIC_MULTI_QUERY
+        );
+        assertThat(rewriteLogRequest.rawQuery()).isEqualTo(query);
+        assertThat(rewriteLogRequest.finalQuery()).isEqualTo(query);
+        assertThat(rewriteLogRequest.rewriteStrategy()).isEqualTo("selective_rewrite");
+        assertThat(rewriteLogRequest.rewriteApplied()).isFalse();
+        assertThat(rewriteLogRequest.decisionReason()).isEqualTo("agentic_multi_query_rrf");
+        assertThat(rewriteLogRequest.metadata().path("agentic_retrieval").isObject()).isTrue();
+
+        ArgumentCaptor<RagTracePersistenceService.AgenticMemoryRetrievalLogPersistenceRequest> memoryLogCaptor =
+                ArgumentCaptor.forClass(RagTracePersistenceService.AgenticMemoryRetrievalLogPersistenceRequest.class);
+        verify(ragTracePersistenceService).insertAgenticMemoryRetrievalTrace(memoryLogCaptor.capture());
+        RagTracePersistenceService.AgenticMemoryRetrievalLogPersistenceRequest memoryLogRequest =
+                memoryLogCaptor.getValue();
+        assertThat(memoryLogRequest.persistPolicy()).isEqualTo(RagPersistPolicy.ONLINE_QUERY);
+        assertThat(memoryLogRequest.onlineQueryId()).isEqualTo(onlineQueryId);
+        assertThat(memoryLogRequest.rewriteLogId()).isEqualTo(rewriteLogId);
+        assertThat(memoryLogRequest.executionKind()).isEqualTo(
+                RagTracePersistenceService.AgenticRetrievalExecutionKind.AGENTIC_MULTI_QUERY
+        );
+        assertThat(memoryLogRequest.retrievalRank()).isEqualTo(1);
+        assertThat(memoryLogRequest.candidate()).isEqualTo(memories.getFirst());
+        assertThat(memoryLogRequest.metadata().path("agentic_role").asText()).isEqualTo("planner_memory_hint");
+
+        ArgumentCaptor<RagTracePersistenceService.AgenticRewriteCandidateLogPersistenceRequest> candidateLogCaptor =
+                ArgumentCaptor.forClass(RagTracePersistenceService.AgenticRewriteCandidateLogPersistenceRequest.class);
+        verify(ragTracePersistenceService).insertAgenticRewriteCandidateTrace(candidateLogCaptor.capture());
+        RagTracePersistenceService.AgenticRewriteCandidateLogPersistenceRequest candidateLogRequest =
+                candidateLogCaptor.getValue();
+        assertThat(candidateLogRequest.persistPolicy()).isEqualTo(RagPersistPolicy.ONLINE_QUERY);
+        assertThat(candidateLogRequest.onlineQueryId()).isEqualTo(onlineQueryId);
+        assertThat(candidateLogRequest.rewriteLogId()).isEqualTo(rewriteLogId);
+        assertThat(candidateLogRequest.rewriteCandidateId()).isEqualTo(agenticCandidateId);
+        assertThat(candidateLogRequest.executionKind()).isEqualTo(
+                RagTracePersistenceService.AgenticRetrievalExecutionKind.AGENTIC_MULTI_QUERY
+        );
+        assertThat(candidateLogRequest.candidateRank()).isEqualTo(1);
+        assertThat(candidateLogRequest.candidateLabel()).isEqualTo("agentic-candidate-1");
+        assertThat(candidateLogRequest.candidateQuery()).isEqualTo("FilterChainProxy order");
+        assertThat(candidateLogRequest.selected()).isFalse();
+        assertThat(candidateLogRequest.rejectionReason()).isEqualTo("agentic_not_selected");
+        assertThat(candidateLogRequest.scoreBreakdown()).isEqualTo(agenticCandidateScoreBreakdown);
+        assertThat(candidateLogRequest.metadata().path("agentic_multi_query").asBoolean()).isTrue();
         ArgumentCaptor<RagTracePersistenceService.AgenticFinalRerankTracePersistenceRequest> finalRerankCaptor =
                 ArgumentCaptor.forClass(RagTracePersistenceService.AgenticFinalRerankTracePersistenceRequest.class);
         verify(ragTracePersistenceService).persistAgenticFinalRerankTrace(finalRerankCaptor.capture());
