@@ -709,6 +709,138 @@ class RagTracePersistenceServiceTest {
     }
 
     @Test
+    void onlineQueryAgenticRewriteCandidateCreationPersistsCandidateRootOnly() {
+        UUID onlineQueryId = UUID.fromString("51515151-5151-5151-5151-515151515151");
+        UUID rewriteCandidateId = UUID.fromString("52525252-5252-5252-5252-525252525252");
+        ObjectNode candidateMetadata = JsonNodeFactory.instance.objectNode()
+                .put("subquery_index", 2)
+                .put("candidate_template_label", "candidate-1");
+        ObjectNode scoreBreakdown = JsonNodeFactory.instance.objectNode().put("r1", 0.91d);
+
+        when(repository.createRewriteCandidate(
+                eq(onlineQueryId),
+                eq(21),
+                eq("subquery_2_candidate-1"),
+                eq("FilterChainProxy SecurityFilterChain order"),
+                any(),
+                any(),
+                eq(0.91d),
+                eq(scoreBreakdown)
+        )).thenReturn(rewriteCandidateId);
+
+        RagTracePersistenceService.RewriteCandidatePersistenceResult result = service.createAgenticRewriteCandidateTrace(
+                agenticCreateCandidateRequest(
+                        RagPersistPolicy.ONLINE_QUERY,
+                        onlineQueryId,
+                        candidateMetadata,
+                        scoreBreakdown
+                )
+        );
+
+        assertThat(result.persistPolicy()).isEqualTo(RagPersistPolicy.ONLINE_QUERY);
+        assertThat(result.onlineQueryId()).isEqualTo(onlineQueryId);
+        assertThat(result.rewriteCandidateId()).isEqualTo(rewriteCandidateId);
+        assertThat(result.persisted()).isTrue();
+        assertThat(result.status()).isEqualTo("persisted_agentic_multi_query_candidate_root");
+        verify(repository).createRewriteCandidate(
+                eq(onlineQueryId),
+                eq(21),
+                eq("subquery_2_candidate-1"),
+                eq("FilterChainProxy SecurityFilterChain order"),
+                any(),
+                any(),
+                eq(0.91d),
+                eq(scoreBreakdown)
+        );
+        verifyNoForbiddenOnlineWritesExceptCandidateRoot();
+    }
+
+    @Test
+    void onlineQueryAgenticRewriteCandidateAdoptionPersistsAdoptionOnly() {
+        UUID onlineQueryId = UUID.fromString("53535353-5353-5353-5353-535353535353");
+        UUID rewriteCandidateId = UUID.fromString("54545454-5454-5454-5454-545454545454");
+
+        RagTracePersistenceService.RewriteCandidatePersistenceResult result = service.markAgenticRewriteCandidateAdopted(
+                new RagTracePersistenceService.AgenticRewriteCandidateAdoptionPersistenceRequest(
+                        RagPersistPolicy.ONLINE_QUERY,
+                        onlineQueryId,
+                        rewriteCandidateId,
+                        RagTracePersistenceService.AgenticRetrievalExecutionKind.AGENTIC_MULTI_QUERY,
+                        2,
+                        true,
+                        null
+                )
+        );
+
+        assertThat(result.persistPolicy()).isEqualTo(RagPersistPolicy.ONLINE_QUERY);
+        assertThat(result.onlineQueryId()).isEqualTo(onlineQueryId);
+        assertThat(result.rewriteCandidateId()).isEqualTo(rewriteCandidateId);
+        assertThat(result.persisted()).isTrue();
+        assertThat(result.status()).isEqualTo("persisted_agentic_multi_query_candidate_adoption");
+        verify(repository).markRewriteCandidateAdopted(eq(rewriteCandidateId), eq(true), isNull());
+        verifyNoForbiddenOnlineWritesExceptCandidateAdoption();
+    }
+
+    @Test
+    void agenticRewriteCandidateCreationAndAdoptionNonePolicyPerformsNoRepositoryWrites() {
+        RagTracePersistenceService.RewriteCandidatePersistenceResult createResult = service.createAgenticRewriteCandidateTrace(
+                agenticCreateCandidateRequest(
+                        RagPersistPolicy.NONE,
+                        UUID.fromString("55555555-5555-5555-5555-555555555555"),
+                        JsonNodeFactory.instance.objectNode(),
+                        JsonNodeFactory.instance.objectNode()
+                )
+        );
+        RagTracePersistenceService.RewriteCandidatePersistenceResult adoptionResult = service.markAgenticRewriteCandidateAdopted(
+                new RagTracePersistenceService.AgenticRewriteCandidateAdoptionPersistenceRequest(
+                        RagPersistPolicy.NONE,
+                        UUID.fromString("56565656-5656-5656-5656-565656565656"),
+                        UUID.fromString("57575757-5757-5757-5757-575757575757"),
+                        RagTracePersistenceService.AgenticRetrievalExecutionKind.AGENTIC_MULTI_QUERY,
+                        2,
+                        false,
+                        "below_threshold"
+                )
+        );
+
+        assertThat(createResult.persisted()).isFalse();
+        assertThat(createResult.status()).isEqualTo("skipped_none");
+        assertThat(adoptionResult.persisted()).isFalse();
+        assertThat(adoptionResult.status()).isEqualTo("skipped_none");
+        verifyNoInteractions(repository);
+    }
+
+    @Test
+    void agenticRewriteCandidateCreationAndAdoptionTraceOnlyPolicyRemainsUnsupported() {
+        assertThatThrownBy(() -> service.createAgenticRewriteCandidateTrace(agenticCreateCandidateRequest(
+                RagPersistPolicy.TRACE_ONLY,
+                UUID.fromString("58585858-5858-5858-5858-585858585858"),
+                JsonNodeFactory.instance.objectNode(),
+                JsonNodeFactory.instance.objectNode()
+        )))
+                .isInstanceOf(UnsupportedOperationException.class)
+                .hasMessageContaining("TRACE_ONLY")
+                .hasMessageContaining("Phase 6B");
+
+        assertThatThrownBy(() -> service.markAgenticRewriteCandidateAdopted(
+                new RagTracePersistenceService.AgenticRewriteCandidateAdoptionPersistenceRequest(
+                        RagPersistPolicy.TRACE_ONLY,
+                        UUID.fromString("59595959-5959-5959-5959-595959595959"),
+                        UUID.fromString("60606060-6060-6060-6060-606060606060"),
+                        RagTracePersistenceService.AgenticRetrievalExecutionKind.AGENTIC_MULTI_QUERY,
+                        2,
+                        false,
+                        "below_threshold"
+                )
+        ))
+                .isInstanceOf(UnsupportedOperationException.class)
+                .hasMessageContaining("TRACE_ONLY")
+                .hasMessageContaining("Phase 6B");
+
+        verifyNoInteractions(repository);
+    }
+
+    @Test
     void onlineQuerySelectiveRewriteCandidateCreationPersistsCandidateRootOnly() {
         UUID onlineQueryId = UUID.fromString("15151515-1515-1515-1515-151515151515");
         UUID rewriteCandidateId = UUID.fromString("16161616-1616-1616-1616-161616161616");
@@ -1320,6 +1452,29 @@ class RagTracePersistenceServiceTest {
                 "local:dense_only:hash-embedding-v1",
                 16L,
                 writeScope
+        );
+    }
+
+    private RagTracePersistenceService.AgenticRewriteCandidateTracePersistenceRequest agenticCreateCandidateRequest(
+            RagPersistPolicy policy,
+            UUID onlineQueryId,
+            ObjectNode candidateMetadata,
+            ObjectNode scoreBreakdown
+    ) {
+        return new RagTracePersistenceService.AgenticRewriteCandidateTracePersistenceRequest(
+                policy,
+                onlineQueryId,
+                RagTracePersistenceService.AgenticRetrievalExecutionKind.AGENTIC_MULTI_QUERY,
+                2,
+                "security filter order",
+                21,
+                "subquery_2_candidate-1",
+                "FilterChainProxy SecurityFilterChain order",
+                candidateMetadata,
+                JsonNodeFactory.instance.arrayNode().add("memory-1"),
+                JsonNodeFactory.instance.arrayNode().add("rewrite-chunk"),
+                0.91d,
+                scoreBreakdown
         );
     }
 

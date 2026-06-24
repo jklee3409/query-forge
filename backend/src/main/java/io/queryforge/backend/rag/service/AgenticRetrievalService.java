@@ -206,17 +206,25 @@ public class AgenticRetrievalService {
                 );
                 double candidateConfidence = confidence(candidateRetrieved, rawDense);
                 int candidateRank = subquery.index() * 10 + index + 1;
+                String candidateLabel = subqueryLabel(subquery, template.label());
                 JsonNode candidateScoreBreakdown = scoreBreakdown(candidateRetrieved, memories);
-                UUID candidateId = repository.createRewriteCandidate(
-                        request.onlineQueryId(),
-                        candidateRank,
-                        subqueryLabel(subquery, template.label()),
-                        template.query(),
-                        memorySourceIds(memories),
-                        objectMapper.valueToTree(candidateRetrieved),
-                        candidateConfidence,
-                        candidateScoreBreakdown
-                );
+                UUID candidateId = ragTracePersistenceService.createAgenticRewriteCandidateTrace(
+                        new RagTracePersistenceService.AgenticRewriteCandidateTracePersistenceRequest(
+                                RagPersistPolicy.ONLINE_QUERY,
+                                request.onlineQueryId(),
+                                RagTracePersistenceService.AgenticRetrievalExecutionKind.AGENTIC_MULTI_QUERY,
+                                subquery.index(),
+                                query,
+                                candidateRank,
+                                candidateLabel,
+                                template.query(),
+                                agenticCandidateMetadata(subquery, template.label()),
+                                memorySourceIds(memories),
+                                objectMapper.valueToTree(candidateRetrieved),
+                                candidateConfidence,
+                                candidateScoreBreakdown
+                        )
+                ).rewriteCandidateId();
                 persistSubqueryRetrievalTrace(
                         request,
                         subquery,
@@ -229,7 +237,7 @@ public class AgenticRetrievalService {
                         RagTracePersistenceService.AgenticSubqueryRetrievalTraceWriteScope.SUBQUERY_CANDIDATE_RETRIEVAL
                 );
                 generatedCandidates.add(new GeneratedCandidate(
-                        subqueryLabel(subquery, template.label()),
+                        candidateLabel,
                         template.query(),
                         candidateRetrieved,
                         candidateConfidence,
@@ -255,10 +263,16 @@ public class AgenticRetrievalService {
         for (GeneratedCandidate candidate : generatedCandidates) {
             boolean selected = decision.selectedCandidateId() != null
                     && decision.selectedCandidateId().equals(candidate.rewriteCandidateId());
-            repository.markRewriteCandidateAdopted(
-                    candidate.rewriteCandidateId(),
-                    selected,
-                    selected ? null : decision.rejectedReason()
+            ragTracePersistenceService.markAgenticRewriteCandidateAdopted(
+                    new RagTracePersistenceService.AgenticRewriteCandidateAdoptionPersistenceRequest(
+                            RagPersistPolicy.ONLINE_QUERY,
+                            request.onlineQueryId(),
+                            candidate.rewriteCandidateId(),
+                            RagTracePersistenceService.AgenticRetrievalExecutionKind.AGENTIC_MULTI_QUERY,
+                            subquery.index(),
+                            selected,
+                            selected ? null : decision.rejectedReason()
+                    )
             );
             persistedCandidates.add(new PersistedRewriteCandidate(
                     candidate.rewriteCandidateId(),
@@ -383,6 +397,16 @@ public class AgenticRetrievalService {
     private String subqueryLabel(RagDtos.AgenticSubquery subquery, String label) {
         String suffix = label == null || label.isBlank() ? "candidate" : label.trim();
         return "subquery_" + subquery.index() + "_" + suffix;
+    }
+
+    private ObjectNode agenticCandidateMetadata(RagDtos.AgenticSubquery subquery, String templateLabel) {
+        ObjectNode node = objectMapper.createObjectNode();
+        node.put("agentic_multi_query", true);
+        node.put("subquery_index", subquery.index());
+        node.put("subquery", subquery.query());
+        node.put("subquery_intent", subquery.intent());
+        node.put("candidate_template_label", templateLabel == null ? "" : templateLabel);
+        return node;
     }
 
     private RetrievalRuntime retrievalRuntime(ChatRuntimeDtos.ChatRuntimeConfigResponse config) {

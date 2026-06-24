@@ -150,12 +150,16 @@ class AgenticRetrievalServiceTest {
         assertThat(traceRequest.retrievalMetadata().path("agentic_phase").asText()).isEqualTo("raw");
         assertThat(traceRequest.retrievalMetadata().path("subquery_index").asInt()).isEqualTo(1);
         verify(repository, never()).insertRetrievalResults(any(), any(), anyString(), anyList(), anyString(), anyString(), any());
+        verify(repository, never()).createRewriteCandidate(any(), anyInt(), anyString(), anyString(), any(), any(), anyDouble(), any());
+        verify(repository, never()).markRewriteCandidateAdopted(any(), anyBoolean(), any());
+        verify(ragTracePersistenceService, never()).createAgenticRewriteCandidateTrace(any());
+        verify(ragTracePersistenceService, never()).markAgenticRewriteCandidateAdopted(any());
         verify(repository, never()).findMemoryTopN(anyString(), anyInt(), anyString(), any(), anyList(), anyList(), anyList());
         verify(rewriteCandidateService, never()).buildCandidates(anyString(), any(), anyList(), anyInt(), anyString(), anyBoolean(), any());
     }
 
     @Test
-    void executeDelegatesSubqueryCandidateRetrievalTraceAndKeepsCandidatePersistenceInRepository() {
+    void executeDelegatesSubqueryCandidateRootAdoptionAndRetrievalTraceToPersistenceService() {
         String rawQuery = "security filter order";
         ChatRuntimeDtos.ChatRuntimeConfigResponse config = config("selective_rewrite", false);
         ChatRuntimeDtos.ChatDomainReadinessResponse readiness = readiness();
@@ -203,16 +207,14 @@ class AgenticRetrievalServiceTest {
                         "candidate-1",
                         "FilterChainProxy SecurityFilterChain order"
                 )));
-        when(repository.createRewriteCandidate(
-                eq(onlineQueryId),
-                eq(21),
-                eq("subquery_2_candidate-1"),
-                eq("FilterChainProxy SecurityFilterChain order"),
-                any(),
-                any(),
-                anyDouble(),
-                any()
-        )).thenReturn(rewriteCandidateId);
+        when(ragTracePersistenceService.createAgenticRewriteCandidateTrace(any()))
+                .thenReturn(new RagTracePersistenceService.RewriteCandidatePersistenceResult(
+                        RagPersistPolicy.ONLINE_QUERY,
+                        onlineQueryId,
+                        rewriteCandidateId,
+                        true,
+                        "persisted_agentic_multi_query_candidate_root"
+                ));
 
         AgenticRetrievalService.AgenticExecutionResult result = service.execute(new AgenticRetrievalService.AgenticExecutionRequest(
                 rawQuery,
@@ -260,17 +262,34 @@ class AgenticRetrievalServiceTest {
         assertThat(traceRequests.get(1).subqueryIndex()).isEqualTo(2);
         assertThat(traceRequests.get(1).subqueryText()).isEqualTo("security filter order");
         assertThat(traceRequests.get(1).mode()).isEqualTo("selective_rewrite");
-        verify(repository).createRewriteCandidate(
-                eq(onlineQueryId),
-                eq(21),
-                eq("subquery_2_candidate-1"),
-                eq("FilterChainProxy SecurityFilterChain order"),
-                any(),
-                any(),
-                anyDouble(),
-                any()
-        );
-        verify(repository).markRewriteCandidateAdopted(eq(rewriteCandidateId), anyBoolean(), any());
+        ArgumentCaptor<RagTracePersistenceService.AgenticRewriteCandidateTracePersistenceRequest> createCaptor =
+                ArgumentCaptor.forClass(RagTracePersistenceService.AgenticRewriteCandidateTracePersistenceRequest.class);
+        verify(ragTracePersistenceService).createAgenticRewriteCandidateTrace(createCaptor.capture());
+        RagTracePersistenceService.AgenticRewriteCandidateTracePersistenceRequest createRequest = createCaptor.getValue();
+        assertThat(createRequest.persistPolicy()).isEqualTo(RagPersistPolicy.ONLINE_QUERY);
+        assertThat(createRequest.onlineQueryId()).isEqualTo(onlineQueryId);
+        assertThat(createRequest.executionKind()).isEqualTo(RagTracePersistenceService.AgenticRetrievalExecutionKind.AGENTIC_MULTI_QUERY);
+        assertThat(createRequest.subqueryIndex()).isEqualTo(2);
+        assertThat(createRequest.subqueryText()).isEqualTo("security filter order");
+        assertThat(createRequest.candidateIndex()).isEqualTo(21);
+        assertThat(createRequest.candidateLabel()).isEqualTo("subquery_2_candidate-1");
+        assertThat(createRequest.candidateQuery()).isEqualTo("FilterChainProxy SecurityFilterChain order");
+        assertThat(createRequest.candidateMetadata().path("subquery_index").asInt()).isEqualTo(2);
+        assertThat(createRequest.retrievalTopKDocs().toString()).contains("chunk-candidate");
+
+        ArgumentCaptor<RagTracePersistenceService.AgenticRewriteCandidateAdoptionPersistenceRequest> adoptionCaptor =
+                ArgumentCaptor.forClass(RagTracePersistenceService.AgenticRewriteCandidateAdoptionPersistenceRequest.class);
+        verify(ragTracePersistenceService).markAgenticRewriteCandidateAdopted(adoptionCaptor.capture());
+        RagTracePersistenceService.AgenticRewriteCandidateAdoptionPersistenceRequest adoptionRequest = adoptionCaptor.getValue();
+        assertThat(adoptionRequest.persistPolicy()).isEqualTo(RagPersistPolicy.ONLINE_QUERY);
+        assertThat(adoptionRequest.onlineQueryId()).isEqualTo(onlineQueryId);
+        assertThat(adoptionRequest.rewriteCandidateId()).isEqualTo(rewriteCandidateId);
+        assertThat(adoptionRequest.executionKind()).isEqualTo(RagTracePersistenceService.AgenticRetrievalExecutionKind.AGENTIC_MULTI_QUERY);
+        assertThat(adoptionRequest.subqueryIndex()).isEqualTo(2);
+        assertThat(adoptionRequest.adopted()).isTrue();
+        assertThat(adoptionRequest.rejectedReason()).isNull();
+        verify(repository, never()).createRewriteCandidate(any(), anyInt(), anyString(), anyString(), any(), any(), anyDouble(), any());
+        verify(repository, never()).markRewriteCandidateAdopted(any(), anyBoolean(), any());
         verify(repository, never()).insertRetrievalResults(any(), any(), anyString(), anyList(), anyString(), anyString(), any());
     }
 
