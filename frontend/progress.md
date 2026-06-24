@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-06-25] Session Summary (Admin GUI Runtime Parameter Parity)
+- What was done: Added Retrieval Eval Lab controls for Memory Top-N, Rewrite candidates, Agentic subqueries, and Agentic RRF K so RAG quality runs use operator-supplied GUI values instead of hidden defaults.
+- Chat Settings result: Added editable/displayed Agentic subquery and RRF values in the online chat settings page metadata path, keeping promoted successful runs and manual online chat config aligned.
+- Build result: `npm run build` passed and refreshed the backend-served React bundle.
+- Remaining risk: Browser click-through against a live backend/domain is still pending.
+
 ## [2026-06-25] Session Summary (Retrieval Eval Lab Router Controls)
 - What was done: Updated `/admin/rag-tests` Retrieval Eval Lab controls so an operator can turn Strategy Router on/off, choose a forced execution mode when router is off, and see the effective router/mode/agentic state in the run preview.
 - Payload result: RAG run creation now sends `routerEnabled`, `forcedRetrievalMode`, and `agenticMultiQueryEnabled` along with the existing runtime parameters; non-agentic forced modes display agentic as disabled, while forced `agentic_multi_query` and router-enabled runs show the effective agentic state.

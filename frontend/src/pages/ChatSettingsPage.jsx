@@ -74,6 +74,8 @@ function initialForm(domainId) {
     sourceGatingBatchIds: [],
     routerEnabled: false,
     agenticMultiQueryEnabled: false,
+    agenticMaxSubqueries: '3',
+    agenticRrfK: '60',
     metadata: {},
     rewriteQueryProfile: 'compact_anchor',
     rewriteAnchorInjectionEnabled: false,
@@ -224,6 +226,8 @@ export function ChatSettingsPage({ notify, domainId, domainKey }) {
           'queryRouterAgenticEnabled',
           'query_router_agentic_enabled',
         ]),
+        agenticMaxSubqueries: String(metadata.maxSubqueries || metadata.max_subqueries || metadata.agenticMaxSubqueries || metadata.agentic_max_subqueries || 3),
+        agenticRrfK: String(metadata.rrfK || metadata.rrf_k || metadata.agenticRrfK || metadata.agentic_rrf_k || 60),
         metadata,
         rewriteQueryProfile: configPayload.rewriteQueryProfile || 'compact_anchor',
         rewriteAnchorInjectionEnabled: Boolean(configPayload.rewriteAnchorInjectionEnabled),
@@ -326,6 +330,8 @@ export function ChatSettingsPage({ notify, domainId, domainKey }) {
     try {
       const requestForm = { ...form }
       delete requestForm.agenticMultiQueryEnabled
+      delete requestForm.agenticMaxSubqueries
+      delete requestForm.agenticRrfK
       delete requestForm.metadata
       const metadataPayload = { ...metadataObject(form.metadata) }
       delete metadataPayload.queryRouterEnabled
@@ -333,8 +339,16 @@ export function ChatSettingsPage({ notify, domainId, domainKey }) {
       delete metadataPayload.agentic_multi_query_enabled
       delete metadataPayload.queryRouterAgenticEnabled
       delete metadataPayload.query_router_agentic_enabled
+      delete metadataPayload.max_subqueries
+      delete metadataPayload.agentic_max_subqueries
+      delete metadataPayload.rrf_k
+      delete metadataPayload.agentic_rrf_k
       metadataPayload.routerEnabled = Boolean(form.routerEnabled)
       metadataPayload.agenticMultiQueryEnabled = Boolean(form.agenticMultiQueryEnabled)
+      metadataPayload.maxSubqueries = toNumber(form.agenticMaxSubqueries) || 3
+      metadataPayload.agenticMaxSubqueries = toNumber(form.agenticMaxSubqueries) || 3
+      metadataPayload.rrfK = toNumber(form.agenticRrfK) || 60
+      metadataPayload.agenticRrfK = toNumber(form.agenticRrfK) || 60
       const payload = await requestJson('/api/admin/chat/config', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
@@ -497,6 +511,12 @@ export function ChatSettingsPage({ notify, domainId, domainKey }) {
                 <span className="check-pill__box" aria-hidden="true">✓</span>
                 <span className="check-pill__text">Agentic Multi-Query</span>
               </label>
+              <label className="filter-field">Agentic subqueries
+                <input type="number" min="1" max="4" value={form.agenticMaxSubqueries} disabled={!form.agenticMultiQueryEnabled} onChange={(event) => updateField('agenticMaxSubqueries', event.target.value)} />
+              </label>
+              <label className="filter-field">Agentic RRF K
+                <input type="number" min="1" max="500" value={form.agenticRrfK} disabled={!form.agenticMultiQueryEnabled} onChange={(event) => updateField('agenticRrfK', event.target.value)} />
+              </label>
               <label className={`check-pill ${form.rewriteAnchorInjectionEnabled ? 'is-active' : ''}`}>
                 <input type="checkbox" checked={form.rewriteAnchorInjectionEnabled} onChange={(event) => updateField('rewriteAnchorInjectionEnabled', event.target.checked)} />
                 <span className="check-pill__box" aria-hidden="true">✓</span>
@@ -574,6 +594,8 @@ export function ChatSettingsPage({ notify, domainId, domainKey }) {
             { label: 'Profile', value: form.rewriteQueryProfile },
             { label: 'Router', value: form.routerEnabled ? 'enabled' : 'disabled' },
             { label: 'Agentic', value: form.agenticMultiQueryEnabled ? 'enabled' : 'disabled' },
+            { label: 'Agentic subqueries', value: form.agenticMultiQueryEnabled ? form.agenticMaxSubqueries : '-' },
+            { label: 'Agentic RRF K', value: form.agenticMultiQueryEnabled ? form.agenticRrfK : '-' },
             { label: '수정 시각', value: config?.updatedAt ? fmtTime(config.updatedAt) : '-' },
           ]}
         />
@@ -614,6 +636,8 @@ export function ChatSettingsPage({ notify, domainId, domainKey }) {
               <div><span>Retrieval</span><strong>{readiness.retrieval?.retrievalBackend || '-'} / {retrieverModeLabel(readiness.retrieval?.retrieverMode)}</strong></div>
               <div><span>Query Router</span><strong>{form.routerEnabled ? 'enabled' : 'disabled'}</strong></div>
               <div><span>Agentic Multi-Query</span><strong>{form.agenticMultiQueryEnabled ? 'enabled' : 'disabled'}</strong></div>
+              <div><span>Agentic subqueries</span><strong>{form.agenticMultiQueryEnabled ? form.agenticMaxSubqueries : '-'}</strong></div>
+              <div><span>Agentic RRF K</span><strong>{form.agenticMultiQueryEnabled ? form.agenticRrfK : '-'}</strong></div>
             </div>
             {readinessBlockingReasons.length > 0 && (
               <div className="chat-warning">

@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-06-25] Session Summary (Admin GUI Runtime Parameter Parity)
+- What was done: Closed the remaining Admin GUI/runtime gap after Java retrieval eval integration by wiring Memory Top-N, Rewrite candidates, Agentic subqueries, and Agentic RRF K from GUI controls into backend RAG run config.
+- Backend/frontend result: Retrieval Eval Lab now sends those values to `AdminConsoleService`; successful-run Apply-to-Chat promotes them into online chat config/metadata; Chat Settings can display and edit the online agentic subquery/RRF values.
+- Boundary: Retrieval execution, query rewrite, StrategyRouter, agentic retrieval, and RRF merge stay Java source-of-truth; Python remains runner/metrics/materialization per the migration boundary.
+- Validation: Focused AdminConsole/RAG eval/RagService/ChatRuntimeConfig tests passed; `npm run build` refreshed the backend-served React bundle; `git diff --check` reported only existing LF-to-CRLF warnings.
+
 ## [2026-06-25] Session Summary (Admin RAG Router Eval Java Runtime Integration)
 - What was done: Implemented Java source-of-truth retrieval eval for Admin GUI runtime settings, including router on/off, forced `raw_only` / `selective_rewrite` / `anchor_aware_rewrite` / `agentic_multi_query`, request-local `runtimeConfig`, no-write agentic eval, and successful-run Apply-to-Chat promotion.
 - Admin/online behavior: Retrieval Eval Lab now sends router/forced-mode/agentic controls; Admin run config records `retrieval_eval_backend=java` plus GUI parameters; Apply-to-Chat promotes router and agentic flags only when router or forced-agentic mode requires them; online chat executes agentic only for forced `agentic_multi_query` or router-selected `AGENTIC_MULTI_QUERY`.

@@ -378,6 +378,10 @@ public final class AdminConsoleDtos {
             String retrievalBackend,
             Integer retrievalTopK,
             Integer rerankTopN,
+            Integer memoryTopN,
+            Integer rewriteCandidateCount,
+            Integer agenticMaxSubqueries,
+            Integer agenticRrfK,
             RetrieverConfigRequest retrieverConfig,
             String createdBy
     ) {

@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-06-25] Session Summary (Admin GUI Runtime Parameter Parity)
+- What was done: Extended Admin RAG test run requests so GUI-provided `memoryTopN`, `rewriteCandidateCount`, `agenticMaxSubqueries`, and `agenticRrfK` are persisted into the Java retrieval eval runtime config.
+- Admin/apply result: `AdminConsoleService` now exposes default ranges for those parameters, records them in run config and initial retrieval/rewrite config, and `ChatRuntimeConfigService.applyRagRunConfig` promotes the same agentic planner/RRF values into online chat metadata.
+- Boundary: Retrieval execution, query rewrite, router, agentic retrieval, and RRF behavior remain Java source-of-truth; this change only wires GUI-supplied runtime parameters through existing Java services.
+- Validation: Focused AdminConsole/RAG eval/RagService/ChatRuntimeConfig tests passed; `npm run build` refreshed the backend-served React bundle; `git diff --check` reported only existing LF-to-CRLF warnings.
+
 ## [2026-06-25] Session Summary (Admin RAG Router Eval Java Runtime Integration)
 - What was done: Added backend support for GUI-driven retrieval eval execution settings and no-write Java agentic retrieval eval.
 - Eval endpoint result: `RagRetrievalEvalRequest` accepts `runtimeConfig`; `RagRetrievalEvalService` overlays request-local runtime settings on chat config, supports forced `agentic_multi_query`, and routes `strategy_router` decisions including `AGENTIC_MULTI_QUERY` through `AgenticRetrievalService` with `RagPersistPolicy.NONE`.

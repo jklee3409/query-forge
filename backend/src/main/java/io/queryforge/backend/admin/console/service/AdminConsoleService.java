@@ -934,6 +934,30 @@ public class AdminConsoleService {
         int rerankTopN = request.rerankTopN() != null && request.rerankTopN() > 0
                 ? request.rerankTopN()
                 : runtimeDefaultInt(runtimeCatalog, "rerank_top_n", 5);
+        int memoryTopN = boundedPositiveInt(
+                request.memoryTopN(),
+                runtimeDefaultInt(runtimeCatalog, "memory_top_n", 5),
+                1,
+                50
+        );
+        int rewriteCandidateCount = boundedPositiveInt(
+                request.rewriteCandidateCount(),
+                runtimeDefaultInt(runtimeCatalog, "rewrite_candidate_count", 2),
+                1,
+                2
+        );
+        int agenticMaxSubqueries = boundedPositiveInt(
+                request.agenticMaxSubqueries(),
+                runtimeDefaultInt(runtimeCatalog, "agentic_max_subqueries", 4),
+                1,
+                4
+        );
+        int agenticRrfK = boundedPositiveInt(
+                request.agenticRrfK(),
+                runtimeDefaultInt(runtimeCatalog, "agentic_rrf_k", 60),
+                1,
+                500
+        );
         Map<String, Object> retrieverConfig = resolveRetrieverConfig(request.retrieverConfig(), false, runtimeCatalog);
         validateLlmModelSelection(blankToNull(request.llmModel()), runtimeCatalog);
         validateLlmModelSelection(blankToNull(request.rewriteLlmModel()), runtimeCatalog);
@@ -1112,6 +1136,12 @@ public class AdminConsoleService {
         config.put("forced_retrieval_mode", routerEnabled ? "strategy_router" : forcedRetrievalMode);
         config.put("agentic_multi_query_enabled", agenticMultiQueryEnabled);
         config.put("agenticMultiQueryEnabled", agenticMultiQueryEnabled);
+        config.put("agentic_max_subqueries", agenticMaxSubqueries);
+        config.put("agenticMaxSubqueries", agenticMaxSubqueries);
+        config.put("maxSubqueries", agenticMaxSubqueries);
+        config.put("agentic_rrf_k", agenticRrfK);
+        config.put("agenticRrfK", agenticRrfK);
+        config.put("rrfK", agenticRrfK);
         config.put("rewrite_threshold", threshold);
         config.put("rewrite_query_profile", rewriteQueryProfile);
         config.put("rewrite_anchor_injection_enabled", rewriteAnchorInjectionEnabled);
@@ -1135,6 +1165,8 @@ public class AdminConsoleService {
         config.put("rewrite_prompt_profile", resolveRewritePromptProfile(evalQueryLanguage));
         config.put("retrieval_top_k", retrievalTopK);
         config.put("rerank_top_n", rerankTopN);
+        config.put("memory_top_n", memoryTopN);
+        config.put("rewrite_candidate_count", rewriteCandidateCount);
         attachRetrieverConfig(config, retrieverConfig);
         config.put("retrieval_backend", retrievalBackend);
         config.put("chunk_embedding_model", retrievalEmbeddingModel);
@@ -1273,11 +1305,14 @@ public class AdminConsoleService {
         initialRetrievalConfig.put("fallback_used", false);
         initialRetrievalConfig.put("retrieval_top_k", retrievalTopK);
         initialRetrievalConfig.put("rerank_top_n", rerankTopN);
+        initialRetrievalConfig.put("memory_top_n", memoryTopN);
         initialRetrievalConfig.put("retrieval_modes", config.get("retrieval_modes"));
         initialRetrievalConfig.put("retrieval_eval_backend", "java");
         initialRetrievalConfig.put("router_enabled", routerEnabled);
         initialRetrievalConfig.put("forced_retrieval_mode", routerEnabled ? "strategy_router" : forcedRetrievalMode);
         initialRetrievalConfig.put("agentic_multi_query_enabled", agenticMultiQueryEnabled);
+        initialRetrievalConfig.put("agentic_max_subqueries", agenticMaxSubqueries);
+        initialRetrievalConfig.put("agentic_rrf_k", agenticRrfK);
         initialRetrievalConfig.put("synthetic_free_baseline", syntheticFreeBaseline);
         initialRetrievalConfig.put("retriever_config", retrieverConfig);
         CanonicalAnchorVersionMetadata.putDefaults(initialRetrievalConfig);
@@ -1286,6 +1321,7 @@ public class AdminConsoleService {
         initialRewriteConfig.put("selective_rewrite", selectiveRewrite);
         initialRewriteConfig.put("use_session_context", useSessionContext);
         initialRewriteConfig.put("rewrite_threshold", threshold);
+        initialRewriteConfig.put("rewrite_candidate_count", rewriteCandidateCount);
         initialRewriteConfig.put("rewrite_query_profile", rewriteQueryProfile);
         initialRewriteConfig.put("llm_rewrite_model", config.get("llm_rewrite_model"));
         initialRewriteConfig.put("rewrite_anchor_injection_enabled", rewriteAnchorInjectionEnabled);
@@ -1902,6 +1938,10 @@ public class AdminConsoleService {
         LinkedHashMap<String, AdminConsoleDtos.RuntimeParameterRange> ranges = new LinkedHashMap<>();
         ranges.put("retrieval_top_k", new AdminConsoleDtos.RuntimeParameterRange(1.0d, 100.0d, (double) DEFAULT_RAG_RETRIEVAL_TOP_K));
         ranges.put("rerank_top_n", new AdminConsoleDtos.RuntimeParameterRange(1.0d, 100.0d, 5.0d));
+        ranges.put("memory_top_n", new AdminConsoleDtos.RuntimeParameterRange(1.0d, 50.0d, 5.0d));
+        ranges.put("rewrite_candidate_count", new AdminConsoleDtos.RuntimeParameterRange(1.0d, 2.0d, 2.0d));
+        ranges.put("agentic_max_subqueries", new AdminConsoleDtos.RuntimeParameterRange(1.0d, 4.0d, 4.0d));
+        ranges.put("agentic_rrf_k", new AdminConsoleDtos.RuntimeParameterRange(1.0d, 500.0d, 60.0d));
         ranges.put("rewrite_threshold", new AdminConsoleDtos.RuntimeParameterRange(0.0d, 1.0d, DEFAULT_REWRITE_THRESHOLD));
         ranges.put("rewrite_memory_candidate_pool_n", new AdminConsoleDtos.RuntimeParameterRange(1.0d, 100.0d, (double) DEFAULT_REWRITE_MEMORY_CANDIDATE_POOL_N));
         ranges.put("retriever_candidate_pool_k", new AdminConsoleDtos.RuntimeParameterRange(1.0d, 500.0d, (double) DEFAULT_RETRIEVER_CANDIDATE_POOL_K));
@@ -1966,6 +2006,11 @@ public class AdminConsoleService {
 
     private int runtimeDefaultInt(RuntimeCatalog catalog, String key, int fallback) {
         return (int) Math.round(runtimeDefaultDouble(catalog, key, fallback));
+    }
+
+    private int boundedPositiveInt(Integer raw, int fallback, int min, int max) {
+        int value = raw == null ? fallback : raw;
+        return Math.max(min, Math.min(max, value));
     }
 
     private AdminConsoleDtos.RuntimeOption toRuntimeOptionDto(RuntimeOptionMetadata option) {

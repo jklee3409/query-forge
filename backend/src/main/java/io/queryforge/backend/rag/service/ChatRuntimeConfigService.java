@@ -546,8 +546,23 @@ public class ChatRuntimeConfigService {
         );
         boolean agenticMultiQueryEnabled = "agentic_multi_query".equals(mode)
                 || (routerEnabled && configuredAgenticMultiQueryEnabled);
+        int agenticMaxSubqueries = Math.max(
+                1,
+                Math.min(
+                        4,
+                        configInt(config, "agentic_max_subqueries", configInt(config, "maxSubqueries", metadata.path("maxSubqueries").asInt(3)))
+                )
+        );
+        int agenticRrfK = Math.max(
+                1,
+                configInt(config, "agentic_rrf_k", configInt(config, "rrfK", metadata.path("rrfK").asInt(60)))
+        );
         metadata.put("routerEnabled", routerEnabled);
         metadata.put("agenticMultiQueryEnabled", agenticMultiQueryEnabled);
+        metadata.put("maxSubqueries", agenticMaxSubqueries);
+        metadata.put("agenticMaxSubqueries", agenticMaxSubqueries);
+        metadata.put("rrfK", agenticRrfK);
+        metadata.put("agenticRrfK", agenticRrfK);
         JsonNode retrieverConfig = config.path("retriever_config");
         JsonNode fusionWeights = firstPresentObject(
                 retrieverConfig.path("retriever_fusion_weights"),

@@ -2012,6 +2012,10 @@ export function RagPage({ notify, domainId = null }) {
     threshold: '',
     retrievalTopK: '',
     rerankTopN: '',
+    memoryTopN: '',
+    rewriteCandidateCount: '',
+    agenticMaxSubqueries: '',
+    agenticRrfK: '',
     retrievalBackend: '',
     ...retrieverPresetForMode('', ''),
     syntheticFreeBaseline: false,
@@ -2074,6 +2078,10 @@ export function RagPage({ notify, domainId = null }) {
     const defaultThreshold = parameterDefault(defaultParameterRanges, 'rewrite_threshold', '')
     const defaultRetrievalTopK = parameterDefault(defaultParameterRanges, 'retrieval_top_k', '')
     const defaultRerankTopN = parameterDefault(defaultParameterRanges, 'rerank_top_n', '')
+    const defaultMemoryTopN = parameterDefault(defaultParameterRanges, 'memory_top_n', '')
+    const defaultRewriteCandidateCount = parameterDefault(defaultParameterRanges, 'rewrite_candidate_count', '')
+    const defaultAgenticMaxSubqueries = parameterDefault(defaultParameterRanges, 'agentic_max_subqueries', '')
+    const defaultAgenticRrfK = parameterDefault(defaultParameterRanges, 'agentic_rrf_k', '')
     setRuntimeOptions({
       llmModels,
       defaultLlmModel,
@@ -2101,6 +2109,10 @@ export function RagPage({ notify, domainId = null }) {
         threshold: serverDefaultValue(prev.threshold, '', defaultThreshold),
         retrievalTopK: serverDefaultValue(prev.retrievalTopK, '', defaultRetrievalTopK),
         rerankTopN: serverDefaultValue(prev.rerankTopN, '', defaultRerankTopN),
+        memoryTopN: serverDefaultValue(prev.memoryTopN, '', defaultMemoryTopN),
+        rewriteCandidateCount: serverDefaultValue(prev.rewriteCandidateCount, '', defaultRewriteCandidateCount),
+        agenticMaxSubqueries: serverDefaultValue(prev.agenticMaxSubqueries, '', defaultAgenticMaxSubqueries),
+        agenticRrfK: serverDefaultValue(prev.agenticRrfK, '', defaultAgenticRrfK),
         retrievalBackend: retrievalBackends.includes(prev.retrievalBackend)
           ? prev.retrievalBackend
           : defaultRetrievalBackend,
@@ -2662,6 +2674,10 @@ export function RagPage({ notify, domainId = null }) {
           retrievalBackend: form.retrievalBackend,
           retrievalTopK: toNumber(form.retrievalTopK),
           rerankTopN: toNumber(form.rerankTopN),
+          memoryTopN: toNumber(form.memoryTopN),
+          rewriteCandidateCount: toNumber(form.rewriteCandidateCount),
+          agenticMaxSubqueries: toNumber(form.agenticMaxSubqueries),
+          agenticRrfK: toNumber(form.agenticRrfK),
           retrieverConfig: {
             retrieverMode: form.retrieverMode,
             denseEmbeddingModel: form.denseEmbeddingModel,
@@ -3096,6 +3112,8 @@ export function RagPage({ notify, domainId = null }) {
     { label: 'Router', value: effectiveRouterEnabled ? 'on' : 'off' },
     { label: 'Execution mode', value: effectiveForcedRetrievalMode },
     { label: 'Agentic', value: effectiveAgenticMultiQueryEnabled ? 'enabled' : 'disabled' },
+    { label: 'Memory Top-N', value: form.memoryTopN || '-' },
+    { label: 'Rewrite candidates', value: form.rewriteCandidateCount || '-' },
     { label: '재작성 프로필', value: form.rewriteEnabled ? form.rewriteQueryProfile : 'compact_anchor' },
     { label: 'Rewrite LLM', value: form.rewriteLlmModel || form.llmModel || runtimeOptions.defaultLlmModel || '-' },
     { label: '검색', value: `${form.retrievalBackend} / ${retrieverModeLabel(form.retrieverMode)}` },
@@ -3336,8 +3354,30 @@ export function RagPage({ notify, domainId = null }) {
                 disabled={form.syntheticFreeBaseline || !form.queryRouterEnabled}
                 onChange={(event) => setForm((prev) => ({ ...prev, agenticMultiQueryEnabled: event.target.checked }))}
               />
-              <span className="check-pill__box" aria-hidden="true">{form.agenticMultiQueryEnabled ? '✓' : ''}</span>
+              <span className="check-pill__box" aria-hidden="true">{effectiveAgenticMultiQueryEnabled ? '✓' : ''}</span>
               <span className="check-pill__text">Agentic Multi-Query</span>
+            </label>
+            <label className="filter-field filter-field--small">Agentic subqueries
+              <input
+                type="number"
+                min="1"
+                max="4"
+                value={form.agenticMaxSubqueries}
+                disabled={!effectiveAgenticMultiQueryEnabled}
+                onChange={(event) => setForm((prev) => ({ ...prev, agenticMaxSubqueries: event.target.value }))}
+              />
+              <span className="field-hint">planner maxSubqueries</span>
+            </label>
+            <label className="filter-field filter-field--small">Agentic RRF K
+              <input
+                type="number"
+                min="1"
+                max="500"
+                value={form.agenticRrfK}
+                disabled={!effectiveAgenticMultiQueryEnabled}
+                onChange={(event) => setForm((prev) => ({ ...prev, agenticRrfK: event.target.value }))}
+              />
+              <span className="field-hint">RRF merge constant</span>
             </label>
             <label className="filter-field filter-field--small">컷오프 단계
               <select
@@ -3417,6 +3457,14 @@ export function RagPage({ notify, domainId = null }) {
             <label className="filter-field filter-field--small">재정렬 Top-N
               <input type="number" min="1" value={form.rerankTopN} onChange={(event) => setForm((prev) => ({ ...prev, rerankTopN: event.target.value }))} />
               <span className="field-hint">답변 평가 전 최종 재정렬 개수</span>
+            </label>
+            <label className="filter-field filter-field--small">Memory Top-N
+              <input type="number" min="1" max="50" value={form.memoryTopN} onChange={(event) => setForm((prev) => ({ ...prev, memoryTopN: event.target.value }))} />
+              <span className="field-hint">rewrite/agentic memory hint count</span>
+            </label>
+            <label className="filter-field filter-field--small">Rewrite candidates
+              <input type="number" min="1" max="2" value={form.rewriteCandidateCount} onChange={(event) => setForm((prev) => ({ ...prev, rewriteCandidateCount: event.target.value }))} />
+              <span className="field-hint">Java rewrite candidate count</span>
             </label>
                 </div>
               </ExperimentSection>
