@@ -3,6 +3,7 @@ from __future__ import annotations
 import csv
 import json
 import tempfile
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
 
@@ -12,6 +13,7 @@ try:
     from common.experiment_config import load_experiment_config
     from eval.java_retrieval_client import (
         JAVA_RETRIEVAL_AGENTIC_MODE,
+        JAVA_RETRIEVAL_ENDPOINT_PATH,
         JavaRetrievalEvalClient,
         JavaRetrievalEvalSettings,
         normalize_forced_mode,
@@ -21,6 +23,7 @@ except ModuleNotFoundError:  # pragma: no cover
     from pipeline.common.experiment_config import load_experiment_config
     from pipeline.eval.java_retrieval_client import (
         JAVA_RETRIEVAL_AGENTIC_MODE,
+        JAVA_RETRIEVAL_ENDPOINT_PATH,
         JavaRetrievalEvalClient,
         JavaRetrievalEvalSettings,
         normalize_forced_mode,
@@ -36,6 +39,46 @@ COMPARISON_SUPPORTED_MODES = (
 )
 COMPARISON_BLOCKED_MODES = (JAVA_RETRIEVAL_AGENTIC_MODE,)
 COMPARISON_METRIC_KEYS = tuple(METRIC_KEYS)
+COMPARISON_REPORT_SCHEMA_VERSION = "retrieval-comparison-report-v1"
+COMPARISON_REPORT_REQUIRED_KEYS = frozenset(
+    {
+        "schema_version",
+        "generated_at",
+        "legacy_summary",
+        "java_summary",
+        "metric_delta_rows",
+        "mismatch_rows",
+        "compared_modes",
+        "blocked_modes",
+        "java_endpoint",
+        "java_backend",
+    }
+)
+METRIC_DELTA_ROW_REQUIRED_KEYS = frozenset(
+    {"mode", "metric", "legacy_value", "java_value", "delta"}
+)
+MISMATCH_ROW_REQUIRED_KEYS = frozenset(
+    {
+        "sample_id",
+        "query",
+        "mode",
+        "expected_chunk_ids",
+        "legacy_retrieved_chunk_ids",
+        "java_retrieved_chunk_ids",
+        "overlap_count",
+        "exact_match",
+        "notes",
+    }
+)
+PHASE_9_READINESS_CRITERIA = (
+    "Java endpoint smoke tests pass.",
+    "Comparison runner passes for supported non-agentic modes.",
+    "Metric delta report is reviewed.",
+    "Mismatch sample report is reviewed.",
+    "agentic_multi_query remains blocked or has a separate approved policy.",
+    "Python legacy eval remains available as fallback/regression path.",
+    "Admin GUI impact is none or explicitly tested.",
+)
 
 Runner = Callable[..., dict[str, Any]]
 
@@ -183,6 +226,7 @@ def run_legacy_vs_java_retrieval_compare(
     write_report: bool = True,
     report_path: Path | None = None,
 ) -> dict[str, Any]:
+    """Run a Phase 8D audit report without switching the official eval path."""
     base_config = None
     base_raw: dict[str, Any] = {}
     base_experiment_key = experiment
@@ -252,22 +296,32 @@ def run_legacy_vs_java_retrieval_compare(
     mismatch_samples = [row for row in sample_comparisons if not row["exact_match"]]
 
     payload: dict[str, Any] = {
+        "schema_version": COMPARISON_REPORT_SCHEMA_VERSION,
+        "generated_at": datetime.now(timezone.utc).isoformat(),
         "phase": "8C",
+        "contract_phase": "8D",
         "comparison": "legacy_vs_java_retrieval",
         "experiment_key": base_experiment_key,
         "modes": comparison_modes,
+        "compared_modes": comparison_modes,
         "supported_modes": list(COMPARISON_SUPPORTED_MODES),
         "blocked_modes": list(COMPARISON_BLOCKED_MODES),
         "metric_keys": list(COMPARISON_METRIC_KEYS),
         "java_error_policy": "fail_fast_run_level",
         "legacy_backend": "python_legacy",
         "java_backend": "java",
+        "java_endpoint": JAVA_RETRIEVAL_ENDPOINT_PATH,
+        "legacy_summary": legacy_summary_rows,
+        "java_summary": java_summary_rows,
         "official_eval_switched": False,
         "legacy_eval_deleted": False,
         "metric_delta": metric_delta,
+        "metric_delta_rows": metric_delta,
         "sample_comparison_count": len(sample_comparisons),
         "mismatch_count": len(mismatch_samples),
         "mismatch_samples": mismatch_samples,
+        "mismatch_rows": mismatch_samples,
+        "phase_9_readiness_criteria": list(PHASE_9_READINESS_CRITERIA),
         "report_paths": {},
     }
     if write_report:
@@ -591,7 +645,12 @@ def _safe_name(value: str) -> str:
 __all__ = [
     "COMPARISON_BLOCKED_MODES",
     "COMPARISON_METRIC_KEYS",
+    "COMPARISON_REPORT_REQUIRED_KEYS",
+    "COMPARISON_REPORT_SCHEMA_VERSION",
     "COMPARISON_SUPPORTED_MODES",
+    "METRIC_DELTA_ROW_REQUIRED_KEYS",
+    "MISMATCH_ROW_REQUIRED_KEYS",
+    "PHASE_9_READINESS_CRITERIA",
     "RetrievalEvalComparisonError",
     "build_sample_comparison_report",
     "compute_metric_delta_report",

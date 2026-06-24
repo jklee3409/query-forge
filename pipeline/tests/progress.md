@@ -1,5 +1,9 @@
 # progress.md
 
+## [2026-06-24] Comparison Report Contract Tests
+- Added Phase 8D coverage for comparison report top-level schema, metric delta row fields/metric coverage, mismatch row fields/content exclusion, supported/blocked mode constants, and Phase 9 readiness criteria documentation.
+- Kept tests DB-free and Java-server-free; no official eval default switch or agentic support was added.
+
 ## [2026-06-24] Legacy vs Java Retrieval Compare Tests
 - Added `test_retrieval_eval_compare.py` for Phase 8C comparison mode validation, agentic fail-fast, sample/mode joins, metric delta calculation, exact/different mismatch detection, full-content exclusion, Java error fail-fast, and fake Java client injection.
 - Kept tests DB-free and Java-server-free; existing legacy eval runtime tests were run in the combined command.

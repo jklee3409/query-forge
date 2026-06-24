@@ -7,7 +7,13 @@ from pathlib import Path
 
 from pipeline.eval.java_retrieval_client import JavaRetrievalClientError
 from pipeline.eval.retrieval_eval_compare import (
+    COMPARISON_BLOCKED_MODES,
+    COMPARISON_METRIC_KEYS,
+    COMPARISON_REPORT_REQUIRED_KEYS,
     COMPARISON_SUPPORTED_MODES,
+    METRIC_DELTA_ROW_REQUIRED_KEYS,
+    MISMATCH_ROW_REQUIRED_KEYS,
+    PHASE_9_READINESS_CRITERIA,
     RetrievalEvalComparisonError,
     build_sample_comparison_report,
     compute_metric_delta_report,
@@ -28,12 +34,38 @@ class _FakeJavaClient:
 
 
 class RetrievalEvalCompareTests(unittest.TestCase):
+    def test_comparison_report_top_level_schema_is_stable(self) -> None:
+        report = run_legacy_vs_java_retrieval_compare(
+            experiment="unit",
+            modes=["raw_only"],
+            legacy_runner=lambda **_kwargs: _payload(),
+            java_runner=lambda **_kwargs: _payload(),
+            write_report=False,
+        )
+
+        self.assertTrue(COMPARISON_REPORT_REQUIRED_KEYS.issubset(report.keys()))
+        self.assertEqual(report["schema_version"], "retrieval-comparison-report-v1")
+        self.assertEqual(report["compared_modes"], ["raw_only"])
+        self.assertEqual(report["legacy_summary"], _payload()["summary"])
+        self.assertEqual(report["java_summary"], _payload()["summary"])
+        self.assertIsInstance(report["generated_at"], str)
+        self.assertTrue(report["java_endpoint"].endswith("/api/rag/eval/retrieval"))
+        self.assertFalse(report["official_eval_switched"])
+        self.assertFalse(report["legacy_eval_deleted"])
+
     def test_comparison_uses_only_supported_non_agentic_modes(self) -> None:
         modes = normalize_comparison_modes(
             ["raw-only", "selective_rewrite", "anchor_aware_rewrite", "strategy_router"]
         )
 
         self.assertEqual(modes, list(COMPARISON_SUPPORTED_MODES))
+
+    def test_supported_and_blocked_modes_are_listed_correctly(self) -> None:
+        self.assertEqual(
+            set(COMPARISON_SUPPORTED_MODES),
+            {"raw_only", "selective_rewrite", "anchor_aware_rewrite", "strategy_router"},
+        )
+        self.assertIn("agentic_multi_query", COMPARISON_BLOCKED_MODES)
 
     def test_agentic_mode_in_comparison_config_fails_fast(self) -> None:
         with self.assertRaises(RetrievalEvalComparisonError) as context:
@@ -72,6 +104,17 @@ class RetrievalEvalCompareTests(unittest.TestCase):
         self.assertEqual(by_metric["mrr@10"]["delta"], -0.25)
         self.assertAlmostEqual(by_metric["ndcg@10"]["delta"], 0.2)
 
+    def test_metric_delta_rows_contain_required_fields_and_metrics(self) -> None:
+        rows = compute_metric_delta_report(
+            legacy_summary_rows=[_summary_row("raw_only", recall=0.25, hit=1.0, mrr=0.5, ndcg=0.6)],
+            java_summary_rows=[_summary_row("raw_only", recall=0.75, hit=1.0, mrr=0.25, ndcg=0.8)],
+            modes=["raw_only"],
+        )
+
+        self.assertEqual({row["metric"] for row in rows}, set(COMPARISON_METRIC_KEYS))
+        for row in rows:
+            self.assertTrue(METRIC_DELTA_ROW_REQUIRED_KEYS.issubset(row.keys()))
+
     def test_mismatch_report_detects_exact_match(self) -> None:
         rows = build_sample_comparison_report(
             legacy_rows=[_sample_row(sample_id="sample-1", mode="raw_only", retrieved=["chunk-1", "chunk-2"])],
@@ -100,6 +143,14 @@ class RetrievalEvalCompareTests(unittest.TestCase):
         self.assertFalse(by_sample["sample-ids"]["exact_match"])
         self.assertIn("different_ids", by_sample["sample-ids"]["notes"])
 
+    def test_mismatch_rows_contain_required_fields(self) -> None:
+        rows = build_sample_comparison_report(
+            legacy_rows=[_sample_row(sample_id="sample-1", mode="raw_only", retrieved=["chunk-1", "chunk-2"])],
+            java_rows=[_sample_row(sample_id="sample-1", mode="raw_only", retrieved=["chunk-2", "chunk-1"])],
+        )
+
+        self.assertTrue(MISMATCH_ROW_REQUIRED_KEYS.issubset(rows[0].keys()))
+
     def test_comparison_report_does_not_include_full_content(self) -> None:
         rows = build_sample_comparison_report(
             legacy_rows=[
@@ -121,6 +172,32 @@ class RetrievalEvalCompareTests(unittest.TestCase):
         self.assertNotIn("full legacy content", encoded)
         self.assertNotIn("full java content", encoded)
         self.assertNotIn("contentPreview", encoded)
+
+    def test_mismatch_rows_do_not_contain_full_content_or_preview_keys(self) -> None:
+        rows = build_sample_comparison_report(
+            legacy_rows=[
+                {
+                    **_sample_row(sample_id="sample-1", mode="raw_only", retrieved=["chunk-1"]),
+                    "content": "full legacy content must not be copied",
+                    "text": "full legacy text must not be copied",
+                    "contentPreview": "legacy preview must not be copied",
+                }
+            ],
+            java_rows=[
+                {
+                    **_sample_row(sample_id="sample-1", mode="raw_only", retrieved=["chunk-2"]),
+                    "chunk_text": "full java content must not be copied",
+                    "contentPreview": "java preview must not be copied",
+                }
+            ],
+        )
+
+        encoded = json.dumps(rows, ensure_ascii=False)
+        self.assertNotIn("full legacy content", encoded)
+        self.assertNotIn("full legacy text", encoded)
+        self.assertNotIn("full java content", encoded)
+        self.assertNotIn("contentPreview", encoded)
+        self.assertNotIn("preview must not be copied", encoded)
 
     def test_java_client_error_fails_fast(self) -> None:
         def legacy_runner(**_kwargs):
@@ -173,6 +250,19 @@ class RetrievalEvalCompareTests(unittest.TestCase):
         self.assertEqual(report["mismatch_count"], 0)
         self.assertEqual(report["metric_delta"][0]["mode"], "raw_only")
         self.assertFalse(report["official_eval_switched"])
+
+    def test_phase_9_readiness_note_exists_in_progress_or_guide(self) -> None:
+        root = Path(__file__).resolve().parents[2]
+        candidates = [
+            root / "progress.md",
+            root / "pipeline" / "progress.md",
+            root / "docs" / "rag-java-source-of-truth-migration-guide.md",
+        ]
+        content = "\n".join(path.read_text(encoding="utf-8") for path in candidates if path.exists())
+
+        self.assertIn("Phase 9 readiness", content)
+        for criterion in PHASE_9_READINESS_CRITERIA:
+            self.assertIn(criterion, content)
 
 
 def _payload(rows: list[dict] | None = None) -> dict:

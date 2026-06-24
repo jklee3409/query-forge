@@ -1,5 +1,13 @@
 # progress.md
 
+## [2026-06-24] Session Summary (RAG Java Source-of-Truth Migration Guide Phase 8D)
+- What was done: Audited and fixed the Phase 8C comparison report contract for Phase 9 readiness review.
+- Report contract: Comparison output now includes stable top-level `schema_version`, `generated_at`, `compared_modes`, `legacy_summary`, `java_summary`, `metric_delta_rows`, `mismatch_rows`, `blocked_modes`, and Java endpoint/backend fields; metric delta and mismatch row contracts are covered by tests.
+- Phase 9 readiness criteria: Java endpoint smoke tests pass. Comparison runner passes for supported non-agentic modes. Metric delta report is reviewed. Mismatch sample report is reviewed. agentic_multi_query remains blocked or has a separate approved policy. Python legacy eval remains available as fallback/regression path. Admin GUI impact is none or explicitly tested.
+- Scope: Official eval path/default `use_java_backend` were not switched, Python legacy eval was not deleted, Java production/controller/DTO and endpoint contract were not changed, Admin GUI and StrategyRouter were not touched, agentic eval/DB schema/Phase 9/10 work were not added.
+- Validation: Required Python py_compile, comparison unittest, combined eval unittest command, focused `RagRetrievalEvalControllerTest`, and `git diff --check` passed.
+- Remaining risks: The readiness criteria still require a real Java-backed comparison run on the selected dataset/snapshot before Phase 9 switching.
+
 ## [2026-06-24] Session Summary (RAG Java Source-of-Truth Migration Guide Phase 8C)
 - What was done: Added a Python-side legacy vs Java-backed retrieval comparison runner for Phase 8C dry-run/audit reports, plus focused tests and pipeline indexes.
 - Comparison result: `run_legacy_vs_java_retrieval_compare(...)` runs or accepts injected runners for the same dataset/config modes, compares summary metrics and sample-level retrieved chunk IDs, writes metric-delta and mismatch reports, and supports fake Java clients without starting a Java server.

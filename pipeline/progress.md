@@ -1,5 +1,14 @@
 # progress.md
 
+## [2026-06-24] Session Summary (RAG Java Source-of-Truth Migration Guide Phase 8D)
+- What was done: Fixed the legacy vs Java-backed comparison report contract and Phase 9 readiness criteria without changing official eval defaults.
+- Contract: The report now carries `schema_version`, `generated_at`, `compared_modes`, `legacy_summary`, `java_summary`, `metric_delta_rows`, `mismatch_rows`, `blocked_modes`, and Java endpoint/backend metadata while preserving existing Phase 8C aliases.
+- Phase 9 readiness criteria: Java endpoint smoke tests pass. Comparison runner passes for supported non-agentic modes. Metric delta report is reviewed. Mismatch sample report is reviewed. agentic_multi_query remains blocked or has a separate approved policy. Python legacy eval remains available as fallback/regression path. Admin GUI impact is none or explicitly tested.
+- Supported/blocked modes: `raw_only`, `selective_rewrite`, `anchor_aware_rewrite`, and `strategy_router` remain supported; `agentic_multi_query` remains fail-fast blocked.
+- Scope: Official eval path/default `use_java_backend` were not switched, legacy eval remains, and no Java production/controller/DTO, Admin GUI, StrategyRouter, agentic eval, DB schema, Phase 9, or Phase 10 work was changed.
+- Validation: Required Python py_compile, comparison unittest, combined eval unittest command, focused Java eval controller test, and `git diff --check` passed.
+- Remaining risks: Phase 9 still needs a live same-dataset/snapshot comparison review before the official switch.
+
 ## [2026-06-24] Session Summary (RAG Java Source-of-Truth Migration Guide Phase 8C)
 - What was done: Added `eval/retrieval_eval_compare.py` for legacy vs Java-backed retrieval comparison reports before the Phase 9 official switch.
 - Comparison runner: Supports same-config legacy/java execution through temporary comparison config variants or injected fake runners/Java client, computes metric deltas for `recall@5`, `hit@5`, `mrr@10`, and `ndcg@10`, and emits chunk-id mismatch rows without full content.

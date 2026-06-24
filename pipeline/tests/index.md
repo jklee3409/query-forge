@@ -6,5 +6,5 @@ Focused Python unit tests for pipeline runtime helpers, evaluation logic, LLM cl
 ## Key Notes
 - Tests are designed to stay lightweight and avoid full pipeline, full corpus, or unbounded DB workloads.
 - `test_java_retrieval_client.py` covers the opt-in Java retrieval eval client request/response/error contract without starting a Java server.
-- `test_retrieval_eval_compare.py` covers the Phase 8C legacy vs Java-backed comparison runner, metric deltas, mismatch rows, mode validation, and fake Java client injection.
+- `test_retrieval_eval_compare.py` covers the Phase 8C/8D legacy vs Java-backed comparison runner, report schema contract, metric deltas, mismatch rows, mode validation, Phase 9 readiness note, and fake Java client injection.
 - `test_strategy_router_eval.py` covers the opt-in retrieval-eval `strategy_router` decision rules and sample trace fallback behavior.
