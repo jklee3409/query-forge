@@ -1,5 +1,13 @@
 # progress.md
 
+## [2026-06-24] Official Java-backed Eval Policy Regression Tests
+- Added Phase 9B regression coverage for `retrieval_eval_backend=java`, `official_eval_backend=java`, and `eval_retrieval_backend=java` selecting the Java client branch.
+- Added audit coverage that `retrieval_eval_backend=legacy` avoids Java client construction, explicit legacy overrides old `use_java_backend=true`, and the implicit default remains legacy.
+- Locked metadata fields for `official_backend`, `retrieval_eval_backend`, `legacy_available`, `legacy_fallback_used`, `official_java_endpoint`, `supported_modes`, and `blocked_modes`.
+- Verified comparison runner variants keep explicit legacy/java backend policy and preserve `schema_version`, `metric_delta_rows`, and `mismatch_rows`.
+- Kept tests Java-server-free and DB-free with fake Java clients/settings; Admin GUI and StrategyRouter files were not touched.
+- Validation: `python -m py_compile pipeline/eval/java_retrieval_client.py pipeline/eval/retrieval_eval.py pipeline/eval/retrieval_eval_compare.py pipeline/tests/test_java_retrieval_client.py pipeline/tests/test_retrieval_eval_compare.py` passed; `python -m unittest pipeline.tests.test_eval_runtime pipeline.tests.test_strategy_router_eval pipeline.tests.test_java_retrieval_client pipeline.tests.test_retrieval_eval_compare -q` passed; focused Java endpoint and `/api/chat/ask` regression commands passed; `git diff --check` passed.
+
 ## [2026-06-24] Official Java-backed Eval Policy Tests
 - Added Phase 9A tests for `retrieval_eval_backend=java|legacy`, explicit legacy fallback overriding old Java opt-in flags, official/actual backend metadata, supported non-agentic Java mode calls, agentic Java blocking, and comparison report policy metadata.
 - Kept tests Java-server-free and DB-free with fake Java clients/settings.

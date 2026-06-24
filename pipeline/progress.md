@@ -1,5 +1,15 @@
 # progress.md
 
+## [2026-06-24] Session Summary (RAG Java Source-of-Truth Migration Guide Phase 9B)
+- What was done: Strengthened Python eval regression/audit tests for the Phase 9A official Java-backed retrieval backend policy; no production logic change was needed.
+- Official Java-backed policy regression: `retrieval_eval_backend=java`, `official_eval_backend=java`, and `eval_retrieval_backend=java` are covered as Java client branch selectors; `retrieval_eval_backend=legacy` and the implicit default remain legacy; explicit legacy still wins over legacy Java opt-in flags.
+- Metadata contract: Tests pin `official_backend`, `retrieval_eval_backend`, `legacy_available`, `legacy_fallback_used`, `official_java_endpoint`, `supported_modes`, and `blocked_modes` on retrieval eval metadata.
+- Supported/blocked modes: Supported Java-backed official eval modes remain `raw_only`, `selective_rewrite`, `anchor_aware_rewrite`, and `strategy_router`; `agentic_multi_query` stays blocked before Java client calls.
+- Comparison runner: Regression coverage confirms comparison variants set explicit legacy/java backend policies and the report contract keeps `schema_version`, `metric_delta_rows`, and `mismatch_rows`.
+- Legacy/Admin/Phase 10: Python legacy eval remains available as fallback/regression path; Admin GUI was not touched; Phase 10 still needs router GUI regression and StrategyRouter agentic enhancement.
+- Validation: `python -m py_compile pipeline/eval/java_retrieval_client.py pipeline/eval/retrieval_eval.py pipeline/eval/retrieval_eval_compare.py pipeline/tests/test_java_retrieval_client.py pipeline/tests/test_retrieval_eval_compare.py` passed; `python -m unittest pipeline.tests.test_eval_runtime pipeline.tests.test_strategy_router_eval pipeline.tests.test_java_retrieval_client pipeline.tests.test_retrieval_eval_compare -q` passed; focused Java endpoint and `/api/chat/ask` regression commands passed; `git diff --check` passed.
+- Remaining risks: The unconditional Java default remains deferred until a reviewed same-dataset Java-backed comparison run is accepted; agentic Java eval remains future Phase 10+ work.
+
 ## [2026-06-24] Session Summary (RAG Java Source-of-Truth Migration Guide Phase 9A)
 - What was done: Added `retrieval_eval_backend=java|legacy` / `official_eval_backend=java|legacy` policy handling for retrieval eval and kept legacy `use_java_backend` as an alias.
 - Official Java-backed eval path: Supported non-agentic modes can now be selected as the official Java-backed path with `retrieval_eval_backend=java`; the actual implicit default remains legacy for compatibility with configs that do not provide Java backend/domain settings.

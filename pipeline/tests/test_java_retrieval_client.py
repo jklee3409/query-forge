@@ -110,6 +110,22 @@ class JavaRetrievalClientContractTests(unittest.TestCase):
         self.assertEqual(settings.base_url, "http://java-backend")
         self.assertEqual(settings.domain_id, "11111111-1111-1111-1111-111111111111")
 
+    def test_official_backend_aliases_enable_java_settings(self) -> None:
+        for key in ("official_eval_backend", "eval_retrieval_backend"):
+            with self.subTest(key=key):
+                raw_config = {
+                    key: "java",
+                    "java_backend_base_url": "http://java-backend",
+                    "domain_id": "11111111-1111-1111-1111-111111111111",
+                }
+
+                settings = java_retrieval_settings_from_config(raw_config)
+
+                self.assertTrue(java_backend_enabled(raw_config))
+                self.assertEqual(retrieval_eval_backend_policy(raw_config), RETRIEVAL_EVAL_BACKEND_JAVA)
+                self.assertIsNotNone(settings)
+                self.assertEqual(settings.base_url, "http://java-backend")
+
     def test_retrieval_eval_backend_legacy_policy_overrides_legacy_java_opt_in(self) -> None:
         raw_config = {
             "retrieval_eval_backend": "legacy",
@@ -120,6 +136,17 @@ class JavaRetrievalClientContractTests(unittest.TestCase):
 
         self.assertEqual(retrieval_eval_backend_policy(raw_config), RETRIEVAL_EVAL_BACKEND_LEGACY)
         self.assertFalse(java_backend_enabled(raw_config))
+        self.assertIsNone(build_java_retrieval_client_from_config(raw_config, session=_RecordingSession()))
+
+    def test_implicit_default_remains_legacy_without_java_client(self) -> None:
+        raw_config = {
+            "java_backend_base_url": "http://java-backend",
+            "domain_id": "11111111-1111-1111-1111-111111111111",
+        }
+
+        self.assertEqual(retrieval_eval_backend_policy(raw_config), RETRIEVAL_EVAL_BACKEND_LEGACY)
+        self.assertFalse(java_backend_enabled(raw_config))
+        self.assertIsNone(java_retrieval_settings_from_config(raw_config))
         self.assertIsNone(build_java_retrieval_client_from_config(raw_config, session=_RecordingSession()))
 
     def test_invalid_retrieval_eval_backend_fails_fast(self) -> None:
@@ -251,15 +278,28 @@ class RetrievalEvalJavaAdapterTests(unittest.TestCase):
     def test_official_backend_metadata_records_java_policy_and_legacy_fallback(self) -> None:
         java_metadata = retrieval_eval._retrieval_eval_backend_metadata(RETRIEVAL_EVAL_BACKEND_JAVA)
         legacy_metadata = retrieval_eval._retrieval_eval_backend_metadata(RETRIEVAL_EVAL_BACKEND_LEGACY)
+        required_keys = {
+            "official_backend",
+            "retrieval_eval_backend",
+            "legacy_available",
+            "legacy_fallback_used",
+            "official_java_endpoint",
+            "supported_modes",
+            "blocked_modes",
+        }
 
+        self.assertTrue(required_keys.issubset(java_metadata.keys()))
+        self.assertTrue(required_keys.issubset(legacy_metadata.keys()))
         self.assertEqual(java_metadata["official_backend"], OFFICIAL_RETRIEVAL_EVAL_BACKEND)
         self.assertEqual(java_metadata["retrieval_eval_backend"], "java")
+        self.assertEqual(java_metadata["official_java_endpoint"], JAVA_RETRIEVAL_ENDPOINT_PATH)
         self.assertFalse(java_metadata["legacy_fallback_used"])
         self.assertTrue(java_metadata["legacy_available"])
         self.assertEqual(set(java_metadata["supported_modes"]), set(JAVA_RETRIEVAL_SUPPORTED_FORCED_MODES))
         self.assertEqual(set(java_metadata["blocked_modes"]), set(JAVA_RETRIEVAL_BLOCKED_FORCED_MODES))
         self.assertEqual(legacy_metadata["official_backend"], OFFICIAL_RETRIEVAL_EVAL_BACKEND)
         self.assertEqual(legacy_metadata["retrieval_eval_backend"], "legacy")
+        self.assertEqual(legacy_metadata["official_java_endpoint"], JAVA_RETRIEVAL_ENDPOINT_PATH)
         self.assertTrue(legacy_metadata["legacy_fallback_used"])
         self.assertTrue(legacy_metadata["legacy_available"])
 
@@ -335,6 +375,44 @@ class RetrievalEvalJavaAdapterTests(unittest.TestCase):
         self.assertEqual(rewrite_info["java_endpoint"], JAVA_RETRIEVAL_ENDPOINT_PATH)
         self.assertEqual(rewrite_info["java_selected_mode"], "raw_only")
         self.assertEqual(rewrite_info["java_warnings"], ["diagnostic warning"])
+
+    def test_java_backend_policy_aliases_use_runtime_java_client_branch(self) -> None:
+        class Config:
+            raw = {}
+            retrieval_top_k = 2
+
+        for key in ("retrieval_eval_backend", "official_eval_backend", "eval_retrieval_backend"):
+            with self.subTest(key=key):
+                java_client = _RecordingJavaClient()
+                java_settings = java_retrieval_settings_from_config(
+                    {
+                        key: "java",
+                        "java_backend_base_url": "http://localhost:8080",
+                        "domain_id": "11111111-1111-1111-1111-111111111111",
+                    }
+                )
+
+                metrics, rewrite_info, retrieval = retrieval_eval._evaluate_mode(
+                    mode="raw_only",
+                    sample=_sample(),
+                    chunks=[],
+                    memories=[],
+                    config=Config(),
+                    memory_strategy_filters=[],
+                    source_gating_run_id=None,
+                    comparison_source_runs={},
+                    retrieval_adapter=None,
+                    multi_source_anchor_index=None,
+                    raw_retrieval=[],
+                    java_client=java_client,
+                    java_settings=java_settings,
+                )
+
+                self.assertEqual(len(java_client.calls), 1)
+                self.assertEqual(java_client.calls[0]["forced_mode"], "raw_only")
+                self.assertEqual([item.chunk_id for item in retrieval], ["chunk-2", "chunk-1"])
+                self.assertEqual(metrics["hit@5"], 1.0)
+                self.assertEqual(rewrite_info["backend"], "java")
 
     def test_official_java_backend_allows_supported_non_agentic_modes(self) -> None:
         class Config:

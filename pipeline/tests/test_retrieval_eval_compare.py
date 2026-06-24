@@ -19,6 +19,7 @@ from pipeline.eval.retrieval_eval_compare import (
     compute_metric_delta_report,
     normalize_comparison_modes,
     run_legacy_vs_java_retrieval_compare,
+    _variant_raw,
 )
 
 
@@ -52,6 +53,8 @@ class RetrievalEvalCompareTests(unittest.TestCase):
         self.assertTrue(report["java_endpoint"].endswith("/api/rag/eval/retrieval"))
         self.assertEqual(report["official_backend"], "java")
         self.assertTrue(report["legacy_available"])
+        self.assertEqual(report["metric_delta_rows"], report["metric_delta"])
+        self.assertIn("mismatch_rows", report)
         self.assertFalse(report["official_eval_switched"])
         self.assertFalse(report["legacy_eval_deleted"])
 
@@ -75,6 +78,37 @@ class RetrievalEvalCompareTests(unittest.TestCase):
 
         self.assertEqual(context.exception.code, "unsupported_agentic_eval")
         self.assertIn("agentic_multi_query", context.exception.detail)
+
+    def test_comparison_variants_keep_backend_policy_explicit(self) -> None:
+        source = {
+            "experiment_key": "unit",
+            "retrieval_eval_backend": "legacy",
+            "official_eval_backend": "legacy",
+            "use_java_backend": False,
+        }
+
+        legacy = _variant_raw(
+            source,
+            experiment_key="unit__legacy_compare",
+            modes=["raw_only"],
+            use_java_backend=False,
+        )
+        java = _variant_raw(
+            source,
+            experiment_key="unit__java_compare",
+            modes=["raw_only"],
+            use_java_backend=True,
+        )
+
+        self.assertEqual(legacy["retrieval_eval_backend"], "legacy")
+        self.assertEqual(legacy["official_eval_backend"], "java")
+        self.assertFalse(legacy["use_java_backend"])
+        self.assertFalse(legacy["java_backend_enabled"])
+        self.assertFalse(legacy["retrieval_eval_java_backend_enabled"])
+        self.assertFalse(legacy["java_retrieval_eval_enabled"])
+        self.assertEqual(java["retrieval_eval_backend"], "java")
+        self.assertEqual(java["official_eval_backend"], "java")
+        self.assertTrue(java["use_java_backend"])
 
     def test_legacy_and_java_rows_are_joined_by_sample_and_mode(self) -> None:
         rows = build_sample_comparison_report(
