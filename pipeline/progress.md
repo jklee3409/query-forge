@@ -1,5 +1,14 @@
 # progress.md
 
+## [2026-06-24] Session Summary (RAG Java Source-of-Truth Migration Guide Phase 8C)
+- What was done: Added `eval/retrieval_eval_compare.py` for legacy vs Java-backed retrieval comparison reports before the Phase 9 official switch.
+- Comparison runner: Supports same-config legacy/java execution through temporary comparison config variants or injected fake runners/Java client, computes metric deltas for `recall@5`, `hit@5`, `mrr@10`, and `ndcg@10`, and emits chunk-id mismatch rows without full content.
+- Modes/error policy: Supports only `raw_only`, `selective_rewrite`, `anchor_aware_rewrite`, and `strategy_router`; `agentic_multi_query` and unsupported modes fail fast. Java backend errors remain run-level fail-fast.
+- Legacy path: Existing Python legacy eval remains intact and default behavior is unchanged; official eval was not switched to Java.
+- Scope: No Java production/controller/service, Java endpoint contract, Admin GUI, StrategyRouter, DB schema, agentic eval support, or Phase 9/10 work was changed.
+- Validation: Required Python py_compile, comparison unittest, combined eval unittest command, focused Java eval controller test, and `git diff --check` passed.
+- Remaining risks: The comparison runner is a dry-run/report basis; final Phase 9 switching still needs live same-dataset Java-backed audit review.
+
 ## [2026-06-24] Session Summary (RAG Java Source-of-Truth Migration Guide Phase 8B)
 - What was done: Fixed the opt-in Java-backed retrieval eval runtime path so Java-enabled sample/mode evaluation fail-fast validates supported modes, uses the Java client for non-agentic modes, feeds `retrievedChunkIds` into existing metrics, and records additive Java backend metadata in rows/reports.
 - Contract: Java-backed rows now expose `backend=java`, `java_endpoint=/api/rag/eval/retrieval`, `java_forced_mode`, `java_selected_mode`, and `java_warnings`; summary reports record `backend`, `java_endpoint`, supported modes, and `java_error_policy=fail_fast_run_level`.

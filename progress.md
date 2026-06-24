@@ -1,5 +1,13 @@
 # progress.md
 
+## [2026-06-24] Session Summary (RAG Java Source-of-Truth Migration Guide Phase 8C)
+- What was done: Added a Python-side legacy vs Java-backed retrieval comparison runner for Phase 8C dry-run/audit reports, plus focused tests and pipeline indexes.
+- Comparison result: `run_legacy_vs_java_retrieval_compare(...)` runs or accepts injected runners for the same dataset/config modes, compares summary metrics and sample-level retrieved chunk IDs, writes metric-delta and mismatch reports, and supports fake Java clients without starting a Java server.
+- Supported/blocked modes: Comparison is limited to `raw_only`, `selective_rewrite`, `anchor_aware_rewrite`, and `strategy_router`; `agentic_multi_query` fails fast.
+- Scope: Official eval path was not switched, Python legacy eval was not deleted, Java production/controller/service code and endpoint contract were not changed, Admin GUI and StrategyRouter were not touched, agentic eval/DB schema/Phase 9/10 work were not added.
+- Validation: `python -m py_compile pipeline/eval/java_retrieval_client.py pipeline/eval/retrieval_eval.py pipeline/eval/retrieval_eval_compare.py pipeline/tests/test_java_retrieval_client.py pipeline/tests/test_retrieval_eval_compare.py`, `python -m unittest pipeline.tests.test_retrieval_eval_compare -q`, combined Python eval unittest command, focused `RagRetrievalEvalControllerTest`, and `git diff --check` passed.
+- Remaining risks: Default comparison uses retrieval eval artifacts for sample mismatch rows, so live Phase 9 readiness still needs an actual Java backend run against the chosen dataset/snapshot; Java-backed agentic eval remains blocked.
+
 ## [2026-06-24] Session Summary (RAG Java Source-of-Truth Migration Guide Phase 8B)
 - What was done: Completed the Python eval runtime opt-in wiring for Java-backed retrieval evaluation without changing the official default path.
 - Runtime result: `use_java_backend=true` now fail-fast validates Java-supported modes before runtime client calls, blocks `agentic_multi_query` and forced-agentic configs, uses `POST /api/rag/eval/retrieval` for supported non-agentic modes, and feeds ordered `retrievedChunkIds` into existing Python retrieval metrics.

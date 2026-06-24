@@ -1,5 +1,9 @@
 # progress.md
 
+## [2026-06-24] Legacy vs Java Retrieval Compare Tests
+- Added `test_retrieval_eval_compare.py` for Phase 8C comparison mode validation, agentic fail-fast, sample/mode joins, metric delta calculation, exact/different mismatch detection, full-content exclusion, Java error fail-fast, and fake Java client injection.
+- Kept tests DB-free and Java-server-free; existing legacy eval runtime tests were run in the combined command.
+
 ## [2026-06-24] Java-backed Eval Runtime Opt-in Tests
 - Extended `test_java_retrieval_client.py` for Phase 8B runtime opt-in behavior: Java disabled does not build/call a client, Java enabled calls fake client for supported modes, ordered `retrievedChunkIds` drive metrics, additive Java metadata is emitted, agentic/forced-agentic are blocked before client calls, and Java client errors fail fast.
 - Kept tests DB-free and Java-server-free with fake sessions/clients.

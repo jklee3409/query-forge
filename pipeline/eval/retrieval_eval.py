@@ -1049,6 +1049,8 @@ def run_retrieval_eval(
     db_name: str = "query_forge",
     db_user: str = "query_forge",
     db_password: str = "query_forge",
+    java_client: JavaRetrievalEvalClient | None = None,
+    java_settings: JavaRetrievalEvalSettings | None = None,
 ) -> dict[str, Any]:
     config = load_experiment_config(experiment, experiment_root=experiment_root)
     options = type(
@@ -1111,7 +1113,7 @@ def run_retrieval_eval(
             active_modes = ["raw_only"]
         eval_concurrency = _resolve_eval_concurrency(config.raw)
         retrieval_backend = normalize_retrieval_backend(str(config.raw.get("retrieval_backend") or "local"))
-        java_settings = java_retrieval_settings_from_config(config.raw)
+        java_settings = java_settings or java_retrieval_settings_from_config(config.raw)
         if java_settings:
             _validate_java_backend_modes(active_modes=active_modes, settings=java_settings)
             LOGGER.info(
@@ -1119,7 +1121,8 @@ def run_retrieval_eval(
                 java_settings.base_url,
                 sorted(JAVA_RETRIEVAL_SUPPORTED_FORCED_MODES),
             )
-        java_client = build_java_retrieval_client_from_config(config.raw) if java_settings else None
+        if java_settings and java_client is None:
+            java_client = build_java_retrieval_client_from_config(config.raw)
 
         eval_query_language = str(config.raw.get("eval_query_language") or "ko").strip().lower()
         samples = load_eval_samples(connection, dataset_id=dataset_id, query_language=eval_query_language)
