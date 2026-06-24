@@ -3,6 +3,13 @@
 ## Overview
 High-level progress tracking for the `docs` directory.
 
+## [2026-06-24] Session Summary (RAG Java Source-of-Truth Migration Phase 7D)
+- What was done: Recorded the backend Phase 7D retrieval-only eval controller exposure.
+- Key decisions: The HTTP endpoint is `POST /api/rag/eval/retrieval`; controller success bodies reuse `RagRetrievalEvalResponse`; eval service rejections are returned as 400 `ProblemDetail` with a top-level `code` property.
+- Scope: The guide and docs structure were not changed; no `/ask` behavior, answer generation, online persistence, DB schema, Python eval, router enum/rule, or agentic no-write implementation was introduced.
+- Validation: Backend compile, focused eval service/controller tests, and the requested targeted RAG regression command passed.
+- Next steps: Phase 7E/Python-client work should start only after keeping the Java endpoint contract stable and agentic eval blocked.
+
 ## [2026-06-24] Session Summary (RAG Java Source-of-Truth Migration Phase 7C)
 - What was done: Recorded the controller-readiness policy for the backend retrieval-only eval service after the Phase 7C contract hardening.
 - Key decisions: Phase 7D should map `RagRetrievalEvalException` code/message to 400 `ProblemDetail`, use `/api/rag/eval/retrieval` as the candidate path, keep default `persistPolicy=NONE`, reject `answerGeneration=true`, and keep `agentic_multi_query` rejected until agentic no-write is designed.

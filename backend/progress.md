@@ -1,5 +1,13 @@
 # progress.md
 
+## [2026-06-24] Session Summary (RAG Java Source-of-Truth Migration Guide Phase 7D)
+- What was done: Added the retrieval-only eval HTTP controller `POST /api/rag/eval/retrieval` and exposed the existing eval service contract as the response body.
+- Controller/error mapping: `RagRetrievalEvalController` delegates only to `RagRetrievalEvalService`; `RagRetrievalEvalException` now maps to 400 `ProblemDetail` with title `Retrieval eval request rejected` and `code`.
+- Supported/blocked modes: Non-agentic `raw_only`, `selective_rewrite`, `anchor_aware_rewrite`, and current `strategy_router` remain service-supported; `agentic_multi_query`, `answerGeneration=true`, `ONLINE_QUERY`, and `TRACE_ONLY` remain rejected by the service and surface as 400.
+- Scope: Existing `/ask` response shape and behavior were not changed; no answer generation, `createOnlineQuery`, `insertAnswer`, `AgenticRetrievalService`, DB schema, Python eval, router rule/enum, or Phase 7E work was added.
+- Validation: `.\gradlew.bat compileJava` passed; `.\gradlew.bat test --tests io.queryforge.backend.rag.service.RagRetrievalEvalServiceTest` passed; `.\gradlew.bat test --tests io.queryforge.backend.rag.controller.RagRetrievalEvalControllerTest` passed; requested targeted RAG regression command passed.
+- Remaining risks: Eval still supports no-write `persistPolicy=NONE` only; agentic no-write eval, `TRACE_ONLY`, and Python Java-client migration remain later phases.
+
 ## [2026-06-24] Session Summary (RAG Java Source-of-Truth Migration Guide Phase 7C)
 - What was done: Fixed the retrieval-only eval service error contract with `RagRetrievalEvalException` codes/messages and strengthened response mapping edge-case tests.
 - Error/validation contract: `domainId_required`, `query_required`, `unsupported_persist_policy`, `unsupported_answer_generation`, `unsupported_forced_mode`, and `unsupported_agentic_eval` are now service-level codes; `persistPolicy` defaults to `NONE`, `answerGeneration` defaults to `false`, and `agentic_multi_query` remains blocked.

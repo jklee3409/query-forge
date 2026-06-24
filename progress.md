@@ -1,5 +1,13 @@
 # progress.md
 
+## [2026-06-24] Session Summary (RAG Java Source-of-Truth Migration Guide Phase 7D)
+- What was done: Added the backend retrieval-only eval controller endpoint `POST /api/rag/eval/retrieval` for the Phase 7B/7C service contract.
+- Controller/error mapping: `RagRetrievalEvalController` calls only `RagRetrievalEvalService`; `RagRetrievalEvalException` is mapped to 400 `ProblemDetail` with title `Retrieval eval request rejected` and the service error `code`.
+- Contract result: Success responses return the existing `RagRetrievalEvalResponse` with ordered `retrievedChunkIds`, `persisted=false`, `persistPolicy=NONE`, selected/forced mode, warnings, and no answer text.
+- Scope: `/ask` response shape and behavior were unchanged; no answer generation, `createOnlineQuery`, `insertAnswer`, `AgenticRetrievalService`, DB schema, Python eval, router enum/rule, Cross-Domain Retrieval, DomainRouter, or Phase 7E work was added.
+- Validation: `.\gradlew.bat compileJava` passed; focused eval service and controller tests passed; requested targeted RAG regression command passed.
+- Remaining risks: `agentic_multi_query`, `ONLINE_QUERY`, `TRACE_ONLY`, and Java-backed Python eval client remain future-phase work.
+
 ## [2026-06-24] Session Summary (RAG Java Source-of-Truth Migration Guide Phase 7C)
 - What was done: Stabilized the backend retrieval-only eval service contract before adding any controller.
 - Error/validation contract: Added `RagRetrievalEvalException` with service-level codes/messages for `domainId_required`, `query_required`, `unsupported_persist_policy`, `unsupported_answer_generation`, `unsupported_forced_mode`, and `unsupported_agentic_eval`; eval still allows only `persistPolicy=NONE` and `answerGeneration=false`.

@@ -1,6 +1,7 @@
 package io.queryforge.backend.rag.controller;
 
 import io.queryforge.backend.rag.service.GeminiServiceUnavailableException;
+import io.queryforge.backend.rag.service.RagRetrievalEvalException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
 import org.springframework.web.bind.annotation.ExceptionHandler;
@@ -29,6 +30,14 @@ public class RagApiExceptionHandler {
         detail.setProperty("model", exception.modelName());
         detail.setProperty("statusCode", exception.statusCode());
         detail.setProperty("attempts", exception.attempts());
+        return detail;
+    }
+
+    @ExceptionHandler(RagRetrievalEvalException.class)
+    public ProblemDetail handleRagRetrievalEval(RagRetrievalEvalException exception) {
+        ProblemDetail detail = ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, exception.getMessage());
+        detail.setTitle("Retrieval eval request rejected");
+        detail.setProperty("code", exception.code());
         return detail;
     }
 

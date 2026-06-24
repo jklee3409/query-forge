@@ -55,6 +55,12 @@ public class RagRetrievalEvalService {
     private final RagRetrievalExecutionService ragRetrievalExecutionService;
     private final ObjectMapper objectMapper;
 
+    public RagRetrievalEvalDtos.RagRetrievalEvalResponse evaluate(
+            RagRetrievalEvalDtos.RagRetrievalEvalRequest request
+    ) {
+        return execute(request);
+    }
+
     public RagRetrievalEvalDtos.RagRetrievalEvalResponse execute(
             RagRetrievalEvalDtos.RagRetrievalEvalRequest request
     ) {
