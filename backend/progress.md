@@ -1,5 +1,14 @@
 # progress.md
 
+## [2026-06-25] Session Summary (Phase 11A Agentic No-Write Retrieval Eval Design)
+- What was done: Completed the backend-facing Phase 11A design audit and documented the no-write agentic eval plan without modifying production Java code.
+- Current blocker recorded: `AgenticRetrievalService` request/result records are inner records, the service hardcodes `RagPersistPolicy.ONLINE_QUERY` for adapter calls, and eval still blocks forced/router-selected agentic modes.
+- Design decision: Phase 11B should use Option A, adding `persistPolicy` to `AgenticExecutionRequest`, allowing `onlineQueryId=null` only for `NONE`, threading no-write policy through adapter calls, and using transient candidate identities.
+- Eval endpoint contract: `/api/rag/eval/retrieval` should later allow forced and router-selected agentic only as retrieval-only `persistPolicy=NONE`, while keeping `answerGeneration=true`, `ONLINE_QUERY`, and `TRACE_ONLY` blocked.
+- Not implemented: No backend service/controller/DTO behavior change, no `/api/chat/ask` behavior change, no StrategyRouter rule change, no DB schema/migration.
+- Validation: `.\gradlew.bat test --tests io.queryforge.backend.rag.service.AgenticRetrievalServiceTest` passed; `.\gradlew.bat test --tests io.queryforge.backend.rag.service.RagRetrievalEvalServiceTest --tests io.queryforge.backend.rag.controller.RagRetrievalEvalControllerTest` passed; `git diff --check` passed.
+- Next recommended phase: Phase 11B backend no-write agentic eval implementation and tests.
+
 ## [2026-06-25] Session Summary (RAG Java Source-of-Truth Migration Phase 11-0 Audit)
 - What was done: Completed the backend Phase 11-0 structure/state audit without production Java changes.
 - Audit result: Confirmed `/api/chat/ask` supports explicit and router-selected `AGENTIC_MULTI_QUERY` through `AgenticRetrievalService`, while `POST /api/rag/eval/retrieval` supports only `raw_only`, `selective_rewrite`, `anchor_aware_rewrite`, and `strategy_router` when the router stays non-agentic.

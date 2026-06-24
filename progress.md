@@ -1,5 +1,13 @@
 # progress.md
 
+## [2026-06-25] Session Summary (Phase 11A Agentic No-Write Retrieval Eval Design)
+- What was done: Added `docs/rag-agentic-no-write-eval-design.md` and registered it in `docs/index.md`; no production Java, frontend, Python eval, DB schema, migration, `/api/chat/ask`, StrategyRouter rule, or blocker-unlock change was made.
+- Design decision: Selected the minimal-change Option A for Phase 11B, adding no-write mode to `AgenticRetrievalService` behind the existing eval boundary, with explicit `persistPolicy=NONE`, nullable `onlineQueryId`, and transient trace identity.
+- Eval contract: Forced `agentic_multi_query` and router-selected `AGENTIC_MULTI_QUERY` should later execute only through the no-write eval path, keep `answerGeneration=false`, reject `ONLINE_QUERY`/`TRACE_ONLY`, and return final RRF ordered `retrievedChunkIds`.
+- Python plan: Keep legacy agentic eval as comparison/fallback; Phase 11C should relax Java client fail-fast only after backend support, keep `retrievedChunkIds` mapping, and add agentic comparison metadata.
+- Validation: `AgenticRetrievalServiceTest`, `RagRetrievalEvalServiceTest` + `RagRetrievalEvalControllerTest`, Python Java client/comparison unittests, and `git diff --check` passed.
+- Next recommended phase: Phase 11B backend no-write agentic eval support.
+
 ## [2026-06-25] Session Summary (AGENTS Java Source-of-Truth Boundary Sync)
 - What was done: Updated `.codex/AGENTS.md` after the Java source-of-truth migration without production code changes.
 - Scope reflected: Java RAG source-of-truth boundary, Python eval / Java-backed eval boundary, StrategyRouter agentic routing, and Admin GUI runtime config are now represented in the agent rules.

@@ -3,6 +3,14 @@
 ## Overview
 High-level progress tracking for the `docs` directory.
 
+## [2026-06-25] Session Summary (Phase 11A Agentic No-Write Retrieval Eval Design)
+- What was done: Added `rag-agentic-no-write-eval-design.md` and linked it from `docs/index.md`.
+- Design result: The document records current Java/Python blockers, compares Option A vs Option B, selects the minimal-change `AgenticRetrievalService` no-write mode with strict eval boundary, and defines transient subquery/candidate/retrieval/RRF identities.
+- Contract result: Future agentic eval must remain retrieval-only with `persistPolicy=NONE`, no `createOnlineQuery`, no answer generation, no `insertAnswer`, no DB trace writes, and ordered final `retrievedChunkIds`.
+- Python/comparison result: Java client fail-fast should be lifted only after backend support; Python legacy agentic eval remains the comparison/fallback baseline.
+- Validation: Requested backend tests and Python Java client/comparison tests passed; `git diff --check` passed.
+- Next recommended phase: Phase 11B backend no-write agentic eval support.
+
 ## [2026-06-25] Session Summary (RAG Java Source-of-Truth Migration Phase 11-0 Audit)
 - What was done: Recorded the Phase 11-0 current structure/state audit for later AGENTS.md review input.
 - Audit result: Current documentation and code agree that Java live chat is the online serving path, Java retrieval eval is non-agentic/no-write, Python legacy remains fallback/comparison, and Admin GUI exposes router/agentic runtime flags.

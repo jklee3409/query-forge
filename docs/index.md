@@ -28,6 +28,7 @@ Key architecture docs:
 
 Key migration docs:
 - `rag-java-source-of-truth-migration-guide.md`
+- `rag-agentic-no-write-eval-design.md`
 
 ## Responsibilities
 - Keep implementation-aligned documentation for backend/frontend/pipeline behavior.

@@ -1,5 +1,14 @@
 # progress.md
 
+## [2026-06-25] Session Summary (Phase 11A Agentic No-Write Retrieval Eval Design)
+- What was done: Recorded the pipeline/Python-facing design for Java-backed agentic retrieval eval; no Python eval code was changed.
+- Design result: Python Java-backed agentic enablement remains Phase 11C and depends on Phase 11B backend no-write support.
+- Client plan: `JavaRetrievalClient` should keep sending `persistPolicy=NONE` and `answerGeneration=false`, preserve `retrievedChunkIds` mapping, and relax `agentic_multi_query` fail-fast only behind explicit support after backend implementation.
+- Comparison plan: Keep Python legacy agentic eval as fallback/comparison; extend comparison runner to include `agentic_multi_query` only after Java backend support is verified.
+- Not implemented: No Python legacy deletion, no Java client fail-fast removal, no comparison mode expansion.
+- Validation: `python -m unittest pipeline.tests.test_java_retrieval_client pipeline.tests.test_retrieval_eval_compare -q` passed; `git diff --check` passed.
+- Next recommended phase: Phase 11C after Phase 11B backend no-write support.
+
 ## [2026-06-25] Session Summary (RAG Java Source-of-Truth Migration Phase 11-0 Audit)
 - What was done: Completed the pipeline/Python eval Phase 11-0 audit without pipeline code changes.
 - Audit result: Confirmed `retrieval_eval_backend=java`, `official_eval_backend=java`, and `eval_retrieval_backend=java` select the Java-backed retrieval client; `retrieval_eval_backend=legacy` and implicit default keep Python legacy eval available.
