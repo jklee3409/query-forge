@@ -6,9 +6,11 @@ import requests
 
 from pipeline.eval import retrieval_eval
 from pipeline.eval.java_retrieval_client import (
+    JAVA_RETRIEVAL_ENDPOINT_PATH,
     JavaRetrievalClientError,
     JavaRetrievalEvalClient,
     JavaRetrievalEvalSettings,
+    build_java_retrieval_client_from_config,
     build_retrieval_eval_payload,
     parse_retrieval_eval_response,
 )
@@ -47,7 +49,44 @@ class _FailingJavaClient:
         raise AssertionError("Java client should not be called")
 
 
+class _RecordingJavaClient:
+    def __init__(self) -> None:
+        self.calls: list[dict] = []
+
+    def retrieve(self, **kwargs):
+        self.calls.append(kwargs)
+        return parse_retrieval_eval_response(
+            {
+                "domainId": kwargs["domain_id"],
+                "query": kwargs["query"],
+                "finalQuery": kwargs["query"],
+                "forcedMode": kwargs["forced_mode"],
+                "selectedMode": kwargs["forced_mode"],
+                "retrievedChunkIds": ["chunk-2", "chunk-1"],
+                "retrievedDocs": [
+                    {"chunkId": "chunk-2", "documentId": "doc-2", "score": 0.8},
+                    {"chunkId": "chunk-1", "documentId": "doc-1", "score": 0.7},
+                ],
+                "llmCallCount": {
+                    "rewriteCalls": 0,
+                    "plannerCalls": 0,
+                    "answerCalls": 0,
+                    "totalCalls": 0,
+                },
+                "warnings": ["diagnostic warning"],
+            }
+        )
+
+
 class JavaRetrievalClientContractTests(unittest.TestCase):
+    def test_java_backend_disabled_config_does_not_build_client(self) -> None:
+        self.assertIsNone(
+            build_java_retrieval_client_from_config(
+                {"use_java_backend": False},
+                session=_RecordingSession(),
+            )
+        )
+
     def test_request_payload_forces_no_write_and_no_answer_generation(self) -> None:
         payload = build_retrieval_eval_payload(
             domain_id="11111111-1111-1111-1111-111111111111",
@@ -197,40 +236,14 @@ class RetrievalEvalJavaAdapterTests(unittest.TestCase):
         self.assertEqual(metrics["hit@5"], 1.0)
         self.assertEqual(retrieval, raw_retrieval)
         self.assertFalse(rewrite_info["rewrite_applied"])
+        self.assertNotEqual(rewrite_info.get("backend"), "java")
 
     def test_java_backend_enabled_maps_response_to_metric_input(self) -> None:
         class Config:
             raw = {}
             retrieval_top_k = 2
 
-        class FakeJavaClient:
-            def __init__(self) -> None:
-                self.calls: list[dict] = []
-
-            def retrieve(self, **kwargs):
-                self.calls.append(kwargs)
-                return parse_retrieval_eval_response(
-                    {
-                        "domainId": kwargs["domain_id"],
-                        "query": kwargs["query"],
-                        "finalQuery": kwargs["query"],
-                        "forcedMode": kwargs["forced_mode"],
-                        "selectedMode": "raw_only",
-                        "retrievedChunkIds": ["chunk-2", "chunk-1"],
-                        "retrievedDocs": [
-                            {"chunkId": "chunk-2", "documentId": "doc-2", "score": 0.8},
-                            {"chunkId": "chunk-1", "documentId": "doc-1", "score": 0.7},
-                        ],
-                        "llmCallCount": {
-                            "rewriteCalls": 0,
-                            "plannerCalls": 0,
-                            "answerCalls": 0,
-                            "totalCalls": 0,
-                        },
-                    }
-                )
-
-        java_client = FakeJavaClient()
+        java_client = _RecordingJavaClient()
         java_settings = JavaRetrievalEvalSettings(
             enabled=True,
             base_url="http://localhost:8080",
@@ -259,8 +272,128 @@ class RetrievalEvalJavaAdapterTests(unittest.TestCase):
 
         self.assertEqual(java_client.calls[0]["forced_mode"], "raw_only")
         self.assertEqual([item.chunk_id for item in retrieval], ["chunk-2", "chunk-1"])
+        self.assertEqual(metrics["mrr@10"], 0.5)
         self.assertEqual(metrics["hit@5"], 1.0)
         self.assertTrue(rewrite_info["java_backend_enabled"])
+        self.assertEqual(rewrite_info["backend"], "java")
+        self.assertEqual(rewrite_info["java_endpoint"], JAVA_RETRIEVAL_ENDPOINT_PATH)
+        self.assertEqual(rewrite_info["java_selected_mode"], "raw_only")
+        self.assertEqual(rewrite_info["java_warnings"], ["diagnostic warning"])
+
+    def test_java_backend_agentic_mode_is_blocked_before_runtime_client_call(self) -> None:
+        class Config:
+            raw = {}
+            retrieval_top_k = 2
+
+        java_client = _RecordingJavaClient()
+        java_settings = JavaRetrievalEvalSettings(
+            enabled=True,
+            base_url="http://localhost:8080",
+            timeout_seconds=1.0,
+            domain_id="11111111-1111-1111-1111-111111111111",
+            include_trace=False,
+            include_scores=True,
+            include_metadata=False,
+        )
+
+        with self.assertRaises(JavaRetrievalClientError) as context:
+            retrieval_eval._evaluate_mode(
+                mode="agentic_multi_query",
+                sample=_sample(),
+                chunks=[],
+                memories=[],
+                config=Config(),
+                memory_strategy_filters=[],
+                source_gating_run_id=None,
+                comparison_source_runs={},
+                retrieval_adapter=None,
+                multi_source_anchor_index=None,
+                raw_retrieval=[],
+                java_client=java_client,
+                java_settings=java_settings,
+            )
+
+        self.assertEqual(context.exception.code, "unsupported_agentic_eval")
+        self.assertEqual(java_client.calls, [])
+
+    def test_java_backend_forced_agentic_mode_is_blocked_before_runtime_client_call(self) -> None:
+        class Config:
+            raw = {}
+            retrieval_top_k = 2
+
+        java_client = _RecordingJavaClient()
+        java_settings = JavaRetrievalEvalSettings(
+            enabled=True,
+            base_url="http://localhost:8080",
+            timeout_seconds=1.0,
+            domain_id="11111111-1111-1111-1111-111111111111",
+            include_trace=False,
+            include_scores=True,
+            include_metadata=False,
+            forced_mode="agentic_multi_query",
+        )
+
+        with self.assertRaises(JavaRetrievalClientError) as context:
+            retrieval_eval._evaluate_mode(
+                mode="raw_only",
+                sample=_sample(),
+                chunks=[],
+                memories=[],
+                config=Config(),
+                memory_strategy_filters=[],
+                source_gating_run_id=None,
+                comparison_source_runs={},
+                retrieval_adapter=None,
+                multi_source_anchor_index=None,
+                raw_retrieval=[],
+                java_client=java_client,
+                java_settings=java_settings,
+            )
+
+        self.assertEqual(context.exception.code, "unsupported_agentic_eval")
+        self.assertEqual(java_client.calls, [])
+
+    def test_java_backend_client_error_is_fail_fast_runtime_error(self) -> None:
+        class Config:
+            raw = {}
+            retrieval_top_k = 2
+
+        class UnavailableJavaClient:
+            def retrieve(self, **_kwargs):
+                raise JavaRetrievalClientError(
+                    code="java_backend_unavailable",
+                    detail="connection refused",
+                )
+
+        java_settings = JavaRetrievalEvalSettings(
+            enabled=True,
+            base_url="http://localhost:8080",
+            timeout_seconds=1.0,
+            domain_id="11111111-1111-1111-1111-111111111111",
+            include_trace=False,
+            include_scores=True,
+            include_metadata=False,
+        )
+
+        with self.assertRaises(JavaRetrievalClientError) as context:
+            retrieval_eval._evaluate_mode(
+                mode="raw_only",
+                sample=_sample(),
+                chunks=[],
+                memories=[],
+                config=Config(),
+                memory_strategy_filters=[],
+                source_gating_run_id=None,
+                comparison_source_runs={},
+                retrieval_adapter=None,
+                multi_source_anchor_index=None,
+                raw_retrieval=[],
+                java_client=UnavailableJavaClient(),
+                java_settings=java_settings,
+            )
+
+        self.assertEqual(context.exception.code, "java_backend_unavailable")
+        self.assertIn("connection refused", context.exception.detail)
 
 
 def _sample() -> EvalSample:

@@ -1,5 +1,13 @@
 # progress.md
 
+## [2026-06-24] Session Summary (RAG Java Source-of-Truth Migration Guide Phase 8B)
+- What was done: Fixed the opt-in Java-backed retrieval eval runtime path so Java-enabled sample/mode evaluation fail-fast validates supported modes, uses the Java client for non-agentic modes, feeds `retrievedChunkIds` into existing metrics, and records additive Java backend metadata in rows/reports.
+- Contract: Java-backed rows now expose `backend=java`, `java_endpoint=/api/rag/eval/retrieval`, `java_forced_mode`, `java_selected_mode`, and `java_warnings`; summary reports record `backend`, `java_endpoint`, supported modes, and `java_error_policy=fail_fast_run_level`.
+- Legacy path: `use_java_backend=false` still keeps the Python legacy eval branch; official eval was not switched to Java and Python legacy eval was not removed.
+- Scope: No Java production/controller/service code, Admin GUI, StrategyRouter, agentic eval support, DB schema, migration, or Phase 8C/9/10 work was changed.
+- Validation: `python -m py_compile pipeline/eval/java_retrieval_client.py pipeline/eval/retrieval_eval.py pipeline/tests/test_java_retrieval_client.py`, Java client unittest, combined eval runtime unittest, focused Java controller test, and `git diff --check` passed.
+- Remaining risks: Java-backed opt-in still needs live same-dataset comparison before Phase 9 official eval switching; `agentic_multi_query` remains blocked for Java-backed eval.
+
 ## [2026-06-24] Session Summary (RAG Java Source-of-Truth Migration Guide Phase 8A)
 - What was done: Added an opt-in Python Java retrieval eval client adapter for `POST /api/rag/eval/retrieval` and wired retrieval eval to use it only when Java backend config is enabled.
 - Contract: Client requests always send `persistPolicy=NONE` and `answerGeneration=false`, use `retrievedChunkIds` as the primary metric input, preserve response order, and reject `agentic_multi_query` before any HTTP request.

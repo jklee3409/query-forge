@@ -41,6 +41,8 @@ try:
         runtime_retriever_metadata,
     )
     from eval.java_retrieval_client import (
+        JAVA_RETRIEVAL_AGENTIC_MODE,
+        JAVA_RETRIEVAL_ENDPOINT_PATH,
         JAVA_RETRIEVAL_SUPPORTED_FORCED_MODES,
         JavaRetrievalClientError,
         JavaRetrievalEvalClient,
@@ -76,6 +78,8 @@ except ModuleNotFoundError:  # pragma: no cover
         runtime_retriever_metadata,
     )
     from pipeline.eval.java_retrieval_client import (
+        JAVA_RETRIEVAL_AGENTIC_MODE,
+        JAVA_RETRIEVAL_ENDPOINT_PATH,
         JAVA_RETRIEVAL_SUPPORTED_FORCED_MODES,
         JavaRetrievalClientError,
         JavaRetrievalEvalClient,
@@ -437,6 +441,51 @@ def _java_forced_mode_for_eval_mode(
     return settings.forced_mode or normalized_mode
 
 
+def _unsupported_java_modes(modes: list[str] | tuple[str, ...]) -> list[str]:
+    unsupported: list[str] = []
+    for mode in modes:
+        normalized = normalize_forced_mode(mode)
+        if normalized not in JAVA_RETRIEVAL_SUPPORTED_FORCED_MODES:
+            unsupported.append(normalized)
+    return unsupported
+
+
+def _raise_unsupported_java_modes(modes: list[str] | tuple[str, ...]) -> None:
+    unsupported = _unsupported_java_modes(modes)
+    if not unsupported:
+        return
+    unique_unsupported = sorted(set(unsupported))
+    supported = ", ".join(sorted(JAVA_RETRIEVAL_SUPPORTED_FORCED_MODES))
+    if JAVA_RETRIEVAL_AGENTIC_MODE in unique_unsupported:
+        raise JavaRetrievalClientError(
+            code="unsupported_agentic_eval",
+            detail=(
+                "Java-backed retrieval eval supports only "
+                f"{supported}; unsupported modes: {', '.join(unique_unsupported)}. "
+                "agentic_multi_query remains blocked in Phase 8B."
+            ),
+        )
+    raise JavaRetrievalClientError(
+        code="unsupported_forced_mode",
+        detail=(
+            "Java-backed retrieval eval supports only "
+            f"{supported}; unsupported modes: {', '.join(unique_unsupported)}."
+        ),
+    )
+
+
+def _validate_java_backend_modes(
+    *,
+    active_modes: list[str],
+    settings: JavaRetrievalEvalSettings | None,
+) -> None:
+    if settings is None or not settings.enabled:
+        return
+    _raise_unsupported_java_modes(active_modes)
+    if settings.forced_mode:
+        _raise_unsupported_java_modes([settings.forced_mode])
+
+
 def _java_llm_call_counts(response: dict[str, Any]) -> tuple[int, int, int]:
     raw_counts = response.get("llmCallCount")
     if not isinstance(raw_counts, dict):
@@ -489,11 +538,14 @@ def _java_rewrite_info(
             {
                 "java_forced_mode": forced_mode,
                 "java_selected_mode": selected_mode,
+                "java_endpoint": JAVA_RETRIEVAL_ENDPOINT_PATH,
             }
             if mode == "strategy_router"
             else None
         ),
+        "backend": "java",
         "java_backend_enabled": True,
+        "java_endpoint": JAVA_RETRIEVAL_ENDPOINT_PATH,
         "java_forced_mode": forced_mode,
         "java_selected_mode": selected_mode,
         "java_warnings": result.warnings,
@@ -587,6 +639,13 @@ def _evaluate_mode(
     java_client: JavaRetrievalEvalClient | None = None,
     java_settings: JavaRetrievalEvalSettings | None = None,
 ) -> tuple[dict[str, float], dict[str, Any], list[Any]]:
+    if java_settings is not None and java_settings.enabled:
+        _validate_java_backend_modes(active_modes=[mode], settings=java_settings)
+        if java_client is None:
+            raise JavaRetrievalClientError(
+                code="java_backend_client_required",
+                detail="Java retrieval eval client is required when Java backend is enabled",
+            )
     java_forced_mode = _java_forced_mode_for_eval_mode(mode=mode, settings=java_settings)
     if java_client is not None and java_settings is not None and java_forced_mode is not None:
         if not java_settings.domain_id:
@@ -1053,13 +1112,14 @@ def run_retrieval_eval(
         eval_concurrency = _resolve_eval_concurrency(config.raw)
         retrieval_backend = normalize_retrieval_backend(str(config.raw.get("retrieval_backend") or "local"))
         java_settings = java_retrieval_settings_from_config(config.raw)
-        java_client = build_java_retrieval_client_from_config(config.raw) if java_settings else None
         if java_settings:
+            _validate_java_backend_modes(active_modes=active_modes, settings=java_settings)
             LOGGER.info(
                 "retrieval_eval_java_backend enabled=true base_url=%s supported_modes=%s",
                 java_settings.base_url,
                 sorted(JAVA_RETRIEVAL_SUPPORTED_FORCED_MODES),
             )
+        java_client = build_java_retrieval_client_from_config(config.raw) if java_settings else None
 
         eval_query_language = str(config.raw.get("eval_query_language") or "ko").strip().lower()
         samples = load_eval_samples(connection, dataset_id=dataset_id, query_language=eval_query_language)
@@ -1248,6 +1308,10 @@ def run_retrieval_eval(
             metrics = row["metrics"]
             rewrite_info = row["rewrite_info"]
             retrieval = row["retrieval"]
+            backend = str(
+                rewrite_info.get("backend")
+                or ("java" if rewrite_info.get("java_backend_enabled") else "python_legacy")
+            )
             raw_metrics = raw_metrics_by_sample.get(sample.sample_id, {})
             raw_rank = _first_expected_rank(
                 sample=sample,
@@ -1279,6 +1343,11 @@ def run_retrieval_eval(
                     "split": sample.split,
                     "category": sample.query_category,
                     "mode": mode,
+                    "backend": backend,
+                    "java_endpoint": rewrite_info.get("java_endpoint"),
+                    "java_forced_mode": rewrite_info.get("java_forced_mode"),
+                    "java_selected_mode": rewrite_info.get("java_selected_mode"),
+                    "java_warnings": rewrite_info.get("java_warnings"),
                     "selected_strategy": rewrite_info.get("selected_strategy"),
                     "router_reason": rewrite_info.get("router_reason"),
                     "llm_call_count": int(rewrite_info.get("llm_call_count") or 0),
@@ -1303,6 +1372,11 @@ def run_retrieval_eval(
                 {
                     "sample_id": sample.sample_id,
                     "mode": mode,
+                    "backend": backend,
+                    "java_endpoint": rewrite_info.get("java_endpoint"),
+                    "java_forced_mode": rewrite_info.get("java_forced_mode"),
+                    "java_selected_mode": rewrite_info.get("java_selected_mode"),
+                    "java_warnings": rewrite_info.get("java_warnings"),
                     "raw_query": sample.query_text,
                     "selected_strategy": rewrite_info.get("selected_strategy"),
                     "router_reason": rewrite_info.get("router_reason"),
@@ -1418,7 +1492,11 @@ def run_retrieval_eval(
                                     "experiment_run_id": run_context.experiment_run_id,
                                     "retrieved_document_id": item.document_id,
                                     "retrieved_chunk_id": item.chunk_id,
+                                    "backend": "java" if java_backend_row else "python_legacy",
                                     "java_backend_enabled": java_backend_row,
+                                    "java_endpoint": (
+                                        JAVA_RETRIEVAL_ENDPOINT_PATH if java_backend_row else None
+                                    ),
                                     "java_forced_mode": rewrite_info.get("java_forced_mode"),
                                     "java_selected_mode": rewrite_info.get("java_selected_mode"),
                                     "java_warnings": rewrite_info.get("java_warnings"),
@@ -1557,9 +1635,12 @@ def run_retrieval_eval(
             "memory_experiment_key": config.experiment_key if needs_memory else None,
             "memory_entry_count_loaded": None if retrieval_backend == "db_ann" else len(memories),
             **retriever_metadata,
+            "backend": "java" if java_settings else "python_legacy",
             "java_backend_enabled": bool(java_settings),
+            "java_endpoint": JAVA_RETRIEVAL_ENDPOINT_PATH if java_settings else None,
             "java_backend_base_url": java_settings.base_url if java_settings else None,
             "java_backend_supported_modes": sorted(JAVA_RETRIEVAL_SUPPORTED_FORCED_MODES),
+            "java_error_policy": "fail_fast_run_level" if java_settings else None,
             "active_modes": active_modes,
             "raw_retrieval_cache_path": str(raw_cache_path),
             "raw_retrieval_empty_sample_ids": empty_raw_sample_ids,
