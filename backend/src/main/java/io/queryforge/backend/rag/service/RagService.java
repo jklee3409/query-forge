@@ -542,18 +542,34 @@ public class RagService {
                 "answerGenerationMs", answerLatency,
                 "totalMs", java.time.Duration.between(started, Instant.now()).toMillis()
         );
-        repository.upsertOnlineQueryDecision(
-                onlineQueryId,
-                decision.finalQuery(),
-                decision.rewriteApplied(),
-                memoryTopNJson,
-                rawConfidence,
-                decision.selectedCandidateId(),
-                decision.selectedReason(),
-                decision.rejectedReason(),
-                objectMapper.valueToTree(latencyBreakdown)
+        RagRetrievalExecutionService.NonAgenticExecutionKind decisionPersistenceKind =
+                onlineQueryDecisionPersistenceKind(mode, routeDecision, rawOnlyRoute);
+        ragTracePersistenceService.persistOnlineQueryDecision(
+                new RagTracePersistenceService.OnlineQueryDecisionPersistenceRequest(
+                        RagPersistPolicy.ONLINE_QUERY,
+                        onlineQueryId,
+                        decisionPersistenceKind,
+                        rawQuery,
+                        decision.finalQuery(),
+                        decision.rewriteApplied(),
+                        memoryTopNJson,
+                        rawConfidence,
+                        decision.selectedCandidateId(),
+                        decision.finalRetrieved().size(),
+                        decision.selectedReason(),
+                        decision.rejectedReason(),
+                        objectMapper.valueToTree(latencyBreakdown)
+                )
         );
-        repository.mergeOnlineQueryMetadata(onlineQueryId, routerMetadataEnvelope(routeDecision));
+        ragTracePersistenceService.mergeOnlineQueryMetadata(
+                new RagTracePersistenceService.OnlineQueryMetadataMergePersistenceRequest(
+                        RagPersistPolicy.ONLINE_QUERY,
+                        onlineQueryId,
+                        decisionPersistenceKind,
+                        routerMetadataEnvelope(routeDecision),
+                        "router"
+                )
+        );
 
         double selectedConfidence = confidence(decision.finalRetrieved(), rawDense);
         boolean gatingApplied = !"raw_only".equals(mode) && !"memory_only_ungated".equals(mode);
@@ -1275,6 +1291,17 @@ public class RagService {
 
     private boolean useRawOnlyTracePersistence(String mode, boolean rawOnlyRoute) {
         return rawOnlyRoute && "raw_only".equals(mode);
+    }
+
+    private RagRetrievalExecutionService.NonAgenticExecutionKind onlineQueryDecisionPersistenceKind(
+            String mode,
+            QueryRouteDecision routeDecision,
+            boolean rawOnlyRoute
+    ) {
+        if (rawOnlyRoute || "raw_only".equals(mode)) {
+            return RagRetrievalExecutionService.NonAgenticExecutionKind.RAW_ONLY;
+        }
+        return rewriteCandidateTraceExecutionKind(routeDecision);
     }
 
     private boolean usesAnchorAwareRewriteExecutionService(QueryRouteDecision routeDecision) {

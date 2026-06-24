@@ -141,9 +141,10 @@ class RagServiceTest {
         verify(agenticRetrievalService, never()).execute(any());
         verify(ragTracePersistenceService, never()).persistRawOnlyTrace(any());
 
-        ArgumentCaptor<JsonNode> metadataCaptor = ArgumentCaptor.forClass(JsonNode.class);
-        verify(repository).mergeOnlineQueryMetadata(eq(onlineQueryId), metadataCaptor.capture());
-        JsonNode router = metadataCaptor.getValue().path("router");
+        JsonNode router = verifyOnlineQueryMetadataMerge(
+                onlineQueryId,
+                RagRetrievalExecutionService.NonAgenticExecutionKind.RAW_ONLY
+        ).path("router");
         assertThat(router.path("enabled").asBoolean()).isTrue();
         assertThat(router.path("strategy").asText()).isEqualTo("RAW_ONLY");
         assertThat(router.path("fallbackApplied").asBoolean()).isTrue();
@@ -223,6 +224,20 @@ class RagServiceTest {
         verify(repository).insertAnswer(eq(onlineQueryId), eq("raw answer"), any(), any(), eq("test-answer-model"), any());
         verify(repository).upsertOnlineQueryDecision(eq(onlineQueryId), eq(query), eq(false), any(), anyDouble(), isNull(), eq("mode_raw_only"), eq("query_router_strategy=raw_only"), any());
         verify(repository).mergeOnlineQueryMetadata(eq(onlineQueryId), any());
+        verifyOnlineQueryDecisionPersistence(
+                onlineQueryId,
+                RagRetrievalExecutionService.NonAgenticExecutionKind.RAW_ONLY,
+                query,
+                query,
+                false,
+                null,
+                "mode_raw_only",
+                "query_router_strategy=raw_only"
+        );
+        verifyOnlineQueryMetadataMerge(
+                onlineQueryId,
+                RagRetrievalExecutionService.NonAgenticExecutionKind.RAW_ONLY
+        );
         verify(repository).createOnlineRewriteLog(eq(onlineQueryId), isNull(), eq(query), eq(query), eq("raw_only"), any(), any(), eq(false), eq("full_gating"), eq(false), eq(false), eq(false), anyDouble(), anyDouble(), anyDouble(), eq("mode_raw_only"), eq("query_router_strategy=raw_only"), any());
         verify(repository, never()).insertMemoryRetrievalLog(any(), any(), anyInt(), any(), any());
         verify(repository, never()).insertRewriteCandidateLog(any(), any(), any(), anyInt(), anyString(), anyString(), any(), anyBoolean(), any(), any(), any(), any());
@@ -321,6 +336,20 @@ class RagServiceTest {
                 "candidate-1",
                 rewrittenQuery
         );
+        verifyOnlineQueryDecisionPersistence(
+                onlineQueryId,
+                RagRetrievalExecutionService.NonAgenticExecutionKind.SELECTIVE_REWRITE,
+                query,
+                rewrittenQuery,
+                true,
+                rewriteCandidateId,
+                "delta_above_threshold",
+                null
+        );
+        verifyOnlineQueryMetadataMerge(
+                onlineQueryId,
+                RagRetrievalExecutionService.NonAgenticExecutionKind.SELECTIVE_REWRITE
+        );
         verify(agenticRetrievalService, never()).execute(any());
     }
 
@@ -416,9 +445,20 @@ class RagServiceTest {
         );
         verify(agenticRetrievalService, never()).execute(any());
 
-        ArgumentCaptor<JsonNode> metadataCaptor = ArgumentCaptor.forClass(JsonNode.class);
-        verify(repository).mergeOnlineQueryMetadata(eq(onlineQueryId), metadataCaptor.capture());
-        JsonNode router = metadataCaptor.getValue().path("router");
+        verifyOnlineQueryDecisionPersistence(
+                onlineQueryId,
+                RagRetrievalExecutionService.NonAgenticExecutionKind.SELECTIVE_REWRITE,
+                query,
+                rewrittenQuery,
+                true,
+                rewriteCandidateId,
+                "delta_above_threshold",
+                null
+        );
+        JsonNode router = verifyOnlineQueryMetadataMerge(
+                onlineQueryId,
+                RagRetrievalExecutionService.NonAgenticExecutionKind.SELECTIVE_REWRITE
+        ).path("router");
         assertThat(router.path("enabled").asBoolean()).isTrue();
         assertThat(router.path("strategy").asText()).isEqualTo("SYNTHETIC_SELECTIVE_REWRITE");
         assertThat(router.path("anchorInjectionEnabled").asBoolean()).isFalse();
@@ -512,9 +552,20 @@ class RagServiceTest {
                 rewrittenQuery
         );
 
-        ArgumentCaptor<JsonNode> metadataCaptor = ArgumentCaptor.forClass(JsonNode.class);
-        verify(repository).mergeOnlineQueryMetadata(eq(onlineQueryId), metadataCaptor.capture());
-        JsonNode router = metadataCaptor.getValue().path("router");
+        verifyOnlineQueryDecisionPersistence(
+                onlineQueryId,
+                RagRetrievalExecutionService.NonAgenticExecutionKind.ANCHOR_AWARE_REWRITE,
+                query,
+                rewrittenQuery,
+                true,
+                rewriteCandidateId,
+                "delta_above_threshold",
+                null
+        );
+        JsonNode router = verifyOnlineQueryMetadataMerge(
+                onlineQueryId,
+                RagRetrievalExecutionService.NonAgenticExecutionKind.ANCHOR_AWARE_REWRITE
+        ).path("router");
         assertThat(router.path("strategy").asText()).isEqualTo("ANCHOR_AWARE_REWRITE");
         assertThat(router.path("reason").asText()).isEqualTo("anchor_injection_enabled_and_technical_anchor_detected");
         assertThat(router.path("anchorInjectionEnabled").asBoolean()).isTrue();
@@ -605,6 +656,8 @@ class RagServiceTest {
         verify(chatAnswerService).generateAnswer(eq(query), eq(query), eq("Spring"), eq(mergedDocs));
         verify(repository).insertAnswer(eq(onlineQueryId), eq("agentic answer"), any(), any(), eq("test-answer-model"), any());
         verify(repository).mergeOnlineQueryMetadata(eq(onlineQueryId), any());
+        verify(ragTracePersistenceService, never()).persistOnlineQueryDecision(any());
+        verify(ragTracePersistenceService, never()).mergeOnlineQueryMetadata(any());
     }
 
     private ChatRuntimeDtos.ChatRuntimeConfigResponse config(String mode, boolean routerEnabled, boolean anchorInjectionEnabled) {
@@ -820,6 +873,50 @@ class RagServiceTest {
         assertThat(request.scoreBreakdown().isObject()).isTrue();
         assertThat(request.metadata().path("mode").asText()).isEqualTo("selective_rewrite");
         assertThat(request.metadata().path("selected_reason").asText()).isEqualTo("delta_above_threshold");
+    }
+
+    private void verifyOnlineQueryDecisionPersistence(
+            UUID onlineQueryId,
+            RagRetrievalExecutionService.NonAgenticExecutionKind executionKind,
+            String rawQuery,
+            String finalQuery,
+            boolean rewriteApplied,
+            UUID selectedCandidateId,
+            String selectedReason,
+            String rejectedReason
+    ) {
+        ArgumentCaptor<RagTracePersistenceService.OnlineQueryDecisionPersistenceRequest> decisionCaptor =
+                ArgumentCaptor.forClass(RagTracePersistenceService.OnlineQueryDecisionPersistenceRequest.class);
+        verify(ragTracePersistenceService).persistOnlineQueryDecision(decisionCaptor.capture());
+        RagTracePersistenceService.OnlineQueryDecisionPersistenceRequest request = decisionCaptor.getValue();
+        assertThat(request.persistPolicy()).isEqualTo(RagPersistPolicy.ONLINE_QUERY);
+        assertThat(request.onlineQueryId()).isEqualTo(onlineQueryId);
+        assertThat(request.executionKind()).isEqualTo(executionKind);
+        assertThat(request.rawQuery()).isEqualTo(rawQuery);
+        assertThat(request.finalQueryUsed()).isEqualTo(finalQuery);
+        assertThat(request.rewriteApplied()).isEqualTo(rewriteApplied);
+        assertThat(request.selectedRewriteCandidateId()).isEqualTo(selectedCandidateId);
+        assertThat(request.selectedReason()).isEqualTo(selectedReason);
+        assertThat(request.rejectedReason()).isEqualTo(rejectedReason);
+        assertThat(request.memoryTopN().isMissingNode()).isFalse();
+        assertThat(request.latencyBreakdown().path("totalMs").isNumber()).isTrue();
+        assertThat(request.finalRetrievedDocsCount()).isPositive();
+    }
+
+    private JsonNode verifyOnlineQueryMetadataMerge(
+            UUID onlineQueryId,
+            RagRetrievalExecutionService.NonAgenticExecutionKind executionKind
+    ) {
+        ArgumentCaptor<RagTracePersistenceService.OnlineQueryMetadataMergePersistenceRequest> metadataCaptor =
+                ArgumentCaptor.forClass(RagTracePersistenceService.OnlineQueryMetadataMergePersistenceRequest.class);
+        verify(ragTracePersistenceService).mergeOnlineQueryMetadata(metadataCaptor.capture());
+        RagTracePersistenceService.OnlineQueryMetadataMergePersistenceRequest request = metadataCaptor.getValue();
+        assertThat(request.persistPolicy()).isEqualTo(RagPersistPolicy.ONLINE_QUERY);
+        assertThat(request.onlineQueryId()).isEqualTo(onlineQueryId);
+        assertThat(request.executionKind()).isEqualTo(executionKind);
+        assertThat(request.sourceMarker()).isEqualTo("router");
+        assertThat(request.metadata().path("router").isObject()).isTrue();
+        return request.metadata();
     }
 
     private void stubCommonAskDependencies(ChatRuntimeDtos.ChatRuntimeConfigResponse config, UUID onlineQueryId) {

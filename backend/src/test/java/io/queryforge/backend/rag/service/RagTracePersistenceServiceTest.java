@@ -76,21 +76,244 @@ class RagTracePersistenceServiceTest {
     }
 
     @Test
-    void traceOnlyPolicyIsExplicitlyUnsupportedInPhase5E() {
+    void traceOnlyPolicyIsExplicitlyUnsupportedInPhase5F() {
         assertThatThrownBy(() -> service.persist(request(RagPersistPolicy.TRACE_ONLY, null)))
                 .isInstanceOf(UnsupportedOperationException.class)
                 .hasMessageContaining("TRACE_ONLY")
-                .hasMessageContaining("Phase 5E");
+                .hasMessageContaining("Phase 5F");
 
         verifyNoInteractions(repository);
     }
 
     @Test
-    void onlineQueryGenericPolicyIsExplicitlyUnsupportedInPhase5E() {
+    void onlineQueryGenericPolicyIsExplicitlyUnsupportedInPhase5F() {
         assertThatThrownBy(() -> service.persist(request(RagPersistPolicy.ONLINE_QUERY, null)))
                 .isInstanceOf(UnsupportedOperationException.class)
                 .hasMessageContaining("ONLINE_QUERY")
                 .hasMessageContaining("phase-specific");
+
+        verifyNoInteractions(repository);
+    }
+
+    @Test
+    void onlineQueryRawOnlyDecisionPersistsDecisionOnly() {
+        UUID onlineQueryId = UUID.fromString("20202020-2020-2020-2020-202020202020");
+        ObjectNode memoryTopN = JsonNodeFactory.instance.objectNode().put("count", 0);
+        ObjectNode latency = JsonNodeFactory.instance.objectNode().put("totalMs", 25L);
+
+        RagTracePersistenceService.RagTracePersistenceResult result = service.persistOnlineQueryDecision(
+                onlineDecisionRequest(
+                        RagPersistPolicy.ONLINE_QUERY,
+                        onlineQueryId,
+                        RagRetrievalExecutionService.NonAgenticExecutionKind.RAW_ONLY,
+                        "FilterChainProxy order",
+                        "FilterChainProxy order",
+                        false,
+                        memoryTopN,
+                        0.42d,
+                        null,
+                        3,
+                        "mode_raw_only",
+                        "query_router_strategy=raw_only",
+                        latency
+                )
+        );
+
+        assertThat(result.persistPolicy()).isEqualTo(RagPersistPolicy.ONLINE_QUERY);
+        assertThat(result.onlineQueryId()).isEqualTo(onlineQueryId);
+        assertThat(result.persisted()).isTrue();
+        assertThat(result.status()).isEqualTo("persisted_raw_only_online_query_decision");
+        verify(repository).upsertOnlineQueryDecision(
+                eq(onlineQueryId),
+                eq("FilterChainProxy order"),
+                eq(false),
+                eq(memoryTopN),
+                eq(0.42d),
+                isNull(),
+                eq("mode_raw_only"),
+                eq("query_router_strategy=raw_only"),
+                eq(latency)
+        );
+        verifyNoForbiddenOnlineWritesExceptOnlineQueryDecision();
+    }
+
+    @Test
+    void onlineQuerySelectiveRewriteDecisionPersistsDecisionOnly() {
+        UUID onlineQueryId = UUID.fromString("21212121-2121-2121-2121-212121212121");
+        UUID rewriteCandidateId = UUID.fromString("22222222-3333-4444-5555-666666666666");
+        ObjectNode memoryTopN = JsonNodeFactory.instance.objectNode().put("count", 2);
+        ObjectNode latency = JsonNodeFactory.instance.objectNode().put("totalMs", 31L);
+
+        RagTracePersistenceService.RagTracePersistenceResult result = service.persistOnlineQueryDecision(
+                onlineDecisionRequest(
+                        RagPersistPolicy.ONLINE_QUERY,
+                        onlineQueryId,
+                        RagRetrievalExecutionService.NonAgenticExecutionKind.SELECTIVE_REWRITE,
+                        "spring filter order",
+                        "FilterChainProxy SecurityFilterChain order",
+                        true,
+                        memoryTopN,
+                        0.21d,
+                        rewriteCandidateId,
+                        4,
+                        "delta_above_threshold",
+                        null,
+                        latency
+                )
+        );
+
+        assertThat(result.persisted()).isTrue();
+        assertThat(result.status()).isEqualTo("persisted_selective_rewrite_online_query_decision");
+        verify(repository).upsertOnlineQueryDecision(
+                eq(onlineQueryId),
+                eq("FilterChainProxy SecurityFilterChain order"),
+                eq(true),
+                eq(memoryTopN),
+                eq(0.21d),
+                eq(rewriteCandidateId),
+                eq("delta_above_threshold"),
+                isNull(),
+                eq(latency)
+        );
+        verifyNoForbiddenOnlineWritesExceptOnlineQueryDecision();
+    }
+
+    @Test
+    void onlineQueryAnchorAwareRewriteDecisionPersistsDecisionOnly() {
+        UUID onlineQueryId = UUID.fromString("23232323-2323-2323-2323-232323232323");
+        UUID rewriteCandidateId = UUID.fromString("24242424-2424-2424-2424-242424242424");
+        ObjectNode memoryTopN = JsonNodeFactory.instance.objectNode().put("count", 1);
+        ObjectNode latency = JsonNodeFactory.instance.objectNode().put("totalMs", 38L);
+
+        RagTracePersistenceService.RagTracePersistenceResult result = service.persistOnlineQueryDecision(
+                onlineDecisionRequest(
+                        RagPersistPolicy.ONLINE_QUERY,
+                        onlineQueryId,
+                        RagRetrievalExecutionService.NonAgenticExecutionKind.ANCHOR_AWARE_REWRITE,
+                        "FilterChainProxy order",
+                        "FilterChainProxy order in Spring Security",
+                        true,
+                        memoryTopN,
+                        0.33d,
+                        rewriteCandidateId,
+                        5,
+                        "delta_above_threshold",
+                        null,
+                        latency
+                )
+        );
+
+        assertThat(result.persisted()).isTrue();
+        assertThat(result.status()).isEqualTo("persisted_anchor_aware_rewrite_online_query_decision");
+        verify(repository).upsertOnlineQueryDecision(
+                eq(onlineQueryId),
+                eq("FilterChainProxy order in Spring Security"),
+                eq(true),
+                eq(memoryTopN),
+                eq(0.33d),
+                eq(rewriteCandidateId),
+                eq("delta_above_threshold"),
+                isNull(),
+                eq(latency)
+        );
+        verifyNoForbiddenOnlineWritesExceptOnlineQueryDecision();
+    }
+
+    @Test
+    void onlineQueryMetadataMergePersistsMetadataOnly() {
+        UUID onlineQueryId = UUID.fromString("25252525-2525-2525-2525-252525252525");
+        ObjectNode metadata = JsonNodeFactory.instance.objectNode();
+        metadata.putObject("router").put("strategy", "SYNTHETIC_SELECTIVE_REWRITE");
+
+        RagTracePersistenceService.RagTracePersistenceResult result = service.mergeOnlineQueryMetadata(
+                metadataMergeRequest(
+                        RagPersistPolicy.ONLINE_QUERY,
+                        onlineQueryId,
+                        RagRetrievalExecutionService.NonAgenticExecutionKind.SELECTIVE_REWRITE,
+                        metadata,
+                        "router"
+                )
+        );
+
+        assertThat(result.persistPolicy()).isEqualTo(RagPersistPolicy.ONLINE_QUERY);
+        assertThat(result.onlineQueryId()).isEqualTo(onlineQueryId);
+        assertThat(result.persisted()).isTrue();
+        assertThat(result.status()).isEqualTo("persisted_selective_rewrite_online_query_metadata");
+        verify(repository).mergeOnlineQueryMetadata(eq(onlineQueryId), eq(metadata));
+        verifyNoForbiddenOnlineWritesExceptOnlineQueryMetadata();
+    }
+
+    @Test
+    void decisionAndMetadataNonePolicyPerformsNoRepositoryWrites() {
+        UUID onlineQueryId = UUID.fromString("26262626-2626-2626-2626-262626262626");
+
+        RagTracePersistenceService.RagTracePersistenceResult decisionResult = service.persistOnlineQueryDecision(
+                onlineDecisionRequest(
+                        RagPersistPolicy.NONE,
+                        onlineQueryId,
+                        RagRetrievalExecutionService.NonAgenticExecutionKind.RAW_ONLY,
+                        "FilterChainProxy order",
+                        "FilterChainProxy order",
+                        false,
+                        JsonNodeFactory.instance.objectNode(),
+                        0.42d,
+                        null,
+                        3,
+                        "mode_raw_only",
+                        "query_router_strategy=raw_only",
+                        JsonNodeFactory.instance.objectNode()
+                )
+        );
+        RagTracePersistenceService.RagTracePersistenceResult metadataResult = service.mergeOnlineQueryMetadata(
+                metadataMergeRequest(
+                        RagPersistPolicy.NONE,
+                        onlineQueryId,
+                        RagRetrievalExecutionService.NonAgenticExecutionKind.RAW_ONLY,
+                        JsonNodeFactory.instance.objectNode(),
+                        "router"
+                )
+        );
+
+        assertThat(decisionResult.persisted()).isFalse();
+        assertThat(decisionResult.status()).isEqualTo("skipped_none");
+        assertThat(metadataResult.persisted()).isFalse();
+        assertThat(metadataResult.status()).isEqualTo("skipped_none");
+        verifyNoInteractions(repository);
+    }
+
+    @Test
+    void decisionAndMetadataTraceOnlyPolicyRemainsUnsupported() {
+        UUID onlineQueryId = UUID.fromString("27272727-2727-2727-2727-272727272727");
+
+        assertThatThrownBy(() -> service.persistOnlineQueryDecision(onlineDecisionRequest(
+                RagPersistPolicy.TRACE_ONLY,
+                onlineQueryId,
+                RagRetrievalExecutionService.NonAgenticExecutionKind.RAW_ONLY,
+                "FilterChainProxy order",
+                "FilterChainProxy order",
+                false,
+                JsonNodeFactory.instance.objectNode(),
+                0.42d,
+                null,
+                3,
+                "mode_raw_only",
+                "query_router_strategy=raw_only",
+                JsonNodeFactory.instance.objectNode()
+        )))
+                .isInstanceOf(UnsupportedOperationException.class)
+                .hasMessageContaining("TRACE_ONLY")
+                .hasMessageContaining("Phase 5F");
+
+        assertThatThrownBy(() -> service.mergeOnlineQueryMetadata(metadataMergeRequest(
+                RagPersistPolicy.TRACE_ONLY,
+                onlineQueryId,
+                RagRetrievalExecutionService.NonAgenticExecutionKind.RAW_ONLY,
+                JsonNodeFactory.instance.objectNode(),
+                "router"
+        )))
+                .isInstanceOf(UnsupportedOperationException.class)
+                .hasMessageContaining("TRACE_ONLY")
+                .hasMessageContaining("Phase 5F");
 
         verifyNoInteractions(repository);
     }
@@ -195,7 +418,7 @@ class RagTracePersistenceServiceTest {
         )))
                 .isInstanceOf(UnsupportedOperationException.class)
                 .hasMessageContaining("TRACE_ONLY")
-                .hasMessageContaining("Phase 5E");
+                .hasMessageContaining("Phase 5F");
 
         verifyNoInteractions(repository);
     }
@@ -372,7 +595,7 @@ class RagTracePersistenceServiceTest {
         )))
                 .isInstanceOf(UnsupportedOperationException.class)
                 .hasMessageContaining("TRACE_ONLY")
-                .hasMessageContaining("Phase 5E");
+                .hasMessageContaining("Phase 5F");
 
         verifyNoInteractions(repository);
     }
@@ -531,7 +754,7 @@ class RagTracePersistenceServiceTest {
         )))
                 .isInstanceOf(UnsupportedOperationException.class)
                 .hasMessageContaining("TRACE_ONLY")
-                .hasMessageContaining("Phase 5E");
+                .hasMessageContaining("Phase 5F");
 
         assertThatThrownBy(() -> service.markRewriteCandidateAdopted(
                 new RagTracePersistenceService.RewriteCandidateAdoptionPersistenceRequest(
@@ -545,7 +768,7 @@ class RagTracePersistenceServiceTest {
         ))
                 .isInstanceOf(UnsupportedOperationException.class)
                 .hasMessageContaining("TRACE_ONLY")
-                .hasMessageContaining("Phase 5E");
+                .hasMessageContaining("Phase 5F");
 
         verifyNoInteractions(repository);
     }
@@ -803,7 +1026,7 @@ class RagTracePersistenceServiceTest {
         )))
                 .isInstanceOf(UnsupportedOperationException.class)
                 .hasMessageContaining("TRACE_ONLY")
-                .hasMessageContaining("Phase 5E");
+                .hasMessageContaining("Phase 5F");
 
         assertThatThrownBy(() -> service.insertMemoryRetrievalTrace(memoryLogRequest(
                 RagPersistPolicy.TRACE_ONLY,
@@ -815,7 +1038,7 @@ class RagTracePersistenceServiceTest {
         )))
                 .isInstanceOf(UnsupportedOperationException.class)
                 .hasMessageContaining("TRACE_ONLY")
-                .hasMessageContaining("Phase 5E");
+                .hasMessageContaining("Phase 5F");
 
         assertThatThrownBy(() -> service.insertRewriteCandidateTrace(candidateLogRequest(
                 RagPersistPolicy.TRACE_ONLY,
@@ -828,7 +1051,7 @@ class RagTracePersistenceServiceTest {
         )))
                 .isInstanceOf(UnsupportedOperationException.class)
                 .hasMessageContaining("TRACE_ONLY")
-                .hasMessageContaining("Phase 5E");
+                .hasMessageContaining("Phase 5F");
 
         verifyNoInteractions(repository);
     }
@@ -864,6 +1087,54 @@ class RagTracePersistenceServiceTest {
                         false,
                         null
                 )
+        );
+    }
+
+    private RagTracePersistenceService.OnlineQueryDecisionPersistenceRequest onlineDecisionRequest(
+            RagPersistPolicy policy,
+            UUID onlineQueryId,
+            RagRetrievalExecutionService.NonAgenticExecutionKind executionKind,
+            String rawQuery,
+            String finalQuery,
+            boolean rewriteApplied,
+            ObjectNode memoryTopN,
+            Double rawScore,
+            UUID selectedRewriteCandidateId,
+            int finalRetrievedDocsCount,
+            String selectedReason,
+            String rejectedReason,
+            ObjectNode latencyBreakdown
+    ) {
+        return new RagTracePersistenceService.OnlineQueryDecisionPersistenceRequest(
+                policy,
+                onlineQueryId,
+                executionKind,
+                rawQuery,
+                finalQuery,
+                rewriteApplied,
+                memoryTopN,
+                rawScore,
+                selectedRewriteCandidateId,
+                finalRetrievedDocsCount,
+                selectedReason,
+                rejectedReason,
+                latencyBreakdown
+        );
+    }
+
+    private RagTracePersistenceService.OnlineQueryMetadataMergePersistenceRequest metadataMergeRequest(
+            RagPersistPolicy policy,
+            UUID onlineQueryId,
+            RagRetrievalExecutionService.NonAgenticExecutionKind executionKind,
+            ObjectNode metadata,
+            String sourceMarker
+    ) {
+        return new RagTracePersistenceService.OnlineQueryMetadataMergePersistenceRequest(
+                policy,
+                onlineQueryId,
+                executionKind,
+                metadata,
+                sourceMarker
         );
     }
 
@@ -1052,6 +1323,32 @@ class RagTracePersistenceServiceTest {
         verify(repository, never()).insertAnswer(any(), anyString(), any(), any(), anyString(), any());
         verify(repository, never()).upsertOnlineQueryDecision(any(), anyString(), anyBoolean(), any(), any(), any(), anyString(), any(), any());
         verify(repository, never()).mergeOnlineQueryMetadata(any(), any());
+        verify(repository, never()).createOnlineRewriteLog(any(), any(), anyString(), anyString(), anyString(), any(), any(), anyBoolean(), anyString(), anyBoolean(), any(), any(), any(), any(), any(), any(), any(), any());
+        verify(repository, never()).insertMemoryRetrievalLog(any(), any(), anyInt(), any(), any());
+        verify(repository, never()).insertRewriteCandidateLog(any(), any(), any(), anyInt(), anyString(), anyString(), any(), anyBoolean(), any(), any(), any(), any());
+    }
+
+    private void verifyNoForbiddenOnlineWritesExceptOnlineQueryDecision() {
+        verify(repository, never()).createOnlineQuery(any(), any(), anyString(), any(), anyString(), anyDouble(), any());
+        verify(repository, never()).createRewriteCandidate(any(), anyInt(), anyString(), anyString(), any(), any(), anyDouble(), any());
+        verify(repository, never()).markRewriteCandidateAdopted(any(), anyBoolean(), any());
+        verify(repository, never()).insertRetrievalResults(any(), any(), anyString(), anyList(), anyString(), anyString(), any());
+        verify(repository, never()).insertRerankResults(any(), any(), anyList(), anyString());
+        verify(repository, never()).insertAnswer(any(), anyString(), any(), any(), anyString(), any());
+        verify(repository, never()).mergeOnlineQueryMetadata(any(), any());
+        verify(repository, never()).createOnlineRewriteLog(any(), any(), anyString(), anyString(), anyString(), any(), any(), anyBoolean(), anyString(), anyBoolean(), any(), any(), any(), any(), any(), any(), any(), any());
+        verify(repository, never()).insertMemoryRetrievalLog(any(), any(), anyInt(), any(), any());
+        verify(repository, never()).insertRewriteCandidateLog(any(), any(), any(), anyInt(), anyString(), anyString(), any(), anyBoolean(), any(), any(), any(), any());
+    }
+
+    private void verifyNoForbiddenOnlineWritesExceptOnlineQueryMetadata() {
+        verify(repository, never()).createOnlineQuery(any(), any(), anyString(), any(), anyString(), anyDouble(), any());
+        verify(repository, never()).createRewriteCandidate(any(), anyInt(), anyString(), anyString(), any(), any(), anyDouble(), any());
+        verify(repository, never()).markRewriteCandidateAdopted(any(), anyBoolean(), any());
+        verify(repository, never()).insertRetrievalResults(any(), any(), anyString(), anyList(), anyString(), anyString(), any());
+        verify(repository, never()).insertRerankResults(any(), any(), anyList(), anyString());
+        verify(repository, never()).insertAnswer(any(), anyString(), any(), any(), anyString(), any());
+        verify(repository, never()).upsertOnlineQueryDecision(any(), anyString(), anyBoolean(), any(), any(), any(), anyString(), any(), any());
         verify(repository, never()).createOnlineRewriteLog(any(), any(), anyString(), anyString(), anyString(), any(), any(), anyBoolean(), anyString(), anyBoolean(), any(), any(), any(), any(), any(), any(), any(), any());
         verify(repository, never()).insertMemoryRetrievalLog(any(), any(), anyInt(), any(), any());
         verify(repository, never()).insertRewriteCandidateLog(any(), any(), any(), anyInt(), anyString(), anyString(), any(), anyBoolean(), any(), any(), any(), any());
