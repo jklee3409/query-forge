@@ -1,5 +1,14 @@
 # progress.md
 
+## [2026-06-24] Session Summary (RAG Java Source-of-Truth Migration Guide Phase 7C)
+- What was done: Stabilized the backend retrieval-only eval service contract before adding any controller.
+- Error/validation contract: Added `RagRetrievalEvalException` with service-level codes/messages for `domainId_required`, `query_required`, `unsupported_persist_policy`, `unsupported_answer_generation`, `unsupported_forced_mode`, and `unsupported_agentic_eval`; eval still allows only `persistPolicy=NONE` and `answerGeneration=false`.
+- Response contract: Added tests for ordered duplicate-preserving `retrievedChunkIds`, 1-based ranks, 240-char `contentPreview`, original-query `finalQuery` fallback, empty default warnings, minimal trace, score omission, and reserved metadata warning behavior.
+- Controller readiness: Phase 7D should add only the controller/HTTP mapping layer, map service exceptions to 400 `ProblemDetail`, keep `/api/rag/eval/retrieval` answer-free and `retrievedChunkIds`-centered, and continue rejecting `answerGeneration=true` plus agentic eval.
+- Scope: No controller, endpoint, `/ask` response shape change, answer generation, `createOnlineQuery`, `insertAnswer`, `AgenticRetrievalService` change, DB schema, Python eval, router enum/rule change, or Phase 7D work was introduced.
+- Validation: `.\gradlew.bat compileJava` passed; `.\gradlew.bat test --tests io.queryforge.backend.rag.service.RagRetrievalEvalServiceTest` passed; requested targeted RAG regression command passed.
+- Remaining risks: `TRACE_ONLY`, `ONLINE_QUERY`, full metadata exposure, and agentic no-write eval remain later-phase work.
+
 ## [2026-06-24] Session Summary (RAG Java Source-of-Truth Migration Guide Phase 7B)
 - What was done: Added backend retrieval-only eval DTOs and the minimal `RagRetrievalEvalService` orchestration service for non-agentic eval.
 - DTO/service result: `RagRetrievalEvalRequest`, `RagRetrievalEvalResponse`, doc, and trace DTOs now define `persistPolicy=NONE`, `answerGeneration=false`, `retrievedChunkIds`, preview-only retrieved docs, warnings, and no answer text; the service maps execution results to `persisted=false` responses.

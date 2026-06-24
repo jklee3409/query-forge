@@ -1,5 +1,14 @@
 # progress.md
 
+## [2026-06-24] Session Summary (RAG Java Source-of-Truth Migration Guide Phase 7C)
+- What was done: Fixed the retrieval-only eval service error contract with `RagRetrievalEvalException` codes/messages and strengthened response mapping edge-case tests.
+- Error/validation contract: `domainId_required`, `query_required`, `unsupported_persist_policy`, `unsupported_answer_generation`, `unsupported_forced_mode`, and `unsupported_agentic_eval` are now service-level codes; `persistPolicy` defaults to `NONE`, `answerGeneration` defaults to `false`, and `agentic_multi_query` remains blocked.
+- Response contract: `retrievedChunkIds` preserves result order and duplicates, `retrievedDocs.rank` is 1-based, `contentPreview` is capped at 240 chars, `finalQuery` falls back to the original query, warnings default to an empty list, `includeTrace=true` returns minimal trace, `includeScores=false` nulls doc scores, and `includeMetadata=true` is reserved with a warning.
+- Controller readiness: Phase 7D should map `RagRetrievalEvalException` to 400 `ProblemDetail`, use `/api/rag/eval/retrieval` as the candidate path, keep default `persistPolicy=NONE`, reject `answerGeneration=true`, reject or 422 `agentic_multi_query`, and return answer-free `retrievedChunkIds`-centered responses.
+- Scope: No controller, endpoint, `/ask` response shape change, answer generation change, `createOnlineQuery`, `insertAnswer`, `AgenticRetrievalService` change, DB schema, Python eval, router enum/rule change, or Phase 7D implementation was added.
+- Validation: `.\gradlew.bat compileJava` passed; `.\gradlew.bat test --tests io.queryforge.backend.rag.service.RagRetrievalEvalServiceTest` passed; requested targeted RAG regression command passed.
+- Remaining risks: `TRACE_ONLY`, `ONLINE_QUERY`, full metadata payloads, and agentic no-write eval remain unsupported for later phases.
+
 ## [2026-06-24] Session Summary (RAG Java Source-of-Truth Migration Guide Phase 7B)
 - What was done: Added retrieval-only eval DTOs and a `RagRetrievalEvalService` for the Phase 7B non-agentic minimum slice.
 - DTO/service result: Added request/response/doc/trace DTOs with `persistPolicy=NONE`, `answerGeneration=false`, `retrievedChunkIds`, preview-only docs, and no answer text; the service validates requests, calls `RagRetrievalExecutionService` for raw/selective/anchor/current-router paths, and returns `persisted=false`.

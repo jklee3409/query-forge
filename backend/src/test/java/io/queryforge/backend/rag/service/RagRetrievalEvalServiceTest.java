@@ -37,6 +37,16 @@ class RagRetrievalEvalServiceTest {
 
     private static final UUID DOMAIN_ID = UUID.fromString("11111111-1111-1111-1111-111111111111");
     private static final String QUERY = "FilterChainProxy order";
+    private static final String DOMAIN_ID_REQUIRED_MESSAGE = "domainId_required: domainId is required";
+    private static final String QUERY_REQUIRED_MESSAGE = "query_required: query must not be blank";
+    private static final String UNSUPPORTED_PERSIST_POLICY_MESSAGE =
+            "unsupported_persist_policy: retrieval eval supports only persistPolicy=NONE";
+    private static final String UNSUPPORTED_ANSWER_GENERATION_MESSAGE =
+            "unsupported_answer_generation: answerGeneration=true is unsupported for retrieval eval";
+    private static final String UNSUPPORTED_FORCED_MODE_MESSAGE =
+            "unsupported_forced_mode: forcedMode is not supported for retrieval eval: unknown_mode";
+    private static final String UNSUPPORTED_AGENTIC_EVAL_MESSAGE =
+            "unsupported_agentic_eval: agentic_multi_query retrieval eval is blocked until agentic persistPolicy=NONE is implemented";
 
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final DomainScopedRetrievalService.RetrievalRuntime retrievalRuntime =
@@ -91,27 +101,33 @@ class RagRetrievalEvalServiceTest {
     void answerGenerationTrueRejectsRequest() {
         RagRetrievalEvalDtos.RagRetrievalEvalRequest request = request("raw_only", RagPersistPolicy.NONE, true);
 
-        assertThatThrownBy(() -> service.execute(request))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("answerGeneration=true is unsupported");
+        assertEvalError(
+                request,
+                "unsupported_answer_generation",
+                UNSUPPORTED_ANSWER_GENERATION_MESSAGE
+        );
     }
 
     @Test
     void onlineQueryPersistPolicyRejectsRequest() {
         RagRetrievalEvalDtos.RagRetrievalEvalRequest request = request("raw_only", RagPersistPolicy.ONLINE_QUERY, false);
 
-        assertThatThrownBy(() -> service.execute(request))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("persistPolicy=NONE");
+        assertEvalError(
+                request,
+                "unsupported_persist_policy",
+                UNSUPPORTED_PERSIST_POLICY_MESSAGE
+        );
     }
 
     @Test
     void traceOnlyPersistPolicyRejectsRequest() {
         RagRetrievalEvalDtos.RagRetrievalEvalRequest request = request("raw_only", RagPersistPolicy.TRACE_ONLY, false);
 
-        assertThatThrownBy(() -> service.execute(request))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("persistPolicy=NONE");
+        assertEvalError(
+                request,
+                "unsupported_persist_policy",
+                UNSUPPORTED_PERSIST_POLICY_MESSAGE
+        );
     }
 
     @Test
@@ -128,9 +144,7 @@ class RagRetrievalEvalServiceTest {
                 false
         );
 
-        assertThatThrownBy(() -> service.execute(request))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("domainId is required");
+        assertEvalError(request, "domainId_required", DOMAIN_ID_REQUIRED_MESSAGE);
     }
 
     @Test
@@ -147,9 +161,18 @@ class RagRetrievalEvalServiceTest {
                 false
         );
 
-        assertThatThrownBy(() -> service.execute(request))
-                .isInstanceOf(IllegalArgumentException.class)
-                .hasMessageContaining("query must not be blank");
+        assertEvalError(request, "query_required", QUERY_REQUIRED_MESSAGE);
+    }
+
+    @Test
+    void unknownForcedModeRejectsRequestWithFixedErrorCode() {
+        RagRetrievalEvalDtos.RagRetrievalEvalRequest request = request("unknown_mode", null, null);
+
+        assertEvalError(
+                request,
+                "unsupported_forced_mode",
+                UNSUPPORTED_FORCED_MODE_MESSAGE
+        );
     }
 
     @Test
@@ -172,10 +195,138 @@ class RagRetrievalEvalServiceTest {
         assertThat(response.retrievedChunkIds()).containsExactly("chunk-1", "chunk-2");
         assertThat(response.retrievedDocs()).extracting(RagRetrievalEvalDtos.RagRetrievalEvalDoc::rank)
                 .containsExactly(1, 2);
+        assertThat(response.warnings()).isEmpty();
         assertThat(response.persisted()).isFalse();
         assertThat(response.persistPolicy()).isEqualTo(RagPersistPolicy.NONE);
         verify(ragRetrievalExecutionService, never()).executeSelectiveRewrite(any());
         verify(ragRetrievalExecutionService, never()).executeAnchorAwareRewrite(any());
+    }
+
+    @Test
+    void retrievedChunkIdsPreserveResultOrderAndDuplicates() {
+        givenRuntime();
+        List<RagRepository.RetrievalDoc> docs = List.of(
+                doc("chunk-b", 0.91d),
+                doc("chunk-a", 0.82d),
+                doc("chunk-b", 0.71d)
+        );
+        when(domainScopedRetrievalService.embeddingLiteral(QUERY, retrievalRuntime)).thenReturn("embedding");
+        when(ragRetrievalExecutionService.executeRawOnly(any()))
+                .thenReturn(rawResult(QUERY, docs));
+
+        RagRetrievalEvalDtos.RagRetrievalEvalResponse response = service.execute(request("raw_only", null, null));
+
+        assertThat(response.retrievedChunkIds()).containsExactly("chunk-b", "chunk-a", "chunk-b");
+    }
+
+    @Test
+    void retrievedDocsRankIsOneBased() {
+        givenRuntime();
+        List<RagRepository.RetrievalDoc> docs = List.of(
+                doc("chunk-1", 0.91d),
+                doc("chunk-2", 0.82d),
+                doc("chunk-3", 0.73d)
+        );
+        when(domainScopedRetrievalService.embeddingLiteral(QUERY, retrievalRuntime)).thenReturn("embedding");
+        when(ragRetrievalExecutionService.executeRawOnly(any()))
+                .thenReturn(rawResult(QUERY, docs));
+
+        RagRetrievalEvalDtos.RagRetrievalEvalResponse response = service.execute(request("raw_only", null, null));
+
+        assertThat(response.retrievedDocs())
+                .extracting(RagRetrievalEvalDtos.RagRetrievalEvalDoc::rank)
+                .containsExactly(1, 2, 3);
+    }
+
+    @Test
+    void contentPreviewIsTruncatedAndDoesNotExposeFullContent() {
+        givenRuntime();
+        String fullContent = "x".repeat(280);
+        when(domainScopedRetrievalService.embeddingLiteral(QUERY, retrievalRuntime)).thenReturn("embedding");
+        when(ragRetrievalExecutionService.executeRawOnly(any()))
+                .thenReturn(rawResult(QUERY, List.of(doc("chunk-long", 0.91d, fullContent))));
+
+        RagRetrievalEvalDtos.RagRetrievalEvalResponse response = service.execute(request("raw_only", null, null));
+
+        String preview = response.retrievedDocs().getFirst().contentPreview();
+        assertThat(preview).hasSize(240);
+        assertThat(preview).endsWith("...");
+        assertThat(preview).isNotEqualTo(fullContent);
+    }
+
+    @Test
+    void finalQueryFallsBackToOriginalQueryWhenExecutionFinalQueryIsNull() {
+        givenRuntime();
+        when(domainScopedRetrievalService.embeddingLiteral(QUERY, retrievalRuntime)).thenReturn("embedding");
+        when(ragRetrievalExecutionService.executeRawOnly(any()))
+                .thenReturn(rawResult(QUERY, null, List.of(doc("chunk-1", 0.91d))));
+
+        RagRetrievalEvalDtos.RagRetrievalEvalResponse response = service.execute(request("raw_only", null, null));
+
+        assertThat(response.finalQuery()).isEqualTo(QUERY);
+    }
+
+    @Test
+    void includeScoresFalseNullsDocumentScores() {
+        givenRuntime();
+        when(domainScopedRetrievalService.embeddingLiteral(QUERY, retrievalRuntime)).thenReturn("embedding");
+        when(ragRetrievalExecutionService.executeRawOnly(any()))
+                .thenReturn(rawResult(QUERY, List.of(doc("chunk-1", 0.91d), doc("chunk-2", 0.82d))));
+
+        RagRetrievalEvalDtos.RagRetrievalEvalResponse response = service.execute(request(
+                "raw_only",
+                RagPersistPolicy.NONE,
+                false,
+                false,
+                false,
+                false
+        ));
+
+        assertThat(response.retrievedDocs())
+                .extracting(RagRetrievalEvalDtos.RagRetrievalEvalDoc::score)
+                .containsOnlyNulls();
+    }
+
+    @Test
+    void includeTraceTrueReturnsMinimalTrace() {
+        givenRuntime();
+        when(domainScopedRetrievalService.embeddingLiteral(QUERY, retrievalRuntime)).thenReturn("embedding");
+        when(ragRetrievalExecutionService.executeRawOnly(any()))
+                .thenReturn(rawResult(QUERY, List.of(doc("chunk-1", 0.91d))));
+
+        RagRetrievalEvalDtos.RagRetrievalEvalResponse response = service.execute(request(
+                "raw_only",
+                RagPersistPolicy.NONE,
+                false,
+                true,
+                true,
+                false
+        ));
+
+        assertThat(response.trace()).isNotNull();
+        assertThat(response.trace().routeDecision()).isNull();
+        assertThat(response.trace().retrievalTrace().path("selectedMode").asText()).isEqualTo("raw_only");
+        assertThat(response.trace().retrievalTrace().path("retrievedChunkIds").get(0).asText()).isEqualTo("chunk-1");
+    }
+
+    @Test
+    void includeMetadataTrueAddsReservedWarning() {
+        givenRuntime();
+        when(domainScopedRetrievalService.embeddingLiteral(QUERY, retrievalRuntime)).thenReturn("embedding");
+        when(ragRetrievalExecutionService.executeRawOnly(any()))
+                .thenReturn(rawResult(QUERY, List.of(doc("chunk-1", 0.91d))));
+
+        RagRetrievalEvalDtos.RagRetrievalEvalResponse response = service.execute(request(
+                "raw_only",
+                RagPersistPolicy.NONE,
+                false,
+                false,
+                true,
+                true
+        ));
+
+        assertThat(response.warnings())
+                .containsExactly("includeMetadata is accepted but detailed document metadata is not exposed in Phase 7C");
     }
 
     @Test
@@ -248,9 +399,11 @@ class RagRetrievalEvalServiceTest {
     void agenticMultiQueryIsUnsupported() {
         RagRetrievalEvalDtos.RagRetrievalEvalRequest request = request("agentic_multi_query", null, null);
 
-        assertThatThrownBy(() -> service.execute(request))
-                .isInstanceOf(UnsupportedOperationException.class)
-                .hasMessageContaining("agentic_multi_query retrieval eval is blocked");
+        assertEvalError(
+                request,
+                "unsupported_agentic_eval",
+                UNSUPPORTED_AGENTIC_EVAL_MESSAGE
+        );
     }
 
     @Test
@@ -290,6 +443,17 @@ class RagRetrievalEvalServiceTest {
             RagPersistPolicy persistPolicy,
             Boolean answerGeneration
     ) {
+        return request(forcedMode, persistPolicy, answerGeneration, false, true, false);
+    }
+
+    private RagRetrievalEvalDtos.RagRetrievalEvalRequest request(
+            String forcedMode,
+            RagPersistPolicy persistPolicy,
+            Boolean answerGeneration,
+            Boolean includeTrace,
+            Boolean includeScores,
+            Boolean includeMetadata
+    ) {
         return new RagRetrievalEvalDtos.RagRetrievalEvalRequest(
                 DOMAIN_ID,
                 QUERY,
@@ -297,9 +461,9 @@ class RagRetrievalEvalServiceTest {
                 3,
                 persistPolicy,
                 answerGeneration,
-                false,
-                true,
-                false
+                includeTrace,
+                includeScores,
+                includeMetadata
         );
     }
 
@@ -366,10 +530,18 @@ class RagRetrievalEvalServiceTest {
     }
 
     private RagRepository.RetrievalDoc doc(String chunkId, double score) {
+        return doc(
+                chunkId,
+                score,
+                "Spring Security FilterChainProxy documentation content that should be previewed"
+        );
+    }
+
+    private RagRepository.RetrievalDoc doc(String chunkId, double score, String chunkText) {
         return new RagRepository.RetrievalDoc(
                 "doc-1",
                 chunkId,
-                "Spring Security FilterChainProxy documentation content that should be previewed",
+                chunkText,
                 score
         );
     }
@@ -396,9 +568,17 @@ class RagRetrievalEvalServiceTest {
             String query,
             List<RagRepository.RetrievalDoc> docs
     ) {
+        return rawResult(query, query, docs);
+    }
+
+    private RagRetrievalExecutionService.RawOnlyExecutionResult rawResult(
+            String query,
+            String finalQuery,
+            List<RagRepository.RetrievalDoc> docs
+    ) {
         return new RagRetrievalExecutionService.RawOnlyExecutionResult(
                 query,
-                query,
+                finalQuery,
                 retrieval(query, docs, 0.9d),
                 11L
         );
@@ -475,5 +655,17 @@ class RagRetrievalEvalServiceTest {
                 true,
                 Map.of()
         );
+    }
+
+    private void assertEvalError(
+            RagRetrievalEvalDtos.RagRetrievalEvalRequest request,
+            String code,
+            String message
+    ) {
+        assertThatThrownBy(() -> service.execute(request))
+                .isInstanceOf(RagRetrievalEvalException.class)
+                .hasMessage(message)
+                .satisfies(exception ->
+                        assertThat(((RagRetrievalEvalException) exception).code()).isEqualTo(code));
     }
 }

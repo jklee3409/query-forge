@@ -18,6 +18,7 @@ import org.springframework.stereotype.Service;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 import java.util.UUID;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -31,8 +32,22 @@ public class RagRetrievalEvalService {
     private static final int DEFAULT_RERANK_TOP_N = 5;
     private static final int DEFAULT_MEMORY_TOP_N = 5;
     private static final int DEFAULT_CANDIDATE_COUNT = 2;
-    private static final int PREVIEW_LIMIT = 220;
+    private static final int CONTENT_PREVIEW_MAX_LENGTH = 240;
     private static final Pattern TOKEN_PATTERN = Pattern.compile("[A-Za-z0-9_./:$#-]+|\\p{InHangulSyllables}+");
+    private static final Set<String> SUPPORTED_FORCED_MODES = Set.of(
+            "raw_only",
+            "selective_rewrite",
+            "anchor_aware_rewrite",
+            "strategy_router"
+    );
+
+    private static final String ERROR_REQUEST_REQUIRED = "request_required";
+    private static final String ERROR_DOMAIN_ID_REQUIRED = "domainId_required";
+    private static final String ERROR_QUERY_REQUIRED = "query_required";
+    private static final String ERROR_UNSUPPORTED_PERSIST_POLICY = "unsupported_persist_policy";
+    private static final String ERROR_UNSUPPORTED_ANSWER_GENERATION = "unsupported_answer_generation";
+    private static final String ERROR_UNSUPPORTED_FORCED_MODE = "unsupported_forced_mode";
+    private static final String ERROR_UNSUPPORTED_AGENTIC_EVAL = "unsupported_agentic_eval";
 
     private final ChatRuntimeConfigService chatRuntimeConfigService;
     private final DomainScopedRetrievalService domainScopedRetrievalService;
@@ -104,7 +119,10 @@ public class RagRetrievalEvalService {
                     rerankTopN,
                     started
             );
-            default -> throw new IllegalArgumentException("unsupported forcedMode: " + request.forcedMode());
+            default -> throw evalError(
+                    ERROR_UNSUPPORTED_FORCED_MODE,
+                    "unsupported_forced_mode: forcedMode is not supported for retrieval eval: " + request.forcedMode()
+            );
         };
     }
 
@@ -341,6 +359,7 @@ public class RagRetrievalEvalService {
             List<String> warnings
     ) {
         List<RagRepository.RetrievalDoc> safeDocs = docs == null ? List.of() : docs;
+        String safeFinalQuery = finalQueryOrOriginal(finalQuery, query);
         List<String> chunkIds = safeDocs.stream()
                 .map(RagRepository.RetrievalDoc::chunkId)
                 .toList();
@@ -348,7 +367,7 @@ public class RagRetrievalEvalService {
         return new RagRetrievalEvalDtos.RagRetrievalEvalResponse(
                 domainId,
                 query,
-                finalQuery,
+                safeFinalQuery,
                 request.forcedMode(),
                 selectedMode,
                 chunkIds,
@@ -416,7 +435,7 @@ public class RagRetrievalEvalService {
             return warnings == null ? List.of() : List.copyOf(warnings);
         }
         java.util.ArrayList<String> merged = new java.util.ArrayList<>(warnings == null ? List.of() : warnings);
-        merged.add("includeMetadata is accepted but detailed document metadata is not exposed in Phase 7B");
+        merged.add("includeMetadata is accepted but detailed document metadata is not exposed in Phase 7C");
         return List.copyOf(merged);
     }
 
@@ -433,28 +452,42 @@ public class RagRetrievalEvalService {
 
     private void validateRequest(RagRetrievalEvalDtos.RagRetrievalEvalRequest request) {
         if (request == null) {
-            throw new IllegalArgumentException("request is required");
+            throw evalError(ERROR_REQUEST_REQUIRED, "request_required: request is required");
         }
         if (request.domainId() == null) {
-            throw new IllegalArgumentException("domainId is required");
+            throw evalError(ERROR_DOMAIN_ID_REQUIRED, "domainId_required: domainId is required");
         }
         if (request.query() == null || request.query().isBlank()) {
-            throw new IllegalArgumentException("query must not be blank");
+            throw evalError(ERROR_QUERY_REQUIRED, "query_required: query must not be blank");
         }
         if (request.persistPolicy() != RagPersistPolicy.NONE) {
-            throw new IllegalArgumentException("retrieval eval supports only persistPolicy=NONE");
-        }
-        if (Boolean.TRUE.equals(request.answerGeneration())) {
-            throw new IllegalArgumentException("answerGeneration=true is unsupported for retrieval eval");
-        }
-        if ("agentic_multi_query".equals(request.forcedMode())) {
-            throw new UnsupportedOperationException(
-                    "agentic_multi_query retrieval eval is blocked until agentic persistPolicy=NONE is implemented"
+            throw evalError(
+                    ERROR_UNSUPPORTED_PERSIST_POLICY,
+                    "unsupported_persist_policy: retrieval eval supports only persistPolicy=NONE"
             );
         }
-        if (!List.of("raw_only", "selective_rewrite", "anchor_aware_rewrite", "strategy_router").contains(request.forcedMode())) {
-            throw new IllegalArgumentException("unsupported forcedMode: " + request.forcedMode());
+        if (Boolean.TRUE.equals(request.answerGeneration())) {
+            throw evalError(
+                    ERROR_UNSUPPORTED_ANSWER_GENERATION,
+                    "unsupported_answer_generation: answerGeneration=true is unsupported for retrieval eval"
+            );
         }
+        if ("agentic_multi_query".equals(request.forcedMode())) {
+            throw evalError(
+                    ERROR_UNSUPPORTED_AGENTIC_EVAL,
+                    "unsupported_agentic_eval: agentic_multi_query retrieval eval is blocked until agentic persistPolicy=NONE is implemented"
+            );
+        }
+        if (!SUPPORTED_FORCED_MODES.contains(request.forcedMode())) {
+            throw evalError(
+                    ERROR_UNSUPPORTED_FORCED_MODE,
+                    "unsupported_forced_mode: forcedMode is not supported for retrieval eval: " + request.forcedMode()
+            );
+        }
+    }
+
+    private RagRetrievalEvalException evalError(String code, String message) {
+        return new RagRetrievalEvalException(code, message);
     }
 
     private void validateRuntime(
@@ -568,10 +601,17 @@ public class RagRetrievalEvalService {
             return "";
         }
         String normalized = text.replaceAll("\\s+", " ").trim();
-        if (normalized.length() <= PREVIEW_LIMIT) {
+        if (normalized.length() <= CONTENT_PREVIEW_MAX_LENGTH) {
             return normalized;
         }
-        return normalized.substring(0, PREVIEW_LIMIT) + "...";
+        return normalized.substring(0, CONTENT_PREVIEW_MAX_LENGTH - 3) + "...";
+    }
+
+    private String finalQueryOrOriginal(String finalQuery, String originalQuery) {
+        if (finalQuery == null || finalQuery.isBlank()) {
+            return originalQuery;
+        }
+        return finalQuery;
     }
 
     private long elapsedMs(long startedNano) {

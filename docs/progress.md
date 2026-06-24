@@ -3,6 +3,14 @@
 ## Overview
 High-level progress tracking for the `docs` directory.
 
+## [2026-06-24] Session Summary (RAG Java Source-of-Truth Migration Phase 7C)
+- What was done: Recorded the controller-readiness policy for the backend retrieval-only eval service after the Phase 7C contract hardening.
+- Key decisions: Phase 7D should map `RagRetrievalEvalException` code/message to 400 `ProblemDetail`, use `/api/rag/eval/retrieval` as the candidate path, keep default `persistPolicy=NONE`, reject `answerGeneration=true`, and keep `agentic_multi_query` rejected until agentic no-write is designed.
+- Response contract note: The service response remains answer-free and centered on ordered `retrievedChunkIds`; duplicate chunk IDs are preserved, ranks are 1-based, previews are bounded, scores can be nulled by `includeScores=false`, and metadata remains reserved with a warning.
+- Scope: No guide rewrite, controller, endpoint, DB schema, Python eval, `/ask` behavior, answer generation, `createOnlineQuery`, `insertAnswer`, or `AgenticRetrievalService` change was introduced in this docs record.
+- Validation: Backend compile, focused eval service tests, and the requested targeted RAG regression command passed.
+- Next steps: Phase 7D can add only the HTTP controller/error mapping layer if it preserves the service contract and no-write defaults.
+
 ## [2026-06-24] Session Summary (RAG Java Source-of-Truth Migration Phase 7A)
 - What was done: Added Phase 7A retrieval-only eval endpoint boundary design to `rag-java-source-of-truth-migration-guide.md`.
 - Key decisions: The design defines eval request/response DTO fields, keeps default `persistPolicy=NONE`, makes `answerGeneration=false` mandatory, and requires the eval boundary to skip `createOnlineQuery`, `ChatAnswerService.generateAnswer`, `buildAnswer`, and `insertAnswer`.
