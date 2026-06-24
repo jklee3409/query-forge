@@ -1,5 +1,12 @@
 # progress.md
 
+## [2026-06-25] Session Summary (RAG Java Source-of-Truth Migration Phase 11-0 Audit)
+- What was done: Completed the backend Phase 11-0 structure/state audit without production Java changes.
+- Audit result: Confirmed `/api/chat/ask` supports explicit and router-selected `AGENTIC_MULTI_QUERY` through `AgenticRetrievalService`, while `POST /api/rag/eval/retrieval` supports only `raw_only`, `selective_rewrite`, `anchor_aware_rewrite`, and `strategy_router` when the router stays non-agentic.
+- Agentic eval blocker: Eval blocks forced agentic with `unsupported_agentic_eval` and router-selected agentic with `unsupported_router_agentic_eval`; `AgenticRetrievalService` still calls persistence adapters with `RagPersistPolicy.ONLINE_QUERY` and requires online-query/candidate identity for current traces.
+- Validation: `QueryStrategyRouterTest`, `RagRetrievalEvalServiceTest`, and `RagRetrievalEvalControllerTest` passed.
+- Next recommended phase: Phase 11A should design no-write agentic eval before changing backend execution or endpoint behavior.
+
 ## [2026-06-25] Session Summary (RAG Java Source-of-Truth Migration Guide Phase 10D)
 - What was done: Completed a read-only backend final acceptance audit for the Java source-of-truth migration and changed only progress documentation.
 - Router result: Confirmed `QueryStrategy.AGENTIC_MULTI_QUERY`, conservative router selection gated by `metadata_json.agenticMultiQueryEnabled`, `/api/chat/ask` dispatch through `AgenticRetrievalService`, and subquery recursion guard metadata.

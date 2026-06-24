@@ -1,5 +1,12 @@
 # progress.md
 
+## [2026-06-25] Session Summary (RAG Java Source-of-Truth Migration Phase 11-0 Audit)
+- What was done: Completed the pipeline/Python eval Phase 11-0 audit without pipeline code changes.
+- Audit result: Confirmed `retrieval_eval_backend=java`, `official_eval_backend=java`, and `eval_retrieval_backend=java` select the Java-backed retrieval client; `retrieval_eval_backend=legacy` and implicit default keep Python legacy eval available.
+- Agentic eval blocker: Java-backed client and comparison runner fail fast on `agentic_multi_query`; Python legacy still has its own agentic eval implementation, but that is not the Java source-of-truth no-write path.
+- Validation: `python -m unittest pipeline.tests.test_java_retrieval_client pipeline.tests.test_retrieval_eval_compare -q` passed.
+- Next recommended phase: Phase 11C should wait for Phase 11A/11B no-write Java agentic eval support before enabling Python Java-backed agentic eval.
+
 ## [2026-06-25] Session Summary (RAG Java Source-of-Truth Migration Guide Phase 10D)
 - What was done: Completed final acceptance audit for the Python eval side without modifying pipeline code.
 - Java-backed eval result: Confirmed Python can select the Java retrieval endpoint through `retrieval_eval_backend=java`, `official_eval_backend=java`, or `eval_retrieval_backend=java`, uses `retrievedChunkIds` for metric input, and sends `persistPolicy=NONE` / `answerGeneration=false`.

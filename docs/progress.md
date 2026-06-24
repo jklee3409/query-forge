@@ -3,6 +3,13 @@
 ## Overview
 High-level progress tracking for the `docs` directory.
 
+## [2026-06-25] Session Summary (RAG Java Source-of-Truth Migration Phase 11-0 Audit)
+- What was done: Recorded the Phase 11-0 current structure/state audit for later AGENTS.md review input.
+- Audit result: Current documentation and code agree that Java live chat is the online serving path, Java retrieval eval is non-agentic/no-write, Python legacy remains fallback/comparison, and Admin GUI exposes router/agentic runtime flags.
+- Agentic eval blocker: No-write agentic eval remains blocked by missing `persistPolicy=NONE` propagation through agentic execution and unresolved transient candidate/trace identity without online query writes.
+- Validation: Requested backend, Python, frontend, and `git diff --check` commands passed; `git diff --check` reported only line-ending warnings for tracked static React assets.
+- Next recommended phase: Phase 11A should produce the no-write agentic eval design before code implementation.
+
 ## [2026-06-25] Session Summary (RAG Java Source-of-Truth Migration Phase 10D)
 - What was done: Recorded the final acceptance / handoff audit for the RAG Java source-of-truth migration.
 - Acceptance result: Admin GUI router/agentic settings, Live Chat config visibility, StrategyRouter agentic enhancement, Java retrieval-only eval endpoint, Python Java-backed eval policy, and legacy fallback/comparison paths were checked against code and tests.

@@ -1,5 +1,12 @@
 # progress.md
 
+## [2026-06-25] Session Summary (RAG Java Source-of-Truth Migration Phase 11-0 Audit)
+- What was done: Completed the Phase 11-0 current project structure and implementation state audit after Phase 10D.
+- Audit result: Reconfirmed Java live chat as the online RAG serving source of truth, Java retrieval eval as the non-agentic no-write source-of-truth endpoint, Python legacy eval as fallback/comparison, and frontend Chat Settings/Chat config visibility for router/agentic flags.
+- Agentic eval blocker: Forced and router-selected agentic retrieval eval remain blocked because no-write agentic execution still lacks end-to-end `persistPolicy=NONE` propagation and transient in-memory candidate identity without `onlineQueryId`/trace IDs.
+- Validation: Requested backend router/eval tests, Python Java client/comparison tests, frontend production build, and `git diff --check` passed; diff check emitted only LF-to-CRLF warnings for tracked static React files.
+- Next recommended phase: Phase 11A Agentic no-write eval design before any Phase 11 backend/Python implementation.
+
 ## [2026-06-25] Session Summary (RAG Java Source-of-Truth Migration Guide Phase 10D)
 - What was done: Completed the final acceptance / handoff audit without production logic, frontend source, backend service, Python eval, DB schema, or StrategyRouter rule changes.
 - Admin/frontend result: Chat Settings load/save preserves `routerEnabled` and metadata-backed `agenticMultiQueryEnabled`; Live Chat displays router and agentic on/off state; backend-served React build remains reproducible.

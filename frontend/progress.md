@@ -1,5 +1,12 @@
 # progress.md
 
+## [2026-06-25] Session Summary (RAG Java Source-of-Truth Migration Phase 11-0 Audit)
+- What was done: Completed the frontend/Admin GUI Phase 11-0 audit without frontend source changes.
+- Audit result: Confirmed Chat Settings loads/saves `routerEnabled` and metadata-backed `agenticMultiQueryEnabled`, preserves metadata while removing stale aliases, and Live Chat displays router/agentic on/off in the config strip.
+- Static bundle: Vite production build targets `../backend/src/main/resources/static/react`; the build completed without leaving source or bundle diffs.
+- Validation: `npm run build` passed from the `frontend` directory.
+- Next recommended phase: Keep frontend unchanged until Phase 11 backend/Python agentic eval behavior has an approved design.
+
 ## [2026-06-25] Session Summary (RAG Java Source-of-Truth Migration Guide Phase 10D)
 - What was done: Completed frontend/Admin GUI acceptance audit without additional frontend source changes.
 - Chat Settings result: Confirmed `routerEnabled` loads from the explicit response field or legacy metadata aliases, and `agenticMultiQueryEnabled` loads/saves through preserved metadata with stale aliases removed and canonical metadata written.
