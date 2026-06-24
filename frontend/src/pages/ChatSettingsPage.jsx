@@ -70,6 +70,8 @@ function initialForm(domainId) {
     sourceGatingBatchId: '',
     sourceGatingBatchIds: [],
     routerEnabled: false,
+    agenticMultiQueryEnabled: false,
+    metadata: {},
     rewriteQueryProfile: 'compact_anchor',
     rewriteAnchorInjectionEnabled: false,
     useSessionContext: false,
@@ -138,6 +140,19 @@ function configSnapshotIds(configPayload) {
   return configPayload?.sourceGatingBatchId ? [configPayload.sourceGatingBatchId] : []
 }
 
+function metadataObject(value) {
+  return value && typeof value === 'object' && !Array.isArray(value) ? value : {}
+}
+
+function metadataFlag(metadata, keys) {
+  const values = metadataObject(metadata)
+  return keys.some((key) => values[key] === true || values[key] === 'true')
+}
+
+function chatRuntimeMetadata(configPayload) {
+  return metadataObject(configPayload?.metadata)
+}
+
 export function ChatSettingsPage({ notify, domainId, domainKey }) {
   const [form, setForm] = useState(() => initialForm(domainId))
   const [config, setConfig] = useState(null)
@@ -181,6 +196,7 @@ export function ChatSettingsPage({ notify, domainId, domainKey }) {
           ? runtimePayload.retrieverModeDefaults
           : {},
       }
+      const metadata = chatRuntimeMetadata(configPayload)
       setConfig(configPayload)
       setReadiness(readinessPayload)
       setMethods(Array.isArray(methodPayload) ? methodPayload : [])
@@ -198,7 +214,14 @@ export function ChatSettingsPage({ notify, domainId, domainKey }) {
         sourceGatingBatchIds: configSnapshotIds(configPayload),
         routerEnabled: configPayload.routerEnabled != null
           ? Boolean(configPayload.routerEnabled)
-          : Boolean(configPayload.metadata?.routerEnabled),
+          : metadataFlag(metadata, ['routerEnabled', 'queryRouterEnabled', 'query_router_enabled']),
+        agenticMultiQueryEnabled: metadataFlag(metadata, [
+          'agenticMultiQueryEnabled',
+          'agentic_multi_query_enabled',
+          'queryRouterAgenticEnabled',
+          'query_router_agentic_enabled',
+        ]),
+        metadata,
         rewriteQueryProfile: configPayload.rewriteQueryProfile || 'compact_anchor',
         rewriteAnchorInjectionEnabled: Boolean(configPayload.rewriteAnchorInjectionEnabled),
         useSessionContext: Boolean(configPayload.useSessionContext),
@@ -298,11 +321,22 @@ export function ChatSettingsPage({ notify, domainId, domainKey }) {
     }
     setSaving(true)
     try {
+      const requestForm = { ...form }
+      delete requestForm.agenticMultiQueryEnabled
+      delete requestForm.metadata
+      const metadataPayload = { ...metadataObject(form.metadata) }
+      delete metadataPayload.queryRouterEnabled
+      delete metadataPayload.query_router_enabled
+      delete metadataPayload.agentic_multi_query_enabled
+      delete metadataPayload.queryRouterAgenticEnabled
+      delete metadataPayload.query_router_agentic_enabled
+      metadataPayload.routerEnabled = Boolean(form.routerEnabled)
+      metadataPayload.agenticMultiQueryEnabled = Boolean(form.agenticMultiQueryEnabled)
       const payload = await requestJson('/api/admin/chat/config', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          ...form,
+          ...requestForm,
           domainId,
           retrievalBackend: form.retrievalBackend,
           denseEmbeddingModel: form.denseEmbeddingModel,
@@ -318,6 +352,7 @@ export function ChatSettingsPage({ notify, domainId, domainKey }) {
           rewriteThreshold: toNumber(form.rewriteThreshold),
           sourceGatingBatchId: nextSourceGatingBatchIds[0] || null,
           sourceGatingBatchIds: nextSourceGatingBatchIds,
+          metadata: metadataPayload,
         }),
       })
       setConfig(payload)
@@ -454,6 +489,11 @@ export function ChatSettingsPage({ notify, domainId, domainKey }) {
                 <span className="check-pill__box" aria-hidden="true">✓</span>
                 <span className="check-pill__text">Query Strategy Router 사용</span>
               </label>
+              <label className={`check-pill ${form.agenticMultiQueryEnabled ? 'is-active' : ''}`}>
+                <input type="checkbox" checked={form.agenticMultiQueryEnabled} onChange={(event) => updateField('agenticMultiQueryEnabled', event.target.checked)} />
+                <span className="check-pill__box" aria-hidden="true">✓</span>
+                <span className="check-pill__text">Agentic Multi-Query</span>
+              </label>
               <label className={`check-pill ${form.rewriteAnchorInjectionEnabled ? 'is-active' : ''}`}>
                 <input type="checkbox" checked={form.rewriteAnchorInjectionEnabled} onChange={(event) => updateField('rewriteAnchorInjectionEnabled', event.target.checked)} />
                 <span className="check-pill__box" aria-hidden="true">✓</span>
@@ -465,6 +505,7 @@ export function ChatSettingsPage({ notify, domainId, domainKey }) {
                 <span className="check-pill__text">세션 문맥 사용</span>
               </label>
             </div>
+            <p className="summary-card__meta">Router can choose Agentic Multi-Query for complex questions only when both Router and Agentic Multi-Query are enabled.</p>
           </ExperimentSection>
 
           <ExperimentSection title="검색 런타임" description="live chat 검색 backend/model/mode가 승격한 Admin RAG run과 맞는지 확인합니다.">
@@ -529,6 +570,7 @@ export function ChatSettingsPage({ notify, domainId, domainKey }) {
             { label: 'Embedding', value: form.denseEmbeddingModel || '-' },
             { label: 'Profile', value: form.rewriteQueryProfile },
             { label: 'Router', value: form.routerEnabled ? 'enabled' : 'disabled' },
+            { label: 'Agentic', value: form.agenticMultiQueryEnabled ? 'enabled' : 'disabled' },
             { label: '수정 시각', value: config?.updatedAt ? fmtTime(config.updatedAt) : '-' },
           ]}
         />
@@ -568,6 +610,7 @@ export function ChatSettingsPage({ notify, domainId, domainKey }) {
               <div><span>Prompt version</span><strong>{readiness.promptBinding?.activePromptVersion || '-'}</strong></div>
               <div><span>Retrieval</span><strong>{readiness.retrieval?.retrievalBackend || '-'} / {retrieverModeLabel(readiness.retrieval?.retrieverMode)}</strong></div>
               <div><span>Query Router</span><strong>{form.routerEnabled ? 'enabled' : 'disabled'}</strong></div>
+              <div><span>Agentic Multi-Query</span><strong>{form.agenticMultiQueryEnabled ? 'enabled' : 'disabled'}</strong></div>
             </div>
             {readinessBlockingReasons.length > 0 && (
               <div className="chat-warning">

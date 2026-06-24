@@ -21,6 +21,11 @@ function readinessReasons(readiness) {
   return Array.isArray(readiness?.blockingReasons) ? readiness.blockingReasons.filter(Boolean) : []
 }
 
+function metadataFlag(metadata, keys) {
+  if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) return false
+  return keys.some((key) => metadata[key] === true || metadata[key] === 'true')
+}
+
 function chatAskErrorMessage(error) {
   if (error?.errorCode === GEMINI_SERVICE_UNAVAILABLE_CODE) {
     return GEMINI_SERVICE_UNAVAILABLE_MESSAGE
@@ -154,6 +159,12 @@ export function ChatPage({ navigate, notify }) {
   const sourceGatingBatchIds = Array.isArray(config?.sourceGatingBatchIds)
     ? config.sourceGatingBatchIds.filter(Boolean)
     : []
+  const agenticMultiQueryEnabled = metadataFlag(config?.metadata, [
+    'agenticMultiQueryEnabled',
+    'agentic_multi_query_enabled',
+    'queryRouterAgenticEnabled',
+    'query_router_agentic_enabled',
+  ])
 
   return (
     <div className="chat-shell">
@@ -204,6 +215,7 @@ export function ChatPage({ navigate, notify }) {
           </span>
           <span>{config?.rewriteAnchorInjectionEnabled ? 'anchor on' : 'anchor off'}</span>
           <span>{config?.routerEnabled ? 'router on' : 'router off'}</span>
+          <span>{agenticMultiQueryEnabled ? 'agentic on' : 'agentic off'}</span>
         </div>
       </section>
 
