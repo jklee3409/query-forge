@@ -1,5 +1,12 @@
 # progress.md
 
+## [2026-06-24] Session Summary (RAG Java Source-of-Truth Migration Guide Phase 6C)
+- What was done: Added agentic final RRF rerank trace persistence to `RagTracePersistenceService` and wired only `RagService.askAgentic` final merged docs `agentic-rrf` rerank write through it.
+- Adapter connection: `ONLINE_QUERY + AGENTIC_MULTI_QUERY` now delegates only the final `insertRerankResults` trace for `agentic-rrf`; Phase 6A subquery retrieval, Phase 6B candidate root/adoption, and non-agentic adapters stayed unchanged.
+- `/ask` impact: Existing `/ask` response shape, `ChatAnswerService.generateAnswer`, `createOnlineQuery`, `insertAnswer`, decision/metadata/log writes, DB schema, eval endpoints, and Python eval code were not changed.
+- Validation: `.\gradlew.bat compileJava` passed; `.\gradlew.bat test --tests io.queryforge.backend.rag.service.RagTracePersistenceServiceTest` passed; `.\gradlew.bat test --tests io.queryforge.backend.rag.service.RagServiceTest` passed; requested targeted RAG regression command passed; `git diff --check` passed.
+- Remaining risks: `RagService.askAgentic` still owns answer, decision, metadata, rewrite/memory/candidate log persistence for later phases; `TRACE_ONLY` and generic `ONLINE_QUERY` remain unsupported.
+
 ## [2026-06-24] Session Summary (RAG Java Source-of-Truth Migration Guide Phase 6B)
 - What was done: Added agentic-only candidate root/adoption persistence methods to `RagTracePersistenceService` and wired `AgenticRetrievalService` per-subquery rewrite candidate creation/adoption through them.
 - Adapter connection: `ONLINE_QUERY + AGENTIC_MULTI_QUERY` now delegates only agentic candidate `createRewriteCandidate` / `markRewriteCandidateAdopted`; the Phase 6A subquery retrieval trace adapter remains unchanged.

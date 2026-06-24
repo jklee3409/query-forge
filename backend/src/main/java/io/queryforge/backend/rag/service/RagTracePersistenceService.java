@@ -137,6 +137,26 @@ public class RagTracePersistenceService {
         };
     }
 
+    public RagTracePersistenceResult persistAgenticFinalRerankTrace(
+            AgenticFinalRerankTracePersistenceRequest request
+    ) {
+        if (request == null) {
+            throw new IllegalArgumentException("request is required");
+        }
+        return switch (request.persistPolicy()) {
+            case NONE -> new RagTracePersistenceResult(
+                    RagPersistPolicy.NONE,
+                    request.onlineQueryId(),
+                    false,
+                    "skipped_none"
+            );
+            case TRACE_ONLY -> throw new UnsupportedOperationException(
+                    "TRACE_ONLY persistence is not implemented for Phase 6C agentic final RRF rerank trace"
+            );
+            case ONLINE_QUERY -> persistAgenticFinalRerankOnlineQueryTrace(request);
+        };
+    }
+
     public RewriteCandidatePersistenceResult createRewriteCandidateTrace(
             CreateRewriteCandidateTracePersistenceRequest request
     ) {
@@ -398,6 +418,33 @@ public class RagTracePersistenceService {
                 true,
                 "persisted_" + request.executionKind().name().toLowerCase(Locale.ROOT)
                         + "_" + request.writeScope().statusSuffix
+        );
+    }
+
+    private RagTracePersistenceResult persistAgenticFinalRerankOnlineQueryTrace(
+            AgenticFinalRerankTracePersistenceRequest request
+    ) {
+        if (request.onlineQueryId() == null) {
+            throw new IllegalArgumentException("onlineQueryId is required for ONLINE_QUERY agentic final RRF rerank trace persistence");
+        }
+        validateAgenticExecutionKind(request.executionKind(), "agentic final RRF rerank trace persistence");
+        if (!"agentic-rrf".equals(request.resultScope())) {
+            throw new IllegalArgumentException("agentic final RRF rerank trace persistence requires resultScope=agentic-rrf");
+        }
+        if (!"agentic-rrf".equals(request.rerankerModel())) {
+            throw new IllegalArgumentException("agentic final RRF rerank trace persistence requires rerankerModel=agentic-rrf");
+        }
+        repository.insertRerankResults(
+                request.onlineQueryId(),
+                null,
+                request.finalMergedDocs(),
+                request.rerankerModel()
+        );
+        return new RagTracePersistenceResult(
+                RagPersistPolicy.ONLINE_QUERY,
+                request.onlineQueryId(),
+                true,
+                "persisted_" + request.executionKind().name().toLowerCase(Locale.ROOT) + "_final_rrf_rerank"
         );
     }
 
@@ -881,6 +928,24 @@ public class RagTracePersistenceService {
         public AgenticRewriteCandidateAdoptionPersistenceRequest {
             persistPolicy = persistPolicy == null ? RagPersistPolicy.NONE : persistPolicy;
             subqueryIndex = Math.max(0, subqueryIndex);
+        }
+    }
+
+    public record AgenticFinalRerankTracePersistenceRequest(
+            RagPersistPolicy persistPolicy,
+            UUID onlineQueryId,
+            AgenticRetrievalExecutionKind executionKind,
+            List<RagRepository.RetrievalDoc> finalMergedDocs,
+            String resultScope,
+            String rerankerModel,
+            long latencyMs
+    ) {
+        public AgenticFinalRerankTracePersistenceRequest {
+            persistPolicy = persistPolicy == null ? RagPersistPolicy.NONE : persistPolicy;
+            finalMergedDocs = finalMergedDocs == null ? List.of() : List.copyOf(finalMergedDocs);
+            resultScope = resultScope == null || resultScope.isBlank() ? "agentic-rrf" : resultScope;
+            rerankerModel = rerankerModel == null || rerankerModel.isBlank() ? resultScope : rerankerModel;
+            latencyMs = Math.max(0L, latencyMs);
         }
     }
 

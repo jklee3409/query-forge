@@ -841,6 +841,63 @@ class RagTracePersistenceServiceTest {
     }
 
     @Test
+    void onlineQueryAgenticFinalRrfRerankPersistsRerankResultsOnly() {
+        UUID onlineQueryId = UUID.fromString("61616161-6161-6161-6161-616161616161");
+        List<RagRepository.RetrievalDoc> finalMergedDocs = docs("doc-agentic-final", "chunk-agentic-final", 0.96d);
+
+        RagTracePersistenceService.RagTracePersistenceResult result = service.persistAgenticFinalRerankTrace(
+                agenticFinalRerankRequest(
+                        RagPersistPolicy.ONLINE_QUERY,
+                        onlineQueryId,
+                        finalMergedDocs
+                )
+        );
+
+        assertThat(result.persistPolicy()).isEqualTo(RagPersistPolicy.ONLINE_QUERY);
+        assertThat(result.onlineQueryId()).isEqualTo(onlineQueryId);
+        assertThat(result.persisted()).isTrue();
+        assertThat(result.status()).isEqualTo("persisted_agentic_multi_query_final_rrf_rerank");
+        verify(repository).insertRerankResults(
+                eq(onlineQueryId),
+                isNull(),
+                eq(finalMergedDocs),
+                eq("agentic-rrf")
+        );
+        verify(repository, never()).insertRetrievalResults(any(), any(), anyString(), anyList(), anyString(), anyString(), any());
+        verifyNoForbiddenOnlineWrites();
+    }
+
+    @Test
+    void agenticFinalRrfRerankNonePolicyPerformsNoRepositoryWrites() {
+        RagTracePersistenceService.RagTracePersistenceResult result = service.persistAgenticFinalRerankTrace(
+                agenticFinalRerankRequest(
+                        RagPersistPolicy.NONE,
+                        UUID.fromString("62626262-6262-6262-6262-626262626262"),
+                        docs("doc-agentic-final", "chunk-agentic-final", 0.96d)
+                )
+        );
+
+        assertThat(result.persistPolicy()).isEqualTo(RagPersistPolicy.NONE);
+        assertThat(result.persisted()).isFalse();
+        assertThat(result.status()).isEqualTo("skipped_none");
+        verifyNoInteractions(repository);
+    }
+
+    @Test
+    void agenticFinalRrfRerankTraceOnlyPolicyRemainsUnsupported() {
+        assertThatThrownBy(() -> service.persistAgenticFinalRerankTrace(agenticFinalRerankRequest(
+                RagPersistPolicy.TRACE_ONLY,
+                UUID.fromString("63636363-6363-6363-6363-636363636363"),
+                docs("doc-agentic-final", "chunk-agentic-final", 0.96d)
+        )))
+                .isInstanceOf(UnsupportedOperationException.class)
+                .hasMessageContaining("TRACE_ONLY")
+                .hasMessageContaining("Phase 6C");
+
+        verifyNoInteractions(repository);
+    }
+
+    @Test
     void onlineQuerySelectiveRewriteCandidateCreationPersistsCandidateRootOnly() {
         UUID onlineQueryId = UUID.fromString("15151515-1515-1515-1515-151515151515");
         UUID rewriteCandidateId = UUID.fromString("16161616-1616-1616-1616-161616161616");
@@ -1475,6 +1532,22 @@ class RagTracePersistenceServiceTest {
                 JsonNodeFactory.instance.arrayNode().add("rewrite-chunk"),
                 0.91d,
                 scoreBreakdown
+        );
+    }
+
+    private RagTracePersistenceService.AgenticFinalRerankTracePersistenceRequest agenticFinalRerankRequest(
+            RagPersistPolicy policy,
+            UUID onlineQueryId,
+            List<RagRepository.RetrievalDoc> finalMergedDocs
+    ) {
+        return new RagTracePersistenceService.AgenticFinalRerankTracePersistenceRequest(
+                policy,
+                onlineQueryId,
+                RagTracePersistenceService.AgenticRetrievalExecutionKind.AGENTIC_MULTI_QUERY,
+                finalMergedDocs,
+                "agentic-rrf",
+                "agentic-rrf",
+                0L
         );
     }
 

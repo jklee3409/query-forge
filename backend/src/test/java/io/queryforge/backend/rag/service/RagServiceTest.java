@@ -666,6 +666,19 @@ class RagServiceTest {
         verify(ragTracePersistenceService, never()).createOnlineRewriteLogTrace(any());
         verify(ragTracePersistenceService, never()).insertMemoryRetrievalTrace(any());
         verify(ragTracePersistenceService, never()).insertRewriteCandidateTrace(any());
+        ArgumentCaptor<RagTracePersistenceService.AgenticFinalRerankTracePersistenceRequest> finalRerankCaptor =
+                ArgumentCaptor.forClass(RagTracePersistenceService.AgenticFinalRerankTracePersistenceRequest.class);
+        verify(ragTracePersistenceService).persistAgenticFinalRerankTrace(finalRerankCaptor.capture());
+        RagTracePersistenceService.AgenticFinalRerankTracePersistenceRequest finalRerankRequest =
+                finalRerankCaptor.getValue();
+        assertThat(finalRerankRequest.persistPolicy()).isEqualTo(RagPersistPolicy.ONLINE_QUERY);
+        assertThat(finalRerankRequest.onlineQueryId()).isEqualTo(onlineQueryId);
+        assertThat(finalRerankRequest.executionKind()).isEqualTo(
+                RagTracePersistenceService.AgenticRetrievalExecutionKind.AGENTIC_MULTI_QUERY
+        );
+        assertThat(finalRerankRequest.finalMergedDocs()).isEqualTo(mergedDocs);
+        assertThat(finalRerankRequest.resultScope()).isEqualTo("agentic-rrf");
+        assertThat(finalRerankRequest.rerankerModel()).isEqualTo("agentic-rrf");
         verify(repository).insertRerankResults(eq(onlineQueryId), isNull(), eq(mergedDocs), eq("agentic-rrf"));
         verify(chatAnswerService).generateAnswer(eq(query), eq(query), eq("Spring"), eq(mergedDocs));
         verify(repository).insertAnswer(eq(onlineQueryId), eq("agentic answer"), any(), any(), eq("test-answer-model"), any());

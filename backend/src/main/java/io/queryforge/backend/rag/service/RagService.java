@@ -786,7 +786,17 @@ public class RagService {
 
         stageStart = System.nanoTime();
         List<RagRepository.RetrievalDoc> mergedDocs = agenticResult.mergedDocs();
-        repository.insertRerankResults(onlineQueryId, null, mergedDocs, "agentic-rrf");
+        ragTracePersistenceService.persistAgenticFinalRerankTrace(
+                new RagTracePersistenceService.AgenticFinalRerankTracePersistenceRequest(
+                        RagPersistPolicy.ONLINE_QUERY,
+                        onlineQueryId,
+                        RagTracePersistenceService.AgenticRetrievalExecutionKind.AGENTIC_MULTI_QUERY,
+                        mergedDocs,
+                        "agentic-rrf",
+                        "agentic-rrf",
+                        0L
+                )
+        );
         long rerankLatency = elapsedMs(stageStart);
 
         stageStart = System.nanoTime();
