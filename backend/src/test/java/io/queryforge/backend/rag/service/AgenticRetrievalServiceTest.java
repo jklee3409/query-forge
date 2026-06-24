@@ -295,6 +295,96 @@ class AgenticRetrievalServiceTest {
         verifyNoOnlineRootAnswerDecisionOrLogWrites();
     }
 
+    @Test
+    void executeSuppressesRouterSelectedAgenticForSubqueries() {
+        String rawQuery = "\uC2A4\uD504\uB9C1 \uC694\uCCAD \uD750\uB984\uC744 \uBE44\uAD50\uD558\uACE0 mvc \uB77C\uC6B0\uD305\uACFC \uCC98\uB9AC \uB2E8\uACC4\uB97C \uC124\uBA85";
+        ChatRuntimeDtos.ChatRuntimeConfigResponse config = config("selective_rewrite", true, true);
+        ChatRuntimeDtos.ChatDomainReadinessResponse readiness = readiness();
+        RagDtos.AgenticQueryPlan plan = new RagDtos.AgenticQueryPlan(
+                rawQuery,
+                domainId,
+                "spring",
+                "Spring",
+                3,
+                List.of(new RagDtos.AgenticSubquery(
+                        1,
+                        "\uC2A4\uD504\uB9C1 \uC694\uCCAD \uD750\uB984\uC744 \uBE44\uAD50\uD558\uACE0 mvc \uB77C\uC6B0\uD305\uACFC \uCC98\uB9AC \uB2E8\uACC4\uB97C \uC124\uBA85",
+                        "multi intent",
+                        1.0d,
+                        objectMapper.createObjectNode()
+                )),
+                "test-planner",
+                false,
+                null,
+                objectMapper.createObjectNode()
+        );
+        List<RagRepository.RetrievalDoc> rawDocs = List.of(new RagRepository.RetrievalDoc(
+                "doc-raw",
+                "chunk-raw",
+                "Spring Security filter overview.",
+                0.10d
+        ));
+        List<RagRepository.RetrievalDoc> candidateDocs = List.of(new RagRepository.RetrievalDoc(
+                "doc-candidate",
+                "chunk-candidate",
+                "FilterChainProxy and DispatcherServlet request flow.",
+                0.94d
+        ));
+        UUID rewriteCandidateId = UUID.fromString("cccccccc-cccc-cccc-cccc-cccccccccccd");
+        when(plannerService.plan(eq(rawQuery), eq(config), any(), eq(List.of()), eq(3))).thenReturn(plan);
+        when(embeddingService.embed(anyString())).thenReturn(List.of(1.0d, 0.0d));
+        when(embeddingService.toHalfvecLiteral(anyList())).thenReturn("[1.000000,0.000000]");
+        when(repository.findTopChunksByEmbedding(anyString(), anyInt(), eq(domainId)))
+                .thenReturn(rawDocs, candidateDocs);
+        when(repository.findMemoryTopN(anyString(), anyInt(), eq("full_gating"), eq(domainId), anyList(), anyList(), anyList()))
+                .thenReturn(List.of(memoryCandidate()));
+        when(cohereRerankService.rerank(anyString(), anyList(), anyInt())).thenAnswer(invocation -> invocation.getArgument(1));
+        when(rewriteCandidateService.buildCandidates(anyString(), any(), anyList(), anyInt(), anyString(), anyBoolean(), any()))
+                .thenReturn(List.of(new RewriteCandidateService.CandidateTemplate(
+                        "candidate-1",
+                        "FilterChainProxy DispatcherServlet request flow"
+                )));
+        when(ragTracePersistenceService.createAgenticRewriteCandidateTrace(any()))
+                .thenReturn(new RagTracePersistenceService.RewriteCandidatePersistenceResult(
+                        RagPersistPolicy.ONLINE_QUERY,
+                        onlineQueryId,
+                        rewriteCandidateId,
+                        true,
+                        "persisted_agentic_multi_query_candidate_root"
+                ));
+
+        AgenticRetrievalService.AgenticExecutionResult result = service.execute(new AgenticRetrievalService.AgenticExecutionRequest(
+                rawQuery,
+                onlineQueryId,
+                config,
+                readiness,
+                objectMapper.createObjectNode(),
+                List.of(),
+                "selective_rewrite",
+                "compact_anchor",
+                "full_gating",
+                3,
+                3,
+                5,
+                1,
+                0.05d,
+                3,
+                60,
+                3
+        ));
+
+        RagDtos.SubqueryRetrievalTrace trace = result.traces().getFirst();
+        assertThat(trace.routeStrategy()).isEqualTo("SYNTHETIC_SELECTIVE_REWRITE");
+        assertThat(trace.metadata().path("route_metadata").path("agenticSubquery").asBoolean()).isTrue();
+        assertThat(trace.metadata().path("route_metadata").path("agenticCandidate").asBoolean()).isTrue();
+        assertThat(trace.metadata().path("route_metadata").path("agenticCandidateSuppressed").asText())
+                .isEqualTo("agentic_subquery_recursion_guard");
+        assertThat(result.persistedCandidates()).hasSize(1);
+        verify(rewriteCandidateService).buildCandidates(anyString(), any(), anyList(), anyInt(), eq("compact_anchor"), eq(false), any());
+        verify(ragTracePersistenceService).createAgenticRewriteCandidateTrace(any());
+        verifyNoOnlineRootAnswerDecisionOrLogWrites();
+    }
+
     private void verifyNoOnlineRootAnswerDecisionOrLogWrites() {
         verify(repository, never()).createOnlineQuery(any(), any(), any(), any(), any(), anyDouble(), any());
         verify(repository, never()).insertRerankResults(any(), any(), anyList(), anyString());
@@ -353,8 +443,15 @@ class AgenticRetrievalServiceTest {
     }
 
     private ChatRuntimeDtos.ChatRuntimeConfigResponse config(String mode, boolean routerEnabled) {
+        return config(mode, routerEnabled, false);
+    }
+
+    private ChatRuntimeDtos.ChatRuntimeConfigResponse config(String mode, boolean routerEnabled, boolean agenticEnabled) {
         ObjectNode metadata = objectMapper.createObjectNode();
         metadata.put("routerEnabled", routerEnabled);
+        if (agenticEnabled) {
+            metadata.put("agenticMultiQueryEnabled", true);
+        }
         return new ChatRuntimeDtos.ChatRuntimeConfigResponse(
                 domainId,
                 "spring",

@@ -157,12 +157,106 @@ class QueryStrategyRouterTest {
                 .containsEntry("memoryCandidatesAvailable", true);
     }
 
+    @Test
+    void agenticDisabledKeepsMultiIntentQueryOnSelectiveRewrite() {
+        String query = "\uC2A4\uD504\uB9C1 \uC694\uCCAD \uD750\uB984\uC744 \uBE44\uAD50\uD558\uACE0 mvc \uB77C\uC6B0\uD305\uACFC \uCC98\uB9AC \uB2E8\uACC4\uB97C \uC124\uBA85";
+        QueryRouteDecision decision = router.route(context(
+                query,
+                config("selective_rewrite", true, false, false),
+                readiness(true),
+                true,
+                true
+        ));
+
+        assertThat(decision.strategy()).isEqualTo(QueryStrategy.SYNTHETIC_SELECTIVE_REWRITE);
+        assertThat(decision.metadata())
+                .containsEntry("agenticMultiQueryEnabled", false)
+                .containsEntry("agenticCandidate", true);
+    }
+
+    @Test
+    void agenticEnabledSelectsAgenticForMultiIntentQuery() {
+        String query = "\uC2A4\uD504\uB9C1 \uC694\uCCAD \uD750\uB984\uC744 \uBE44\uAD50\uD558\uACE0 mvc \uB77C\uC6B0\uD305\uACFC \uCC98\uB9AC \uB2E8\uACC4\uB97C \uC124\uBA85";
+        QueryRouteDecision decision = router.route(context(
+                query,
+                config("selective_rewrite", true, false, true),
+                readiness(true),
+                true,
+                true
+        ));
+
+        assertThat(decision.strategy()).isEqualTo(QueryStrategy.AGENTIC_MULTI_QUERY);
+        assertThat(decision.reason()).isEqualTo("agentic_multi_query_candidate");
+        assertThat(decision.metadata())
+                .containsEntry("agenticMultiQueryEnabled", true)
+                .containsEntry("agenticSelectionAllowed", true)
+                .containsEntry("agenticCandidate", true);
+    }
+
+    @Test
+    void agenticEnabledStillFallsBackToRawOnlyWhenMemoryCandidatesAreUnavailable() {
+        QueryRouteDecision decision = router.route(context(
+                "\uC2A4\uD504\uB9C1 \uC694\uCCAD \uD750\uB984\uC744 \uBE44\uAD50\uD558\uACE0 mvc \uB77C\uC6B0\uD305\uACFC \uCC98\uB9AC \uB2E8\uACC4\uB97C \uC124\uBA85",
+                config("selective_rewrite", true, false, true),
+                readiness(true),
+                true,
+                false
+        ));
+
+        assertThat(decision.strategy()).isEqualTo(QueryStrategy.RAW_ONLY);
+        assertThat(decision.reason()).isEqualTo("memory_candidates_unavailable");
+        assertThat(decision.fallbackApplied()).isTrue();
+    }
+
+    @Test
+    void anchorAwareRuleKeepsPriorityOverAgenticCandidate() {
+        QueryRouteDecision decision = router.route(context(
+                "compare FilterChainProxy order and SecurityFilterChain matching sequence",
+                config("selective_rewrite", true, true, true),
+                readiness(true),
+                true,
+                true
+        ));
+
+        assertThat(decision.strategy()).isEqualTo(QueryStrategy.ANCHOR_AWARE_REWRITE);
+        assertThat(decision.reason()).isEqualTo("anchor_injection_enabled_and_technical_anchor_detected");
+    }
+
+    @Test
+    void agenticSubquerySuppressesAgenticSelectionToPreventRecursion() {
+        QueryRouteDecision decision = router.route(context(
+                "\uC2A4\uD504\uB9C1 \uC694\uCCAD \uD750\uB984\uC744 \uBE44\uAD50\uD558\uACE0 mvc \uB77C\uC6B0\uD305\uACFC \uCC98\uB9AC \uB2E8\uACC4\uB97C \uC124\uBA85",
+                config("selective_rewrite", true, false, true),
+                readiness(true),
+                true,
+                true,
+                true
+        ));
+
+        assertThat(decision.strategy()).isEqualTo(QueryStrategy.SYNTHETIC_SELECTIVE_REWRITE);
+        assertThat(decision.metadata())
+                .containsEntry("agenticSubquery", true)
+                .containsEntry("agenticSelectionAllowed", false)
+                .containsEntry("agenticCandidateSuppressed", "agentic_subquery_recursion_guard");
+    }
+
     private QueryRouteContext context(
             String query,
             ChatRuntimeDtos.ChatRuntimeConfigResponse config,
             ChatRuntimeDtos.ChatDomainReadinessResponse readiness,
             boolean memoryCandidatesKnown,
             boolean memoryCandidatesAvailable
+    ) {
+        return context(query, config, readiness, memoryCandidatesKnown, memoryCandidatesAvailable, false);
+    }
+
+    private QueryRouteContext context(
+            String query,
+            ChatRuntimeDtos.ChatRuntimeConfigResponse config,
+            ChatRuntimeDtos.ChatDomainReadinessResponse readiness,
+            boolean memoryCandidatesKnown,
+            boolean memoryCandidatesAvailable,
+            boolean agenticSubquery
     ) {
         return new QueryRouteContext(
                 query,
@@ -179,14 +273,27 @@ class QueryStrategyRouterTest {
                 false,
                 memoryCandidatesKnown,
                 memoryCandidatesAvailable,
-                null
+                null,
+                agenticSubquery
         );
     }
 
     private ChatRuntimeDtos.ChatRuntimeConfigResponse config(String mode, boolean routerEnabled, boolean anchorInjectionEnabled) {
+        return config(mode, routerEnabled, anchorInjectionEnabled, false);
+    }
+
+    private ChatRuntimeDtos.ChatRuntimeConfigResponse config(
+            String mode,
+            boolean routerEnabled,
+            boolean anchorInjectionEnabled,
+            boolean agenticEnabled
+    ) {
         ObjectNode metadata = objectMapper.createObjectNode();
         if (routerEnabled) {
             metadata.put("routerEnabled", true);
+        }
+        if (agenticEnabled) {
+            metadata.put("agenticMultiQueryEnabled", true);
         }
         UUID domainId = UUID.randomUUID();
         return new ChatRuntimeDtos.ChatRuntimeConfigResponse(

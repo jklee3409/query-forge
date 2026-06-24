@@ -17,6 +17,7 @@ public record QueryRouteContext(
         boolean containsTechnicalAnchor,
         boolean memoryCandidatesKnown,
         boolean memoryCandidatesAvailable,
-        Double rawRetrievalConfidence
+        Double rawRetrievalConfidence,
+        boolean agenticSubquery
 ) {
 }

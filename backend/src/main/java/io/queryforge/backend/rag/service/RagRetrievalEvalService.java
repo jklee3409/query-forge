@@ -48,6 +48,7 @@ public class RagRetrievalEvalService {
     private static final String ERROR_UNSUPPORTED_ANSWER_GENERATION = "unsupported_answer_generation";
     private static final String ERROR_UNSUPPORTED_FORCED_MODE = "unsupported_forced_mode";
     private static final String ERROR_UNSUPPORTED_AGENTIC_EVAL = "unsupported_agentic_eval";
+    private static final String ERROR_UNSUPPORTED_ROUTER_AGENTIC_EVAL = "unsupported_router_agentic_eval";
 
     private final ChatRuntimeConfigService chatRuntimeConfigService;
     private final DomainScopedRetrievalService domainScopedRetrievalService;
@@ -195,6 +196,10 @@ public class RagRetrievalEvalService {
                     started,
                     routed,
                     memoryCandidates
+            );
+            case AGENTIC_MULTI_QUERY -> throw evalError(
+                    ERROR_UNSUPPORTED_ROUTER_AGENTIC_EVAL,
+                    "unsupported_router_agentic_eval: strategy_router selected AGENTIC_MULTI_QUERY, but retrieval eval blocks agentic execution until agentic persistPolicy=NONE is implemented"
             );
         };
     }
@@ -537,7 +542,8 @@ public class RagRetrievalEvalService {
                 false,
                 memoryCandidatesKnown,
                 memoryCandidatesAvailable,
-                rawRetrievalConfidence
+                rawRetrievalConfidence,
+                false
         );
     }
 

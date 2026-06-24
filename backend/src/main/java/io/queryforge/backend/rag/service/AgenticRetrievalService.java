@@ -718,7 +718,8 @@ public class AgenticRetrievalService {
                 containsTechnicalAnchor(rawQuery),
                 memoryCandidatesKnown,
                 memoryCandidatesAvailable,
-                rawRetrievalConfidence
+                rawRetrievalConfidence,
+                true
         );
     }
 

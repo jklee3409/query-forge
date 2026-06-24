@@ -23,6 +23,10 @@ public class QueryStrategyRouter {
                     + "|(\\b[A-Z][A-Za-z0-9_]+[A-Z][A-Za-z0-9_]*\\b)"
                     + "|(\\b[A-Za-z]+\\d+[A-Za-z0-9_]*\\b)"
     );
+    private static final Pattern MULTI_INTENT_PATTERN = Pattern.compile(
+            "(?i)(\\b(compare|contrast|difference|differences|versus|vs\\.?|between|and|then|also|steps?|sequence|flow|relationship|interact(?:ion|s)?|multiple)\\b)"
+                    + "|(\\uBE44\\uAD50|\\uCC28\\uC774|\\uADF8\\uB9AC\\uACE0|\\uB610\\uB294|\\uBC0F|\\uB2E8\\uACC4|\\uC21C\\uC11C|\\uD750\\uB984|\\uAD00\\uACC4|\\uC5F0\\uB3D9|\\uC5EC\\uB7EC|\\uAC01\\uAC01|\\uB3D9\\uC2DC\\uC5D0|\\uB098\\uB220\\uC11C)"
+    );
 
     public QueryRouteDecision route(QueryRouteContext context) {
         ChatRuntimeDtos.ChatRuntimeConfigResponse config = context.config();
@@ -30,11 +34,22 @@ public class QueryStrategyRouter {
         String rewriteProfile = normalize(context.rewriteQueryProfile(), "compact_anchor");
         boolean routerEnabled = routerEnabled(config);
         boolean fallbackAllowed = routerEnabled && fallbackAllowed(config == null ? null : config.metadata());
+        boolean agenticEnabled = agenticMultiQueryEnabled(config);
+        boolean agenticSubquery = context.agenticSubquery();
         boolean technicalAnchor = context.containsTechnicalAnchor() || hasTechnicalAnchor(context.rawQuery());
         boolean korean = context.containsKorean() || hasKorean(context.rawQuery());
         int tokenCount = context.queryTokenCount() > 0 ? context.queryTokenCount() : countTokens(context.rawQuery());
 
         Map<String, Object> metadata = baseMetadata(context, mode, rewriteProfile, technicalAnchor, korean, tokenCount);
+        int multiIntentMarkerCount = multiIntentMarkerCount(context.rawQuery());
+        boolean agenticCandidate = agenticCandidate(context.rawQuery(), tokenCount, multiIntentMarkerCount);
+        metadata.put("agenticMultiQueryEnabled", agenticEnabled);
+        metadata.put("agenticSubquery", agenticSubquery);
+        metadata.put("multiIntentMarkerCount", multiIntentMarkerCount);
+        metadata.put("agenticCandidate", agenticCandidate);
+        if (agenticCandidate && agenticSubquery) {
+            metadata.put("agenticCandidateSuppressed", "agentic_subquery_recursion_guard");
+        }
         if (!routerEnabled) {
             return decision(
                     QueryStrategy.RAW_ONLY,
@@ -49,6 +64,7 @@ public class QueryStrategyRouter {
                     metadata
             );
         }
+        metadata.put("agenticSelectionAllowed", agenticEnabled && !agenticSubquery);
         if ("raw_only".equals(mode)) {
             return decision(
                     QueryStrategy.RAW_ONLY,
@@ -110,6 +126,20 @@ public class QueryStrategyRouter {
             return decision(
                     QueryStrategy.RAW_ONLY,
                     "specific_technical_query",
+                    true,
+                    fallbackAllowed,
+                    false,
+                    null,
+                    mode,
+                    rewriteProfile,
+                    context.anchorInjectionEnabled(),
+                    metadata
+            );
+        }
+        if (agenticCandidate && agenticEnabled && !agenticSubquery) {
+            return decision(
+                    QueryStrategy.AGENTIC_MULTI_QUERY,
+                    "agentic_multi_query_candidate",
                     true,
                     fallbackAllowed,
                     false,
@@ -213,6 +243,23 @@ public class QueryStrategyRouter {
         return true;
     }
 
+    private boolean agenticMultiQueryEnabled(ChatRuntimeDtos.ChatRuntimeConfigResponse config) {
+        if (config == null) {
+            return false;
+        }
+        return agenticMultiQueryEnabled(config.metadata());
+    }
+
+    private boolean agenticMultiQueryEnabled(JsonNode metadata) {
+        if (metadata == null || metadata.isMissingNode() || metadata.isNull()) {
+            return false;
+        }
+        return metadata.path("agenticMultiQueryEnabled").asBoolean(false)
+                || metadata.path("agentic_multi_query_enabled").asBoolean(false)
+                || metadata.path("queryRouterAgenticEnabled").asBoolean(false)
+                || metadata.path("query_router_agentic_enabled").asBoolean(false);
+    }
+
     private boolean readyForRewrite(ChatRuntimeDtos.ChatDomainReadinessResponse readiness) {
         return readiness != null && readiness.readyForRewrite();
     }
@@ -230,6 +277,24 @@ public class QueryStrategyRouter {
         }
         int anchorCount = technicalAnchorCount(query);
         return anchorCount >= 2 && tokenCount >= 3;
+    }
+
+    private boolean agenticCandidate(String query, int tokenCount, int multiIntentMarkerCount) {
+        if (query == null || query.isBlank()) {
+            return false;
+        }
+        return multiIntentMarkerCount >= 2
+                || (multiIntentMarkerCount >= 1 && tokenCount >= 8)
+                || (tokenCount >= 14 && query.contains("?"));
+    }
+
+    private int multiIntentMarkerCount(String query) {
+        Matcher matcher = MULTI_INTENT_PATTERN.matcher(query == null ? "" : query);
+        int count = 0;
+        while (matcher.find() && count < 5) {
+            count++;
+        }
+        return count;
     }
 
     private boolean hasTechnicalAnchor(String query) {

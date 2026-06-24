@@ -186,6 +186,21 @@ class RagRetrievalEvalControllerTest {
     }
 
     @Test
+    void routerSelectedAgenticMapsToBadRequestProblemDetail() throws Exception {
+        assertEvalProblem(
+                """
+                        {
+                          "domainId": "11111111-1111-1111-1111-111111111111",
+                          "query": "compare spring request lifecycle and mvc routing flow then explain sequence",
+                          "forcedMode": "strategy_router"
+                        }
+                        """,
+                "unsupported_router_agentic_eval",
+                "unsupported_router_agentic_eval: strategy_router selected AGENTIC_MULTI_QUERY, but retrieval eval blocks agentic execution until agentic persistPolicy=NONE is implemented"
+        );
+    }
+
+    @Test
     void unknownForcedModeMapsToBadRequestProblemDetail() throws Exception {
         assertEvalProblem(
                 """

@@ -1,5 +1,14 @@
 # progress.md
 
+## [2026-06-24] Session Summary (RAG Java Source-of-Truth Migration Guide Phase 10B)
+- What was done: Implemented backend StrategyRouter agentic enhancement without Admin GUI/frontend, Python eval, DB schema, migration, or Java endpoint path changes.
+- Router/strategy result: Added `QueryStrategy.AGENTIC_MULTI_QUERY`; `QueryStrategyRouter` can select it only when `routerEnabled=true`, `agenticMultiQueryEnabled=true`, rewrite readiness passes, memory fallback does not apply, anchor/specific-technical rules do not take priority, and the query has conservative multi-intent signals.
+- `/ask` and recursion result: `RagService.ask` now routes router-selected `AGENTIC_MULTI_QUERY` through `AgenticRetrievalService` while preserving the existing explicit `metadata_json.agenticMultiQueryEnabled` agentic path; agentic subquery routing passes an `agenticSubquery` guard so recursive agentic selection is downgraded to non-agentic strategies and recorded in route metadata.
+- Eval policy result: `RagRetrievalEvalService` keeps forced `agentic_multi_query` blocked and now blocks router-selected `AGENTIC_MULTI_QUERY` with `unsupported_router_agentic_eval`; controller ProblemDetail mapping is covered.
+- Phase 10C remaining: Admin GUI/runtime exposure and frontend build/smoke remain deferred; Chat Settings still has no new agentic-router UI in this phase.
+- Validation: `.\gradlew.bat compileJava`, focused router/RagService/Agentic/eval tests, requested `/api/chat/ask` + eval controller regression, `python -m unittest pipeline.tests.test_java_retrieval_client pipeline.tests.test_retrieval_eval_compare -q`, and `git diff --check` passed.
+- Remaining risks: Live explicit `agenticMultiQueryEnabled=true` continues to force the existing agentic path by design; eval remains non-agentic until a separate no-write agentic persistPolicy design is implemented.
+
 ## [2026-06-24] Session Summary (RAG Java Source-of-Truth Migration Guide Phase 9B)
 - What was done: Added regression/audit coverage for the Phase 9A official Java-backed retrieval eval backend policy without changing production runtime behavior.
 - Official Java-backed policy regression: Tests now confirm `retrieval_eval_backend=java`, `official_eval_backend=java`, and `eval_retrieval_backend=java` use the Java client branch; explicit `retrieval_eval_backend=legacy` avoids Java client construction; explicit legacy still overrides old `use_java_backend=true`; implicit default remains legacy.

@@ -47,6 +47,8 @@ class RagRetrievalEvalServiceTest {
             "unsupported_forced_mode: forcedMode is not supported for retrieval eval: unknown_mode";
     private static final String UNSUPPORTED_AGENTIC_EVAL_MESSAGE =
             "unsupported_agentic_eval: agentic_multi_query retrieval eval is blocked until agentic persistPolicy=NONE is implemented";
+    private static final String UNSUPPORTED_ROUTER_AGENTIC_EVAL_MESSAGE =
+            "unsupported_router_agentic_eval: strategy_router selected AGENTIC_MULTI_QUERY, but retrieval eval blocks agentic execution until agentic persistPolicy=NONE is implemented";
 
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final DomainScopedRetrievalService.RetrievalRuntime retrievalRuntime =
@@ -393,6 +395,23 @@ class RagRetrievalEvalServiceTest {
         assertThat(response.forcedMode()).isEqualTo("strategy_router");
         assertThat(response.selectedMode()).isEqualTo("selective_rewrite");
         assertThat(response.retrievedChunkIds()).containsExactly("chunk-router");
+    }
+
+    @Test
+    void strategyRouterSelectedAgenticIsUnsupportedForRetrievalEval() {
+        givenRuntime();
+        givenMemoryCandidates(List.of(memory()));
+        when(queryStrategyRouter.route(any())).thenReturn(routeDecision(QueryStrategy.AGENTIC_MULTI_QUERY));
+
+        assertEvalError(
+                request(null, null, null),
+                "unsupported_router_agentic_eval",
+                UNSUPPORTED_ROUTER_AGENTIC_EVAL_MESSAGE
+        );
+
+        verify(ragRetrievalExecutionService, never()).executeRawOnly(any());
+        verify(ragRetrievalExecutionService, never()).executeSelectiveRewrite(any());
+        verify(ragRetrievalExecutionService, never()).executeAnchorAwareRewrite(any());
     }
 
     @Test

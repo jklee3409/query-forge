@@ -774,6 +774,88 @@ class RagServiceTest {
         verify(ragTracePersistenceService, never()).mergeOnlineQueryMetadata(any());
     }
 
+    @Test
+    void routerSelectedAgenticBranchesToAgenticExecutionAndRecordsRouteMetadata() {
+        UUID onlineQueryId = UUID.fromString("44444444-4444-4444-4444-444444444449");
+        String query = "\uC2A4\uD504\uB9C1 \uC694\uCCAD \uD750\uB984\uC744 \uBE44\uAD50\uD558\uACE0 mvc \uB77C\uC6B0\uD305\uACFC \uCC98\uB9AC \uB2E8\uACC4\uB97C \uC124\uBA85";
+        ChatRuntimeDtos.ChatRuntimeConfigResponse config = config("selective_rewrite", true, false, true);
+        List<RagRepository.MemoryCandidate> memories = memories();
+        List<RagRepository.RetrievalDoc> mergedDocs = docs("agentic-doc", "agentic-router-chunk", 0.91d);
+        RagDtos.AgenticQueryPlan plan = new RagDtos.AgenticQueryPlan(
+                query,
+                domainId,
+                "spring",
+                "Spring",
+                3,
+                List.of(new RagDtos.AgenticSubquery(1, "spring filter order", "filter order", 1.0d, objectMapper.createObjectNode())),
+                "test-planner",
+                false,
+                null,
+                objectMapper.createObjectNode()
+        );
+        RagDtos.SubqueryRetrievalTrace trace = new RagDtos.SubqueryRetrievalTrace(
+                1,
+                "spring filter order",
+                "spring filter order",
+                false,
+                "SYNTHETIC_SELECTIVE_REWRITE",
+                "agentic_multi_query_rrf",
+                null,
+                List.of(new RagDtos.ScoredDocumentDto("agentic-doc", "agentic-router-chunk", "agentic text", 0.91d)),
+                List.of(),
+                objectMapper.createArrayNode(),
+                4L,
+                objectMapper.createObjectNode()
+        );
+        when(agenticRetrievalService.execute(any()))
+                .thenReturn(new AgenticRetrievalService.AgenticExecutionResult(
+                        plan,
+                        List.of(trace),
+                        List.of(),
+                        mergedDocs,
+                        false,
+                        "agentic_multi_query_rrf",
+                        null,
+                        5L,
+                        9L,
+                        objectMapper.createObjectNode().put("subquery_count", 1)
+                ));
+        stubCommonAskDependencies(config, onlineQueryId);
+        when(repository.findMemoryTopN(anyString(), anyInt(), eq("full_gating"), eq(domainId), eq(List.of("C")), eq(List.of(sourceGatingRunId)), eq(List.of(sourceGatingBatchId))))
+                .thenReturn(memories);
+        when(chatAnswerService.generateAnswer(anyString(), anyString(), anyString(), anyList()))
+                .thenReturn(generatedAnswer("router agentic answer"));
+        stubRewriteLog(UUID.fromString("77777777-7777-7777-7777-777777777781"));
+
+        RagDtos.AskResponse response = ragService.ask(request(query));
+
+        assertThat(response.answer()).isEqualTo("router agentic answer");
+        assertThat(response.agenticMetadata()).isNotNull();
+        assertThat(response.agenticMetadata().mergedDocs()).extracting(RagDtos.ScoredDocumentDto::chunkId)
+                .containsExactly("agentic-router-chunk");
+
+        ArgumentCaptor<AgenticRetrievalService.AgenticExecutionRequest> requestCaptor =
+                ArgumentCaptor.forClass(AgenticRetrievalService.AgenticExecutionRequest.class);
+        verify(agenticRetrievalService).execute(requestCaptor.capture());
+        assertThat(requestCaptor.getValue().plannerMemoryHints()).isEqualTo(memories);
+        assertThat(requestCaptor.getValue().mode()).isEqualTo("selective_rewrite");
+
+        ArgumentCaptor<RagTracePersistenceService.AgenticOnlineQueryMetadataMergePersistenceRequest> metadataCaptor =
+                ArgumentCaptor.forClass(RagTracePersistenceService.AgenticOnlineQueryMetadataMergePersistenceRequest.class);
+        verify(ragTracePersistenceService).mergeAgenticOnlineQueryMetadata(metadataCaptor.capture());
+        JsonNode router = metadataCaptor.getValue().metadata().path("router");
+        assertThat(router.path("enabled").asBoolean()).isTrue();
+        assertThat(router.path("strategy").asText()).isEqualTo("AGENTIC_MULTI_QUERY");
+        assertThat(router.path("reason").asText()).isEqualTo("agentic_multi_query_candidate");
+        assertThat(router.path("metadata").path("agenticMultiQueryEnabled").asBoolean()).isTrue();
+        assertThat(router.path("metadata").path("agenticSubquery").asBoolean()).isFalse();
+
+        verify(repository, never()).findTopChunksByEmbedding(anyString(), anyInt(), any());
+        verify(rewriteCandidateService, never()).buildCandidates(anyString(), any(), anyList(), anyInt(), anyString(), anyBoolean(), any());
+        verify(ragTracePersistenceService, never()).persistOnlineQueryDecision(any());
+        verify(ragTracePersistenceService, never()).mergeOnlineQueryMetadata(any());
+    }
+
     private ChatRuntimeDtos.ChatRuntimeConfigResponse config(String mode, boolean routerEnabled, boolean anchorInjectionEnabled) {
         return config(mode, routerEnabled, anchorInjectionEnabled, false);
     }

@@ -1,5 +1,13 @@
 # progress.md
 
+## [2026-06-24] Session Summary (RAG Java Source-of-Truth Migration Guide Phase 10B)
+- What was done: Recorded backend StrategyRouter agentic enhancement impact on Java-backed retrieval eval policy; Python eval code was not modified.
+- Backend policy result: Java `QueryStrategy.AGENTIC_MULTI_QUERY` now exists for router selection, and `/api/chat/ask` can dispatch router-selected agentic through the existing Java agentic service.
+- Eval collision result: Java retrieval eval keeps forced `agentic_multi_query` blocked and now explicitly rejects `strategy_router` when the Java router selects `AGENTIC_MULTI_QUERY` with `unsupported_router_agentic_eval`, so Python Java-backed `strategy_router` calls cannot silently execute agentic no-write-unsafe logic.
+- Admin/Phase 10C: No Admin GUI/frontend work in this phase; Phase 10C should handle GUI/runtime exposure and frontend build/smoke after this backend policy.
+- Validation: Backend compile and targeted tests passed; `python -m unittest pipeline.tests.test_java_retrieval_client pipeline.tests.test_retrieval_eval_compare -q` passed; `git diff --check` passed.
+- Remaining risks: Python legacy eval remains fallback/regression; Java-backed official eval remains non-agentic until an approved no-write agentic eval design exists.
+
 ## [2026-06-24] Session Summary (RAG Java Source-of-Truth Migration Guide Phase 9B)
 - What was done: Strengthened Python eval regression/audit tests for the Phase 9A official Java-backed retrieval backend policy; no production logic change was needed.
 - Official Java-backed policy regression: `retrieval_eval_backend=java`, `official_eval_backend=java`, and `eval_retrieval_backend=java` are covered as Java client branch selectors; `retrieval_eval_backend=legacy` and the implicit default remain legacy; explicit legacy still wins over legacy Java opt-in flags.

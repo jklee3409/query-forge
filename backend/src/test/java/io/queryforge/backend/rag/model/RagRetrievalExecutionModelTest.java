@@ -38,9 +38,13 @@ class RagRetrievalExecutionModelTest {
                 .containsExactly(
                         "RAW_ONLY",
                         "SYNTHETIC_SELECTIVE_REWRITE",
-                        "ANCHOR_AWARE_REWRITE"
-                )
-                .doesNotContain("AGENTIC_MULTI_QUERY");
+                        "ANCHOR_AWARE_REWRITE",
+                        "AGENTIC_MULTI_QUERY"
+                );
+        assertThat(ForcedRetrievalMode.AGENTIC_MULTI_QUERY.name())
+                .isEqualTo(QueryStrategy.AGENTIC_MULTI_QUERY.name());
+        assertThat(ForcedRetrievalMode.AGENTIC_MULTI_QUERY.getClass())
+                .isNotEqualTo(QueryStrategy.AGENTIC_MULTI_QUERY.getClass());
     }
 
     @Test

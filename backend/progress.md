@@ -1,5 +1,14 @@
 # progress.md
 
+## [2026-06-24] Session Summary (RAG Java Source-of-Truth Migration Guide Phase 10B)
+- What was done: Added backend router-selected agentic strategy support and tests while preserving existing `/api/chat/ask` and retrieval eval endpoint contracts.
+- Strategy/router result: `QueryStrategy.AGENTIC_MULTI_QUERY` was added. The router selects it only for conservative multi-intent queries when router and agentic metadata are enabled, readiness is good, memory fallback is not active, and anchor/specific raw rules do not win.
+- `/ask` result: `RagService.ask` connects router-selected agentic to `AgenticRetrievalService`; existing explicit `agenticMultiQueryEnabled` execution remains unchanged. Route metadata records agentic eligibility/candidate signals.
+- Recursion/eval result: `AgenticRetrievalService` marks internal subquery routing with an `agenticSubquery` guard, preventing router-selected agentic recursion. `RagRetrievalEvalService` blocks router-selected agentic with `unsupported_router_agentic_eval`, while forced `agentic_multi_query` stays blocked.
+- Admin GUI impact: None; no frontend/admin files, build, DB schema, migration, Python eval, endpoint path, or large controller contract changes were introduced. Phase 10C still owns GUI exposure/regression.
+- Validation: `.\gradlew.bat compileJava`, `.\gradlew.bat test --tests io.queryforge.backend.rag.service.QueryStrategyRouterTest`, `.\gradlew.bat test --tests io.queryforge.backend.rag.service.RagServiceTest`, `.\gradlew.bat test --tests io.queryforge.backend.rag.service.AgenticRetrievalServiceTest`, `.\gradlew.bat test --tests io.queryforge.backend.rag.service.RagRetrievalEvalServiceTest --tests io.queryforge.backend.rag.controller.RagRetrievalEvalControllerTest`, requested controller regression, Python policy tests, and `git diff --check` passed.
+- Remaining risks: Agentic eval is still intentionally blocked because no-write agentic execution/persistence identity is unresolved; explicit live agentic enablement still has the existing online-query semantics.
+
 ## [2026-06-24] Session Summary (RAG Java Source-of-Truth Migration Guide Phase 7E)
 - What was done: Strengthened `RagRetrievalEvalControllerTest` as the Java retrieval eval endpoint smoke/contract audit; no production code was changed.
 - Endpoint contract audit: `POST /api/rag/eval/retrieval` success remains 200 with ordered `retrievedChunkIds`, `retrievedDocs` and 1-based ranks, `query`, `finalQuery`, `forcedMode`, `selectedMode`, `persisted=false`, `persistPolicy=NONE`, warnings array, and no `answer` field. 400 `ProblemDetail` coverage now includes missing `domainId`, blank `query`, `answerGeneration=true`, `ONLINE_QUERY`, `TRACE_ONLY`, `agentic_multi_query`, and unknown `forcedMode`.

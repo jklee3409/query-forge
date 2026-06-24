@@ -149,7 +149,27 @@ public class RagService {
         JsonNode memoryTopNJson = objectMapper.valueToTree(memoryCandidates);
         long memoryLatency = elapsedMs(stageStart);
 
-        if (agenticSettings.enabled()) {
+        if (routeDecision.routerEnabled() && routeDecision.strategy() == QueryStrategy.AGENTIC_MULTI_QUERY) {
+            routeStarted = System.nanoTime();
+            QueryRouteDecision memoryAwareAgenticDecision = queryStrategyRouter.route(routeContext(
+                    rawQuery,
+                    config,
+                    readiness,
+                    mode,
+                    rewriteQueryProfile,
+                    config.rewriteAnchorInjectionEnabled(),
+                    true,
+                    !memoryCandidates.isEmpty(),
+                    null
+            ));
+            routeLatency += elapsedMs(routeStarted);
+            routeDecision = memoryAwareAgenticDecision.withLatency(routeLatency);
+            rawOnlyRoute = routeDecision.routerEnabled() && routeDecision.strategy() == QueryStrategy.RAW_ONLY;
+        }
+
+        boolean routerSelectedAgentic = routeDecision.routerEnabled()
+                && routeDecision.strategy() == QueryStrategy.AGENTIC_MULTI_QUERY;
+        if (agenticSettings.enabled() || routerSelectedAgentic) {
             return askAgentic(
                     request,
                     rawQuery,
@@ -1568,7 +1588,8 @@ public class RagService {
                 containsTechnicalAnchor(rawQuery),
                 memoryCandidatesKnown,
                 memoryCandidatesAvailable,
-                rawRetrievalConfidence
+                rawRetrievalConfidence,
+                false
         );
     }
 
