@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-06-25] Session Summary (AGENTS Java Source-of-Truth Boundary Sync)
+- What was done: Updated `.codex/AGENTS.md` after the Java source-of-truth migration without production code changes.
+- Scope reflected: Java RAG source-of-truth boundary, Python eval / Java-backed eval boundary, StrategyRouter agentic routing, and Admin GUI runtime config are now represented in the agent rules.
+- Agentic eval note: Agentic eval is documented as a planned no-write extension after explicit Phase 11 design, not as a permanent prohibition.
+- Code/schema impact: No backend/frontend/pipeline production code, DB schema, or migration file was changed.
+
 ## [2026-06-25] Session Summary (RAG Java Source-of-Truth Migration Phase 11-0 Audit)
 - What was done: Completed the Phase 11-0 current project structure and implementation state audit after Phase 10D.
 - Audit result: Reconfirmed Java live chat as the online RAG serving source of truth, Java retrieval eval as the non-agentic no-write source-of-truth endpoint, Python legacy eval as fallback/comparison, and frontend Chat Settings/Chat config visibility for router/agentic flags.

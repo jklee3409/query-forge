@@ -19,6 +19,10 @@ The project is a research-driven RAG system with:
 - evaluation dataset generation
 - query rewrite and anchor-aware RAG evaluation (retrieval + answer)
 
+Query-Forge is now both a research-driven RAG pipeline and a Java/Spring-backed online RAG serving system.
+Python remains responsible for research/backoffice stages such as generation, gating, memory build, dataset build, metrics, reports, and legacy/comparison eval.
+Java backend is the source of truth for live `/api/chat/ask` execution and retrieval-only `/api/rag/eval/retrieval` execution.
+
 Agents must not change the fundamental pipeline flow.
 
 ## 2. Core Pipeline Flow
@@ -28,6 +32,10 @@ The following order must be preserved:
 collect → preprocess → chunk → glossary → import  
 → generate-queries → gate-queries → build-memory  
 → build-eval-dataset → eval-retrieval → eval-answer
+
+Offline research stages remain in Python.
+Online RAG serving and retrieval-only eval execution are owned by the Java backend.
+Python eval may call the Java retrieval eval endpoint and then compute metrics/reporting.
 
 ## 3. Research Constraints
 
@@ -683,6 +691,48 @@ Agents MUST treat missing required source identity fields as validation errors, 
 
 ---
 
+## 3.9 Java RAG Source-of-Truth Boundary
+
+The current Java/Python boundary is:
+- `/api/chat/ask` is the live online RAG serving path.
+- `/api/rag/eval/retrieval` is the retrieval-only eval endpoint.
+- Java backend owns raw, selective rewrite, anchor-aware rewrite, and router retrieval execution.
+- Java backend owns `StrategyRouter` execution and supports live agentic routing.
+- Retrieval-only eval is answer-free and defaults to `persistPolicy=NONE`.
+- Python computes metrics/reporting and may call the Java endpoint for Java-backed retrieval execution.
+
+### 3.9.1 StrategyRouter and Agentic Routing
+
+`QueryStrategy` includes:
+- `RAW_ONLY`
+- `SYNTHETIC_SELECTIVE_REWRITE`
+- `ANCHOR_AWARE_REWRITE`
+- `AGENTIC_MULTI_QUERY`
+
+Router-selected `AGENTIC_MULTI_QUERY` is allowed only when `routerEnabled` and metadata-backed `agenticMultiQueryEnabled` are enabled and guard conditions pass.
+Agentic subquery recursion must be prevented.
+Existing raw, selective rewrite, and anchor-aware behavior must not be weakened when changing router rules.
+
+Agentic live chat is supported.
+Agentic retrieval-only eval is currently blocked as a safety boundary, not as a permanent prohibition.
+Future Phase 11 work may add agentic retrieval-only eval after an explicit no-write design is approved.
+
+Agents MUST NOT bypass the current agentic eval blocker by reusing the live `/api/chat/ask` path or by enabling DB-writing agentic execution inside retrieval-only eval.
+Future agentic eval work MUST define `persistPolicy=NONE` propagation, execution without `onlineQueryId`, transient in-memory candidate identity, no answer generation, and no `insertAnswer`.
+
+The eval endpoint MUST block forced or router-selected agentic execution until that no-write agentic eval design is implemented.
+
+### 3.9.2 Python Eval and Java-Backed Eval
+
+Python pipeline remains responsible for generation, gating, memory build, dataset build, metrics, reports, and comparison.
+Python legacy eval remains available as fallback/regression/comparison.
+Python retrieval eval backend policy is `retrieval_eval_backend=java|legacy`.
+Python can call `/api/rag/eval/retrieval` for Java-backed retrieval execution.
+Java-backed eval uses `retrievedChunkIds` as the primary metric input.
+`agentic_multi_query` must remain blocked in Java-backed eval until explicit no-write agentic eval design is implemented.
+
+---
+
 ## 4. Execution and Documentation Rules
 
 ### 4.0 Local Resource Safety (MANDATORY)
@@ -753,6 +803,15 @@ README content should be written in descriptive narrative form, not as fragment-
 
 Before making changes, agents must review both the frontend and backend code paths related to the requirement.
 
+Before changing RAG behavior, agents must identify whether the change affects:
+- live `/api/chat/ask`
+- retrieval-only `/api/rag/eval/retrieval`
+- Python legacy eval
+- Java-backed Python eval
+- Admin GUI runtime config
+
+Agents MUST NOT mix live serving changes, eval endpoint changes, Python eval changes, and Admin GUI changes in one broad edit unless the user explicitly requests an integration phase.
+
 Agents must:
 - inspect the existing implementation across frontend and backend before editing code
 - modify only the code that is necessary to satisfy the requirement
@@ -774,6 +833,25 @@ Minimum checklist items:
 - planned `progress.md` update after code changes
 
 The checklist must appear before any file edit or command that modifies repository state.
+
+### 4.6 Targeted Validation Commands
+
+Use targeted validation rather than broad builds/tests unless the user requests wider coverage.
+
+```powershell
+# Backend live chat regression
+.\gradlew.bat test --tests io.queryforge.backend.rag.service.RagServiceTest --tests io.queryforge.backend.rag.controller.RagControllerWebTest
+
+# Router / retrieval eval endpoint
+.\gradlew.bat test --tests io.queryforge.backend.rag.service.QueryStrategyRouterTest --tests io.queryforge.backend.rag.service.RagRetrievalEvalServiceTest --tests io.queryforge.backend.rag.controller.RagRetrievalEvalControllerTest
+
+# Python Java-backed eval policy
+python -m unittest pipeline.tests.test_java_retrieval_client pipeline.tests.test_retrieval_eval_compare -q
+
+# Frontend production bundle
+cd frontend
+npm run build
+```
 
 ## 5. Repository Map (Agent Quick Index)
 
@@ -799,10 +877,13 @@ For each directory, it lists core features, key methods (or entry points), and r
   - `.codex/progress.md`
 
 ### 5.3 `backend/` (Spring Boot)
-- Core features: Admin Console API, Pipeline Admin API, RAG API, LLM job orchestration, DB migrations.
+- Core features: Admin Console API, Pipeline Admin API, live `/api/chat/ask` serving, retrieval-only eval endpoint, runtime config, StrategyRouter / agentic routing, LLM job orchestration, DB migrations.
 - Key methods/entry points:
   - `RagController.ask`, `previewRewrite`, `queryTrace`, `runExperimentCommand`
   - `RagService.ask`, `previewRewrite`, `reindex`, `readEvalReport`
+  - `RagRetrievalEvalController`, `RagRetrievalEvalService`
+  - `QueryStrategyRouter`, `AgenticRetrievalService`, `RagRetrievalExecutionService`, `RagTracePersistenceService`
+  - `ChatRuntimeConfigService`
   - `PipelineAdminService.startCollect`, `startNormalize`, `startChunk`, `startGlossary`, `startImport`, `startFullIngest`
   - `AdminConsoleService.runSyntheticGeneration`, `runGating`, `runRagTest`
   - `LlmJobService.createGenerationJob`, `createGatingJob`, `createRagTestJob`, `pauseJob`, `resumeJob`, `cancelJob`, `retryJob`
@@ -814,7 +895,7 @@ For each directory, it lists core features, key methods (or entry points), and r
   - `backend/progress.md`
 
 ### 5.4 `pipeline/` (Python)
-- Core features: Collection, preprocessing, chunking, glossary extraction, import, synthetic generation, gating, memory build, eval dataset build, retrieval eval, answer eval.
+- Core features: Collection, preprocessing, chunking, glossary extraction, import, synthetic generation, gating, memory build, eval dataset build, metrics, reports, Java-backed eval client, legacy vs Java-backed comparison runner, retrieval eval, answer eval.
 - Key methods/entry points:
   - `cli.py::main` (full pipeline command dispatcher)
   - `collectors/spring_docs_collector.py::collect_documents`
@@ -828,6 +909,8 @@ For each directory, it lists core features, key methods (or entry points), and r
   - `memory/build_memory.py::run_memory_build`, `run_memory_build_from_env`
   - `datasets/build_eval_dataset.py::run_eval_dataset_builder`, `run_eval_dataset_builder_from_env`
   - `eval/retrieval_eval.py::run_retrieval_eval`, `eval/answer_eval.py::run_answer_eval`
+  - `eval/java_retrieval_client.py`
+  - `eval/retrieval_eval_compare.py`
   - `eval/runtime.py::retrieve_top_k`, `run_selective_rewrite`
   - `common/experiment_config.py::load_experiment_config`, `common/llm_client.py::load_stage_config`
 - Documentation paths:
@@ -836,14 +919,15 @@ For each directory, it lists core features, key methods (or entry points), and r
   - `pipeline/progress.md`
 
 ### 5.5 `frontend/` (React + Vite)
-- Core features: Admin console UI (pipeline/synthetic queries/gating/RAG tests) and chat UI.
+- Core features: Admin console UI (pipeline/synthetic queries/gating/RAG tests), runtime config UI, and chat UI. `ChatSettingsPage` manages `routerEnabled` and metadata-backed `agenticMultiQueryEnabled`; `ChatPage` displays router/agentic state. Vite build output is served from `backend/src/main/resources/static/react`.
 - Key methods/entry points:
   - `src/App.jsx::App`, `AdminApp`, `navigate`
   - `src/pages/PipelinePage.jsx::triggerPipeline`, `showDocumentDetail`
   - `src/pages/SyntheticPage.jsx::executeRun`, `loadQueries`, `openQueryDetail`
   - `src/pages/GatingPage.jsx::runGating`, `loadFunnel`, `loadResults`
   - `src/pages/RagPage.jsx::runRag`, `openRunDetail`, `openRewriteDetail`
-  - `src/pages/ChatPage.jsx::ask`, `reindex`
+  - `src/pages/ChatPage.jsx::ask`, `reindex`, runtime config strip
+  - `src/pages/ChatSettingsPage.jsx::load/save runtime config`
   - `src/lib/api.js::requestJson`, `queryString`, `toNumber`
   - `src/lib/hooks.js::usePolling`
 - Documentation paths:
