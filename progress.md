@@ -1,5 +1,15 @@
 # progress.md
 
+## [2026-06-24] Session Summary (RAG Java Source-of-Truth Migration Guide Phase 9A)
+- What was done: Added a Python retrieval-eval backend policy for the limited official Java-backed path without deleting legacy eval.
+- Official switch policy: `retrieval_eval_backend=java` or `official_eval_backend=java` selects the Java-backed official retrieval eval path; existing `use_java_backend=true` remains a compatibility alias. The implicit default stays legacy for now because Java official execution requires an available backend URL and domain id.
+- Legacy fallback: `retrieval_eval_backend=legacy` explicitly keeps Python legacy eval and overrides legacy Java opt-in flags; reports now record `official_backend=java`, `retrieval_eval_backend`, `legacy_available`, and `legacy_fallback_used`.
+- Supported/blocked modes: Java-backed official path supports `raw_only`, `selective_rewrite`, `anchor_aware_rewrite`, and `strategy_router`; `agentic_multi_query` remains fail-fast blocked.
+- Comparison/reporting: Comparison runner still runs legacy and Java variants and now writes the explicit backend policy into temporary configs; retrieval reports include Java endpoint, supported/blocked modes, Java error policy, and Phase 8D readiness criteria.
+- Scope: No Python legacy deletion, Java production/controller/DTO/endpoint contract change, Admin GUI change, StrategyRouter change, agentic support, DB schema change, migration, or Phase 10 work was done.
+- Validation: Python py_compile, combined eval unittest command, focused `RagRetrievalEvalControllerTest`, focused `/api/chat/ask` regression command, and `git diff --check` passed.
+- Remaining risks: The default was not globally flipped to Java to avoid breaking legacy/offline eval configs without Java server/domain settings; a real same-dataset Java-backed comparison review is still needed before broad operational default switching.
+
 ## [2026-06-24] Session Summary (RAG Java Source-of-Truth Migration Guide Phase 8D)
 - What was done: Audited and fixed the Phase 8C comparison report contract for Phase 9 readiness review.
 - Report contract: Comparison output now includes stable top-level `schema_version`, `generated_at`, `compared_modes`, `legacy_summary`, `java_summary`, `metric_delta_rows`, `mismatch_rows`, `blocked_modes`, and Java endpoint/backend fields; metric delta and mismatch row contracts are covered by tests.

@@ -1,5 +1,15 @@
 # progress.md
 
+## [2026-06-24] Session Summary (RAG Java Source-of-Truth Migration Guide Phase 9A)
+- What was done: Added `retrieval_eval_backend=java|legacy` / `official_eval_backend=java|legacy` policy handling for retrieval eval and kept legacy `use_java_backend` as an alias.
+- Official Java-backed eval path: Supported non-agentic modes can now be selected as the official Java-backed path with `retrieval_eval_backend=java`; the actual implicit default remains legacy for compatibility with configs that do not provide Java backend/domain settings.
+- Legacy fallback: `retrieval_eval_backend=legacy` prevents Java client construction even if old Java opt-in flags are present. Report rows and summaries record `official_backend=java`, `retrieval_eval_backend`, `legacy_available=true`, and `legacy_fallback_used`.
+- Supported/blocked modes: Java-backed eval remains limited to `raw_only`, `selective_rewrite`, `anchor_aware_rewrite`, and `strategy_router`; `agentic_multi_query` remains blocked before Java client calls.
+- Comparison runner: The Phase 8C/8D comparison runner still executes both legacy and Java variants and now writes explicit backend policy into its temporary configs.
+- Scope: No Java production/controller/service/DTO or endpoint contract changes, no Admin GUI changes, no StrategyRouter changes, no DB schema changes, no Python legacy deletion, no agentic support, and no Phase 10 work.
+- Validation: `python -m py_compile pipeline/eval/java_retrieval_client.py pipeline/eval/retrieval_eval.py pipeline/eval/retrieval_eval_compare.py pipeline/tests/test_java_retrieval_client.py pipeline/tests/test_retrieval_eval_compare.py` passed; `python -m unittest pipeline.tests.test_eval_runtime pipeline.tests.test_strategy_router_eval pipeline.tests.test_java_retrieval_client pipeline.tests.test_retrieval_eval_compare -q` passed; focused Java eval endpoint and `/api/chat/ask` regression tests passed; `git diff --check` passed.
+- Remaining risks: Real Java-backed official comparison still needs review on the selected dataset/snapshot before making Java the unconditional default.
+
 ## [2026-06-24] Session Summary (RAG Java Source-of-Truth Migration Guide Phase 8D)
 - What was done: Fixed the legacy vs Java-backed comparison report contract and Phase 9 readiness criteria without changing official eval defaults.
 - Contract: The report now carries `schema_version`, `generated_at`, `compared_modes`, `legacy_summary`, `java_summary`, `metric_delta_rows`, `mismatch_rows`, `blocked_modes`, and Java endpoint/backend metadata while preserving existing Phase 8C aliases.

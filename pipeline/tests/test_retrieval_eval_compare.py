@@ -50,6 +50,8 @@ class RetrievalEvalCompareTests(unittest.TestCase):
         self.assertEqual(report["java_summary"], _payload()["summary"])
         self.assertIsInstance(report["generated_at"], str)
         self.assertTrue(report["java_endpoint"].endswith("/api/rag/eval/retrieval"))
+        self.assertEqual(report["official_backend"], "java")
+        self.assertTrue(report["legacy_available"])
         self.assertFalse(report["official_eval_switched"])
         self.assertFalse(report["legacy_eval_deleted"])
 

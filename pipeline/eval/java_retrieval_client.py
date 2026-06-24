@@ -22,6 +22,15 @@ JAVA_RETRIEVAL_SUPPORTED_FORCED_MODES = frozenset(
     }
 )
 JAVA_RETRIEVAL_AGENTIC_MODE = "agentic_multi_query"
+JAVA_RETRIEVAL_BLOCKED_FORCED_MODES = frozenset({JAVA_RETRIEVAL_AGENTIC_MODE})
+OFFICIAL_RETRIEVAL_EVAL_BACKEND = "java"
+RETRIEVAL_EVAL_BACKEND_JAVA = "java"
+RETRIEVAL_EVAL_BACKEND_LEGACY = "legacy"
+RETRIEVAL_EVAL_BACKEND_KEYS = (
+    "retrieval_eval_backend",
+    "official_eval_backend",
+    "eval_retrieval_backend",
+)
 
 
 class JavaRetrievalClientError(RuntimeError):
@@ -190,7 +199,7 @@ def build_retrieval_eval_payload(
     if normalized_mode == JAVA_RETRIEVAL_AGENTIC_MODE:
         raise JavaRetrievalClientError(
             code="unsupported_agentic_eval",
-            detail="agentic_multi_query is not supported by the Java retrieval eval client in Phase 8A",
+            detail="agentic_multi_query is not supported by the Java retrieval eval client in Phase 9A",
         )
     if normalized_mode not in JAVA_RETRIEVAL_SUPPORTED_FORCED_MODES:
         raise JavaRetrievalClientError(
@@ -274,9 +283,43 @@ def normalize_forced_mode(value: Any) -> str:
     return str(value or "strategy_router").strip().lower().replace("-", "_") or "strategy_router"
 
 
+def normalize_retrieval_eval_backend(value: Any) -> str:
+    normalized = str(value or "").strip().lower().replace("-", "_")
+    if normalized in {"java", "java_backend", "java_retrieval", "java_retrieval_eval"}:
+        return RETRIEVAL_EVAL_BACKEND_JAVA
+    if normalized in {"legacy", "python", "python_legacy", "python_legacy_eval"}:
+        return RETRIEVAL_EVAL_BACKEND_LEGACY
+    raise JavaRetrievalClientError(
+        code="unsupported_retrieval_eval_backend",
+        detail=(
+            "retrieval eval backend must be one of "
+            f"{RETRIEVAL_EVAL_BACKEND_JAVA}, {RETRIEVAL_EVAL_BACKEND_LEGACY}; "
+            f"got {normalized or '<empty>'}"
+        ),
+    )
+
+
+def retrieval_eval_backend_policy(raw_config: dict[str, Any] | None) -> str:
+    source = raw_config or {}
+    for key in RETRIEVAL_EVAL_BACKEND_KEYS:
+        if key not in source:
+            continue
+        value = source.get(key)
+        if value is None or not str(value).strip():
+            continue
+        return normalize_retrieval_eval_backend(value)
+    if _legacy_java_backend_opt_in_enabled(source):
+        return RETRIEVAL_EVAL_BACKEND_JAVA
+    return RETRIEVAL_EVAL_BACKEND_LEGACY
+
+
 def java_backend_enabled(raw_config: dict[str, Any] | None) -> bool:
+    return retrieval_eval_backend_policy(raw_config) == RETRIEVAL_EVAL_BACKEND_JAVA
+
+
+def _legacy_java_backend_opt_in_enabled(source: dict[str, Any]) -> bool:
     return _bool_from_config(
-        raw_config or {},
+        source,
         keys=(
             "use_java_backend",
             "java_backend_enabled",

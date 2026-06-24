@@ -14,6 +14,9 @@ try:
     from eval.java_retrieval_client import (
         JAVA_RETRIEVAL_AGENTIC_MODE,
         JAVA_RETRIEVAL_ENDPOINT_PATH,
+        OFFICIAL_RETRIEVAL_EVAL_BACKEND,
+        RETRIEVAL_EVAL_BACKEND_JAVA,
+        RETRIEVAL_EVAL_BACKEND_LEGACY,
         JavaRetrievalEvalClient,
         JavaRetrievalEvalSettings,
         normalize_forced_mode,
@@ -24,6 +27,9 @@ except ModuleNotFoundError:  # pragma: no cover
     from pipeline.eval.java_retrieval_client import (
         JAVA_RETRIEVAL_AGENTIC_MODE,
         JAVA_RETRIEVAL_ENDPOINT_PATH,
+        OFFICIAL_RETRIEVAL_EVAL_BACKEND,
+        RETRIEVAL_EVAL_BACKEND_JAVA,
+        RETRIEVAL_EVAL_BACKEND_LEGACY,
         JavaRetrievalEvalClient,
         JavaRetrievalEvalSettings,
         normalize_forced_mode,
@@ -310,6 +316,8 @@ def run_legacy_vs_java_retrieval_compare(
         "java_error_policy": "fail_fast_run_level",
         "legacy_backend": "python_legacy",
         "java_backend": "java",
+        "official_backend": OFFICIAL_RETRIEVAL_EVAL_BACKEND,
+        "legacy_available": True,
         "java_endpoint": JAVA_RETRIEVAL_ENDPOINT_PATH,
         "legacy_summary": legacy_summary_rows,
         "java_summary": java_summary_rows,
@@ -425,6 +433,10 @@ def _variant_raw(
     raw["experiment_key"] = experiment_key
     raw["retrieval_modes"] = list(modes)
     raw["use_java_backend"] = use_java_backend
+    raw["official_eval_backend"] = OFFICIAL_RETRIEVAL_EVAL_BACKEND
+    raw["retrieval_eval_backend"] = (
+        RETRIEVAL_EVAL_BACKEND_JAVA if use_java_backend else RETRIEVAL_EVAL_BACKEND_LEGACY
+    )
     if not use_java_backend:
         raw["java_backend_enabled"] = False
         raw["retrieval_eval_java_backend_enabled"] = False

@@ -6,13 +6,21 @@ import requests
 
 from pipeline.eval import retrieval_eval
 from pipeline.eval.java_retrieval_client import (
+    JAVA_RETRIEVAL_BLOCKED_FORCED_MODES,
     JAVA_RETRIEVAL_ENDPOINT_PATH,
+    JAVA_RETRIEVAL_SUPPORTED_FORCED_MODES,
+    OFFICIAL_RETRIEVAL_EVAL_BACKEND,
+    RETRIEVAL_EVAL_BACKEND_JAVA,
+    RETRIEVAL_EVAL_BACKEND_LEGACY,
     JavaRetrievalClientError,
     JavaRetrievalEvalClient,
     JavaRetrievalEvalSettings,
     build_java_retrieval_client_from_config,
     build_retrieval_eval_payload,
+    java_backend_enabled,
+    java_retrieval_settings_from_config,
     parse_retrieval_eval_response,
+    retrieval_eval_backend_policy,
 )
 from pipeline.eval.runtime import EvalSample, RetrievalCandidate
 
@@ -86,6 +94,39 @@ class JavaRetrievalClientContractTests(unittest.TestCase):
                 session=_RecordingSession(),
             )
         )
+
+    def test_retrieval_eval_backend_java_policy_enables_settings(self) -> None:
+        raw_config = {
+            "retrieval_eval_backend": "java",
+            "java_backend_base_url": "http://java-backend",
+            "domain_id": "11111111-1111-1111-1111-111111111111",
+        }
+
+        settings = java_retrieval_settings_from_config(raw_config)
+
+        self.assertTrue(java_backend_enabled(raw_config))
+        self.assertEqual(retrieval_eval_backend_policy(raw_config), RETRIEVAL_EVAL_BACKEND_JAVA)
+        self.assertIsNotNone(settings)
+        self.assertEqual(settings.base_url, "http://java-backend")
+        self.assertEqual(settings.domain_id, "11111111-1111-1111-1111-111111111111")
+
+    def test_retrieval_eval_backend_legacy_policy_overrides_legacy_java_opt_in(self) -> None:
+        raw_config = {
+            "retrieval_eval_backend": "legacy",
+            "use_java_backend": True,
+            "java_backend_base_url": "http://java-backend",
+            "domain_id": "11111111-1111-1111-1111-111111111111",
+        }
+
+        self.assertEqual(retrieval_eval_backend_policy(raw_config), RETRIEVAL_EVAL_BACKEND_LEGACY)
+        self.assertFalse(java_backend_enabled(raw_config))
+        self.assertIsNone(build_java_retrieval_client_from_config(raw_config, session=_RecordingSession()))
+
+    def test_invalid_retrieval_eval_backend_fails_fast(self) -> None:
+        with self.assertRaises(JavaRetrievalClientError) as context:
+            retrieval_eval_backend_policy({"retrieval_eval_backend": "agentic"})
+
+        self.assertEqual(context.exception.code, "unsupported_retrieval_eval_backend")
 
     def test_request_payload_forces_no_write_and_no_answer_generation(self) -> None:
         payload = build_retrieval_eval_payload(
@@ -207,6 +248,21 @@ class JavaRetrievalClientContractTests(unittest.TestCase):
 
 
 class RetrievalEvalJavaAdapterTests(unittest.TestCase):
+    def test_official_backend_metadata_records_java_policy_and_legacy_fallback(self) -> None:
+        java_metadata = retrieval_eval._retrieval_eval_backend_metadata(RETRIEVAL_EVAL_BACKEND_JAVA)
+        legacy_metadata = retrieval_eval._retrieval_eval_backend_metadata(RETRIEVAL_EVAL_BACKEND_LEGACY)
+
+        self.assertEqual(java_metadata["official_backend"], OFFICIAL_RETRIEVAL_EVAL_BACKEND)
+        self.assertEqual(java_metadata["retrieval_eval_backend"], "java")
+        self.assertFalse(java_metadata["legacy_fallback_used"])
+        self.assertTrue(java_metadata["legacy_available"])
+        self.assertEqual(set(java_metadata["supported_modes"]), set(JAVA_RETRIEVAL_SUPPORTED_FORCED_MODES))
+        self.assertEqual(set(java_metadata["blocked_modes"]), set(JAVA_RETRIEVAL_BLOCKED_FORCED_MODES))
+        self.assertEqual(legacy_metadata["official_backend"], OFFICIAL_RETRIEVAL_EVAL_BACKEND)
+        self.assertEqual(legacy_metadata["retrieval_eval_backend"], "legacy")
+        self.assertTrue(legacy_metadata["legacy_fallback_used"])
+        self.assertTrue(legacy_metadata["legacy_available"])
+
     def test_java_backend_disabled_uses_legacy_raw_retrieval_without_client_call(self) -> None:
         class Config:
             raw = {}
@@ -279,6 +335,45 @@ class RetrievalEvalJavaAdapterTests(unittest.TestCase):
         self.assertEqual(rewrite_info["java_endpoint"], JAVA_RETRIEVAL_ENDPOINT_PATH)
         self.assertEqual(rewrite_info["java_selected_mode"], "raw_only")
         self.assertEqual(rewrite_info["java_warnings"], ["diagnostic warning"])
+
+    def test_official_java_backend_allows_supported_non_agentic_modes(self) -> None:
+        class Config:
+            raw = {}
+            retrieval_top_k = 2
+
+        java_client = _RecordingJavaClient()
+        java_settings = JavaRetrievalEvalSettings(
+            enabled=True,
+            base_url="http://localhost:8080",
+            timeout_seconds=1.0,
+            domain_id="11111111-1111-1111-1111-111111111111",
+            include_trace=False,
+            include_scores=True,
+            include_metadata=False,
+        )
+
+        for mode in sorted(JAVA_RETRIEVAL_SUPPORTED_FORCED_MODES):
+            with self.subTest(mode=mode):
+                metrics, rewrite_info, retrieval = retrieval_eval._evaluate_mode(
+                    mode=mode,
+                    sample=_sample(),
+                    chunks=[],
+                    memories=[],
+                    config=Config(),
+                    memory_strategy_filters=[],
+                    source_gating_run_id=None,
+                    comparison_source_runs={},
+                    retrieval_adapter=None,
+                    multi_source_anchor_index=None,
+                    raw_retrieval=[],
+                    java_client=java_client,
+                    java_settings=java_settings,
+                )
+
+                self.assertEqual(java_client.calls[-1]["forced_mode"], mode)
+                self.assertEqual([item.chunk_id for item in retrieval], ["chunk-2", "chunk-1"])
+                self.assertEqual(metrics["hit@5"], 1.0)
+                self.assertTrue(rewrite_info["java_backend_enabled"])
 
     def test_java_backend_agentic_mode_is_blocked_before_runtime_client_call(self) -> None:
         class Config:

@@ -1,5 +1,10 @@
 # progress.md
 
+## [2026-06-24] Official Java-backed Eval Policy Tests
+- Added Phase 9A tests for `retrieval_eval_backend=java|legacy`, explicit legacy fallback overriding old Java opt-in flags, official/actual backend metadata, supported non-agentic Java mode calls, agentic Java blocking, and comparison report policy metadata.
+- Kept tests Java-server-free and DB-free with fake Java clients/settings.
+- Validation: `python -m py_compile pipeline/eval/java_retrieval_client.py pipeline/eval/retrieval_eval.py pipeline/eval/retrieval_eval_compare.py pipeline/tests/test_java_retrieval_client.py pipeline/tests/test_retrieval_eval_compare.py` passed; `python -m unittest pipeline.tests.test_eval_runtime pipeline.tests.test_strategy_router_eval pipeline.tests.test_java_retrieval_client pipeline.tests.test_retrieval_eval_compare -q` passed.
+
 ## [2026-06-24] Comparison Report Contract Tests
 - Added Phase 8D coverage for comparison report top-level schema, metric delta row fields/metric coverage, mismatch row fields/content exclusion, supported/blocked mode constants, and Phase 9 readiness criteria documentation.
 - Kept tests DB-free and Java-server-free; no official eval default switch or agentic support was added.
