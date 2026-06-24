@@ -3,6 +3,15 @@
 ## Overview
 High-level progress tracking for the `docs` directory.
 
+## [2026-06-24] Session Summary (RAG Java Source-of-Truth Migration Phase 7A)
+- What was done: Added Phase 7A retrieval-only eval endpoint boundary design to `rag-java-source-of-truth-migration-guide.md`.
+- Key decisions: The design defines eval request/response DTO fields, keeps default `persistPolicy=NONE`, makes `answerGeneration=false` mandatory, and requires the eval boundary to skip `createOnlineQuery`, `ChatAnswerService.generateAnswer`, `buildAnswer`, and `insertAnswer`.
+- Agentic blocker: The guide records that `AgenticRetrievalService` still hardcodes `RagPersistPolicy.ONLINE_QUERY`, so `agentic_multi_query` should be explicitly blocked in the first Phase 7B eval slice.
+- Phase 7B slice: Add Java DTOs and a non-agentic eval orchestration service skeleton for raw/selective/anchor/current-router modes only, with no endpoint exposure until no-write tests pass.
+- Validation: `.\gradlew.bat compileJava` passed; `git diff --check` passed.
+- Issues encountered: The guide remains untracked in the current working tree and was modified as the Phase 7A design artifact; pre-existing `docs/index.md` changes were left untouched.
+- Next steps: Implement the Phase 7B non-agentic no-write service slice and tests without changing `/api/chat/ask`.
+
 ## [2026-06-24] Session Summary (RAG Java Source-of-Truth Migration Phase 6F)
 - What was done: Recorded that Phase 6F used `rag-java-source-of-truth-migration-guide.md` for the persistence boundary audit and retrieval-only eval readiness check.
 - Key decisions: The guide document itself was not changed; no eval endpoint, DB schema, Python eval path, `/ask` response behavior, answer generation movement, `createOnlineQuery` movement, or `insertAnswer` movement was introduced.

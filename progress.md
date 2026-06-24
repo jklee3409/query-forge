@@ -1,5 +1,14 @@
 # progress.md
 
+## [2026-06-24] Session Summary (RAG Java Source-of-Truth Migration Guide Phase 7A)
+- What was done: Designed the retrieval-only eval endpoint boundary in `docs/rag-java-source-of-truth-migration-guide.md` without adding an endpoint or changing production services.
+- Design result: Defined eval request/response DTO fields, non-agentic orchestration through `RagRetrievalExecutionService`, `persistPolicy=NONE` default no-write semantics, and mandatory `answerGeneration=false` behavior.
+- Agentic blocker: `AgenticRetrievalService` still hardcodes `RagPersistPolicy.ONLINE_QUERY` in adapter calls and lacks a no-write candidate identity policy, so Phase 7B should block agentic eval.
+- Phase 7B slice: Add DTOs and a `RagRetrievalEvalService` skeleton for non-agentic raw/selective/anchor/current-router paths only, `persistPolicy=NONE` only, no controller until no-write tests pass.
+- Scope: Existing `/ask` response shape, answer generation, `createOnlineQuery`, `insertAnswer`, DB schema, Python eval, router enum/rules, production retrieval services, and Phase 7B implementation were not changed.
+- Validation: `.\gradlew.bat compileJava` passed; `git diff --check` passed.
+- Remaining risks: `TRACE_ONLY` remains unsupported; eval no-write tests are still needed; agentic no-write requires a later `AgenticExecutionRequest.persistPolicy` design and transient candidate identity handling.
+
 ## [2026-06-24] Session Summary (RAG Java Source-of-Truth Migration Guide Phase 6F)
 - What was done: Completed the backend persistence boundary audit before Phase 7 and added focused `AgenticRetrievalServiceTest` coverage proving the agentic execution service does not write online root, final rerank, answer, decision, metadata, or rewrite/memory/candidate logs directly.
 - Audit result: Current target non-agentic and agentic retrieval/candidate/log/decision/metadata writes are adapter-owned through phase-specific `RagTracePersistenceService` methods; `createOnlineQuery` and `insertAnswer` remain direct in `RagService` by design. Legacy non-agentic fallback direct write branches still exist for paths outside the current execution-service target path and remain a Phase 7 readiness risk to account for.

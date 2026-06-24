@@ -1,5 +1,15 @@
 # progress.md
 
+## [2026-06-24] Session Summary (RAG Java Source-of-Truth Migration Guide Phase 7A)
+- What was done: Completed a read-only backend boundary audit for retrieval-only eval and documented the Phase 7A service/DTO/no-write design in the migration guide.
+- Design result: Non-agentic eval should bypass `RagService.ask()` and call `RagRetrievalExecutionService.executeRawOnly(...)`, `executeSelectiveRewrite(...)`, or `executeAnchorAwareRewrite(...)` through a future eval orchestration service.
+- Persistence/answer policy: Eval defaults to `persistPolicy=NONE`, uses no `onlineQueryId`, returns `persisted=false`, and keeps `answerGeneration=false`; `ChatAnswerService.generateAnswer`, `buildAnswer`, `insertAnswer`, and `createOnlineQuery` must be skipped.
+- Agentic blocker: `AgenticRetrievalService` currently hardcodes `RagPersistPolicy.ONLINE_QUERY`; Phase 7B should leave `agentic_multi_query` unsupported until no-write agentic identity/persistPolicy handling is implemented.
+- Phase 7B slice: DTOs plus non-agentic `RagRetrievalEvalService` skeleton and service tests only; no endpoint exposure until no-write assertions pass.
+- `/ask` impact: No production code, response shape, answer generation location, `insertAnswer`, `createOnlineQuery`, DB schema, Python eval, router enum/rules, or characterization tests were changed.
+- Validation: `.\gradlew.bat compileJava` passed; `git diff --check` passed.
+- Remaining risks: Legacy direct-write branches in `RagService` must stay out of eval orchestration; `TRACE_ONLY` remains unsupported.
+
 ## [2026-06-24] Session Summary (RAG Java Source-of-Truth Migration Guide Phase 6F)
 - What was done: Audited backend non-agentic and agentic persistence boundaries for Phase 6F and strengthened `AgenticRetrievalServiceTest` with a no-direct-online-root/answer/decision/log-write assertion.
 - Persistence boundary audit: Target non-agentic raw/selective/router-selected selective/anchor-aware writes are adapter-owned where the Phase 4 execution-service path is used, and target agentic subquery/final/log/decision/metadata writes are adapter-owned. `RagService` still directly owns `createOnlineQuery` and `insertAnswer`; legacy non-agentic fallback direct branches remain in code and should be kept out of the retrieval-only eval path.
