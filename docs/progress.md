@@ -56,11 +56,23 @@ High-level progress tracking for the `docs` directory.
 - Issues encountered: The guide remains untracked in the current working tree and was left untouched as instructed.
 - Next steps: Continue Phase 6 with the remaining allowed agentic side-effect work without moving answer generation, answer storage, or decision/metadata writes prematurely.
 
+## [2026-06-24] Session Summary (RAG Java Source-of-Truth Migration Phase 5G)
+- What was done: Recorded that Phase 5G used the migration guide as the boundary document and completed a backend read-only coverage audit plus test-only agentic boundary reinforcement.
+- Key decisions: The guide document itself was not changed; no eval endpoint, DB schema, Python eval path, or production RAG execution behavior was introduced.
+- Issues encountered: The guide remains untracked in the current working tree and was left untouched as instructed.
+- Next steps: Use the audit inventory to begin Phase 6 agentic side-effect control without moving non-agentic `createOnlineQuery` or `insertAnswer`.
+
 ## [2026-06-23] Session Summary (RAG Java Source-of-Truth Migration Phase 1 Follow-up)
 - What was done: Recorded that Phase 1 proceeded as backend `/ask` characterization tests against the existing migration guide.
 - Key decisions: The guide document itself was not changed; no eval endpoint, DB schema, or production runtime behavior was introduced.
 - Issues encountered: Remaining test limitations are documented in backend/root progress and final task output.
 - Next steps: Continue using `rag-java-source-of-truth-migration-guide.md` as the phase boundary document for Phase 2.
+
+## [2026-06-23] Session Summary (RAG Java Source-of-Truth Migration Guide)
+- What was done: Added `rag-java-source-of-truth-migration-guide.md` and linked it from `docs/index.md`.
+- Key decisions: Captured Phase 0-10 migration rules, Java/Python responsibility split, persistPolicy semantics, forcedMode semantics, test gates, and the required prompt header for future Codex migration tasks.
+- Issues encountered: Documentation-only change; no production code, endpoint, DB schema, or Python eval path was changed.
+- Next steps: Use the guide as the required starting document for Phase 1 `/ask` characterization tests.
 
 ## [2026-05-20] Session Summary (Domain Scoped Admin Runtime Wiring)
 - What was done: Recorded the implementation phase that threads selected domain IDs through existing Admin runtime APIs and domain workspace GUI calls.

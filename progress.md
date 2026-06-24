@@ -1,5 +1,14 @@
 # progress.md
 
+## [2026-06-24] Session Summary (RAG Java Source-of-Truth Migration Guide Phase 10C)
+- What was done: Completed Admin GUI/frontend regression for router-agentic runtime config by exposing metadata-backed `agenticMultiQueryEnabled` in Chat Settings and showing `agentic on/off` beside the existing router state on the Live Chat config strip.
+- Runtime config result: `routerEnabled` remains the explicit DTO field backed by metadata. `agenticMultiQueryEnabled` uses the existing `metadata_json.agenticMultiQueryEnabled` contract; Chat Settings now loads it from metadata aliases, preserves unrelated metadata, clears stale aliases on save, and writes the canonical metadata flag.
+- Backend/eval impact: No backend DTO/API contract, Java eval endpoint, DB schema, migration, Python eval, or StrategyRouter rule changes were made. Java-backed eval remains non-agentic and still blocks router-selected agentic with the Phase 10B policy; Python legacy eval remains fallback/regression.
+- Frontend/static bundle: `npm run build` passed and refreshed the backend-served React bundle under `backend/src/main/resources/static/react`.
+- Validation: `.\gradlew.bat test --tests io.queryforge.backend.rag.service.RagServiceTest --tests io.queryforge.backend.rag.controller.RagControllerWebTest` passed; `.\gradlew.bat test --tests io.queryforge.backend.rag.service.QueryStrategyRouterTest --tests io.queryforge.backend.rag.service.RagRetrievalEvalServiceTest --tests io.queryforge.backend.rag.controller.RagRetrievalEvalControllerTest` passed; `python -m unittest pipeline.tests.test_java_retrieval_client pipeline.tests.test_retrieval_eval_compare -q` passed.
+- Phase 10 final condition: Backend StrategyRouter agentic enhancement is complete, Admin GUI can now control router/agentic config, Live Chat shows router/agentic state, Java-backed eval is the integrated non-agentic source-of-truth path, and Python legacy eval remains available.
+- Remaining risks: Browser click-through against a live backend/domain was not run in this validation pass; agentic eval remains intentionally blocked until a separate no-write agentic eval design exists.
+
 ## [2026-06-24] Session Summary (RAG Java Source-of-Truth Migration Guide Phase 10B)
 - What was done: Implemented backend StrategyRouter agentic enhancement without Admin GUI/frontend, Python eval, DB schema, migration, or Java endpoint path changes.
 - Router/strategy result: Added `QueryStrategy.AGENTIC_MULTI_QUERY`; `QueryStrategyRouter` can select it only when `routerEnabled=true`, `agenticMultiQueryEnabled=true`, rewrite readiness passes, memory fallback does not apply, anchor/specific-technical rules do not take priority, and the query has conservative multi-intent signals.
@@ -8,6 +17,16 @@
 - Phase 10C remaining: Admin GUI/runtime exposure and frontend build/smoke remain deferred; Chat Settings still has no new agentic-router UI in this phase.
 - Validation: `.\gradlew.bat compileJava`, focused router/RagService/Agentic/eval tests, requested `/api/chat/ask` + eval controller regression, `python -m unittest pipeline.tests.test_java_retrieval_client pipeline.tests.test_retrieval_eval_compare -q`, and `git diff --check` passed.
 - Remaining risks: Live explicit `agenticMultiQueryEnabled=true` continues to force the existing agentic path by design; eval remains non-agentic until a separate no-write agentic persistPolicy design is implemented.
+
+## [2026-06-24] Session Summary (RAG Java Source-of-Truth Migration Guide Phase 10A)
+- What was done: Completed a read-only StrategyRouter agentic enhancement and Admin GUI impact audit before adding any router-selected agentic strategy.
+- StrategyRouter audit result: Java `QueryStrategy` still contains only `RAW_ONLY`, `SYNTHETIC_SELECTIVE_REWRITE`, and `ANCHOR_AWARE_REWRITE`; `ForcedRetrievalMode.AGENTIC_MULTI_QUERY` remains separate. Current router rules can select only raw/selective/anchor paths, and `/api/chat/ask` still enters agentic execution only through `metadata_json.agenticMultiQueryEnabled`.
+- Admin GUI impact: Chat Settings currently exposes only `routerEnabled`; the live Chat config strip displays router on/off only. No router strategy selection or agentic multi-query setting is exposed, and no frontend/admin files were changed.
+- Eval risk: Java-backed eval supports `strategy_router` but blocks forced `agentic_multi_query`; if Phase 10B lets the Java router internally select agentic, `strategy_router` eval can conflict with the existing blocked-agentic policy unless the eval service handles router-selected agentic explicitly.
+- Phase 10B/10C proposal: Phase 10B should add backend enum/rule/tests plus `/ask` router-selected agentic dispatch while keeping eval blocked or warning-handled; Phase 10C should cover Admin GUI exposure/regression, frontend build, Chat Settings/Live Chat smoke, and end-to-end checks.
+- Scope: No QueryStrategy enum/rule change, no `AGENTIC_MULTI_QUERY` router strategy, no `RagService.ask()` behavior change, no Admin GUI change, no Java eval endpoint contract change, no Python eval change, no DB schema/migration, and no Phase 10B/10C implementation.
+- Validation: `.\gradlew.bat test --tests io.queryforge.backend.rag.service.QueryStrategyRouterTest` passed; `.\gradlew.bat test --tests io.queryforge.backend.rag.service.RagServiceTest --tests io.queryforge.backend.rag.controller.RagRetrievalEvalControllerTest` passed; `python -m unittest pipeline.tests.test_java_retrieval_client pipeline.tests.test_retrieval_eval_compare -q` passed; `git diff --check` passed.
+- Remaining risks: Router-selected agentic needs an explicit eval policy before implementation; Admin GUI may need a separate opt-in/exposure design if agentic router controls must be operator-visible.
 
 ## [2026-06-24] Session Summary (RAG Java Source-of-Truth Migration Guide Phase 9B)
 - What was done: Added regression/audit coverage for the Phase 9A official Java-backed retrieval eval backend policy without changing production runtime behavior.
@@ -157,6 +176,12 @@
 - Validation: `.\gradlew.bat compileJava` passed; `.\gradlew.bat test --tests io.queryforge.backend.rag.service.RagTracePersistenceServiceTest` passed; requested targeted RAG regression command passed; `git diff --check` passed.
 - Remaining risks: `TRACE_ONLY` and generic `ONLINE_QUERY` are still unsupported by design; Phase 6 should start from the confirmed agentic direct-write inventory.
 
+## [2026-06-23] Session Summary (RAG Java Source-of-Truth Migration Guide Phase 5F)
+- What was done: Moved backend non-agentic online query decision and metadata merge persistence for raw_only, selective, router-selected selective, and anchor-aware live chat paths behind `RagTracePersistenceService`.
+- Scope: `ONLINE_QUERY` now covers `upsertOnlineQueryDecision` / `mergeOnlineQueryMetadata` for the target non-agentic paths only. Existing `/ask` response shape, answer generation, `insertAnswer`, `createOnlineQuery`, raw_only trace adapter behavior, candidate adapters, rewrite/memory/candidate log adapters, agentic persistence, DB schema, eval endpoints, and Python code stayed unchanged.
+- Validation: `.\gradlew.bat compileJava` passed; `.\gradlew.bat test --tests io.queryforge.backend.rag.service.RagTracePersistenceServiceTest` passed; requested targeted RAG regression command passed; `git diff --check` passed.
+- Remaining risks: `TRACE_ONLY` and generic `ONLINE_QUERY` remain intentionally unsupported; agentic side-effect control and Java eval endpoint work remain later phases.
+
 ## [2026-06-23] Session Summary (RAG Java Source-of-Truth Migration Guide Phase 5E)
 - What was done: Moved non-agentic rewrite/memory/candidate log persistence for selective, router-selected selective, and anchor-aware live chat paths behind `RagTracePersistenceService`.
 - Scope: `ONLINE_QUERY` now covers `createOnlineRewriteLog`, `insertMemoryRetrievalLog`, and `insertRewriteCandidateLog` only for those target non-agentic log paths. Existing `/ask` response shape, answer generation, `insertAnswer`, `createOnlineQuery`, online query decision/metadata writes, raw_only trace adapter behavior, candidate root/adoption adapter behavior, candidate retrieval/rerank adapter behavior, agentic persistence, DB schema, eval endpoints, and Python code stayed unchanged.
@@ -181,6 +206,12 @@
 - Validation: `.\gradlew.bat compileJava` passed; `.\gradlew.bat test --tests io.queryforge.backend.rag.service.RagTracePersistenceServiceTest` passed; requested targeted RAG regression command passed; `git diff --check` passed.
 - Remaining risks: The adapter now owns only raw_only retrieval/rerank rows; later phases must define broader `ONLINE_QUERY`, `TRACE_ONLY`, and non-raw trace semantics before moving more persistence.
 
+## [2026-06-23] Session Summary (RAG Java Source-of-Truth Migration Guide Phase 5A)
+- What was done: Added backend `RagTracePersistenceService` as the Phase 5A persistence adapter skeleton, including minimal request/result records and `persistPolicy` handling.
+- Scope: `NONE` returns a no-write result and is covered by a repository no-interaction test; `TRACE_ONLY` and `ONLINE_QUERY` are explicit Phase 5A unsupported paths. No `/ask` wiring, answer generation movement, persistence write migration, DB schema, eval endpoint, Python, or agentic production change was made.
+- Validation: `.\gradlew.bat compileJava` passed; `.\gradlew.bat test --tests io.queryforge.backend.rag.service.RagTracePersistenceServiceTest` passed; requested targeted RAG regression command passed; `git diff --check` passed.
+- Remaining risks: Later Phase 5 work must migrate online writes incrementally while preserving current ordering and `/ask` trace behavior; eval trace persistence needs explicit source/eval metadata before enabling `TRACE_ONLY`.
+
 ## [2026-06-23] Session Summary (RAG Java Source-of-Truth Migration Guide Phase 4E)
 - What was done: Added a common backend non-agentic execution result contract inside `RagRetrievalExecutionService` and normalized raw/selective/anchor-aware retrieval material around shared docs, confidence, retriever/reranker metadata, chunk ids, and latency fields.
 - Scope: Preserved existing Java `/ask` orchestration, response shape, raw/selective/anchor behavior, answer generation, online persistence writes, agentic logic, DB schema, eval endpoint surface, Python eval code, and Phase 2 public model shape.
@@ -199,6 +230,18 @@
 - Validation: `.\gradlew.bat compileJava` passed; requested targeted RAG regression command passed after a new router-selected test input was adjusted to avoid the existing RAW_ONLY heuristic; `git diff --check` passed.
 - Remaining risks: Trace persistence, eval retrieval endpoint, anchor-aware extraction, agentic side-effect control, and broad Phase 2 model wiring remain future phases.
 
+## [2026-06-23] Session Summary (RAG Java Source-of-Truth Migration Guide Phase 4B)
+- What was done: Added a selective rewrite execution slice to backend `RagRetrievalExecutionService` for non-anchor forced `selective_rewrite`, moving candidate build/retrieval/rerank material creation out of `RagService`.
+- Scope: Preserved raw_only Phase 4A wiring, `/ask` response shape, answer generation, online persistence writes, router decision rules, anchor-aware path, strategy-router path, agentic production logic, DB schema, eval endpoint surface, and Python pipeline code.
+- Validation: `.\gradlew.bat compileJava` passed; requested targeted RAG test command including `io.queryforge.backend.rag.service.RagRetrievalExecutionServiceTest` passed; `git diff --check` passed.
+- Remaining risks: Router-selected selective and anchor-aware execution still intentionally remain in `RagService`; trace persistence, eval endpoint, and broader non-agentic migration remain later-phase work.
+
+## [2026-06-23] Session Summary (RAG Java Source-of-Truth Migration Guide Phase 4A)
+- What was done: Introduced backend `RagRetrievalExecutionService` for the raw_only retrieval execution slice and connected only the current `RagService.ask` rawOnlyRoute retrieval/rerank path to it.
+- Scope: Preserved `/ask` response shape, orchestration order after retrieval, answer generation, online persistence writes, router decision rules, selective/anchor branches, agentic production logic, DB schema, eval endpoint surface, and Python pipeline code.
+- Validation: `.\gradlew.bat compileJava` passed; requested targeted RAG test command plus `io.queryforge.backend.rag.service.RagRetrievalExecutionServiceTest` passed; `git diff --check` passed.
+- Remaining risks: `RagRetrievalExecutionService` deliberately has no selective/anchor/router/agentic methods yet; trace persistence, eval endpoint, and broader non-agentic migration remain out of scope.
+
 ## [2026-06-23] Session Summary (RAG Java Source-of-Truth Migration Guide Phase 3A)
 - What was done: Extracted backend `RagService` general non-agentic retrieval helper code into `DomainScopedRetrievalService` without changing `/ask` response shape, orchestration order, answer generation, online persistence writes, router semantics, or agentic production logic.
 - Extracted helper/service: `DomainScopedRetrievalService` now owns retrieval runtime parsing, embedding literal creation, domain-scoped chunk/memory retrieval, pool merge/ranking, and fused-score calculation.
@@ -213,11 +256,17 @@
 - Remaining risks: Models are intentionally not wired to execution or persistence yet; later phases still need exact eval endpoint mapping and trace persistence policy behavior.
 
 ## [2026-06-23] Session Summary (RAG Java Source-of-Truth Migration Guide Phase 1)
-- What was done: Added /ask characterization coverage for raw-only, selective rewrite adoption, anchor-aware rewrite routing, answer persistence, agentic metadata branching, and domain-scoped retrieval calls.
+- What was done: Added `/ask` characterization coverage for raw-only, selective rewrite adoption, anchor-aware rewrite routing, answer persistence, agentic metadata branching, and domain-scoped retrieval calls.
 - Key decisions: Kept Phase 1 test-only scope; no production Java/Python code, DB schema, router enum, eval endpoint, DomainRouter, or cross-domain retrieval changes were made.
 - Issues encountered: Agentic internal DB writes remain characterized through focused service-level mocks rather than a DB integration test; raw-only skip behavior was fixed in tests for the current router-enabled raw-only path.
 - Validation: `.\gradlew.bat compileJava` passed; targeted RAG test command including `AgenticRetrievalServiceTest` passed.
 - Next steps: Use these tests as the guard before Phase 2 execution result model work.
+
+## [2026-06-23] Session Summary (RAG Java Source-of-Truth Migration Guide Phase 0)
+- What was done: Created `docs/rag-java-source-of-truth-migration-guide.md` as the long-term guideline for reducing Python eval / Java online RAG execution drift and making Java retrieval execution the source of truth.
+- Key decisions: Documented Phase 0-10 boundaries, `/ask` preservation invariants, persistPolicy defaults, forcedMode semantics, research/runtime config separation, and the future `RagRetrievalExecutionService` / `RagTracePersistenceService` split.
+- Issues encountered: This was documentation/progress only; production Java/Python code, DB schema, QueryStrategyRouter behavior, and eval endpoint implementation were not changed.
+- Next steps: Phase 1 is `/ask` characterization tests before any extraction or endpoint work.
 
 ## [2026-06-23] Session Summary (Python Strategy Router Eval Mode)
 - What was done: Added opt-in Python retrieval-eval `strategy_router` mode that mirrors the Java live router rules, runs only the selected concrete strategy per sample, and emits selected strategy/reason plus planner/rewrite/total LLM call counts in sample traces and summaries.

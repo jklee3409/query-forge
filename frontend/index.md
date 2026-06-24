@@ -34,6 +34,7 @@
 ---
 
 ## Recent Update
+- Chat Settings now exposes an `Agentic Multi-Query` toggle backed by `chat_runtime_config.metadata.agenticMultiQueryEnabled`, and the live Chat runtime strip shows agentic on/off beside router on/off.
 - `/` Chat now preserves structured API error metadata from `requestJson` and maps `GEMINI_SERVICE_UNAVAILABLE` responses from `/api/chat/ask` to the dedicated Gemini failure copy while leaving readiness/configuration and generic failure messages unchanged.
 - Chat Settings now exposes a `Query Strategy Router 사용` toggle backed by `chat_runtime_config.metadata.routerEnabled`, and the live Chat runtime strip shows router on/off for demo verification.
 - `/` Chat now presents the answer flow as a production-style result surface: spinner while asking, final LLM answer first, original and rewritten/final query focus cards, and disclosure sections for synthetic memory, anchor hints, rewrite candidates, and retrieved context using the same structured visual language as the Admin RAG detail modal.

@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-06-24] Session Summary (RAG Java Source-of-Truth Migration Guide Phase 10C)
+- What was done: Recorded final Phase 10C frontend/Admin GUI regression result for the Java source-of-truth migration; Python pipeline code was not modified.
+- Eval policy result: Java-backed retrieval eval remains integrated for supported non-agentic modes and keeps `agentic_multi_query` blocked; Python legacy eval remains available as comparison/regression fallback.
+- Validation: `python -m unittest pipeline.tests.test_java_retrieval_client pipeline.tests.test_retrieval_eval_compare -q` passed after the Admin GUI/frontend changes.
+- Remaining risks: Java-backed official eval is still non-agentic until an approved no-write agentic eval design exists.
+
 ## [2026-06-24] Session Summary (RAG Java Source-of-Truth Migration Guide Phase 10B)
 - What was done: Recorded backend StrategyRouter agentic enhancement impact on Java-backed retrieval eval policy; Python eval code was not modified.
 - Backend policy result: Java `QueryStrategy.AGENTIC_MULTI_QUERY` now exists for router selection, and `/api/chat/ask` can dispatch router-selected agentic through the existing Java agentic service.
@@ -7,6 +13,15 @@
 - Admin/Phase 10C: No Admin GUI/frontend work in this phase; Phase 10C should handle GUI/runtime exposure and frontend build/smoke after this backend policy.
 - Validation: Backend compile and targeted tests passed; `python -m unittest pipeline.tests.test_java_retrieval_client pipeline.tests.test_retrieval_eval_compare -q` passed; `git diff --check` passed.
 - Remaining risks: Python legacy eval remains fallback/regression; Java-backed official eval remains non-agentic until an approved no-write agentic eval design exists.
+
+## [2026-06-24] Session Summary (RAG Java Source-of-Truth Migration Guide Phase 10A)
+- What was done: Completed the pipeline/eval-side audit for Java-backed `strategy_router` behavior before Java router agentic enhancement.
+- Eval policy result: Python Java retrieval client still supports only `raw_only`, `selective_rewrite`, `anchor_aware_rewrite`, and `strategy_router`; forced `agentic_multi_query` remains blocked before Java client calls.
+- Collision risk: Python sends `strategy_router` as a supported Java-backed mode, but Java eval blocks only forced `agentic_multi_query`. If Java `QueryStrategyRouter` later selects agentic internally, Java-backed `strategy_router` eval needs an explicit blocked/warning policy to avoid silently bypassing the current agentic block.
+- Legacy fallback: Python legacy eval remains available and was not modified; no official backend default or report contract was changed in this phase.
+- Phase 10B/10C proposal: Phase 10B should define Java eval handling for router-selected agentic before enabling the router rule; Phase 10C should add frontend/admin regression and Java-backed eval smoke coverage after the backend policy is stable.
+- Validation: `.\gradlew.bat test --tests io.queryforge.backend.rag.service.QueryStrategyRouterTest` passed; `.\gradlew.bat test --tests io.queryforge.backend.rag.service.RagServiceTest --tests io.queryforge.backend.rag.controller.RagRetrievalEvalControllerTest` passed; `python -m unittest pipeline.tests.test_java_retrieval_client pipeline.tests.test_retrieval_eval_compare -q` passed; `git diff --check` passed.
+- Remaining risks: Java-backed official eval remains non-agentic unless/until router-selected agentic is explicitly blocked, warned, or implemented with no-write safety.
 
 ## [2026-06-24] Session Summary (RAG Java Source-of-Truth Migration Guide Phase 9B)
 - What was done: Strengthened Python eval regression/audit tests for the Phase 9A official Java-backed retrieval backend policy; no production logic change was needed.
@@ -61,6 +76,12 @@
 - Scope: No Java production/controller/service code, Admin GUI, StrategyRouter, DB schema, or Phase 8B/9/10 work was changed.
 - Validation: Targeted py_compile, Java client tests, legacy strategy-router eval test, focused Java controller test, and `git diff --check` were run.
 - Remaining risks: Full Java-backed eval still needs a live same-dataset comparison in Phase 9 before official eval is switched; agentic Java eval remains blocked.
+
+## [2026-06-23] Session Summary (RAG Java Source-of-Truth Migration Guide Phase 0)
+- What was done: Recorded the pipeline-facing guidance for the Java source-of-truth migration in `../docs/rag-java-source-of-truth-migration-guide.md`.
+- Key decisions: Python generation, gating, memory build, dataset loading, metrics, and reports remain Python responsibilities; Python legacy mirror eval is not deleted in Phase 0.
+- Issues encountered: Documentation/progress only; no Python pipeline code changed.
+- Next steps: After Java Phase 1-7 are complete, connect Python eval to the Java retrieval-only endpoint while retaining `python_legacy`.
 
 ## [2026-06-23] Session Summary (Strategy Router Retrieval Eval Mode)
 - What was done: Added an explicit Python retrieval-eval `strategy_router` mode that mirrors the live Java QueryStrategyRouter decision order, delegates each sample to one concrete raw/selective/anchor/agentic strategy, and records sample-level selected strategy, router reason, and LLM call counts.

@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-06-24] Session Summary (RAG Java Source-of-Truth Migration Guide Phase 10C)
+- What was done: Added a Chat Settings `Agentic Multi-Query` toggle backed by `chat_runtime_config.metadata.agenticMultiQueryEnabled`, while preserving existing metadata and the current `routerEnabled` toggle.
+- Live Chat result: The runtime config strip now shows both router and agentic on/off state so operators can see whether router-selected agentic behavior is possible.
+- Build result: `npm run build` passed and refreshed the backend-served React bundle.
+- Remaining risks: Browser click-through against a running backend/domain was not run; backend eval remains intentionally non-agentic.
+
 ## [2026-06-22] Session Summary (Live Chat Gemini 503 Message)
 - What was done: Preserved structured API error metadata in `requestJson` and mapped `GEMINI_SERVICE_UNAVAILABLE` failures from `/api/chat/ask` to a dedicated Chat UI message: `Gemini 모델에 문제가 발생하였습니다. 잠시 후 다시 시도해주세요.`
 - Key decisions: Kept existing readiness/configuration error copy and generic ask-failure fallback unchanged; only the Gemini 503 path gets the separate message.

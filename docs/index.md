@@ -26,6 +26,9 @@ Key experiment docs:
 Key architecture docs:
 - `architecture/domain_pipeline_integration_design.md`
 
+Key migration docs:
+- `rag-java-source-of-truth-migration-guide.md`
+
 ## Responsibilities
 - Keep implementation-aligned documentation for backend/frontend/pipeline behavior.
 - Preserve reproducible experiment records and interpretation context.
