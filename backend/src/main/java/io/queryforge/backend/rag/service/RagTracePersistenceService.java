@@ -218,6 +218,46 @@ public class RagTracePersistenceService {
         };
     }
 
+    public RagTracePersistenceResult persistAgenticOnlineQueryDecision(
+            AgenticOnlineQueryDecisionPersistenceRequest request
+    ) {
+        if (request == null) {
+            throw new IllegalArgumentException("request is required");
+        }
+        return switch (request.persistPolicy()) {
+            case NONE -> new RagTracePersistenceResult(
+                    RagPersistPolicy.NONE,
+                    request.onlineQueryId(),
+                    false,
+                    "skipped_none"
+            );
+            case TRACE_ONLY -> throw new UnsupportedOperationException(
+                    "TRACE_ONLY persistence is not implemented for Phase 6E agentic online query decision persistence"
+            );
+            case ONLINE_QUERY -> persistAgenticOnlineQueryDecisionTrace(request);
+        };
+    }
+
+    public RagTracePersistenceResult mergeAgenticOnlineQueryMetadata(
+            AgenticOnlineQueryMetadataMergePersistenceRequest request
+    ) {
+        if (request == null) {
+            throw new IllegalArgumentException("request is required");
+        }
+        return switch (request.persistPolicy()) {
+            case NONE -> new RagTracePersistenceResult(
+                    RagPersistPolicy.NONE,
+                    request.onlineQueryId(),
+                    false,
+                    "skipped_none"
+            );
+            case TRACE_ONLY -> throw new UnsupportedOperationException(
+                    "TRACE_ONLY persistence is not implemented for Phase 6E agentic online query metadata persistence"
+            );
+            case ONLINE_QUERY -> mergeAgenticOnlineQueryMetadataTrace(request);
+        };
+    }
+
     public RewriteCandidatePersistenceResult createRewriteCandidateTrace(
             CreateRewriteCandidateTracePersistenceRequest request
     ) {
@@ -605,6 +645,48 @@ public class RagTracePersistenceService {
                 request.onlineQueryId(),
                 true,
                 "persisted_" + request.executionKind().name().toLowerCase(Locale.ROOT) + "_rewrite_candidate_log"
+        );
+    }
+
+    private RagTracePersistenceResult persistAgenticOnlineQueryDecisionTrace(
+            AgenticOnlineQueryDecisionPersistenceRequest request
+    ) {
+        if (request.onlineQueryId() == null) {
+            throw new IllegalArgumentException("onlineQueryId is required for ONLINE_QUERY agentic decision persistence");
+        }
+        validateAgenticExecutionKind(request.executionKind(), "agentic online query decision persistence");
+        repository.upsertOnlineQueryDecision(
+                request.onlineQueryId(),
+                request.finalQueryUsed(),
+                request.rewriteApplied(),
+                request.memoryTopN(),
+                request.selectedConfidence(),
+                request.selectedRewriteCandidateId(),
+                request.selectedReason(),
+                request.rejectedReason(),
+                request.latencyBreakdown()
+        );
+        return new RagTracePersistenceResult(
+                RagPersistPolicy.ONLINE_QUERY,
+                request.onlineQueryId(),
+                true,
+                "persisted_" + request.executionKind().name().toLowerCase(Locale.ROOT) + "_online_query_decision"
+        );
+    }
+
+    private RagTracePersistenceResult mergeAgenticOnlineQueryMetadataTrace(
+            AgenticOnlineQueryMetadataMergePersistenceRequest request
+    ) {
+        if (request.onlineQueryId() == null) {
+            throw new IllegalArgumentException("onlineQueryId is required for ONLINE_QUERY agentic metadata merge persistence");
+        }
+        validateAgenticExecutionKind(request.executionKind(), "agentic online query metadata merge persistence");
+        repository.mergeOnlineQueryMetadata(request.onlineQueryId(), request.metadata());
+        return new RagTracePersistenceResult(
+                RagPersistPolicy.ONLINE_QUERY,
+                request.onlineQueryId(),
+                true,
+                "persisted_" + request.executionKind().name().toLowerCase(Locale.ROOT) + "_online_query_metadata"
         );
     }
 
@@ -1183,6 +1265,45 @@ public class RagTracePersistenceService {
             retrievalTopKDocs = retrievalTopKDocs == null ? JsonNodeFactory.instance.arrayNode() : retrievalTopKDocs;
             scoreBreakdown = scoreBreakdown == null ? JsonNodeFactory.instance.objectNode() : scoreBreakdown;
             metadata = metadata == null ? JsonNodeFactory.instance.objectNode() : metadata;
+        }
+    }
+
+    public record AgenticOnlineQueryDecisionPersistenceRequest(
+            RagPersistPolicy persistPolicy,
+            UUID onlineQueryId,
+            AgenticRetrievalExecutionKind executionKind,
+            String rawQuery,
+            String finalQueryUsed,
+            boolean rewriteApplied,
+            JsonNode memoryTopN,
+            Double selectedConfidence,
+            UUID selectedRewriteCandidateId,
+            int finalRetrievedDocsCount,
+            String selectedReason,
+            String rejectedReason,
+            JsonNode latencyBreakdown
+    ) {
+        public AgenticOnlineQueryDecisionPersistenceRequest {
+            persistPolicy = persistPolicy == null ? RagPersistPolicy.NONE : persistPolicy;
+            rawQuery = rawQuery == null ? "" : rawQuery;
+            finalQueryUsed = finalQueryUsed == null ? rawQuery : finalQueryUsed;
+            memoryTopN = memoryTopN == null ? JsonNodeFactory.instance.arrayNode() : memoryTopN;
+            finalRetrievedDocsCount = Math.max(0, finalRetrievedDocsCount);
+            latencyBreakdown = latencyBreakdown == null ? JsonNodeFactory.instance.objectNode() : latencyBreakdown;
+        }
+    }
+
+    public record AgenticOnlineQueryMetadataMergePersistenceRequest(
+            RagPersistPolicy persistPolicy,
+            UUID onlineQueryId,
+            AgenticRetrievalExecutionKind executionKind,
+            JsonNode metadata,
+            String sourceMarker
+    ) {
+        public AgenticOnlineQueryMetadataMergePersistenceRequest {
+            persistPolicy = persistPolicy == null ? RagPersistPolicy.NONE : persistPolicy;
+            metadata = metadata == null ? JsonNodeFactory.instance.objectNode() : metadata;
+            sourceMarker = sourceMarker == null || sourceMarker.isBlank() ? null : sourceMarker;
         }
     }
 

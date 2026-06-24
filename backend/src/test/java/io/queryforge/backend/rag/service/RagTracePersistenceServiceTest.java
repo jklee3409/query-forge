@@ -1111,6 +1111,137 @@ class RagTracePersistenceServiceTest {
     }
 
     @Test
+    void onlineQueryAgenticOnlineQueryDecisionPersistsDecisionOnly() {
+        UUID onlineQueryId = UUID.fromString("77777777-7777-7777-7777-777777777777");
+        ObjectNode memoryTopN = JsonNodeFactory.instance.objectNode().put("count", 1);
+        ObjectNode latency = JsonNodeFactory.instance.objectNode().put("totalMs", 44L);
+
+        RagTracePersistenceService.RagTracePersistenceResult result =
+                service.persistAgenticOnlineQueryDecision(agenticOnlineDecisionRequest(
+                        RagPersistPolicy.ONLINE_QUERY,
+                        onlineQueryId,
+                        "spring security and mvc filter order",
+                        "spring security and mvc filter order",
+                        false,
+                        memoryTopN,
+                        0.91d,
+                        null,
+                        3,
+                        "agentic_multi_query_rrf",
+                        null,
+                        latency
+                ));
+
+        assertThat(result.persistPolicy()).isEqualTo(RagPersistPolicy.ONLINE_QUERY);
+        assertThat(result.onlineQueryId()).isEqualTo(onlineQueryId);
+        assertThat(result.persisted()).isTrue();
+        assertThat(result.status()).isEqualTo("persisted_agentic_multi_query_online_query_decision");
+        verify(repository).upsertOnlineQueryDecision(
+                eq(onlineQueryId),
+                eq("spring security and mvc filter order"),
+                eq(false),
+                eq(memoryTopN),
+                eq(0.91d),
+                isNull(),
+                eq("agentic_multi_query_rrf"),
+                isNull(),
+                eq(latency)
+        );
+        verifyNoForbiddenOnlineWritesExceptOnlineQueryDecision();
+    }
+
+    @Test
+    void onlineQueryAgenticMetadataMergePersistsMetadataOnly() {
+        UUID onlineQueryId = UUID.fromString("78787878-7878-7878-7878-787878787878");
+        ObjectNode metadata = JsonNodeFactory.instance.objectNode();
+        metadata.putObject("agentic_retrieval").put("enabled", true);
+
+        RagTracePersistenceService.RagTracePersistenceResult result =
+                service.mergeAgenticOnlineQueryMetadata(agenticMetadataMergeRequest(
+                        RagPersistPolicy.ONLINE_QUERY,
+                        onlineQueryId,
+                        metadata,
+                        "agentic_retrieval"
+                ));
+
+        assertThat(result.persistPolicy()).isEqualTo(RagPersistPolicy.ONLINE_QUERY);
+        assertThat(result.onlineQueryId()).isEqualTo(onlineQueryId);
+        assertThat(result.persisted()).isTrue();
+        assertThat(result.status()).isEqualTo("persisted_agentic_multi_query_online_query_metadata");
+        verify(repository).mergeOnlineQueryMetadata(eq(onlineQueryId), eq(metadata));
+        verifyNoForbiddenOnlineWritesExceptOnlineQueryMetadata();
+    }
+
+    @Test
+    void agenticDecisionAndMetadataNonePolicyPerformsNoRepositoryWrites() {
+        UUID onlineQueryId = UUID.fromString("79797979-7979-7979-7979-797979797979");
+
+        RagTracePersistenceService.RagTracePersistenceResult decisionResult =
+                service.persistAgenticOnlineQueryDecision(agenticOnlineDecisionRequest(
+                        RagPersistPolicy.NONE,
+                        onlineQueryId,
+                        "spring security and mvc filter order",
+                        "spring security and mvc filter order",
+                        false,
+                        JsonNodeFactory.instance.objectNode(),
+                        0.91d,
+                        null,
+                        3,
+                        "agentic_multi_query_rrf",
+                        null,
+                        JsonNodeFactory.instance.objectNode()
+                ));
+        RagTracePersistenceService.RagTracePersistenceResult metadataResult =
+                service.mergeAgenticOnlineQueryMetadata(agenticMetadataMergeRequest(
+                        RagPersistPolicy.NONE,
+                        onlineQueryId,
+                        JsonNodeFactory.instance.objectNode(),
+                        "agentic_retrieval"
+                ));
+
+        assertThat(decisionResult.persisted()).isFalse();
+        assertThat(decisionResult.status()).isEqualTo("skipped_none");
+        assertThat(metadataResult.persisted()).isFalse();
+        assertThat(metadataResult.status()).isEqualTo("skipped_none");
+        verifyNoInteractions(repository);
+    }
+
+    @Test
+    void agenticDecisionAndMetadataTraceOnlyPolicyRemainsUnsupported() {
+        UUID onlineQueryId = UUID.fromString("80808080-8080-8080-8080-808080808080");
+
+        assertThatThrownBy(() -> service.persistAgenticOnlineQueryDecision(agenticOnlineDecisionRequest(
+                RagPersistPolicy.TRACE_ONLY,
+                onlineQueryId,
+                "spring security and mvc filter order",
+                "spring security and mvc filter order",
+                false,
+                JsonNodeFactory.instance.objectNode(),
+                0.91d,
+                null,
+                3,
+                "agentic_multi_query_rrf",
+                null,
+                JsonNodeFactory.instance.objectNode()
+        )))
+                .isInstanceOf(UnsupportedOperationException.class)
+                .hasMessageContaining("TRACE_ONLY")
+                .hasMessageContaining("Phase 6E");
+
+        assertThatThrownBy(() -> service.mergeAgenticOnlineQueryMetadata(agenticMetadataMergeRequest(
+                RagPersistPolicy.TRACE_ONLY,
+                onlineQueryId,
+                JsonNodeFactory.instance.objectNode(),
+                "agentic_retrieval"
+        )))
+                .isInstanceOf(UnsupportedOperationException.class)
+                .hasMessageContaining("TRACE_ONLY")
+                .hasMessageContaining("Phase 6E");
+
+        verifyNoInteractions(repository);
+    }
+
+    @Test
     void onlineQuerySelectiveRewriteCandidateCreationPersistsCandidateRootOnly() {
         UUID onlineQueryId = UUID.fromString("15151515-1515-1515-1515-151515151515");
         UUID rewriteCandidateId = UUID.fromString("16161616-1616-1616-1616-161616161616");
@@ -1834,6 +1965,52 @@ class RagTracePersistenceServiceTest {
                 JsonNodeFactory.instance.arrayNode().add("agentic-chunk"),
                 scoreBreakdown,
                 metadata
+        );
+    }
+
+    private RagTracePersistenceService.AgenticOnlineQueryDecisionPersistenceRequest agenticOnlineDecisionRequest(
+            RagPersistPolicy policy,
+            UUID onlineQueryId,
+            String rawQuery,
+            String finalQuery,
+            boolean rewriteApplied,
+            ObjectNode memoryTopN,
+            Double selectedConfidence,
+            UUID selectedCandidateId,
+            int finalRetrievedDocsCount,
+            String selectedReason,
+            String rejectedReason,
+            ObjectNode latency
+    ) {
+        return new RagTracePersistenceService.AgenticOnlineQueryDecisionPersistenceRequest(
+                policy,
+                onlineQueryId,
+                RagTracePersistenceService.AgenticRetrievalExecutionKind.AGENTIC_MULTI_QUERY,
+                rawQuery,
+                finalQuery,
+                rewriteApplied,
+                memoryTopN,
+                selectedConfidence,
+                selectedCandidateId,
+                finalRetrievedDocsCount,
+                selectedReason,
+                rejectedReason,
+                latency
+        );
+    }
+
+    private RagTracePersistenceService.AgenticOnlineQueryMetadataMergePersistenceRequest agenticMetadataMergeRequest(
+            RagPersistPolicy policy,
+            UUID onlineQueryId,
+            ObjectNode metadata,
+            String sourceMarker
+    ) {
+        return new RagTracePersistenceService.AgenticOnlineQueryMetadataMergePersistenceRequest(
+                policy,
+                onlineQueryId,
+                RagTracePersistenceService.AgenticRetrievalExecutionKind.AGENTIC_MULTI_QUERY,
+                metadata,
+                sourceMarker
         );
     }
 

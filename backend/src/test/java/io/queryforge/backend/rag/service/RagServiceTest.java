@@ -730,6 +730,38 @@ class RagServiceTest {
         assertThat(finalRerankRequest.finalMergedDocs()).isEqualTo(mergedDocs);
         assertThat(finalRerankRequest.resultScope()).isEqualTo("agentic-rrf");
         assertThat(finalRerankRequest.rerankerModel()).isEqualTo("agentic-rrf");
+        ArgumentCaptor<RagTracePersistenceService.AgenticOnlineQueryDecisionPersistenceRequest> agenticDecisionCaptor =
+                ArgumentCaptor.forClass(RagTracePersistenceService.AgenticOnlineQueryDecisionPersistenceRequest.class);
+        verify(ragTracePersistenceService).persistAgenticOnlineQueryDecision(agenticDecisionCaptor.capture());
+        RagTracePersistenceService.AgenticOnlineQueryDecisionPersistenceRequest agenticDecisionRequest =
+                agenticDecisionCaptor.getValue();
+        assertThat(agenticDecisionRequest.persistPolicy()).isEqualTo(RagPersistPolicy.ONLINE_QUERY);
+        assertThat(agenticDecisionRequest.onlineQueryId()).isEqualTo(onlineQueryId);
+        assertThat(agenticDecisionRequest.executionKind()).isEqualTo(
+                RagTracePersistenceService.AgenticRetrievalExecutionKind.AGENTIC_MULTI_QUERY
+        );
+        assertThat(agenticDecisionRequest.rawQuery()).isEqualTo(query);
+        assertThat(agenticDecisionRequest.finalQueryUsed()).isEqualTo(query);
+        assertThat(agenticDecisionRequest.rewriteApplied()).isFalse();
+        assertThat(agenticDecisionRequest.selectedRewriteCandidateId()).isNull();
+        assertThat(agenticDecisionRequest.finalRetrievedDocsCount()).isEqualTo(mergedDocs.size());
+        assertThat(agenticDecisionRequest.selectedReason()).isEqualTo("agentic_multi_query_rrf");
+        assertThat(agenticDecisionRequest.rejectedReason()).isNull();
+        assertThat(agenticDecisionRequest.memoryTopN()).isEqualTo(objectMapper.valueToTree(memories));
+        assertThat(agenticDecisionRequest.latencyBreakdown().path("totalMs").isNumber()).isTrue();
+        ArgumentCaptor<RagTracePersistenceService.AgenticOnlineQueryMetadataMergePersistenceRequest> agenticMetadataCaptor =
+                ArgumentCaptor.forClass(RagTracePersistenceService.AgenticOnlineQueryMetadataMergePersistenceRequest.class);
+        verify(ragTracePersistenceService).mergeAgenticOnlineQueryMetadata(agenticMetadataCaptor.capture());
+        RagTracePersistenceService.AgenticOnlineQueryMetadataMergePersistenceRequest agenticMetadataRequest =
+                agenticMetadataCaptor.getValue();
+        assertThat(agenticMetadataRequest.persistPolicy()).isEqualTo(RagPersistPolicy.ONLINE_QUERY);
+        assertThat(agenticMetadataRequest.onlineQueryId()).isEqualTo(onlineQueryId);
+        assertThat(agenticMetadataRequest.executionKind()).isEqualTo(
+                RagTracePersistenceService.AgenticRetrievalExecutionKind.AGENTIC_MULTI_QUERY
+        );
+        assertThat(agenticMetadataRequest.sourceMarker()).isEqualTo("agentic_retrieval");
+        assertThat(agenticMetadataRequest.metadata().path("agentic_plan").isObject()).isTrue();
+        assertThat(agenticMetadataRequest.metadata().path("router").isObject()).isTrue();
         verify(repository).insertRerankResults(eq(onlineQueryId), isNull(), eq(mergedDocs), eq("agentic-rrf"));
         verify(chatAnswerService).generateAnswer(eq(query), eq(query), eq("Spring"), eq(mergedDocs));
         verify(repository).insertAnswer(eq(onlineQueryId), eq("agentic answer"), any(), any(), eq("test-answer-model"), any());

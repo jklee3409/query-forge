@@ -1,5 +1,12 @@
 # progress.md
 
+## [2026-06-24] Session Summary (RAG Java Source-of-Truth Migration Guide Phase 6E)
+- What was done: Added agentic-only online query decision and metadata merge persistence methods to `RagTracePersistenceService` and wired only `RagService.askAgentic` decision/metadata writes through them.
+- Adapter connection: `ONLINE_QUERY + AGENTIC_MULTI_QUERY` now delegates agentic `upsertOnlineQueryDecision` and `mergeOnlineQueryMetadata` while preserving the existing online query ID, final query, decision reason, latency, and metadata envelope.
+- `/ask` impact: Existing `/ask` response shape, `ChatAnswerService.generateAnswer`, `insertAnswer`, `createOnlineQuery`, Phase 6A/6B/6C/6D adapters, non-agentic adapters, `AgenticRetrievalService`, DB schema, eval endpoints, and Python eval code were not changed.
+- Validation: `.\gradlew.bat compileJava` passed; `.\gradlew.bat test --tests io.queryforge.backend.rag.service.RagTracePersistenceServiceTest` passed; `.\gradlew.bat test --tests io.queryforge.backend.rag.service.RagServiceTest` passed; requested targeted RAG regression command passed.
+- Remaining risks: `TRACE_ONLY` and generic `ONLINE_QUERY` remain unsupported; retrieval-only Java eval endpoint work remains for later phases.
+
 ## [2026-06-24] Session Summary (RAG Java Source-of-Truth Migration Guide Phase 6D)
 - What was done: Added agentic-only rewrite log, memory retrieval log, and rewrite candidate log persistence methods to `RagTracePersistenceService` and wired only `RagService.askAgentic` log writes through them.
 - Adapter connection: `ONLINE_QUERY + AGENTIC_MULTI_QUERY` now delegates agentic `createOnlineRewriteLog`, planner `insertMemoryRetrievalLog`, and persisted-candidate `insertRewriteCandidateLog`; adapter-returned `rewriteLogId` is passed to memory/candidate log requests.

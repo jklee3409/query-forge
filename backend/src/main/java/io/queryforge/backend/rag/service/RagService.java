@@ -831,19 +831,34 @@ public class RagService {
 
         double denseHint = plannerMemoryCandidates.isEmpty() ? 0.0d : plannerMemoryCandidates.getFirst().similarity();
         double selectedConfidence = confidence(mergedDocs, denseHint);
-        repository.upsertOnlineQueryDecision(
-                onlineQueryId,
-                rawQuery,
-                agenticResult.rewriteApplied(),
-                memoryTopNJson,
-                selectedConfidence,
-                null,
-                agenticResult.selectedReason(),
-                agenticResult.rejectedReason(),
-                objectMapper.valueToTree(latencyBreakdown)
+        JsonNode latencyBreakdownJson = objectMapper.valueToTree(latencyBreakdown);
+        ragTracePersistenceService.persistAgenticOnlineQueryDecision(
+                new RagTracePersistenceService.AgenticOnlineQueryDecisionPersistenceRequest(
+                        RagPersistPolicy.ONLINE_QUERY,
+                        onlineQueryId,
+                        RagTracePersistenceService.AgenticRetrievalExecutionKind.AGENTIC_MULTI_QUERY,
+                        rawQuery,
+                        rawQuery,
+                        agenticResult.rewriteApplied(),
+                        memoryTopNJson,
+                        selectedConfidence,
+                        null,
+                        mergedDocs.size(),
+                        agenticResult.selectedReason(),
+                        agenticResult.rejectedReason(),
+                        latencyBreakdownJson
+                )
         );
         ObjectNode agenticEnvelope = agenticMetadataEnvelope(agenticResult, agenticSettings, retrievalTopK, routeDecision);
-        repository.mergeOnlineQueryMetadata(onlineQueryId, agenticEnvelope);
+        ragTracePersistenceService.mergeAgenticOnlineQueryMetadata(
+                new RagTracePersistenceService.AgenticOnlineQueryMetadataMergePersistenceRequest(
+                        RagPersistPolicy.ONLINE_QUERY,
+                        onlineQueryId,
+                        RagTracePersistenceService.AgenticRetrievalExecutionKind.AGENTIC_MULTI_QUERY,
+                        agenticEnvelope,
+                        "agentic_retrieval"
+                )
+        );
 
         boolean gatingApplied = !"raw_only".equals(mode) && !"memory_only_ungated".equals(mode);
         boolean selectiveRewrite = mode.startsWith("selective_rewrite");
