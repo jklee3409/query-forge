@@ -1,5 +1,13 @@
 # progress.md
 
+## [2026-06-24] Session Summary (RAG Java Source-of-Truth Migration Guide Phase 8A)
+- What was done: Added a Python Java retrieval eval client adapter and optional retrieval-eval wiring for `POST /api/rag/eval/retrieval`.
+- Contract result: Java requests are opt-in, send `persistPolicy=NONE` and `answerGeneration=false`, never send `agentic_multi_query`, and parse ordered `retrievedChunkIds` into Python `RetrievalCandidate` metric input.
+- Legacy/off behavior: `use_java_backend` defaults to false, so existing Python legacy eval remains the default and official eval was not switched to Java.
+- Scope: No Java production/controller/service code, `/api/chat/ask`, Admin GUI, StrategyRouter, DB schema, migration, Python legacy deletion, or Phase 8B/9/10 work was changed.
+- Validation: Targeted Python compile/tests, focused Java retrieval eval controller test, and `git diff --check` were run.
+- Remaining risks: Phase 9 still needs Java-backed official eval switching and comparison; Java agentic eval remains blocked until no-write agentic support exists.
+
 ## [2026-06-24] Session Summary (RAG Java Source-of-Truth Migration Guide Phase 7E)
 - What was done: Completed the Java retrieval eval endpoint smoke/contract audit by strengthening controller tests only; production code was unchanged.
 - Contract result: `POST /api/rag/eval/retrieval` success returns 200 with ordered `retrievedChunkIds`, `retrievedDocs` with 1-based ranks, request/final mode fields, `persisted=false`, `persistPolicy=NONE`, warnings array, and no answer text. 400 `ProblemDetail` coverage includes missing `domainId`, blank `query`, `answerGeneration=true`, `ONLINE_QUERY`, `TRACE_ONLY`, `agentic_multi_query`, and unknown `forcedMode`.

@@ -11,6 +11,7 @@ Python pipeline for data processing, synthetic query generation, quality gating,
 - `memory/build_memory.py`: memory entry construction
 - `datasets/build_eval_dataset.py`: evaluation dataset creation
 - `eval/*`: retrieval/answer evaluation stages
+- `eval/java_retrieval_client.py`: optional Java retrieval eval endpoint client for `POST /api/rag/eval/retrieval`
 - `common/*`: shared config, experiment run, llm, embedding, and utility modules
 - `cli.py`: pipeline command entrypoint
 - `preprocess/extract_anchor_candidates.py`: chunk JSONL -> glossary-logic anchor candidate JSONL bridge for backend re-extraction reuse
@@ -43,6 +44,7 @@ Python pipeline for data processing, synthetic query generation, quality gating,
 - Quality gating self-eval now accepts language-neutral `naturalness` scoring while keeping backward compatibility with legacy `korean_naturalness` outputs.
 - Retrieval/answer evaluation can be pinned to a snapshot via `source_gating_run_id`, with memory lookup filtering by `memory_entries.metadata.source_gate_run_id`.
 - Retrieval eval supports explicit `anchor_aware_rewrite`, `agentic_multi_query`, and opt-in `strategy_router` modes. `strategy_router` mirrors the live Java router in Python, chooses only one concrete raw/selective/anchor/agentic strategy per sample, records selected strategy/reason plus LLM call counts, and leaves the legacy default mode list unchanged. Agentic eval remains single-snapshot/single-domain, plans up to four subqueries, runs each through the existing selective rewrite/retrieval path, and merges final candidates with chunk-id RRF.
+- Retrieval eval can opt into the Java source-of-truth retrieval endpoint with `use_java_backend=true`, `java_backend_base_url`, and `domain_id`/`java_backend_domain_id`; the adapter calls only non-agentic Java eval modes, sends `persistPolicy=NONE` and `answerGeneration=false`, and leaves the default Python legacy eval path unchanged.
 - Memory build now clears stale rows for the active snapshot before insertion, persists `domain_id` from the gated query domain, and tags rows with `memory_experiment_key`; retrieval/answer eval loads memory by the current experiment key to prevent snapshot contamination.
 - Admin `db-ann` evaluation now has a dedicated pgvector path: `materialize-chunk-embeddings` stores model-specific chunk vectors in `chunk_embeddings`, and retrieval/answer eval can use PostgreSQL ANN (`<=>` + HNSW) instead of full local chunk/memory loading.
 - `db-ann` hybrid retrieval unions dense ANN candidates with DB lexical and technical-token candidates before the existing hybrid rerank, reducing dense-prefilter recall loss while preserving the same Admin chunk-embedding preparation flow.

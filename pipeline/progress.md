@@ -1,5 +1,13 @@
 # progress.md
 
+## [2026-06-24] Session Summary (RAG Java Source-of-Truth Migration Guide Phase 8A)
+- What was done: Added an opt-in Python Java retrieval eval client adapter for `POST /api/rag/eval/retrieval` and wired retrieval eval to use it only when Java backend config is enabled.
+- Contract: Client requests always send `persistPolicy=NONE` and `answerGeneration=false`, use `retrievedChunkIds` as the primary metric input, preserve response order, and reject `agentic_multi_query` before any HTTP request.
+- Legacy path: `use_java_backend` defaults to false, so existing Python legacy eval and default retrieval modes remain unchanged; no official eval path switch was made.
+- Scope: No Java production/controller/service code, Admin GUI, StrategyRouter, DB schema, or Phase 8B/9/10 work was changed.
+- Validation: Targeted py_compile, Java client tests, legacy strategy-router eval test, focused Java controller test, and `git diff --check` were run.
+- Remaining risks: Full Java-backed eval still needs a live same-dataset comparison in Phase 9 before official eval is switched; agentic Java eval remains blocked.
+
 ## [2026-06-23] Session Summary (Strategy Router Retrieval Eval Mode)
 - What was done: Added an explicit Python retrieval-eval `strategy_router` mode that mirrors the live Java QueryStrategyRouter decision order, delegates each sample to one concrete raw/selective/anchor/agentic strategy, and records sample-level selected strategy, router reason, and LLM call counts.
 - Key decisions: Kept `LEGACY_DEFAULT_MODES` unchanged, left Java/DB/UI paths untouched, made agentic routing opt-in via `strategy_router_agentic_enabled`, and used conservative multi-signal rules before selecting expensive agentic multi-query.
