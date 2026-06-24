@@ -601,6 +601,114 @@ class RagTracePersistenceServiceTest {
     }
 
     @Test
+    void onlineQueryAgenticSubqueryRawRetrievalPersistsRetrievalResultsOnly() {
+        UUID onlineQueryId = UUID.fromString("46464646-4646-4646-4646-464646464646");
+        List<RagRepository.RetrievalDoc> retrievedDocs = docs("doc-agentic-raw", "chunk-agentic-raw", 0.83d);
+        ObjectNode metadata = JsonNodeFactory.instance.objectNode()
+                .put("agentic_phase", "raw")
+                .put("subquery_index", 1);
+
+        RagTracePersistenceService.RagTracePersistenceResult result = service.persistAgenticSubqueryRetrievalTrace(
+                agenticSubqueryRequest(
+                        RagPersistPolicy.ONLINE_QUERY,
+                        onlineQueryId,
+                        null,
+                        retrievedDocs,
+                        metadata,
+                        RagTracePersistenceService.AgenticSubqueryRetrievalTraceWriteScope.SUBQUERY_RAW_RETRIEVAL
+                )
+        );
+
+        assertThat(result.persistPolicy()).isEqualTo(RagPersistPolicy.ONLINE_QUERY);
+        assertThat(result.onlineQueryId()).isEqualTo(onlineQueryId);
+        assertThat(result.persisted()).isTrue();
+        assertThat(result.status()).isEqualTo("persisted_agentic_multi_query_subquery_raw_retrieval");
+        verify(repository).insertRetrievalResults(
+                eq(onlineQueryId),
+                isNull(),
+                eq("raw"),
+                eq(retrievedDocs),
+                eq("agentic_multi_query"),
+                eq("local:dense_only:hash-embedding-v1"),
+                eq(metadata)
+        );
+        verify(repository, never()).insertRerankResults(any(), any(), anyList(), anyString());
+        verifyNoForbiddenOnlineWrites();
+    }
+
+    @Test
+    void onlineQueryAgenticSubqueryCandidateRetrievalPersistsRetrievalResultsOnly() {
+        UUID onlineQueryId = UUID.fromString("47474747-4747-4747-4747-474747474747");
+        UUID rewriteCandidateId = UUID.fromString("48484848-4848-4848-4848-484848484848");
+        List<RagRepository.RetrievalDoc> retrievedDocs = docs("doc-agentic-candidate", "chunk-agentic-candidate", 0.91d);
+        ObjectNode metadata = JsonNodeFactory.instance.objectNode()
+                .put("agentic_phase", "rewrite_candidate")
+                .put("subquery_index", 1);
+
+        RagTracePersistenceService.RagTracePersistenceResult result = service.persistAgenticSubqueryRetrievalTrace(
+                agenticSubqueryRequest(
+                        RagPersistPolicy.ONLINE_QUERY,
+                        onlineQueryId,
+                        rewriteCandidateId,
+                        retrievedDocs,
+                        metadata,
+                        RagTracePersistenceService.AgenticSubqueryRetrievalTraceWriteScope.SUBQUERY_CANDIDATE_RETRIEVAL
+                )
+        );
+
+        assertThat(result.persistPolicy()).isEqualTo(RagPersistPolicy.ONLINE_QUERY);
+        assertThat(result.persisted()).isTrue();
+        assertThat(result.status()).isEqualTo("persisted_agentic_multi_query_subquery_candidate_retrieval");
+        verify(repository).insertRetrievalResults(
+                eq(onlineQueryId),
+                eq(rewriteCandidateId),
+                eq("rewrite_candidate"),
+                eq(retrievedDocs),
+                eq("agentic_multi_query"),
+                eq("local:dense_only:hash-embedding-v1"),
+                eq(metadata)
+        );
+        verify(repository, never()).insertRerankResults(any(), any(), anyList(), anyString());
+        verifyNoForbiddenOnlineWrites();
+    }
+
+    @Test
+    void agenticSubqueryRetrievalNonePolicyPerformsNoRepositoryWrites() {
+        RagTracePersistenceService.RagTracePersistenceResult result = service.persistAgenticSubqueryRetrievalTrace(
+                agenticSubqueryRequest(
+                        RagPersistPolicy.NONE,
+                        UUID.fromString("49494949-4949-4949-4949-494949494949"),
+                        null,
+                        docs("doc-agentic-raw", "chunk-agentic-raw", 0.83d),
+                        JsonNodeFactory.instance.objectNode(),
+                        RagTracePersistenceService.AgenticSubqueryRetrievalTraceWriteScope.SUBQUERY_RAW_RETRIEVAL
+                )
+        );
+
+        assertThat(result.persistPolicy()).isEqualTo(RagPersistPolicy.NONE);
+        assertThat(result.persisted()).isFalse();
+        assertThat(result.status()).isEqualTo("skipped_none");
+        verifyNoInteractions(repository);
+    }
+
+    @Test
+    void agenticSubqueryRetrievalTraceOnlyPolicyRemainsUnsupported() {
+        assertThatThrownBy(() -> service.persistAgenticSubqueryRetrievalTrace(agenticSubqueryRequest(
+                RagPersistPolicy.TRACE_ONLY,
+                UUID.fromString("50505050-5050-5050-5050-505050505050"),
+                null,
+                docs("doc-agentic-raw", "chunk-agentic-raw", 0.83d),
+                JsonNodeFactory.instance.objectNode(),
+                RagTracePersistenceService.AgenticSubqueryRetrievalTraceWriteScope.SUBQUERY_RAW_RETRIEVAL
+        )))
+                .isInstanceOf(UnsupportedOperationException.class)
+                .hasMessageContaining("TRACE_ONLY")
+                .hasMessageContaining("Phase 6A");
+
+        verifyNoInteractions(repository);
+    }
+
+    @Test
     void onlineQuerySelectiveRewriteCandidateCreationPersistsCandidateRootOnly() {
         UUID onlineQueryId = UUID.fromString("15151515-1515-1515-1515-151515151515");
         UUID rewriteCandidateId = UUID.fromString("16161616-1616-1616-1616-161616161616");
@@ -1187,6 +1295,30 @@ class RagTracePersistenceServiceTest {
                 "local:dense_only:hash-embedding-v1",
                 "local-rerank-fallback",
                 14L,
+                writeScope
+        );
+    }
+
+    private RagTracePersistenceService.AgenticSubqueryRetrievalTracePersistenceRequest agenticSubqueryRequest(
+            RagPersistPolicy policy,
+            UUID onlineQueryId,
+            UUID rewriteCandidateId,
+            List<RagRepository.RetrievalDoc> retrievedDocs,
+            ObjectNode metadata,
+            RagTracePersistenceService.AgenticSubqueryRetrievalTraceWriteScope writeScope
+    ) {
+        return new RagTracePersistenceService.AgenticSubqueryRetrievalTracePersistenceRequest(
+                policy,
+                onlineQueryId,
+                RagTracePersistenceService.AgenticRetrievalExecutionKind.AGENTIC_MULTI_QUERY,
+                1,
+                "FilterChainProxy order",
+                "agentic_multi_query",
+                rewriteCandidateId,
+                retrievedDocs,
+                metadata,
+                "local:dense_only:hash-embedding-v1",
+                16L,
                 writeScope
         );
     }

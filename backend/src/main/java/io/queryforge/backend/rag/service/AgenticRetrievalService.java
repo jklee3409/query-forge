@@ -9,6 +9,7 @@ import io.queryforge.backend.rag.model.QueryRouteContext;
 import io.queryforge.backend.rag.model.QueryRouteDecision;
 import io.queryforge.backend.rag.model.QueryStrategy;
 import io.queryforge.backend.rag.model.RagDtos;
+import io.queryforge.backend.rag.model.RagPersistPolicy;
 import io.queryforge.backend.rag.repository.RagRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
@@ -32,6 +33,7 @@ public class AgenticRetrievalService {
     private static final Pattern TECHNICAL_TOKEN_PATTERN = Pattern.compile("[@A-Za-z_][A-Za-z0-9_./:$-]{1,}");
 
     private final RagRepository repository;
+    private final RagTracePersistenceService ragTracePersistenceService;
     private final HashEmbeddingService embeddingService;
     private final DenseEmbeddingService denseEmbeddingService;
     private final CohereRerankService cohereRerankService;
@@ -127,6 +129,7 @@ public class AgenticRetrievalService {
                 retrievalRuntime
         );
 
+        long retrievalStarted = System.nanoTime();
         List<RagRepository.RetrievalDoc> rawRetrievedLocal = retrieveChunks(
                 query,
                 queryEmbedding,
@@ -134,14 +137,17 @@ public class AgenticRetrievalService {
                 request.config().domainId(),
                 retrievalRuntime
         );
-        repository.insertRetrievalResults(
-                request.onlineQueryId(),
+        long rawRetrievalLatency = elapsedMs(retrievalStarted);
+        persistSubqueryRetrievalTrace(
+                request,
+                subquery,
+                query,
+                retrievalRuntime,
                 null,
-                "raw",
                 rawRetrievedLocal,
-                request.mode(),
-                retrievalRuntime.retrieverName(),
-                retrievalMetadata(retrievalRuntime, subquery, "raw")
+                rawRetrievalLatency,
+                "raw",
+                RagTracePersistenceService.AgenticSubqueryRetrievalTraceWriteScope.SUBQUERY_RAW_RETRIEVAL
         );
         List<RagRepository.RetrievalDoc> rawRetrieved = cohereRerankService.rerank(
                 query,
@@ -184,6 +190,7 @@ public class AgenticRetrievalService {
             for (int index = 0; index < templates.size(); index++) {
                 RewriteCandidateService.CandidateTemplate template = templates.get(index);
                 String candidateEmbedding = embeddingLiteral(template.query(), retrievalRuntime);
+                retrievalStarted = System.nanoTime();
                 List<RagRepository.RetrievalDoc> candidateRetrievedLocal = retrieveChunks(
                         template.query(),
                         candidateEmbedding,
@@ -191,6 +198,7 @@ public class AgenticRetrievalService {
                         request.config().domainId(),
                         retrievalRuntime
                 );
+                long candidateRetrievalLatency = elapsedMs(retrievalStarted);
                 List<RagRepository.RetrievalDoc> candidateRetrieved = cohereRerankService.rerank(
                         template.query(),
                         candidateRetrievedLocal,
@@ -209,14 +217,16 @@ public class AgenticRetrievalService {
                         candidateConfidence,
                         candidateScoreBreakdown
                 );
-                repository.insertRetrievalResults(
-                        request.onlineQueryId(),
+                persistSubqueryRetrievalTrace(
+                        request,
+                        subquery,
+                        query,
+                        retrievalRuntime,
                         candidateId,
-                        "rewrite_candidate",
                         candidateRetrievedLocal,
-                        request.mode(),
-                        retrievalRuntime.retrieverName(),
-                        retrievalMetadata(retrievalRuntime, subquery, "rewrite_candidate")
+                        candidateRetrievalLatency,
+                        "rewrite_candidate",
+                        RagTracePersistenceService.AgenticSubqueryRetrievalTraceWriteScope.SUBQUERY_CANDIDATE_RETRIEVAL
                 );
                 generatedCandidates.add(new GeneratedCandidate(
                         subqueryLabel(subquery, template.label()),
@@ -277,6 +287,35 @@ public class AgenticRetrievalService {
                 traceMetadata(routeDecision, rawConfidence, decision, memories.size())
         );
         return new SubqueryExecution(trace, decision, persistedCandidates);
+    }
+
+    private void persistSubqueryRetrievalTrace(
+            AgenticExecutionRequest request,
+            RagDtos.AgenticSubquery subquery,
+            String subqueryText,
+            RetrievalRuntime retrievalRuntime,
+            UUID rewriteCandidateId,
+            List<RagRepository.RetrievalDoc> retrievedDocs,
+            long latencyMs,
+            String phase,
+            RagTracePersistenceService.AgenticSubqueryRetrievalTraceWriteScope writeScope
+    ) {
+        ragTracePersistenceService.persistAgenticSubqueryRetrievalTrace(
+                new RagTracePersistenceService.AgenticSubqueryRetrievalTracePersistenceRequest(
+                        RagPersistPolicy.ONLINE_QUERY,
+                        request.onlineQueryId(),
+                        RagTracePersistenceService.AgenticRetrievalExecutionKind.AGENTIC_MULTI_QUERY,
+                        subquery.index(),
+                        subqueryText,
+                        request.mode(),
+                        rewriteCandidateId,
+                        retrievedDocs,
+                        retrievalMetadata(retrievalRuntime, subquery, phase),
+                        retrievalRuntime.retrieverName(),
+                        latencyMs,
+                        writeScope
+                )
+        );
     }
 
     private Decision decide(

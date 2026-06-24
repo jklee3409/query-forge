@@ -1,5 +1,12 @@
 # progress.md
 
+## [2026-06-24] Session Summary (RAG Java Source-of-Truth Migration Guide Phase 6A)
+- What was done: Added a Phase 6A agentic subquery retrieval trace request/scope to `RagTracePersistenceService` and wired `AgenticRetrievalService` subquery raw/candidate retrieval trace writes through it.
+- Adapter connection: `ONLINE_QUERY + AGENTIC_MULTI_QUERY` now delegates only subquery `insertRetrievalResults` for raw and candidate retrieval traces; existing agentic candidate root/adoption repository writes remain in `AgenticRetrievalService`.
+- `/ask` impact: Existing `/ask` response shape, answer generation, `createOnlineQuery`, `insertAnswer`, final agentic RRF write, decision/metadata/log persistence, non-agentic adapter behavior, DB schema, eval endpoints, and Python eval code were not changed.
+- Validation: `.\gradlew.bat compileJava` passed; `.\gradlew.bat test --tests io.queryforge.backend.rag.service.RagTracePersistenceServiceTest` passed; `.\gradlew.bat test --tests io.queryforge.backend.rag.service.AgenticRetrievalServiceTest` passed; requested targeted RAG regression command passed; `git diff --check` passed.
+- Remaining risks: Phase 6A intentionally leaves agentic candidate root/adoption and `RagService.askAgentic` direct writes for later phases; `TRACE_ONLY` and generic `ONLINE_QUERY` remain unsupported.
+
 ## [2026-06-24] Session Summary (RAG Java Source-of-Truth Migration Guide Phase 5G)
 - What was done: Audited non-agentic persistence adapter coverage before Phase 6 and strengthened `RagServiceTest` agentic boundary coverage for direct writes that intentionally remain outside `RagTracePersistenceService`.
 - Coverage result: raw_only retrieval/rerank/decision/metadata writes are adapter-owned; selective/router-selected selective/anchor-aware candidate root/adoption, candidate retrieval/rerank, rewrite/memory/candidate logs, decision, and metadata writes are adapter-owned. Rewrite-path raw baseline retrieval and legacy fallback direct writes remain in `RagService` by current code.

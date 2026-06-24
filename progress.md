@@ -1,5 +1,12 @@
 # progress.md
 
+## [2026-06-24] Session Summary (RAG Java Source-of-Truth Migration Guide Phase 6A)
+- What was done: Connected `AgenticRetrievalService` subquery raw/candidate retrieval trace writes to the phase-specific `RagTracePersistenceService.persistAgenticSubqueryRetrievalTrace(...)` adapter.
+- Scope: Only agentic subquery `insertRetrievalResults` moved behind the adapter. Agentic `createRewriteCandidate` / `markRewriteCandidateAdopted`, `RagService.askAgentic` final RRF/answer/decision/metadata/log writes, `createOnlineQuery`, non-agentic adapters, `/ask` response shape, DB schema, eval endpoints, and Python code stayed unchanged.
+- Adapter result: `ONLINE_QUERY + AGENTIC_MULTI_QUERY` now supports `SUBQUERY_RAW_RETRIEVAL` and `SUBQUERY_CANDIDATE_RETRIEVAL`; `NONE` remains no-write and `TRACE_ONLY` / generic `ONLINE_QUERY` remain unsupported.
+- Validation: `.\gradlew.bat compileJava` passed; `.\gradlew.bat test --tests io.queryforge.backend.rag.service.RagTracePersistenceServiceTest` passed; `.\gradlew.bat test --tests io.queryforge.backend.rag.service.AgenticRetrievalServiceTest` passed; requested targeted RAG regression command passed; `git diff --check` passed.
+- Remaining risks: Agentic candidate root/adoption and `RagService.askAgentic` persistence are still direct by design and remain future Phase 6 work; no retrieval-only eval endpoint exists yet.
+
 ## [2026-06-24] Session Summary (RAG Java Source-of-Truth Migration Guide Phase 5G)
 - What was done: Completed the backend Phase 5G non-agentic persistence adapter coverage audit and added test-only coverage for the agentic boundary that remains outside the non-agentic adapter.
 - Coverage result: Adapter ownership is confirmed for raw_only retrieval/rerank/decision/metadata and for selective/router-selected selective/anchor-aware candidate root/adoption, candidate retrieval/rerank, rewrite/memory/candidate logs, decision, and metadata. Current code still leaves rewrite-path raw baseline retrieval and legacy fallback direct writes in `RagService`.

@@ -75,6 +75,26 @@ public class RagTracePersistenceService {
         };
     }
 
+    public RagTracePersistenceResult persistAgenticSubqueryRetrievalTrace(
+            AgenticSubqueryRetrievalTracePersistenceRequest request
+    ) {
+        if (request == null) {
+            throw new IllegalArgumentException("request is required");
+        }
+        return switch (request.persistPolicy()) {
+            case NONE -> new RagTracePersistenceResult(
+                    RagPersistPolicy.NONE,
+                    request.onlineQueryId(),
+                    false,
+                    "skipped_none"
+            );
+            case TRACE_ONLY -> throw new UnsupportedOperationException(
+                    "TRACE_ONLY persistence is not implemented for Phase 6A agentic subquery retrieval trace"
+            );
+            case ONLINE_QUERY -> persistAgenticSubqueryRetrievalOnlineQueryTrace(request);
+        };
+    }
+
     public RewriteCandidatePersistenceResult createRewriteCandidateTrace(
             CreateRewriteCandidateTracePersistenceRequest request
     ) {
@@ -285,6 +305,57 @@ public class RagTracePersistenceService {
                 request.onlineQueryId(),
                 true,
                 "persisted_" + request.executionKind().name().toLowerCase(Locale.ROOT) + "_" + request.writeScope().statusSuffix
+        );
+    }
+
+    private RagTracePersistenceResult persistAgenticSubqueryRetrievalOnlineQueryTrace(
+            AgenticSubqueryRetrievalTracePersistenceRequest request
+    ) {
+        if (request.onlineQueryId() == null) {
+            throw new IllegalArgumentException("onlineQueryId is required for ONLINE_QUERY agentic subquery retrieval trace persistence");
+        }
+        if (request.executionKind() == null) {
+            throw new IllegalArgumentException("executionKind is required for ONLINE_QUERY agentic subquery retrieval trace persistence");
+        }
+        if (request.mode().isBlank()) {
+            throw new IllegalArgumentException("mode is required for ONLINE_QUERY agentic subquery retrieval trace persistence");
+        }
+        switch (request.writeScope()) {
+            case SUBQUERY_RAW_RETRIEVAL -> {
+                if (request.rewriteCandidateId() != null) {
+                    throw new IllegalArgumentException("rewriteCandidateId must be null for agentic subquery raw retrieval trace persistence");
+                }
+                repository.insertRetrievalResults(
+                        request.onlineQueryId(),
+                        null,
+                        request.writeScope().repositoryStage,
+                        request.retrievedDocs(),
+                        request.mode(),
+                        request.retrieverName(),
+                        request.retrievalMetadata()
+                );
+            }
+            case SUBQUERY_CANDIDATE_RETRIEVAL -> {
+                if (request.rewriteCandidateId() == null) {
+                    throw new IllegalArgumentException("rewriteCandidateId is required for agentic subquery candidate retrieval trace persistence");
+                }
+                repository.insertRetrievalResults(
+                        request.onlineQueryId(),
+                        request.rewriteCandidateId(),
+                        request.writeScope().repositoryStage,
+                        request.retrievedDocs(),
+                        request.mode(),
+                        request.retrieverName(),
+                        request.retrievalMetadata()
+                );
+            }
+        }
+        return new RagTracePersistenceResult(
+                RagPersistPolicy.ONLINE_QUERY,
+                request.onlineQueryId(),
+                true,
+                "persisted_" + request.executionKind().name().toLowerCase(Locale.ROOT)
+                        + "_" + request.writeScope().statusSuffix
         );
     }
 
@@ -639,6 +710,35 @@ public class RagTracePersistenceService {
         }
     }
 
+    public record AgenticSubqueryRetrievalTracePersistenceRequest(
+            RagPersistPolicy persistPolicy,
+            UUID onlineQueryId,
+            AgenticRetrievalExecutionKind executionKind,
+            int subqueryIndex,
+            String subqueryText,
+            String mode,
+            UUID rewriteCandidateId,
+            List<RagRepository.RetrievalDoc> retrievedDocs,
+            JsonNode retrievalMetadata,
+            String retrieverName,
+            long latencyMs,
+            AgenticSubqueryRetrievalTraceWriteScope writeScope
+    ) {
+        public AgenticSubqueryRetrievalTracePersistenceRequest {
+            persistPolicy = persistPolicy == null ? RagPersistPolicy.NONE : persistPolicy;
+            subqueryIndex = Math.max(0, subqueryIndex);
+            subqueryText = subqueryText == null ? "" : subqueryText;
+            mode = mode == null ? "" : mode;
+            retrievedDocs = retrievedDocs == null ? List.of() : List.copyOf(retrievedDocs);
+            retrievalMetadata = retrievalMetadata == null ? JsonNodeFactory.instance.objectNode() : retrievalMetadata;
+            retrieverName = retrieverName == null ? "unknown" : retrieverName;
+            latencyMs = Math.max(0L, latencyMs);
+            writeScope = writeScope == null
+                    ? AgenticSubqueryRetrievalTraceWriteScope.SUBQUERY_RAW_RETRIEVAL
+                    : writeScope;
+        }
+    }
+
     public record CreateRewriteCandidateTracePersistenceRequest(
             RagPersistPolicy persistPolicy,
             UUID onlineQueryId,
@@ -773,6 +873,23 @@ public class RagTracePersistenceService {
 
         RewriteCandidateTraceWriteScope(String statusSuffix) {
             this.statusSuffix = statusSuffix;
+        }
+    }
+
+    public enum AgenticRetrievalExecutionKind {
+        AGENTIC_MULTI_QUERY
+    }
+
+    public enum AgenticSubqueryRetrievalTraceWriteScope {
+        SUBQUERY_RAW_RETRIEVAL("subquery_raw_retrieval", "raw"),
+        SUBQUERY_CANDIDATE_RETRIEVAL("subquery_candidate_retrieval", "rewrite_candidate");
+
+        private final String statusSuffix;
+        private final String repositoryStage;
+
+        AgenticSubqueryRetrievalTraceWriteScope(String statusSuffix, String repositoryStage) {
+            this.statusSuffix = statusSuffix;
+            this.repositoryStage = repositoryStage;
         }
     }
 }
