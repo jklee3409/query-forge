@@ -1,5 +1,13 @@
 # progress.md
 
+## [2026-06-24] Session Summary (RAG Java Source-of-Truth Migration Guide Phase 5G)
+- What was done: Audited non-agentic persistence adapter coverage before Phase 6 and strengthened `RagServiceTest` agentic boundary coverage for direct writes that intentionally remain outside `RagTracePersistenceService`.
+- Coverage result: raw_only retrieval/rerank/decision/metadata writes are adapter-owned; selective/router-selected selective/anchor-aware candidate root/adoption, candidate retrieval/rerank, rewrite/memory/candidate logs, decision, and metadata writes are adapter-owned. Rewrite-path raw baseline retrieval and legacy fallback direct writes remain in `RagService` by current code.
+- Agentic inventory: Confirmed agentic direct writes remain in `AgenticRetrievalService` and `RagService.askAgentic`; no agentic persistence was moved.
+- Scope: No production execution logic, `/ask` response shape, answer generation location, `createOnlineQuery`, `insertAnswer`, DB schema, eval endpoint, Python code, or Phase 6 work was changed.
+- Validation: `.\gradlew.bat compileJava` passed; `.\gradlew.bat test --tests io.queryforge.backend.rag.service.RagTracePersistenceServiceTest` passed; requested targeted RAG regression command passed; `git diff --check` passed.
+- Remaining risks: `TRACE_ONLY` and generic `ONLINE_QUERY` remain intentionally unsupported; Phase 6 still needs agentic side-effect control, including direct writes in `AgenticRetrievalService` and `RagService.askAgentic`.
+
 ## [2026-06-23] Session Summary (RAG Java Source-of-Truth Migration Guide Phase 5E)
 - What was done: Extended `RagTracePersistenceService` to own non-agentic online rewrite log, memory retrieval log, and rewrite candidate log persistence, then wired selective/router-selected selective/anchor-aware `/ask` paths to delegate those writes.
 - Scope: `ONLINE_QUERY` now covers only those non-agentic log writes. `/ask` response shape, answer generation, `insertAnswer`, `createOnlineQuery`, decision/metadata writes, raw_only adapter behavior, candidate root/adoption adapter behavior, candidate retrieval/rerank adapter behavior, agentic persistence, DB schema, eval endpoints, and Python code stayed unchanged.
