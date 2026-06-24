@@ -67,10 +67,14 @@ class RagRetrievalEvalControllerTest {
                 .andExpect(jsonPath("$.finalQuery").value("FilterChainProxy order"))
                 .andExpect(jsonPath("$.forcedMode").value("raw_only"))
                 .andExpect(jsonPath("$.selectedMode").value("raw_only"))
+                .andExpect(jsonPath("$.retrievedChunkIds").isArray())
                 .andExpect(jsonPath("$.retrievedChunkIds[0]").value("chunk-1"))
                 .andExpect(jsonPath("$.retrievedChunkIds[1]").value("chunk-2"))
+                .andExpect(jsonPath("$.retrievedDocs").isArray())
+                .andExpect(jsonPath("$.retrievedDocs[0].chunkId").value("chunk-1"))
                 .andExpect(jsonPath("$.retrievedDocs[0].rank").value(1))
                 .andExpect(jsonPath("$.retrievedDocs[0].score").value(0.91d))
+                .andExpect(jsonPath("$.retrievedDocs[1].rank").value(2))
                 .andExpect(jsonPath("$.llmCallCount.answerCalls").value(0))
                 .andExpect(jsonPath("$.persisted").value(false))
                 .andExpect(jsonPath("$.persistPolicy").value("NONE"))
@@ -151,6 +155,22 @@ class RagRetrievalEvalControllerTest {
     }
 
     @Test
+    void traceOnlyPersistPolicyMapsToBadRequestProblemDetail() throws Exception {
+        assertEvalProblem(
+                """
+                        {
+                          "domainId": "11111111-1111-1111-1111-111111111111",
+                          "query": "FilterChainProxy order",
+                          "forcedMode": "raw_only",
+                          "persistPolicy": "TRACE_ONLY"
+                        }
+                        """,
+                "unsupported_persist_policy",
+                "unsupported_persist_policy: retrieval eval supports only persistPolicy=NONE"
+        );
+    }
+
+    @Test
     void agenticForcedModeMapsToBadRequestProblemDetail() throws Exception {
         assertEvalProblem(
                 """
@@ -166,13 +186,34 @@ class RagRetrievalEvalControllerTest {
     }
 
     @Test
-    void controllerDependsOnlyOnRetrievalEvalServiceForRagExecution() {
+    void unknownForcedModeMapsToBadRequestProblemDetail() throws Exception {
+        assertEvalProblem(
+                """
+                        {
+                          "domainId": "11111111-1111-1111-1111-111111111111",
+                          "query": "FilterChainProxy order",
+                          "forcedMode": "unknown_mode"
+                        }
+                        """,
+                "unsupported_forced_mode",
+                "unsupported_forced_mode: forcedMode is not supported for retrieval eval: unknown_mode"
+        );
+    }
+
+    @Test
+    void controllerAndServiceDependencyBoundaryHolds() {
         List<Class<?>> fieldTypes = Arrays.stream(RagRetrievalEvalController.class.getDeclaredFields())
                 .map(Field::getType)
                 .toList();
 
         assertThat(fieldTypes).containsExactly(RagRetrievalEvalService.class);
         assertThat(fieldTypes)
+                .doesNotContain(RagService.class, ChatAnswerService.class, RagRepository.class);
+
+        List<Class<?>> serviceFieldTypes = Arrays.stream(RagRetrievalEvalService.class.getDeclaredFields())
+                .map(Field::getType)
+                .toList();
+        assertThat(serviceFieldTypes)
                 .doesNotContain(RagService.class, ChatAnswerService.class, RagRepository.class);
     }
 

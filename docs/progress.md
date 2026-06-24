@@ -3,6 +3,14 @@
 ## Overview
 High-level progress tracking for the `docs` directory.
 
+## [2026-06-24] Session Summary (RAG Java Source-of-Truth Migration Phase 7E)
+- What was done: Recorded the Java retrieval eval endpoint smoke/contract audit after backend controller-test hardening.
+- Contract note: `POST /api/rag/eval/retrieval` is available for non-agentic retrieval eval; success responses are centered on ordered `retrievedChunkIds`, include `retrievedDocs` with 1-based ranks, keep `persisted=false` and `persistPolicy=NONE`, and do not include an `answer` field. Eval rejection responses use 400 `ProblemDetail` with `title=Retrieval eval request rejected` and `code`.
+- Supported/blocked modes: `raw_only`, `selective_rewrite`, `anchor_aware_rewrite`, and current `strategy_router` are supported; `agentic_multi_query`, `ONLINE_QUERY`, `TRACE_ONLY`, and `answerGeneration=true` remain blocked.
+- Python readiness: Python should rely primarily on `retrievedChunkIds`, omit or send `persistPolicy=NONE`, omit or send `answerGeneration=false`, and must not request `agentic_multi_query` yet; Java supports non-agentic modes only.
+- Scope/validation: No guide structure, Python eval, `/ask`, answer generation, DB schema, or Phase 8 work changed. Backend compile, focused eval tests, the requested RAG regression command, and `git diff --check` passed.
+- Next steps: Phase 8 may wire a Python Java client only after keeping this contract stable and leaving agentic eval blocked.
+
 ## [2026-06-24] Session Summary (RAG Java Source-of-Truth Migration Phase 7D)
 - What was done: Recorded the backend Phase 7D retrieval-only eval controller exposure.
 - Key decisions: The HTTP endpoint is `POST /api/rag/eval/retrieval`; controller success bodies reuse `RagRetrievalEvalResponse`; eval service rejections are returned as 400 `ProblemDetail` with a top-level `code` property.

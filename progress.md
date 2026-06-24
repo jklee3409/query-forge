@@ -1,5 +1,15 @@
 # progress.md
 
+## [2026-06-24] Session Summary (RAG Java Source-of-Truth Migration Guide Phase 7E)
+- What was done: Completed the Java retrieval eval endpoint smoke/contract audit by strengthening controller tests only; production code was unchanged.
+- Contract result: `POST /api/rag/eval/retrieval` success returns 200 with ordered `retrievedChunkIds`, `retrievedDocs` with 1-based ranks, request/final mode fields, `persisted=false`, `persistPolicy=NONE`, warnings array, and no answer text. 400 `ProblemDetail` coverage includes missing `domainId`, blank `query`, `answerGeneration=true`, `ONLINE_QUERY`, `TRACE_ONLY`, `agentic_multi_query`, and unknown `forcedMode`.
+- Boundary: Controller/service dependency checks confirm no `RagService`, `ChatAnswerService`, or `RagRepository` dependency in the eval boundary; `/api/chat/ask` regression tests passed.
+- Supported/blocked modes: Non-agentic `raw_only`, `selective_rewrite`, `anchor_aware_rewrite`, and current `strategy_router` are supported; `agentic_multi_query`, `ONLINE_QUERY`, `TRACE_ONLY`, and `answerGeneration=true` remain blocked.
+- Python readiness: Python should call `POST /api/rag/eval/retrieval`, rely primarily on `retrievedChunkIds`, omit or send `persistPolicy=NONE`, omit or send `answerGeneration=false`, and avoid `agentic_multi_query` until no-write agentic eval is implemented.
+- Scope: No Python eval change, official eval switch, `/ask` response shape change, answer-generation change, `insertAnswer`, `createOnlineQuery`, `AgenticRetrievalService`, DB schema, or Phase 8 work was introduced.
+- Validation: `.\gradlew.bat compileJava`, focused eval controller/service tests, the requested multi-`--tests` RAG regression command, and `git diff --check` passed.
+- Remaining risks: Java-backed Python client integration, agentic eval, and eval trace/online persistence remain later phases.
+
 ## [2026-06-24] Session Summary (RAG Java Source-of-Truth Migration Guide Phase 7D)
 - What was done: Added the backend retrieval-only eval controller endpoint `POST /api/rag/eval/retrieval` for the Phase 7B/7C service contract.
 - Controller/error mapping: `RagRetrievalEvalController` calls only `RagRetrievalEvalService`; `RagRetrievalEvalException` is mapped to 400 `ProblemDetail` with title `Retrieval eval request rejected` and the service error `code`.

@@ -1,5 +1,14 @@
 # progress.md
 
+## [2026-06-24] Session Summary (RAG Java Source-of-Truth Migration Guide Phase 7E)
+- What was done: Strengthened `RagRetrievalEvalControllerTest` as the Java retrieval eval endpoint smoke/contract audit; no production code was changed.
+- Endpoint contract audit: `POST /api/rag/eval/retrieval` success remains 200 with ordered `retrievedChunkIds`, `retrievedDocs` and 1-based ranks, `query`, `finalQuery`, `forcedMode`, `selectedMode`, `persisted=false`, `persistPolicy=NONE`, warnings array, and no `answer` field. 400 `ProblemDetail` coverage now includes missing `domainId`, blank `query`, `answerGeneration=true`, `ONLINE_QUERY`, `TRACE_ONLY`, `agentic_multi_query`, and unknown `forcedMode`.
+- Boundary/result: Controller depends only on `RagRetrievalEvalService`; controller/service do not depend on `RagService`, `ChatAnswerService`, or `RagRepository`; existing `/api/chat/ask` regression tests passed.
+- Supported/blocked modes: `raw_only`, `selective_rewrite`, `anchor_aware_rewrite`, and current `strategy_router` are supported; `agentic_multi_query`, `ONLINE_QUERY`, `TRACE_ONLY`, and `answerGeneration=true` remain blocked.
+- Python readiness: Java endpoint path is available at `POST /api/rag/eval/retrieval`; Python should rely primarily on `retrievedChunkIds`, omit or send `persistPolicy=NONE`, omit or send `answerGeneration=false`, and must not request `agentic_multi_query` yet. Java supports non-agentic modes only in this phase.
+- Validation: `.\gradlew.bat compileJava`, focused controller/service eval tests, the requested multi-`--tests` RAG regression command, and `git diff --check` passed.
+- Remaining risks: Java-backed Python client wiring, agentic no-write eval, and eval `ONLINE_QUERY`/`TRACE_ONLY` remain future-phase work.
+
 ## [2026-06-24] Session Summary (RAG Java Source-of-Truth Migration Guide Phase 7D)
 - What was done: Added the retrieval-only eval HTTP controller `POST /api/rag/eval/retrieval` and exposed the existing eval service contract as the response body.
 - Controller/error mapping: `RagRetrievalEvalController` delegates only to `RagRetrievalEvalService`; `RagRetrievalEvalException` now maps to 400 `ProblemDetail` with title `Retrieval eval request rejected` and `code`.
