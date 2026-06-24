@@ -1,5 +1,12 @@
 # progress.md
 
+## [2026-06-25] Session Summary (RAG Java Source-of-Truth Migration Guide Phase 10D)
+- What was done: Completed frontend/Admin GUI acceptance audit without additional frontend source changes.
+- Chat Settings result: Confirmed `routerEnabled` loads from the explicit response field or legacy metadata aliases, and `agenticMultiQueryEnabled` loads/saves through preserved metadata with stale aliases removed and canonical metadata written.
+- Live Chat result: Confirmed the config strip displays router on/off and agentic on/off from runtime config metadata.
+- Build result: `npm run build` passed and regenerated the same backend-served React asset set; no source or static bundle diff remained afterward.
+- Remaining risks: Browser click-through against a running backend/domain was not run.
+
 ## [2026-06-24] Session Summary (RAG Java Source-of-Truth Migration Guide Phase 10C)
 - What was done: Added a Chat Settings `Agentic Multi-Query` toggle backed by `chat_runtime_config.metadata.agenticMultiQueryEnabled`, while preserving existing metadata and the current `routerEnabled` toggle.
 - Live Chat result: The runtime config strip now shows both router and agentic on/off state so operators can see whether router-selected agentic behavior is possible.

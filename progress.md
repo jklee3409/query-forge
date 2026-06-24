@@ -1,5 +1,13 @@
 # progress.md
 
+## [2026-06-25] Session Summary (RAG Java Source-of-Truth Migration Guide Phase 10D)
+- What was done: Completed the final acceptance / handoff audit without production logic, frontend source, backend service, Python eval, DB schema, or StrategyRouter rule changes.
+- Admin/frontend result: Chat Settings load/save preserves `routerEnabled` and metadata-backed `agenticMultiQueryEnabled`; Live Chat displays router and agentic on/off state; backend-served React build remains reproducible.
+- Backend/router result: `AGENTIC_MULTI_QUERY` router selection, `/api/chat/ask` dispatch to `AgenticRetrievalService`, and agentic subquery recursion guard were confirmed by code inspection and tests.
+- Eval/Python result: Java retrieval eval remains answer-free and `persistPolicy=NONE` by default; forced and router-selected agentic eval remain blocked; Python Java-backed eval policy, legacy fallback, and comparison runner remain available.
+- Validation: `compileJava`, requested `/api/chat/ask` regression tests, requested router/eval tests, requested Python eval tests, `npm run build`, and `git diff --check` passed.
+- Remaining risks: No live browser click-through or real DB save/load smoke was run; `git diff --check` emitted line-ending warnings for tracked backend static React files.
+
 ## [2026-06-24] Session Summary (RAG Java Source-of-Truth Migration Guide Phase 10C)
 - What was done: Completed Admin GUI/frontend regression for router-agentic runtime config by exposing metadata-backed `agenticMultiQueryEnabled` in Chat Settings and showing `agentic on/off` beside the existing router state on the Live Chat config strip.
 - Runtime config result: `routerEnabled` remains the explicit DTO field backed by metadata. `agenticMultiQueryEnabled` uses the existing `metadata_json.agenticMultiQueryEnabled` contract; Chat Settings now loads it from metadata aliases, preserves unrelated metadata, clears stale aliases on save, and writes the canonical metadata flag.

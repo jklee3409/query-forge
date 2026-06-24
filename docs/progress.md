@@ -3,6 +3,13 @@
 ## Overview
 High-level progress tracking for the `docs` directory.
 
+## [2026-06-25] Session Summary (RAG Java Source-of-Truth Migration Phase 10D)
+- What was done: Recorded the final acceptance / handoff audit for the RAG Java source-of-truth migration.
+- Acceptance result: Admin GUI router/agentic settings, Live Chat config visibility, StrategyRouter agentic enhancement, Java retrieval-only eval endpoint, Python Java-backed eval policy, and legacy fallback/comparison paths were checked against code and tests.
+- Scope: No production logic, frontend source, backend service/controller/DTO, Python eval, DB schema, Java endpoint contract, or StrategyRouter rule changes were made.
+- Validation: Java compile, requested backend regression tests, requested router/eval tests, requested Python eval tests, frontend build, and `git diff --check` passed.
+- Remaining risks: No live browser click-through or real DB runtime save/load smoke was run.
+
 ## [2026-06-24] Session Summary (RAG Java Source-of-Truth Migration Phase 7E)
 - What was done: Recorded the Java retrieval eval endpoint smoke/contract audit after backend controller-test hardening.
 - Contract note: `POST /api/rag/eval/retrieval` is available for non-agentic retrieval eval; success responses are centered on ordered `retrievedChunkIds`, include `retrievedDocs` with 1-based ranks, keep `persisted=false` and `persistPolicy=NONE`, and do not include an `answer` field. Eval rejection responses use 400 `ProblemDetail` with `title=Retrieval eval request rejected` and `code`.

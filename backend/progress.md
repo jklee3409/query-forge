@@ -1,5 +1,12 @@
 # progress.md
 
+## [2026-06-25] Session Summary (RAG Java Source-of-Truth Migration Guide Phase 10D)
+- What was done: Completed a read-only backend final acceptance audit for the Java source-of-truth migration and changed only progress documentation.
+- Router result: Confirmed `QueryStrategy.AGENTIC_MULTI_QUERY`, conservative router selection gated by `metadata_json.agenticMultiQueryEnabled`, `/api/chat/ask` dispatch through `AgenticRetrievalService`, and subquery recursion guard metadata.
+- Eval result: Confirmed `POST /api/rag/eval/retrieval` stays retrieval-only, defaults `persistPolicy=NONE`, rejects `answerGeneration=true`, and blocks both forced and router-selected agentic eval.
+- Validation: `.\gradlew.bat compileJava`, requested `/api/chat/ask` regression tests, requested router/eval tests, Python policy tests, frontend build, and `git diff --check` passed.
+- Remaining risks: No DB schema or migration changed; no live browser/DB runtime smoke was run.
+
 ## [2026-06-24] Session Summary (RAG Java Source-of-Truth Migration Guide Phase 10C)
 - What was done: Refreshed the backend-served React bundle after Chat Settings and Live Chat frontend changes for router/agentic runtime visibility.
 - Runtime/API result: No Java DTO/service/repository/controller contract was changed. `routerEnabled` remains explicit; `agenticMultiQueryEnabled` is controlled through existing `metadata_json.agenticMultiQueryEnabled` and existing backend readers.
