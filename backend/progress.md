@@ -1,5 +1,10 @@
 # progress.md
 
+## [2026-06-30] Session Summary (Retrieval Eval Rewrite Defaults)
+- What was done: Set Retrieval Eval Lab rewrite-strategy defaults to the current Java runtime/research defaults: threshold `0.05`, retrieval Top-K `10`, rerank Top-N `5`, memory Top-N `5`, rewrite candidates `2`, agentic max subqueries `4`, and RRF K `60`.
+- Runtime catalog result: `configs/app/model_catalog.yml` now publishes the missing memory/rewrite/agentic default ranges, and `AdminConsoleService` merges catalog ranges over Java fallback ranges so omitted catalog keys no longer erase runtime defaults.
+- Validation: `AdminConsoleRagIntegrationTest` passed; `npm run build` passed and refreshed the backend-served React bundle; `git diff --check` reported only LF-to-CRLF warnings.
+
 ## [2026-06-25] Session Summary (Admin GUI Runtime Parameter Parity)
 - What was done: Extended Admin RAG test run requests so GUI-provided `memoryTopN`, `rewriteCandidateCount`, `agenticMaxSubqueries`, and `agenticRrfK` are persisted into the Java retrieval eval runtime config.
 - Admin/apply result: `AdminConsoleService` now exposes default ranges for those parameters, records them in run config and initial retrieval/rewrite config, and `ChatRuntimeConfigService.applyRagRunConfig` promotes the same agentic planner/RRF values into online chat metadata.

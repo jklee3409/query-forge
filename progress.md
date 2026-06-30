@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-06-30] Session Summary (Retrieval Eval Rewrite Defaults)
+- What was done: Filled the Admin Retrieval Eval Lab rewrite-strategy defaults in line with the current Java source-of-truth runtime and synthetic-query rewrite research path.
+- Default result: GUI/catalog/default fallback now align on rewrite threshold `0.05`, retrieval Top-K `10`, rerank Top-N `5`, memory Top-N `5`, rewrite candidates `2`, agentic max subqueries `4`, and RRF K `60`.
+- Boundary: This changes default parameter population only; router, rewrite, agentic retrieval, and RRF execution remain Java runtime behavior.
+- Validation: `AdminConsoleRagIntegrationTest` passed; `npm run build` passed and refreshed the backend-served React bundle; `git diff --check` reported only LF-to-CRLF warnings.
+
 ## [2026-06-25] Session Summary (Admin GUI Runtime Parameter Parity)
 - What was done: Closed the remaining Admin GUI/runtime gap after Java retrieval eval integration by wiring Memory Top-N, Rewrite candidates, Agentic subqueries, and Agentic RRF K from GUI controls into backend RAG run config.
 - Backend/frontend result: Retrieval Eval Lab now sends those values to `AdminConsoleService`; successful-run Apply-to-Chat promotes them into online chat config/metadata; Chat Settings can display and edit the online agentic subquery/RRF values.

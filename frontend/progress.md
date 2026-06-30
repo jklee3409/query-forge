@@ -1,5 +1,10 @@
 # progress.md
 
+## [2026-06-30] Session Summary (Retrieval Eval Rewrite Defaults)
+- What was done: Added client-side fallback defaults for the Retrieval Eval Lab rewrite-strategy section so Memory Top-N, Rewrite candidates, Agentic subqueries, and Agentic RRF K are populated even before/without a refreshed backend catalog response.
+- Default result: The UI now starts from the Java research defaults: rewrite threshold `0.05`, retrieval Top-K `10`, rerank Top-N `5`, memory Top-N `5`, rewrite candidates `2`, agentic subqueries `4`, and RRF K `60`.
+- Build result: `npm run build` passed and refreshed the backend-served React bundle.
+
 ## [2026-06-25] Session Summary (Admin GUI Runtime Parameter Parity)
 - What was done: Added Retrieval Eval Lab controls for Memory Top-N, Rewrite candidates, Agentic subqueries, and Agentic RRF K so RAG quality runs use operator-supplied GUI values instead of hidden defaults.
 - Chat Settings result: Added editable/displayed Agentic subquery and RRF values in the online chat settings page metadata path, keeping promoted successful runs and manual online chat config aligned.

@@ -1821,7 +1821,7 @@ public class AdminConsoleService {
         if (!(raw instanceof Map<?, ?> map)) {
             return defaultRuntimeParameterRanges();
         }
-        LinkedHashMap<String, AdminConsoleDtos.RuntimeParameterRange> ranges = new LinkedHashMap<>();
+        LinkedHashMap<String, AdminConsoleDtos.RuntimeParameterRange> ranges = new LinkedHashMap<>(defaultRuntimeParameterRanges());
         Map<String, Object> source = (Map<String, Object>) map;
         for (Map.Entry<String, Object> entry : source.entrySet()) {
             String key = entry.getKey();
@@ -1835,9 +1835,6 @@ public class AdminConsoleService {
                 defaultValue = parseNumber(((Map<?, ?>) rangeMap).get("default_value"));
             }
             ranges.put(key, new AdminConsoleDtos.RuntimeParameterRange(min, max, defaultValue));
-        }
-        if (ranges.isEmpty()) {
-            return defaultRuntimeParameterRanges();
         }
         return Map.copyOf(ranges);
     }

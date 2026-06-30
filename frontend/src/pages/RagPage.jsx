@@ -42,6 +42,16 @@ const RETRIEVER_MODE_PRESETS = {
   },
 }
 
+const RAG_REWRITE_DEFAULTS = {
+  threshold: '0.05',
+  retrievalTopK: '10',
+  rerankTopN: '5',
+  memoryTopN: '5',
+  rewriteCandidateCount: '2',
+  agenticMaxSubqueries: '4',
+  agenticRrfK: '60',
+}
+
 function numberString(value, fallback = '') {
   const parsed = Number(value)
   return Number.isFinite(parsed) ? parsed.toFixed(2) : fallback
@@ -2009,13 +2019,13 @@ export function RagPage({ notify, domainId = null }) {
     officialGatingFullGatingBatchId: '',
     llmModel: '',
     rewriteLlmModel: '',
-    threshold: '',
-    retrievalTopK: '',
-    rerankTopN: '',
-    memoryTopN: '',
-    rewriteCandidateCount: '',
-    agenticMaxSubqueries: '',
-    agenticRrfK: '',
+    threshold: RAG_REWRITE_DEFAULTS.threshold,
+    retrievalTopK: RAG_REWRITE_DEFAULTS.retrievalTopK,
+    rerankTopN: RAG_REWRITE_DEFAULTS.rerankTopN,
+    memoryTopN: RAG_REWRITE_DEFAULTS.memoryTopN,
+    rewriteCandidateCount: RAG_REWRITE_DEFAULTS.rewriteCandidateCount,
+    agenticMaxSubqueries: RAG_REWRITE_DEFAULTS.agenticMaxSubqueries,
+    agenticRrfK: RAG_REWRITE_DEFAULTS.agenticRrfK,
     retrievalBackend: '',
     ...retrieverPresetForMode('', ''),
     syntheticFreeBaseline: false,
@@ -2075,13 +2085,13 @@ export function RagPage({ notify, domainId = null }) {
     const resolvedRetrieverMode = retrieverModes.includes(form.retrieverMode)
       ? form.retrieverMode
       : (defaultRetrieverMode || form.retrieverMode || '')
-    const defaultThreshold = parameterDefault(defaultParameterRanges, 'rewrite_threshold', '')
-    const defaultRetrievalTopK = parameterDefault(defaultParameterRanges, 'retrieval_top_k', '')
-    const defaultRerankTopN = parameterDefault(defaultParameterRanges, 'rerank_top_n', '')
-    const defaultMemoryTopN = parameterDefault(defaultParameterRanges, 'memory_top_n', '')
-    const defaultRewriteCandidateCount = parameterDefault(defaultParameterRanges, 'rewrite_candidate_count', '')
-    const defaultAgenticMaxSubqueries = parameterDefault(defaultParameterRanges, 'agentic_max_subqueries', '')
-    const defaultAgenticRrfK = parameterDefault(defaultParameterRanges, 'agentic_rrf_k', '')
+    const defaultThreshold = parameterDefault(defaultParameterRanges, 'rewrite_threshold', RAG_REWRITE_DEFAULTS.threshold)
+    const defaultRetrievalTopK = parameterDefault(defaultParameterRanges, 'retrieval_top_k', RAG_REWRITE_DEFAULTS.retrievalTopK)
+    const defaultRerankTopN = parameterDefault(defaultParameterRanges, 'rerank_top_n', RAG_REWRITE_DEFAULTS.rerankTopN)
+    const defaultMemoryTopN = parameterDefault(defaultParameterRanges, 'memory_top_n', RAG_REWRITE_DEFAULTS.memoryTopN)
+    const defaultRewriteCandidateCount = parameterDefault(defaultParameterRanges, 'rewrite_candidate_count', RAG_REWRITE_DEFAULTS.rewriteCandidateCount)
+    const defaultAgenticMaxSubqueries = parameterDefault(defaultParameterRanges, 'agentic_max_subqueries', RAG_REWRITE_DEFAULTS.agenticMaxSubqueries)
+    const defaultAgenticRrfK = parameterDefault(defaultParameterRanges, 'agentic_rrf_k', RAG_REWRITE_DEFAULTS.agenticRrfK)
     setRuntimeOptions({
       llmModels,
       defaultLlmModel,
