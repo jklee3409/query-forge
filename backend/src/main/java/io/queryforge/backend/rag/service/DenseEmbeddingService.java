@@ -3,7 +3,7 @@ package io.queryforge.backend.rag.service;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.queryforge.backend.admin.pipeline.config.AdminPipelineProperties;
-import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
@@ -21,7 +21,6 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 
 @Component
-@RequiredArgsConstructor
 public class DenseEmbeddingService {
 
     private static final int EXPECTED_DIMENSION = 384;
@@ -58,7 +57,23 @@ public class DenseEmbeddingService {
 
     private final AdminPipelineProperties properties;
     private final ObjectMapper objectMapper;
+    private final SpringAiEmbeddingGateway springAiEmbeddingGateway;
     private final Map<String, List<Double>> queryCache = new ConcurrentHashMap<>();
+
+    @Autowired
+    public DenseEmbeddingService(
+            AdminPipelineProperties properties,
+            ObjectMapper objectMapper,
+            SpringAiEmbeddingGateway springAiEmbeddingGateway
+    ) {
+        this.properties = properties;
+        this.objectMapper = objectMapper;
+        this.springAiEmbeddingGateway = springAiEmbeddingGateway;
+    }
+
+    public DenseEmbeddingService(AdminPipelineProperties properties, ObjectMapper objectMapper) {
+        this(properties, objectMapper, null);
+    }
 
     public List<Double> embedQuery(String query, String retrieverMode, String denseEmbeddingModel) {
         String cacheKey = denseEmbeddingModel + "|" + retrieverMode + "|" + query;
@@ -66,11 +81,25 @@ public class DenseEmbeddingService {
         if (cached != null) {
             return cached;
         }
-        List<Double> embedding = runPythonEmbedding(query, retrieverMode, denseEmbeddingModel);
+        List<Double> embedding = springAiEmbeddingGateway == null
+                ? runPythonEmbedding(query, retrieverMode, denseEmbeddingModel)
+                : springAiEmbeddingGateway.embedQuery(query, denseEmbeddingModel)
+                .map(this::validateSpringAiEmbedding)
+                .orElseGet(() -> runPythonEmbedding(query, retrieverMode, denseEmbeddingModel));
         if (queryCache.size() >= MAX_CACHE_SIZE) {
             queryCache.clear();
         }
         queryCache.put(cacheKey, embedding);
+        return embedding;
+    }
+
+    private List<Double> validateSpringAiEmbedding(List<Double> embedding) {
+        if (embedding.size() != EXPECTED_DIMENSION) {
+            throw new IllegalStateException("Spring AI dense query embedding must contain "
+                    + EXPECTED_DIMENSION
+                    + " values, actual="
+                    + embedding.size());
+        }
         return embedding;
     }
 

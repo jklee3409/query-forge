@@ -14,10 +14,12 @@ import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -27,6 +29,38 @@ class ChatAnswerServiceTest {
 
     @Mock
     private RuntimeEnvService runtimeEnvService;
+    @Mock
+    private SpringAiChatGateway springAiChatGateway;
+
+    @Test
+    void openAiProviderUsesSpringAiGatewayWhenAvailableAndPreservesCitationFiltering() {
+        when(runtimeEnvService.getOrDefault("QUERY_FORGE_LLM_PROVIDER", "gemini")).thenReturn("openai");
+        when(runtimeEnvService.getOrDefault("QUERY_FORGE_LLM_MODEL", "gpt-4o-mini")).thenReturn("gpt-test");
+        when(springAiChatGateway.completeJson(
+                anyString(),
+                anyString(),
+                anyString()
+        )).thenReturn(Optional.of("""
+                {
+                  "answer": "Spring AI answer",
+                  "used_document_ids": ["doc-1", "not-allowed"],
+                  "used_chunk_ids": ["chunk-1", "not-allowed"]
+                }
+                """));
+        ChatAnswerService service = new ChatAnswerService(objectMapper, runtimeEnvService, springAiChatGateway);
+
+        ChatAnswerService.GeneratedAnswer answer = service.generateAnswer(
+                "How does FilterChainProxy work?",
+                "How does FilterChainProxy work?",
+                "Spring",
+                docs()
+        );
+
+        assertThat(answer.answerText()).isEqualTo("Spring AI answer");
+        assertThat(answer.modelName()).isEqualTo("gpt-test");
+        assertThat(answer.citedDocumentIds()).containsExactly("doc-1");
+        assertThat(answer.citedChunkIds()).containsExactly("chunk-1");
+    }
 
     @Test
     void geminiAnswerRetriesOnceWhenFirstRequestReturnsServiceUnavailable() throws Exception {

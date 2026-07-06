@@ -5,7 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import io.queryforge.backend.rag.repository.RagRepository;
-import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import java.net.URI;
@@ -24,7 +24,6 @@ import java.util.Locale;
 import java.util.Optional;
 
 @Component
-@RequiredArgsConstructor
 public class RewriteCandidateService {
 
     private static final List<String> PROMPT_FILENAMES = List.of(
@@ -37,9 +36,25 @@ public class RewriteCandidateService {
 
     private final ObjectMapper objectMapper;
     private final RuntimeEnvService runtimeEnvService;
+    private final SpringAiChatGateway springAiChatGateway;
     private final HttpClient httpClient = HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(10))
             .build();
+
+    @Autowired
+    public RewriteCandidateService(
+            ObjectMapper objectMapper,
+            RuntimeEnvService runtimeEnvService,
+            SpringAiChatGateway springAiChatGateway
+    ) {
+        this.objectMapper = objectMapper;
+        this.runtimeEnvService = runtimeEnvService;
+        this.springAiChatGateway = springAiChatGateway;
+    }
+
+    public RewriteCandidateService(ObjectMapper objectMapper, RuntimeEnvService runtimeEnvService) {
+        this(objectMapper, runtimeEnvService, null);
+    }
 
     public record CandidateTemplate(String label, String query) {
     }
@@ -124,6 +139,20 @@ public class RewriteCandidateService {
             JsonNode domainContext
     ) {
         String provider = runtimeEnvService.getOrDefault("QUERY_FORGE_LLM_PROVIDER", "gemini").toLowerCase(Locale.ROOT);
+        Optional<List<CandidateTemplate>> springAiCandidates = requestSpringAiCandidates(
+                provider,
+                promptAsset,
+                rawQuery,
+                sessionContext,
+                memories,
+                candidateCount,
+                rewriteQueryProfile,
+                anchorInjectionEnabled,
+                domainContext
+        );
+        if (springAiCandidates.isPresent()) {
+            return springAiCandidates;
+        }
         if (provider.startsWith("openai")) {
             return requestOpenAiCandidates(
                     promptAsset,
@@ -146,6 +175,36 @@ public class RewriteCandidateService {
                 anchorInjectionEnabled,
                 domainContext
         );
+    }
+
+    private Optional<List<CandidateTemplate>> requestSpringAiCandidates(
+            String provider,
+            PromptAsset promptAsset,
+            String rawQuery,
+            JsonNode sessionContext,
+            List<RagRepository.MemoryCandidate> memories,
+            int candidateCount,
+            String rewriteQueryProfile,
+            boolean anchorInjectionEnabled,
+            JsonNode domainContext
+    ) {
+        if (springAiChatGateway == null) {
+            return Optional.empty();
+        }
+        return springAiChatGateway.completeJson(
+                        provider,
+                        promptAsset.text(),
+                        buildRewriteUserPrompt(
+                                rawQuery,
+                                sessionContext,
+                                memories,
+                                candidateCount,
+                                rewriteQueryProfile,
+                                anchorInjectionEnabled,
+                                domainContext
+                        )
+                )
+                .flatMap(content -> parseCandidatePayload(content, candidateCount));
     }
 
     private Optional<List<CandidateTemplate>> requestGeminiCandidates(

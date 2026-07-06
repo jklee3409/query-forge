@@ -5,7 +5,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import io.queryforge.backend.rag.repository.RagRepository;
-import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import java.net.URI;
@@ -21,9 +21,9 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
 
 @Component
-@RequiredArgsConstructor
 public class ChatAnswerService {
 
     private static final String SYSTEM_PROMPT = """
@@ -47,9 +47,25 @@ public class ChatAnswerService {
 
     private final ObjectMapper objectMapper;
     private final RuntimeEnvService runtimeEnvService;
+    private final SpringAiChatGateway springAiChatGateway;
     private final HttpClient httpClient = HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(10))
             .build();
+
+    @Autowired
+    public ChatAnswerService(
+            ObjectMapper objectMapper,
+            RuntimeEnvService runtimeEnvService,
+            SpringAiChatGateway springAiChatGateway
+    ) {
+        this.objectMapper = objectMapper;
+        this.runtimeEnvService = runtimeEnvService;
+        this.springAiChatGateway = springAiChatGateway;
+    }
+
+    public ChatAnswerService(ObjectMapper objectMapper, RuntimeEnvService runtimeEnvService) {
+        this(objectMapper, runtimeEnvService, null);
+    }
 
     public record GeneratedAnswer(
             String answerText,
@@ -66,10 +82,41 @@ public class ChatAnswerService {
             List<RagRepository.RetrievalDoc> retrievedDocs
     ) {
         String provider = runtimeEnvService.getOrDefault("QUERY_FORGE_LLM_PROVIDER", "gemini").toLowerCase(Locale.ROOT);
+        Optional<GeneratedAnswer> springAiAnswer = requestSpringAiAnswer(
+                provider,
+                rawQuery,
+                finalQuery,
+                domainDisplayName,
+                retrievedDocs
+        );
+        if (springAiAnswer.isPresent()) {
+            return springAiAnswer.get();
+        }
         if (provider.startsWith("openai")) {
             return requestOpenAiAnswer(rawQuery, finalQuery, domainDisplayName, retrievedDocs);
         }
         return requestGeminiAnswer(rawQuery, finalQuery, domainDisplayName, retrievedDocs);
+    }
+
+    private Optional<GeneratedAnswer> requestSpringAiAnswer(
+            String provider,
+            String rawQuery,
+            String finalQuery,
+            String domainDisplayName,
+            List<RagRepository.RetrievalDoc> retrievedDocs
+    ) {
+        if (springAiChatGateway == null) {
+            return Optional.empty();
+        }
+        String model = runtimeEnvService.getOrDefault("QUERY_FORGE_LLM_MODEL", provider.startsWith("openai")
+                ? "gpt-4o-mini"
+                : "spring-ai-chat");
+        return springAiChatGateway.completeJson(
+                        provider,
+                        SYSTEM_PROMPT,
+                        buildUserPrompt(rawQuery, finalQuery, domainDisplayName, retrievedDocs)
+                )
+                .map(content -> parseAnswerPayload(content, model, retrievedDocs));
     }
 
     private GeneratedAnswer requestGeminiAnswer(

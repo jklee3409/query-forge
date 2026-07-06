@@ -9,7 +9,7 @@ import io.queryforge.backend.admin.pipeline.model.PipelineAdminDtos;
 import io.queryforge.backend.admin.pipeline.repository.PipelineAdminRepository;
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
-import org.springframework.boot.autoconfigure.jdbc.DataSourceProperties;
+import org.springframework.boot.jdbc.autoconfigure.DataSourceProperties;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Propagation;

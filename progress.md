@@ -1,5 +1,12 @@
 # progress.md
 
+## [2026-07-06] Session Summary (Boot 4 + Spring AI Adapter Migration)
+- What was done: Migrated the backend build to Spring Boot `4.1.0`, Gradle `8.14.3`, and Spring AI `2.0.0`; added OpenAI chat/embedding and PGVector VectorStore dependencies with Spring AI auto-config disabled by default.
+- AI adapter result: Added optional Spring AI gateways for chat, dense embeddings, and VectorStore availability. `ChatAnswerService`, `RewriteCandidateService`, and `AgenticQueryPlannerService` now use Spring AI chat output when configured and fall back to the existing direct Gemini/OpenAI HTTP paths; `DenseEmbeddingService` can use Spring AI embeddings when explicitly configured and still enforces the existing 384-dimension contract.
+- Boundary: `RagService`, `QueryStrategyRouter`, Java retrieval eval, RRF merge, trace persistence, no-write eval, DB schema, and existing repository SQL remain the source-of-truth path. Spring AI PGVector is wired as an integration dependency but does not replace the custom domain-scoped retrieval pipeline yet.
+- Boot 4 compatibility: Added the Boot 4 Jackson2 compatibility module and preferred Jackson2 MVC mapper to preserve existing `com.fasterxml.jackson` DTO/trace contracts, moved `DataSourceProperties` to the Boot 4 package, and updated MVC test imports plus `@MockitoBean`.
+- Validation: `.\gradlew.bat compileJava compileTestJava` passed; focused RAG/Spring AI adapter tests passed; full `.\gradlew.bat test` passed.
+
 ## [2026-06-30] Session Summary (Retrieval Eval Rewrite Defaults)
 - What was done: Filled the Admin Retrieval Eval Lab rewrite-strategy defaults in line with the current Java source-of-truth runtime and synthetic-query rewrite research path.
 - Default result: GUI/catalog/default fallback now align on rewrite threshold `0.05`, retrieval Top-K `10`, rerank Top-N `5`, memory Top-N `5`, rewrite candidates `2`, agentic max subqueries `4`, and RRF K `60`.

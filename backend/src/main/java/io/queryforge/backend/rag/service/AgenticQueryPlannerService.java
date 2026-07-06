@@ -7,7 +7,7 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import io.queryforge.backend.rag.model.ChatRuntimeDtos;
 import io.queryforge.backend.rag.model.RagDtos;
 import io.queryforge.backend.rag.repository.RagRepository;
-import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
 import java.net.URI;
@@ -24,7 +24,6 @@ import java.util.Locale;
 import java.util.Optional;
 
 @Component
-@RequiredArgsConstructor
 public class AgenticQueryPlannerService {
 
     private static final String SYSTEM_PROMPT = """
@@ -44,9 +43,25 @@ public class AgenticQueryPlannerService {
 
     private final ObjectMapper objectMapper;
     private final RuntimeEnvService runtimeEnvService;
+    private final SpringAiChatGateway springAiChatGateway;
     private final HttpClient httpClient = HttpClient.newBuilder()
             .connectTimeout(Duration.ofSeconds(10))
             .build();
+
+    @Autowired
+    public AgenticQueryPlannerService(
+            ObjectMapper objectMapper,
+            RuntimeEnvService runtimeEnvService,
+            SpringAiChatGateway springAiChatGateway
+    ) {
+        this.objectMapper = objectMapper;
+        this.runtimeEnvService = runtimeEnvService;
+        this.springAiChatGateway = springAiChatGateway;
+    }
+
+    public AgenticQueryPlannerService(ObjectMapper objectMapper, RuntimeEnvService runtimeEnvService) {
+        this(objectMapper, runtimeEnvService, null);
+    }
 
     public RagDtos.AgenticQueryPlan plan(
             String rawQuery,
@@ -122,10 +137,46 @@ public class AgenticQueryPlannerService {
             int maxSubqueries
     ) {
         String provider = runtimeEnvService.getOrDefault("QUERY_FORGE_LLM_PROVIDER", "gemini").toLowerCase(Locale.ROOT);
+        Optional<PlannerPayload> springAiPlan = requestSpringAiPlan(
+                provider,
+                rawQuery,
+                config,
+                domainContext,
+                memoryHints,
+                maxSubqueries
+        );
+        if (springAiPlan.isPresent()) {
+            return springAiPlan;
+        }
         if (provider.startsWith("openai")) {
             return requestOpenAiPlan(rawQuery, config, domainContext, memoryHints, maxSubqueries);
         }
         return requestGeminiPlan(rawQuery, config, domainContext, memoryHints, maxSubqueries);
+    }
+
+    private Optional<PlannerPayload> requestSpringAiPlan(
+            String provider,
+            String rawQuery,
+            ChatRuntimeDtos.ChatRuntimeConfigResponse config,
+            JsonNode domainContext,
+            List<RagRepository.MemoryCandidate> memoryHints,
+            int maxSubqueries
+    ) {
+        if (springAiChatGateway == null) {
+            return Optional.empty();
+        }
+        String model = runtimeEnvService.getOrDefault(
+                "QUERY_FORGE_LLM_PLANNER_MODEL",
+                runtimeEnvService.getOrDefault("QUERY_FORGE_LLM_REWRITE_MODEL",
+                        runtimeEnvService.getOrDefault("QUERY_FORGE_LLM_MODEL", "spring-ai-chat"))
+        );
+        return springAiChatGateway.completeJson(
+                        provider,
+                        SYSTEM_PROMPT,
+                        buildPlannerPrompt(rawQuery, config, domainContext, memoryHints, maxSubqueries)
+                )
+                .flatMap(this::parsePlannerPayload)
+                .map(subqueries -> new PlannerPayload("spring-ai", model, subqueries));
     }
 
     private Optional<PlannerPayload> requestGeminiPlan(

@@ -1,6 +1,26 @@
 spring:
   application:
     name: query-forge-backend
+  ai:
+    model:
+      chat: ${QUERY_FORGE_SPRING_AI_CHAT_MODEL:none}
+      embedding: ${QUERY_FORGE_SPRING_AI_EMBEDDING_MODEL:none}
+    openai:
+      api-key: ${OPENAI_API_KEY:}
+      base-url: ${QUERY_FORGE_SPRING_AI_OPENAI_BASE_URL:https://api.openai.com}
+      chat:
+        model: ${QUERY_FORGE_LLM_MODEL:gpt-4o-mini}
+        temperature: 0.1
+        max-tokens: ${QUERY_FORGE_LLM_MAX_OUTPUT_TOKENS:384}
+        response-format:
+          type: JSON_OBJECT
+      embedding:
+        model: ${QUERY_FORGE_DENSE_EMBEDDING_MODEL:text-embedding-3-small}
+        dimensions: ${QUERY_FORGE_DENSE_EMBEDDING_DIMENSIONS:384}
+    vectorstore:
+      pgvector:
+        initialize-schema: false
+        dimensions: ${QUERY_FORGE_VECTORSTORE_DIMENSIONS:384}
   datasource:
     url: jdbc:postgresql://${POSTGRES_HOST:localhost}:${POSTGRES_PORT:5432}/${POSTGRES_DB:query_forge}
     username: ${POSTGRES_USER:query_forge}
@@ -12,6 +32,13 @@ spring:
     locations: classpath:db/migration
   jackson:
     time-zone: Asia/Seoul
+  jackson2:
+    time-zone: Asia/Seoul
+  http:
+    converters:
+      preferred-json-mapper: jackson2
+    codecs:
+      preferred-json-mapper: jackson2
 server:
   port: ${SERVER_PORT:8080}
 

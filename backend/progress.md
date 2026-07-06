@@ -1,5 +1,12 @@
 # progress.md
 
+## [2026-07-06] Session Summary (Boot 4 + Spring AI Adapter Migration)
+- What was done: Migrated backend Gradle/Spring dependencies to Spring Boot `4.1.0`, Gradle `8.14.3`, Spring AI `2.0.0`, Boot 4 MVC/AspectJ starters, explicit Testcontainers BOM, and Boot 4 Jackson2 compatibility.
+- Spring AI result: Added `SpringAiChatGateway`, `SpringAiEmbeddingGateway`, and `SpringAiVectorStoreGateway`. Answer generation, rewrite candidate generation, and agentic query planning can now use Spring AI chat when configured; dense query embeddings can use Spring AI embeddings when explicitly configured and dimension-compatible; all paths fall back to the existing implementation unless Spring AI is available and selected.
+- Boundary: Existing online chat, StrategyRouter, agentic retrieval, retrieval eval, trace persistence, and repository-backed PGVector SQL behavior remain unchanged as the Java source-of-truth pipeline. Spring AI PGVector/VectorStore is present for integration readiness, not yet the default retrieval engine.
+- Test migration: Updated Boot 4 MVC test imports and replaced `@MockBean` with `@MockitoBean` where needed; added tests for Spring AI answer/planner/embedding adapter behavior.
+- Validation: `.\gradlew.bat compileJava compileTestJava` passed; focused RAG/Spring AI adapter tests passed; full `.\gradlew.bat test` passed.
+
 ## [2026-06-30] Session Summary (Retrieval Eval Rewrite Defaults)
 - What was done: Set Retrieval Eval Lab rewrite-strategy defaults to the current Java runtime/research defaults: threshold `0.05`, retrieval Top-K `10`, rerank Top-N `5`, memory Top-N `5`, rewrite candidates `2`, agentic max subqueries `4`, and RRF K `60`.
 - Runtime catalog result: `configs/app/model_catalog.yml` now publishes the missing memory/rewrite/agentic default ranges, and `AdminConsoleService` merges catalog ranges over Java fallback ranges so omitted catalog keys no longer erase runtime defaults.
