@@ -38,11 +38,16 @@ public class ApplicationLayerLoggingAspect {
 
     private final ObjectMapper objectMapper;
 
-    @Pointcut("execution(public * io.queryforge.backend..controller..*.*(..)) || execution(public * io.queryforge.backend..*Controller.*(..))")
+    @Pointcut("execution(public * io.queryforge.backend..*Controller.*(..))"
+            + " || execution(public * io.queryforge.backend..*ApiExceptionHandler.*(..))")
     public void anyControllerPublicMethod() {
     }
 
-    @Pointcut("execution(public * io.queryforge.backend..service..*.*(..)) || execution(public * io.queryforge.backend..*Service.*(..))")
+    @Pointcut("execution(public * io.queryforge.backend..service..*.*(..))"
+            + " || execution(public * io.queryforge.backend..*Service.*(..))"
+            + " || execution(public * io.queryforge.backend.rag.retrieval.routing.QueryStrategyRouter.*(..))"
+            + " || execution(public * io.queryforge.backend.rag.retrieval.agentic.SearchResultMerger.*(..))"
+            + " || execution(public * io.queryforge.backend.rag.provider.*Gateway.*(..))")
     public void anyServicePublicMethod() {
     }
 
@@ -55,11 +60,10 @@ public class ApplicationLayerLoggingAspect {
         }
 
         String className = signature.getDeclaringType().getSimpleName();
-        String declaringTypeName = signature.getDeclaringTypeName();
         String methodName = signature.getName();
         String traceId = UUID.randomUUID().toString().substring(0, 8);
         String requestContext = resolveRequestContext();
-        String layer = declaringTypeName.contains(".controller.") || className.endsWith("Controller")
+        String layer = className.endsWith("Controller") || className.endsWith("ApiExceptionHandler")
                 ? "CONTROLLER"
                 : "SERVICE";
         long startedAtNs = System.nanoTime();

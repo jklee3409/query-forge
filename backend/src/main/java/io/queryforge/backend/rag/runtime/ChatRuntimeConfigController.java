@@ -1,0 +1,74 @@
+package io.queryforge.backend.rag.runtime;
+
+import lombok.RequiredArgsConstructor;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
+
+import java.util.List;
+import java.util.UUID;
+
+@RestController
+@RequiredArgsConstructor
+public class ChatRuntimeConfigController {
+
+    private final ChatRuntimeConfigService service;
+
+    @GetMapping("/api/chat/domains")
+    public List<ChatRuntimeDtos.ChatDomainOption> chatDomains() {
+        return service.listChatDomains();
+    }
+
+    @GetMapping("/api/chat/config")
+    public ChatRuntimeDtos.ChatRuntimeConfigResponse chatConfig(
+            @RequestParam(name = "domain_id") UUID domainId
+    ) {
+        return service.getConfig(domainId);
+    }
+
+    @GetMapping("/api/chat/readiness")
+    public ChatRuntimeDtos.ChatDomainReadinessResponse chatReadiness(
+            @RequestParam(name = "domain_id") UUID domainId
+    ) {
+        return service.getReadiness(domainId);
+    }
+
+    @GetMapping("/api/admin/chat/config")
+    public ChatRuntimeDtos.ChatRuntimeConfigResponse adminChatConfig(
+            @RequestParam(name = "domain_id") UUID domainId
+    ) {
+        return service.getConfig(domainId);
+    }
+
+    @GetMapping("/api/admin/chat/readiness")
+    public ChatRuntimeDtos.ChatDomainReadinessResponse adminChatReadiness(
+            @RequestParam(name = "domain_id") UUID domainId
+    ) {
+        return service.getReadiness(domainId);
+    }
+
+    @GetMapping("/api/admin/chat/config/provenance")
+    public List<ChatRuntimeDtos.ChatRuntimeConfigProvenanceRow> adminChatConfigProvenance(
+            @RequestParam(name = "domain_id") UUID domainId,
+            @RequestParam(name = "limit", required = false) Integer limit
+    ) {
+        return service.listConfigProvenance(domainId, limit);
+    }
+
+    @PutMapping("/api/admin/chat/config")
+    public ChatRuntimeDtos.ChatRuntimeConfigResponse updateAdminChatConfig(
+            @RequestBody ChatRuntimeDtos.ChatRuntimeConfigRequest request
+    ) {
+        return service.updateConfig(request);
+    }
+
+    @PostMapping("/api/admin/chat/config/apply-rag-run")
+    public ChatRuntimeDtos.ChatRuntimeConfigResponse applyRagRunToChatConfig(
+            @RequestBody ChatRuntimeDtos.ApplyChatConfigFromRagRunRequest request
+    ) {
+        return service.applyRagRunConfig(request);
+    }
+}
