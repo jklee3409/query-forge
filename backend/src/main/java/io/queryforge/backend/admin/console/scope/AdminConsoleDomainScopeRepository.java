@@ -1,5 +1,6 @@
-package io.queryforge.backend.admin.console.repository;
+package io.queryforge.backend.admin.console.scope;
 
+import io.queryforge.backend.admin.console.AdminConsoleRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;

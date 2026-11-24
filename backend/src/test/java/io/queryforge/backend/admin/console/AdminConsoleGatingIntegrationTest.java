@@ -1,9 +1,7 @@
 package io.queryforge.backend.admin.console;
 
 import com.fasterxml.jackson.databind.JsonNode;
-import io.queryforge.backend.admin.console.model.AdminConsoleDtos;
-import io.queryforge.backend.admin.console.repository.AdminConsoleRepository;
-import io.queryforge.backend.admin.console.repository.LlmJobRepository;
+import io.queryforge.backend.admin.console.jobs.LlmJobRepository;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;

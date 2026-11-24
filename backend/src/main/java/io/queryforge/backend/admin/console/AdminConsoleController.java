@@ -1,7 +1,5 @@
-package io.queryforge.backend.admin.console.controller;
+package io.queryforge.backend.admin.console;
 
-import io.queryforge.backend.admin.console.model.AdminConsoleDtos;
-import io.queryforge.backend.admin.console.service.AdminConsoleService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;

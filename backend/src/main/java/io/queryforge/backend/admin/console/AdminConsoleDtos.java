@@ -1,4 +1,4 @@
-package io.queryforge.backend.admin.console.model;
+package io.queryforge.backend.admin.console;
 
 import com.fasterxml.jackson.databind.JsonNode;
 

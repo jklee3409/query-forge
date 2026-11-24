@@ -1,9 +1,11 @@
-package io.queryforge.backend.admin.console.repository;
+package io.queryforge.backend.admin.console;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import io.queryforge.backend.admin.console.model.AdminConsoleDtos;
+import io.queryforge.backend.admin.console.evaluation.AdminEvalDatasetRepository;
+import io.queryforge.backend.admin.console.scope.AdminConsoleDomainScopeRepository;
+import io.queryforge.backend.admin.console.synthetic.AdminSyntheticMethodRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;

@@ -1,10 +1,10 @@
-package io.queryforge.backend.admin.console.service;
+package io.queryforge.backend.admin.console;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import io.queryforge.backend.admin.console.model.AdminConsoleDtos;
-import io.queryforge.backend.admin.console.repository.AdminConsoleRepository;
+import io.queryforge.backend.admin.console.evaluation.CanonicalAnchorVersionMetadata;
+import io.queryforge.backend.admin.console.jobs.LlmJobService;
 import io.queryforge.backend.admin.pipeline.config.AdminPipelineProperties;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;

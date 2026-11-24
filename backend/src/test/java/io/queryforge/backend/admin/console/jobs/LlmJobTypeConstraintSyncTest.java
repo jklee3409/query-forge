@@ -1,6 +1,5 @@
-package io.queryforge.backend.admin.console;
+package io.queryforge.backend.admin.console.jobs;
 
-import io.queryforge.backend.admin.console.model.LlmJobType;
 import org.junit.jupiter.api.Test;
 
 import java.io.IOException;

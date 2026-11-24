@@ -1,11 +1,11 @@
-package io.queryforge.backend.admin.console.service;
+package io.queryforge.backend.admin.console.evaluation;
 
 import com.fasterxml.jackson.databind.JsonNode;
 
 import java.util.LinkedHashMap;
 import java.util.Map;
 
-final class CanonicalAnchorVersionMetadata {
+public final class CanonicalAnchorVersionMetadata {
 
     static final String MAPPING_VERSION = "anchor-map-v1";
     static final String NORMALIZATION_VERSION = "anchor-normalize-v1";
@@ -22,7 +22,7 @@ final class CanonicalAnchorVersionMetadata {
         return values;
     }
 
-    static Map<String, Object> fromConfig(JsonNode config) {
+    public static Map<String, Object> fromConfig(JsonNode config) {
         Map<String, Object> values = new LinkedHashMap<>();
         values.put(
                 "anchor_mapping_version",
@@ -39,7 +39,7 @@ final class CanonicalAnchorVersionMetadata {
         return values;
     }
 
-    static void putDefaults(Map<String, Object> target) {
+    public static void putDefaults(Map<String, Object> target) {
         target.putAll(defaults());
     }
 

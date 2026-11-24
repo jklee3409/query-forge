@@ -1,4 +1,4 @@
-package io.queryforge.backend.admin.console;
+package io.queryforge.backend.admin.console.evaluation;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
