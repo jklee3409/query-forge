@@ -75,7 +75,7 @@ public class CorpusAdminRepository {
                     ) version_counts
                 ) version_stats ON TRUE
                 WHERE (
-                    :domainId IS NULL
+                    CAST(:domainId AS uuid) IS NULL
                     OR EXISTS (
                         SELECT 1
                         FROM tech_doc_domain_source ds
