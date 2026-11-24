@@ -18,6 +18,7 @@ spring:
         model: ${QUERY_FORGE_DENSE_EMBEDDING_MODEL:text-embedding-3-small}
         dimensions: ${QUERY_FORGE_DENSE_EMBEDDING_DIMENSIONS:384}
     vectorstore:
+      type: ${QUERY_FORGE_SPRING_AI_VECTORSTORE_TYPE:none}
       pgvector:
         initialize-schema: false
         dimensions: ${QUERY_FORGE_VECTORSTORE_DIMENSIONS:384}
