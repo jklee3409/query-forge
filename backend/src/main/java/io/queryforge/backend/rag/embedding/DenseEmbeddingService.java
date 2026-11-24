@@ -2,7 +2,7 @@ package io.queryforge.backend.rag.embedding;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import io.queryforge.backend.admin.pipeline.config.AdminPipelineProperties;
+import io.queryforge.backend.admin.pipeline.AdminPipelineProperties;
 import io.queryforge.backend.rag.provider.SpringAiEmbeddingGateway;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;

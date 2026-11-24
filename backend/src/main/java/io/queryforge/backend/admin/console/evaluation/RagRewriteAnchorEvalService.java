@@ -4,7 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.queryforge.backend.admin.console.AdminConsoleDtos;
 import io.queryforge.backend.admin.console.AdminConsoleRepository;
-import io.queryforge.backend.admin.pipeline.config.AdminPipelineProperties;
+import io.queryforge.backend.admin.pipeline.AdminPipelineProperties;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 

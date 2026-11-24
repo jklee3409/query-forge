@@ -2,7 +2,7 @@ package io.queryforge.backend.admin.pipeline;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import io.queryforge.backend.admin.pipeline.service.PipelineCommandRunner;
+import io.queryforge.backend.admin.pipeline.execution.PipelineCommandRunner;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;

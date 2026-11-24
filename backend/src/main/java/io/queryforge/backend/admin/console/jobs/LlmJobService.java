@@ -7,7 +7,7 @@ import io.queryforge.backend.admin.console.AdminConsoleDtos;
 import io.queryforge.backend.admin.console.AdminConsoleRepository;
 import io.queryforge.backend.admin.console.evaluation.CanonicalAnchorVersionMetadata;
 import io.queryforge.backend.admin.console.evaluation.RagRewriteAnchorEvalService;
-import io.queryforge.backend.admin.pipeline.config.AdminPipelineProperties;
+import io.queryforge.backend.admin.pipeline.AdminPipelineProperties;
 import io.queryforge.backend.rag.chat.RagDtos;
 import io.queryforge.backend.rag.experiment.ExperimentPipelineService;
 import jakarta.annotation.PostConstruct;

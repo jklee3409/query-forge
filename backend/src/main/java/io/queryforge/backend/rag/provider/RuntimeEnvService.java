@@ -1,6 +1,6 @@
 package io.queryforge.backend.rag.provider;
 
-import io.queryforge.backend.admin.pipeline.config.AdminPipelineProperties;
+import io.queryforge.backend.admin.pipeline.AdminPipelineProperties;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 

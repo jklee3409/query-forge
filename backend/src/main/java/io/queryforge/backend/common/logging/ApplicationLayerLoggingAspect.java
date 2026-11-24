@@ -43,8 +43,8 @@ public class ApplicationLayerLoggingAspect {
     public void anyControllerPublicMethod() {
     }
 
-    @Pointcut("execution(public * io.queryforge.backend..service..*.*(..))"
-            + " || execution(public * io.queryforge.backend..*Service.*(..))"
+    @Pointcut("execution(public * io.queryforge.backend..*Service.*(..))"
+            + " || execution(public * io.queryforge.backend.admin.pipeline.execution.*CommandRunner.*(..))"
             + " || execution(public * io.queryforge.backend.rag.retrieval.routing.QueryStrategyRouter.*(..))"
             + " || execution(public * io.queryforge.backend.rag.retrieval.agentic.SearchResultMerger.*(..))"
             + " || execution(public * io.queryforge.backend.rag.provider.*Gateway.*(..))")
