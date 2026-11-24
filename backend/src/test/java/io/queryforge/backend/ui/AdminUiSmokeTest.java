@@ -16,6 +16,7 @@ import org.testcontainers.utility.DockerImageName;
 import static org.hamcrest.Matchers.containsString;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.forwardedUrl;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.redirectedUrl;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -48,26 +49,30 @@ class AdminUiSmokeTest {
     @Test
     void adminPagesRenderAndLegacyRoutesRedirect() throws Exception {
         mockMvc.perform(get("/admin"))
-                .andExpect(status().is3xxRedirection())
-                .andExpect(redirectedUrl("/admin/pipeline"));
+                .andExpect(status().isOk())
+                .andExpect(forwardedUrl("/react/index.html"));
 
         mockMvc.perform(get("/"))
                 .andExpect(status().isOk())
-                .andExpect(content().string(containsString("id=\"root\"")));
+                .andExpect(forwardedUrl("/react/index.html"));
 
         mockMvc.perform(get("/admin/pipeline"))
                 .andExpect(status().isOk())
-                .andExpect(content().string(containsString("id=\"root\"")));
+                .andExpect(forwardedUrl("/react/index.html"));
 
         mockMvc.perform(get("/admin/synthetic-queries"))
                 .andExpect(status().isOk())
-                .andExpect(content().string(containsString("id=\"root\"")));
+                .andExpect(forwardedUrl("/react/index.html"));
 
         mockMvc.perform(get("/admin/quality-gating"))
                 .andExpect(status().isOk())
-                .andExpect(content().string(containsString("id=\"root\"")));
+                .andExpect(forwardedUrl("/react/index.html"));
 
         mockMvc.perform(get("/admin/rag-tests"))
+                .andExpect(status().isOk())
+                .andExpect(forwardedUrl("/react/index.html"));
+
+        mockMvc.perform(get("/react/index.html"))
                 .andExpect(status().isOk())
                 .andExpect(content().string(containsString("id=\"root\"")));
 

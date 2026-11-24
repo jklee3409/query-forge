@@ -46,7 +46,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
                     experiment_runs,
                     experiments,
                     eval_samples
-                RESTART IDENTITY CASCADE
+                RESTART IDENTITY CASCADE;
                 """,
         executionPhase = Sql.ExecutionPhase.BEFORE_TEST_METHOD
 )
@@ -68,7 +68,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
                     experiment_runs,
                     experiments,
                     eval_samples
-                RESTART IDENTITY CASCADE
+                RESTART IDENTITY CASCADE;
                 """,
         executionPhase = Sql.ExecutionPhase.AFTER_TEST_METHOD
 )
@@ -742,7 +742,7 @@ class AdminConsoleRagIntegrationTest {
 
     @Test
     void runRagRejectsCatalogOutOfAllowlistLlmModel() throws Exception {
-        UUID datasetId = insertEvalDataset("rag-invalid-llm-model");
+        UUID datasetId = insertEvalDataset("spring-rag-invalid-llm-model");
         mockMvc.perform(post("/api/admin/console/rag/tests/run")
                         .contentType(APPLICATION_JSON)
                         .content("""
@@ -758,7 +758,7 @@ class AdminConsoleRagIntegrationTest {
 
     @Test
     void runRagRejectsCatalogOutOfAllowlistDenseModel() throws Exception {
-        UUID datasetId = insertEvalDataset("rag-invalid-dense-model");
+        UUID datasetId = insertEvalDataset("spring-rag-invalid-dense-model");
         mockMvc.perform(post("/api/admin/console/rag/tests/run")
                         .contentType(APPLICATION_JSON)
                         .content("""
@@ -795,7 +795,7 @@ class AdminConsoleRagIntegrationTest {
 
     @Test
     void runRagRewriteEnabledRequiresRewriteStageApiKey() throws Exception {
-        UUID datasetId = insertEvalDataset("rag-rewrite-preflight-api-key");
+        UUID datasetId = insertEvalDataset("spring-rag-rewrite-preflight-api-key");
         UUID sourceGatingBatchId = insertCompletedGatingBatch("A", "full_gating");
         String runName = "rewrite-preflight-" + UUID.randomUUID();
 

@@ -10,19 +10,23 @@ import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.context.jdbc.Sql;
 import org.springframework.test.web.servlet.MockMvc;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.utility.DockerImageName;
+import org.yaml.snakeyaml.Yaml;
 
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
+import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.ExecutorService;
 
 import static org.hamcrest.Matchers.greaterThanOrEqualTo;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -43,7 +47,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
                     synthetic_query_gating_result,
                     quality_gating_batch,
                     synthetic_query_generation_batch
-                RESTART IDENTITY CASCADE
+                RESTART IDENTITY CASCADE;
                 """,
         executionPhase = Sql.ExecutionPhase.BEFORE_TEST_METHOD
 )
@@ -55,11 +59,14 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
                     synthetic_query_gating_result,
                     quality_gating_batch,
                     synthetic_query_generation_batch
-                RESTART IDENTITY CASCADE
+                RESTART IDENTITY CASCADE;
                 """,
         executionPhase = Sql.ExecutionPhase.AFTER_TEST_METHOD
 )
 class AdminConsoleGatingIntegrationTest {
+
+    @MockitoBean(name = "llmJobExecutor")
+    private ExecutorService llmJobExecutor;
 
     @Container
     static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>(
@@ -471,13 +478,14 @@ class AdminConsoleGatingIntegrationTest {
         Path configPath = resolveExperimentConfigPath(experimentName);
         assertThat(Files.exists(configPath)).isTrue();
         String yaml = Files.readString(configPath, StandardCharsets.UTF_8);
-        assertThat(yaml).contains("source_ids:");
-        assertThat(yaml).contains("- spring-boot-reference");
-        assertThat(yaml).contains("- spring-data-commons-reference");
-        assertThat(yaml).contains("- spring-data-jpa-reference");
-        assertThat(yaml).contains("- spring-framework-reference");
-        assertThat(yaml).contains("- spring-security-reference");
-        assertThat(yaml).doesNotContain("source_id:");
+        Map<String, Object> config = new Yaml().load(yaml);
+        assertThat(config).containsEntry("source_ids", List.of(
+                "spring-boot-reference",
+                "spring-data-commons-reference",
+                "spring-data-jpa-reference",
+                "spring-framework-reference",
+                "spring-security-reference"
+        )).doesNotContainKey("source_id");
         assertThat(yaml).contains("llm_translation_max_output_tokens: 2048");
         assertThat(yaml).contains("llm_fallback_models: gemini-2.5-flash-lite");
         assertThat(yaml).contains("b_summary_max_chars: 900");
@@ -655,13 +663,11 @@ class AdminConsoleGatingIntegrationTest {
         Path configPath = resolveExperimentConfigPath(experimentName);
         assertThat(Files.exists(configPath)).isTrue();
         String yaml = Files.readString(configPath, StandardCharsets.UTF_8);
-        assertThat(yaml).contains("source_generation_strategies:");
-        assertThat(yaml).contains("- A");
-        assertThat(yaml).contains("- B");
-        assertThat(yaml).contains("source_generation_run_ids:");
-        assertThat(yaml).contains(sourceRunA.toString());
-        assertThat(yaml).contains(sourceRunB.toString());
-        assertThat(yaml).contains("llm_model: gemini-2.5-flash-lite");
+        Map<String, Object> config = new Yaml().load(yaml);
+        assertThat(config)
+                .containsEntry("source_generation_strategies", List.of("A", "B"))
+                .containsEntry("source_generation_run_ids", List.of(sourceRunA.toString(), sourceRunB.toString()))
+                .containsEntry("llm_model", "gemini-2.5-flash-lite");
 
         Files.deleteIfExists(configPath);
     }
@@ -853,6 +859,15 @@ class AdminConsoleGatingIntegrationTest {
     }
 
     private UUID insertGenerationBatch(UUID methodId, String versionName, UUID sourceGenerationRunId) {
+        if (sourceGenerationRunId != null) {
+            jdbcTemplate.update(
+                    """
+                    INSERT INTO experiment_runs (experiment_run_id, run_label, status)
+                    VALUES (:runId, :runLabel, 'completed')
+                    """,
+                    new MapSqlParameterSource("runId", sourceGenerationRunId).addValue("runLabel", versionName)
+            );
+        }
         UUID generationBatchId = UUID.randomUUID();
         jdbcTemplate.update(
                 """
