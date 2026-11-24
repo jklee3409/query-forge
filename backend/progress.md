@@ -1,5 +1,12 @@
 # progress.md
 
+## [2026-11-24] Session Summary (Feature Package Refactor)
+- Grouped RAG code and tests by chat, runtime, retrieval, eval, experiment, trace, embedding, provider, and persistence. Grouped admin code by console evaluation, jobs, scope, synthetic methods, corpus anchors, pipeline artifacts, execution, and source configuration.
+- Kept the existing API and Spring wiring. Updated logging pointcuts and widened access for the existing methods used across feature packages.
+- Restored Flyway initialization with the Spring Boot 4 starter. Spring AI PGVector is selected explicitly through `QUERY_FORGE_SPRING_AI_VECTORSTORE_TYPE=pgvector`. Test overrides load alongside production configuration defaults.
+- Declared the optional corpus domain ID as a UUID for PostgreSQL. Updated SQL and pipeline fixtures, isolated test-generated source configurations, and verified React routes and the static bundle separately.
+- Ran `gradlew.bat clean test --max-workers=2` with Docker and a Python environment containing the anchor extraction dependencies. Passed all 180 backend tests, including 41 Docker-backed tests. Passed 36 targeted Python Java retrieval client and comparison tests.
+
 ## [2026-07-06] Session Summary (Boot 4 + Spring AI Adapter Migration)
 - What was done: Migrated backend Gradle/Spring dependencies to Spring Boot `4.1.0`, Gradle `8.14.3`, Spring AI `2.0.0`, Boot 4 MVC/AspectJ starters, explicit Testcontainers BOM, and Boot 4 Jackson2 compatibility.
 - Spring AI result: Added `SpringAiChatGateway`, `SpringAiEmbeddingGateway`, and `SpringAiVectorStoreGateway`. Answer generation, rewrite candidate generation, and agentic query planning can now use Spring AI chat when configured; dense query embeddings can use Spring AI embeddings when explicitly configured and dimension-compatible; all paths fall back to the existing implementation unless Spring AI is available and selected.

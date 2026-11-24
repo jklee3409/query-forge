@@ -19,27 +19,45 @@ Backend의 핵심 책임은 재현 가능한 실험 조건을 강제하는 것�
 
 ## 디렉터리 구조
 
+API, 서비스, 저장소, 요청·응답 타입은 해당 기능의 패키지에 배치합니다. 기능 안에서 독립적인 책임은 하위 패키지로 나누고, 테스트는 같은 패키지 경로를 따릅니다.
+
 ```text
 src/main/java/io/queryforge/backend/
   QueryForgeApplication.java
   admin/
-    console/     synthetic, gating, RAG test, runtime options, LLM jobs
-    corpus/      corpus/source/document/chunk/glossary/anchor 관리
+    console/     합성 질의, quality gating, RAG 테스트 API
+      evaluation/  평가 데이터셋과 rewrite anchor 평가
+      jobs/        LLM 작업 실행과 상태 저장
+      scope/       도메인과 소스의 조회 범위 검증
+      synthetic/   합성 질의 메서드 조회
+    corpus/      코퍼스 문서·섹션·청크 관리
+      anchor/      추출, 정규화, 다중 소스 관계
     domain/      기술 문서 domain workspace 관리
-    pipeline/    Python pipeline subprocess 실행과 artifact materialization
+    pipeline/    Python pipeline 운영 API 및 run/step 관리
+      artifact/    문서 아티팩트 저장과 materialization
+      execution/   Python subprocess 실행
+      source/      소스 카탈로그와 프로젝트 경로
     prompt/      prompt asset/revision/binding 관리
-  common/        application layer logging 같은 공통 concern
-  rag/           online RAG, rewrite preview, experiment report API
+  common/        호출 로깅
+  rag/
+    chat/        온라인 질의, rewrite preview, 답변 생성
+    runtime/     도메인별 채팅 설정과 readiness
+    retrieval/   도메인 검색과 reranking
+      agentic/     멀티 쿼리 검색과 결과 병합
+      rewrite/     재작성 후보 생성
+      routing/     검색 전략 선택
+    eval/        retrieval-only 평가 API
+    experiment/  실험 파이프라인 명령 실행
+    trace/       검색 및 답변 trace 저장
+    embedding/   dense 및 hash embedding
+    provider/    Spring AI gateway와 런타임 환경 값
+    persistence/ 검색과 trace가 공유하는 JDBC 저장소
   ui/            React Admin route forwarding
 
 src/main/resources/
   application.yml
   db/migration/  PostgreSQL/Flyway schema history
   static/react/  Admin Console production bundle
-
-src/test/java/io/queryforge/backend/
-  admin/         Admin Console, Corpus, Pipeline, UI integration tests
-  rag/           RAG controller/service tests
 ```
 
 ## 주요 API 경로
@@ -64,13 +82,15 @@ Admin RAG 실행은 synthetic-backed 조건에서 explicit `sourceGatingBatchId`
 
 기본 서버 포트는 `8080`이며, datasource와 config root는 `application.yml`의 `POSTGRES_*`, `QUERY_FORGE_*`, `PROMPT_ROOT`, `EXPERIMENT_ROOT` 환경 변수로 조정합니다.
 
+Spring AI PGVector를 사용하려면 embedding model을 설정하고 `QUERY_FORGE_SPRING_AI_VECTORSTORE_TYPE=pgvector`를 지정합니다.
+
 ## 테스트
 
 ```powershell
 .\backend\gradlew.bat -p .\backend test
 ```
 
-테스트는 JUnit 5, Spring Boot Test, Testcontainers PostgreSQL을 사용합니다. 로컬 Docker가 필요할 수 있으므로 저사양 환경에서는 전체 테스트보다 변경 범위에 맞는 integration test를 먼저 실행하는 것이 안전합니다.
+테스트는 JUnit 5, Spring Boot Test, Testcontainers PostgreSQL을 사용합니다. PostgreSQL 통합 테스트에는 Docker가 필요합니다. 코퍼스 앵커 재추출 테스트는 Python pipeline을 실행하므로 파이프라인 의존성이 설치된 Python을 사용합니다. 가상 환경을 사용하는 경우 `QUERY_FORGE_PYTHON`에 해당 실행 파일 경로를 지정합니다.
 
 ## 운영 메모
 

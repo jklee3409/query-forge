@@ -840,10 +840,10 @@ Use targeted validation rather than broad builds/tests unless the user requests 
 
 ```powershell
 # Backend live chat regression
-.\gradlew.bat test --tests io.queryforge.backend.rag.service.RagServiceTest --tests io.queryforge.backend.rag.controller.RagControllerWebTest
+.\gradlew.bat test --tests io.queryforge.backend.rag.chat.RagServiceTest --tests io.queryforge.backend.rag.chat.RagControllerWebTest
 
 # Router / retrieval eval endpoint
-.\gradlew.bat test --tests io.queryforge.backend.rag.service.QueryStrategyRouterTest --tests io.queryforge.backend.rag.service.RagRetrievalEvalServiceTest --tests io.queryforge.backend.rag.controller.RagRetrievalEvalControllerTest
+.\gradlew.bat test --tests io.queryforge.backend.rag.retrieval.routing.QueryStrategyRouterTest --tests io.queryforge.backend.rag.eval.RagRetrievalEvalServiceTest --tests io.queryforge.backend.rag.eval.RagRetrievalEvalControllerTest
 
 # Python Java-backed eval policy
 python -m unittest pipeline.tests.test_java_retrieval_client pipeline.tests.test_retrieval_eval_compare -q

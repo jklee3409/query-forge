@@ -1,5 +1,10 @@
 # progress.md
 
+## [2026-11-24] Session Summary (Backend Feature Packages)
+- Reorganized Java backend code and tests around RAG, admin, pipeline, and UI capabilities. Kept the HTTP contracts and Java/Python execution boundary.
+- Restored Boot 4 database startup and fixed the PostgreSQL source query for requests without a domain. Updated integration fixtures to exercise the current contracts.
+- Verified 180 backend tests with Docker PostgreSQL and 36 Python Java-backed retrieval evaluation tests.
+
 ## [2026-07-06] Session Summary (Boot 4 + Spring AI Adapter Migration)
 - What was done: Migrated the backend build to Spring Boot `4.1.0`, Gradle `8.14.3`, and Spring AI `2.0.0`; added OpenAI chat/embedding and PGVector VectorStore dependencies with Spring AI auto-config disabled by default.
 - AI adapter result: Added optional Spring AI gateways for chat, dense embeddings, and VectorStore availability. `ChatAnswerService`, `RewriteCandidateService`, and `AgenticQueryPlannerService` now use Spring AI chat output when configured and fall back to the existing direct Gemini/OpenAI HTTP paths; `DenseEmbeddingService` can use Spring AI embeddings when explicitly configured and still enforces the existing 384-dimension contract.

@@ -6,9 +6,13 @@ Spring Boot backend for Admin Console APIs, RAG APIs, pipeline command orchestra
 ---
 
 ## Structure
-- `src/main/java/io/queryforge/backend/admin/console/*`: synthetic/gating/rag admin APIs and repositories
-- `src/main/java/io/queryforge/backend/admin/pipeline/*`: pipeline orchestration and command runners
-- `src/main/java/io/queryforge/backend/rag/*`: online RAG API/repository/service
+- `src/main/java/io/queryforge/backend/admin/console/`: console API and orchestration, with `evaluation`, `jobs`, `scope`, and `synthetic` packages
+- `src/main/java/io/queryforge/backend/admin/corpus/`: corpus administration and the `anchor` package
+- `src/main/java/io/queryforge/backend/admin/pipeline/`: ingest orchestration, with `artifact`, `execution`, and `source` packages
+- `src/main/java/io/queryforge/backend/admin/{domain,prompt}/`: domain workspaces and prompt management
+- `src/main/java/io/queryforge/backend/rag/`: `chat`, `runtime`, `retrieval` (including `agentic`, `rewrite`, and `routing`), `eval`, `experiment`, `trace`, `embedding`, `provider`, and `persistence`
+- `src/main/java/io/queryforge/backend/{common,ui}/`: shared logging and React routes
+- `src/test/java/io/queryforge/backend/`: unit, MVC, and integration tests in their corresponding feature packages
 - `src/main/resources/db/migration/*`: Flyway schema migrations
 - `src/main/resources/static/react/*`: bundled admin UI assets
 
