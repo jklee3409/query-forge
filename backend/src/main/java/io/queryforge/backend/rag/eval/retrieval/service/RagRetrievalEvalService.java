@@ -238,7 +238,7 @@ public class RagRetrievalEvalService {
     ) {
         String embeddingLiteral = domainScopedRetrievalService.embeddingLiteral(query, retrievalRuntime);
         RetrievalExecutionDtos.RawOnlyExecutionResult result =
-                ragRetrievalExecutionService.executeRawOnly(new RetrievalExecutionDtos.RawOnlyExecutionRequest(
+                ragRetrievalExecutionService.executeRawOnly(new RetrievalExecutionDtos.RawRetrievalRequest(
                         query,
                         embeddingLiteral,
                         settings.retrievalTopK(),

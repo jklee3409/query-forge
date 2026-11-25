@@ -9,9 +9,10 @@ import io.queryforge.backend.rag.chat.service.ChatResponseAssembler.AnswerDraft;
 import io.queryforge.backend.rag.retrieval.candidate.dto.RetrievalDtos;
 import io.queryforge.backend.rag.retrieval.candidate.model.RetrievalDoc;
 import io.queryforge.backend.rag.retrieval.candidate.service.DomainScopedRetrievalService;
-import io.queryforge.backend.rag.retrieval.execution.dto.RetrievalExecutionDtos;
 import io.queryforge.backend.rag.retrieval.execution.dto.RetrievalExecutionDtos.ExecutedRewriteCandidate;
 import io.queryforge.backend.rag.retrieval.execution.dto.RetrievalExecutionDtos.NonAgenticExecutionKind;
+import io.queryforge.backend.rag.retrieval.execution.dto.RetrievalExecutionDtos.RawRetrievalRequest;
+import io.queryforge.backend.rag.retrieval.execution.dto.RetrievalExecutionDtos.RetrievalMaterial;
 import io.queryforge.backend.rag.retrieval.execution.dto.RetrievalExecutionDtos.RewriteExecutionRequest;
 import io.queryforge.backend.rag.retrieval.execution.dto.RetrievalExecutionDtos.RewriteExecutionResult;
 import io.queryforge.backend.rag.retrieval.execution.model.RagPersistPolicy;
@@ -215,44 +216,18 @@ public class RagService {
             );
         }
 
-        List<RetrievalDoc> rawRetrievedLocal;
-        List<RetrievalDoc> rawRetrieved;
         double rawDense = memoryCandidates.isEmpty() ? 0.0 : memoryCandidates.getFirst().similarity();
-        double rawConfidence;
-        long rawRetrievalLatency;
-        String rawRetrieverName;
-        JsonNode rawRetrievalMetadata;
-        if (rawOnlyRoute) {
-            RetrievalExecutionDtos.RawOnlyExecutionResult rawOnlyExecution =
-                    ragRetrievalExecutionService.executeRawOnly(new RetrievalExecutionDtos.RawOnlyExecutionRequest(
-                            rawQuery,
-                            rawEmbeddingLiteral,
-                            retrievalTopK,
-                            rerankTopN,
-                            config.domainId(),
-                            retrievalRuntime
-                    ));
-            rawRetrievedLocal = rawOnlyExecution.localRetrievedDocs();
-            rawRetrieved = rawOnlyExecution.rerankedDocs();
-            rawConfidence = rawOnlyExecution.rawRetrievalConfidence();
-            rawRetrievalLatency = rawOnlyExecution.latencyMs();
-            rawRetrieverName = rawOnlyExecution.retrieverName();
-            rawRetrievalMetadata = rawOnlyExecution.retrievalMetadata();
-        } else {
-            stageStart = System.nanoTime();
-            rawRetrievedLocal = domainScopedRetrievalService.retrieveChunks(
-                    rawQuery,
-                    rawEmbeddingLiteral,
-                    retrievalTopK,
-                    config.domainId(),
-                    retrievalRuntime
-            );
-            rawRetrieved = cohereRerankService.rerank(rawQuery, rawRetrievedLocal, rerankTopN);
-            rawConfidence = confidence(rawRetrieved, rawDense);
-            rawRetrievalLatency = responses.elapsedMs(stageStart);
-            rawRetrieverName = retrievalRuntime.retrieverName();
-            rawRetrievalMetadata = responses.retrievalMetadata(retrievalRuntime);
-        }
+        RetrievalMaterial rawRetrieval = ragRetrievalExecutionService.executeRawRetrieval(
+                new RawRetrievalRequest(rawQuery, rawEmbeddingLiteral, retrievalTopK, rerankTopN,
+                        config.domainId(), retrievalRuntime),
+                rawDense
+        );
+        List<RetrievalDoc> rawRetrievedLocal = rawRetrieval.retrievedDocs();
+        List<RetrievalDoc> rawRetrieved = rawRetrieval.rerankedDocs();
+        double rawConfidence = rawRetrieval.confidence();
+        long rawRetrievalLatency = rawRetrieval.latencyMs();
+        String rawRetrieverName = rawRetrieval.retrieverName();
+        JsonNode rawRetrievalMetadata = rawRetrieval.retrievalMetadata();
         boolean rawOnlyTracePersistence = useRawOnlyTracePersistence(mode, rawOnlyRoute);
         if (rawOnlyTracePersistence) {
             ragTracePersistenceService.persistRawOnlyTrace(new RagTraceWriteDtos.RawOnlyTracePersistenceRequest(

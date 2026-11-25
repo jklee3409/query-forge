@@ -208,8 +208,8 @@ class RagRetrievalEvalServiceTest {
 
         RagRetrievalEvalDtos.RagRetrievalEvalResponse response = service.execute(request("raw_only", null, null));
 
-        ArgumentCaptor<RetrievalExecutionDtos.RawOnlyExecutionRequest> captor =
-                ArgumentCaptor.forClass(RetrievalExecutionDtos.RawOnlyExecutionRequest.class);
+        ArgumentCaptor<RetrievalExecutionDtos.RawRetrievalRequest> captor =
+                ArgumentCaptor.forClass(RetrievalExecutionDtos.RawRetrievalRequest.class);
         verify(ragRetrievalExecutionService).executeRawOnly(captor.capture());
         assertThat(captor.getValue().originalQuery()).isEqualTo(QUERY);
         assertThat(captor.getValue().queryEmbeddingLiteral()).isEqualTo("embedding");

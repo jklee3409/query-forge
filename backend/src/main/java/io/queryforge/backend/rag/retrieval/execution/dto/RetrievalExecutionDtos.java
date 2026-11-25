@@ -15,7 +15,7 @@ public final class RetrievalExecutionDtos {
     private RetrievalExecutionDtos() {
     }
 
-    public record RawOnlyExecutionRequest(
+    public record RawRetrievalRequest(
             String originalQuery,
             String queryEmbeddingLiteral,
             int retrievalTopK,
@@ -23,7 +23,7 @@ public final class RetrievalExecutionDtos {
             UUID domainId,
             RetrievalDtos.RetrievalRuntime retrievalRuntime
     ) {
-        public RawOnlyExecutionRequest {
+        public RawRetrievalRequest {
             if (originalQuery == null || originalQuery.isBlank()) {
                 throw new IllegalArgumentException("originalQuery must not be blank");
             }

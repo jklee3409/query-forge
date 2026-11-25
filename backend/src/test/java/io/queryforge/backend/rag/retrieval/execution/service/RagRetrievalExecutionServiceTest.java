@@ -25,6 +25,7 @@ import java.util.List;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.data.Offset.offset;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyList;
@@ -93,7 +94,7 @@ class RagRetrievalExecutionServiceTest {
         when(cohereRerankService.modelName()).thenReturn("local-rerank-fallback");
 
         RetrievalExecutionDtos.RawOnlyExecutionResult result = service.executeRawOnly(
-                new RetrievalExecutionDtos.RawOnlyExecutionRequest(
+                new RetrievalExecutionDtos.RawRetrievalRequest(
                         query,
                         "embedding",
                         3,
@@ -122,6 +123,22 @@ class RagRetrievalExecutionServiceTest {
     }
 
     @Test
+    void originalQueryRetrievalUsesMemorySimilarityInConfidence() {
+        String query = "FilterChainProxy order";
+        RetrievalDtos.RetrievalRuntime runtime = localDenseRuntime(20);
+        List<RetrievalDoc> docs = List.of(new RetrievalDoc("doc-1", "chunk-1", "Spring Security", 0.75d));
+        when(chunkRepository.findTopChunksByEmbedding("embedding", 20, domainId)).thenReturn(docs);
+        when(cohereRerankService.rerank(query, docs, 3)).thenReturn(docs);
+        var request = new RetrievalExecutionDtos.RawRetrievalRequest(query, "embedding", 3, 3, domainId, runtime);
+
+        double rawOnlyConfidence = service.executeRawOnly(request).rawRetrievalConfidence();
+        RetrievalExecutionDtos.RetrievalMaterial retrieval = service.executeRawRetrieval(request, 0.8d);
+
+        assertThat(retrieval.rerankedDocs()).isEqualTo(docs);
+        assertThat(retrieval.confidence()).isCloseTo(rawOnlyConfidence + 0.04d, offset(0.000001d));
+    }
+
+    @Test
     void emptyRawOnlyExecutionReturnsEmptyDocsAndZeroConfidence() {
         String query = "FilterChainProxy order";
         RetrievalDtos.RetrievalRuntime runtime = localDenseRuntime(20);
@@ -130,7 +147,7 @@ class RagRetrievalExecutionServiceTest {
         when(cohereRerankService.modelName()).thenReturn("local-rerank-fallback");
 
         RetrievalExecutionDtos.RawOnlyExecutionResult result = service.executeRawOnly(
-                new RetrievalExecutionDtos.RawOnlyExecutionRequest(
+                new RetrievalExecutionDtos.RawRetrievalRequest(
                         query,
                         "embedding",
                         3,

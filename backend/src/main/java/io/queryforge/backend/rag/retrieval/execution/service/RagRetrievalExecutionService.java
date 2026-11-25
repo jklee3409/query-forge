@@ -7,7 +7,7 @@ import io.queryforge.backend.rag.retrieval.candidate.dto.RetrievalDtos;
 import io.queryforge.backend.rag.retrieval.candidate.model.RetrievalDoc;
 import io.queryforge.backend.rag.retrieval.candidate.service.DomainScopedRetrievalService;
 import io.queryforge.backend.rag.retrieval.execution.dto.RetrievalExecutionDtos.ExecutedRewriteCandidate;
-import io.queryforge.backend.rag.retrieval.execution.dto.RetrievalExecutionDtos.RawOnlyExecutionRequest;
+import io.queryforge.backend.rag.retrieval.execution.dto.RetrievalExecutionDtos.RawRetrievalRequest;
 import io.queryforge.backend.rag.retrieval.execution.dto.RetrievalExecutionDtos.RawOnlyExecutionResult;
 import io.queryforge.backend.rag.retrieval.execution.dto.RetrievalExecutionDtos.RetrievalMaterial;
 import io.queryforge.backend.rag.retrieval.execution.dto.RetrievalExecutionDtos.RewriteExecutionRequest;
@@ -32,7 +32,17 @@ public class RagRetrievalExecutionService {
     private final RewriteCandidateService rewriteCandidateService;
     private final ObjectMapper objectMapper;
 
-    public RawOnlyExecutionResult executeRawOnly(RawOnlyExecutionRequest request) {
+    public RawOnlyExecutionResult executeRawOnly(RawRetrievalRequest request) {
+        long started = System.nanoTime();
+        return new RawOnlyExecutionResult(
+                request.originalQuery(),
+                request.originalQuery(),
+                executeRawRetrieval(request, 0.0d),
+                elapsedMs(started)
+        );
+    }
+
+    public RetrievalMaterial executeRawRetrieval(RawRetrievalRequest request, double memorySimilarity) {
         long started = System.nanoTime();
         List<RetrievalDoc> localRetrievedDocs = domainScopedRetrievalService.retrieveChunks(
                 request.originalQuery(),
@@ -46,19 +56,14 @@ public class RagRetrievalExecutionService {
                 localRetrievedDocs,
                 request.rerankTopN()
         );
-        return new RawOnlyExecutionResult(
+        return new RetrievalMaterial(
                 request.originalQuery(),
-                request.originalQuery(),
-                new RetrievalMaterial(
-                        request.originalQuery(),
-                        localRetrievedDocs,
-                        rerankedDocs,
-                        confidence(rerankedDocs, 0.0d),
-                        request.retrievalRuntime().retrieverName(),
-                        cohereRerankService.modelName(),
-                        retrievalMetadata(request.retrievalRuntime()),
-                        elapsedMs(started)
-                ),
+                localRetrievedDocs,
+                rerankedDocs,
+                confidence(rerankedDocs, memorySimilarity),
+                request.retrievalRuntime().retrieverName(),
+                cohereRerankService.modelName(),
+                retrievalMetadata(request.retrievalRuntime()),
                 elapsedMs(started)
         );
     }
