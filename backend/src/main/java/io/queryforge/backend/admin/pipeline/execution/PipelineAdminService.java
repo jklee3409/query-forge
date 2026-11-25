@@ -1,4 +1,4 @@
-package io.queryforge.backend.admin.pipeline;
+package io.queryforge.backend.admin.pipeline.execution;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -6,12 +6,11 @@ import io.queryforge.backend.admin.corpus.run.CorpusRunDtos;
 import io.queryforge.backend.admin.corpus.run.CorpusRunService;
 import io.queryforge.backend.admin.corpus.source.CorpusSourceDtos;
 import io.queryforge.backend.admin.corpus.source.CorpusSourceService;
+import io.queryforge.backend.admin.pipeline.AdminPipelineProperties;
 import io.queryforge.backend.admin.pipeline.artifact.DocumentArtifactStoreService;
-import io.queryforge.backend.admin.pipeline.execution.PipelineCommandRunner;
 import io.queryforge.backend.admin.pipeline.source.SourceCatalogService;
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
-import org.springframework.boot.jdbc.autoconfigure.DataSourceProperties;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Propagation;
@@ -39,9 +38,10 @@ import java.util.concurrent.atomic.AtomicBoolean;
 @Transactional(readOnly = true)
 public class PipelineAdminService {
 
+    private final PipelineStepPlanFactory stepPlanFactory;
     private final AdminPipelineProperties properties;
-    private final DataSourceProperties dataSourceProperties;
-    private final PipelineAdminRepository repository;    private final CorpusRunService runService;
+    private final PipelineAdminRepository repository;
+    private final CorpusRunService runService;
     private final CorpusSourceService sourceService;
     private final SourceCatalogService sourceCatalogService;
     private final DocumentArtifactStoreService artifactStoreService;
@@ -49,6 +49,7 @@ public class PipelineAdminService {
     private final ExecutorService adminPipelineExecutor;
     private final PlatformTransactionManager transactionManager;
     private final ObjectMapper objectMapper;
+
     private final Map<UUID, ManagedRunContext> managedRuns = new ConcurrentHashMap<>();
 
     @PostConstruct
@@ -57,44 +58,38 @@ public class PipelineAdminService {
         sourceCatalogService.syncSourcesFromConfig();
     }
 
-    @Transactional
-    public PipelineAdminDtos.DashboardStats getDashboardStats(UUID domainId) {
-        sourceCatalogService.syncSourcesFromConfig();
-        return repository.fetchDashboardStats(domainId);
-    }
-
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
-    public PipelineAdminDtos.PipelineRunActionResponse startCollect(PipelineAdminDtos.PipelineRunRequest request) {
+    public PipelineExecutionDtos.PipelineRunActionResponse startCollect(PipelineExecutionDtos.PipelineRunRequest request) {
         return startRun("collect", request);
     }
 
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
-    public PipelineAdminDtos.PipelineRunActionResponse startNormalize(PipelineAdminDtos.PipelineRunRequest request) {
+    public PipelineExecutionDtos.PipelineRunActionResponse startNormalize(PipelineExecutionDtos.PipelineRunRequest request) {
         return startRun("normalize", request);
     }
 
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
-    public PipelineAdminDtos.PipelineRunActionResponse startChunk(PipelineAdminDtos.PipelineRunRequest request) {
+    public PipelineExecutionDtos.PipelineRunActionResponse startChunk(PipelineExecutionDtos.PipelineRunRequest request) {
         return startRun("chunk", request);
     }
 
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
-    public PipelineAdminDtos.PipelineRunActionResponse startGlossary(PipelineAdminDtos.PipelineRunRequest request) {
+    public PipelineExecutionDtos.PipelineRunActionResponse startGlossary(PipelineExecutionDtos.PipelineRunRequest request) {
         return startRun("glossary", request);
     }
 
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
-    public PipelineAdminDtos.PipelineRunActionResponse startImport(PipelineAdminDtos.PipelineRunRequest request) {
+    public PipelineExecutionDtos.PipelineRunActionResponse startImport(PipelineExecutionDtos.PipelineRunRequest request) {
         return startRun("import", request);
     }
 
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
-    public PipelineAdminDtos.PipelineRunActionResponse startFullIngest(PipelineAdminDtos.PipelineRunRequest request) {
+    public PipelineExecutionDtos.PipelineRunActionResponse startFullIngest(PipelineExecutionDtos.PipelineRunRequest request) {
         return startRun("full_ingest", request);
     }
 
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
-    public PipelineAdminDtos.PipelineRunActionResponse retryRun(UUID runId) {
+    public PipelineExecutionDtos.PipelineRunActionResponse retryRun(UUID runId) {
         CorpusRunDtos.RunDetail detail = runService.getRunDetail(runId);
         Map<String, Object> sourceScope = objectMapper.convertValue(
                 detail.run().sourceScope(),
@@ -106,7 +101,7 @@ public class PipelineAdminService {
                 new TypeReference<>() {
                 }
         );
-        PipelineAdminDtos.PipelineRunRequest request = new PipelineAdminDtos.PipelineRunRequest(
+        PipelineExecutionDtos.PipelineRunRequest request = new PipelineExecutionDtos.PipelineRunRequest(
                 detail.run().domainId(),
                 toStringList(sourceScope.get("source_ids")),
                 toStringList(sourceScope.get("document_ids")),
@@ -120,11 +115,11 @@ public class PipelineAdminService {
     }
 
     @Transactional
-    public PipelineAdminDtos.PipelineRunActionResponse cancelRun(UUID runId) {
+    public PipelineExecutionDtos.PipelineRunActionResponse cancelRun(UUID runId) {
         ManagedRunContext context = managedRuns.get(runId);
         if (context == null) {
             repository.requestRunCancellation(runId);
-            return new PipelineAdminDtos.PipelineRunActionResponse(
+            return new PipelineExecutionDtos.PipelineRunActionResponse(
                     runId,
                     runService.getRunDetail(runId).run().runType(),
                     "cancel_requested",
@@ -137,7 +132,7 @@ public class PipelineAdminService {
         if (context.currentProcess != null) {
             commandRunner.cancel(context.currentProcess);
         }
-        return new PipelineAdminDtos.PipelineRunActionResponse(
+        return new PipelineExecutionDtos.PipelineRunActionResponse(
                 runId,
                 context.runType,
                 "cancel_requested",
@@ -164,16 +159,16 @@ public class PipelineAdminService {
         return runService.getRunDetail(runId).steps();
     }
 
-    public PipelineAdminDtos.PipelineRunLogsResponse getRunLogs(UUID runId) {
-        List<PipelineAdminDtos.StepLogDto> logs = runService.getRunDetail(runId).steps().stream()
+    public PipelineExecutionDtos.PipelineRunLogsResponse getRunLogs(UUID runId) {
+        List<PipelineExecutionDtos.StepLogDto> logs = runService.getRunDetail(runId).steps().stream()
                 .map(this::toStepLog)
                 .toList();
-        return new PipelineAdminDtos.PipelineRunLogsResponse(runId, logs);
+        return new PipelineExecutionDtos.PipelineRunLogsResponse(runId, logs);
     }
 
-    private PipelineAdminDtos.PipelineRunActionResponse startRun(
+    private PipelineExecutionDtos.PipelineRunActionResponse startRun(
             String runType,
-            PipelineAdminDtos.PipelineRunRequest request
+            PipelineExecutionDtos.PipelineRunRequest request
     ) {
         sourceCatalogService.syncSourcesFromConfig();
         Optional<UUID> activeRunId = repository.findActiveRunId();
@@ -187,7 +182,7 @@ public class PipelineAdminService {
         List<String> initialDocumentIds = resolveInitialDocumentIds(runType, scope);
         materializeInitialInputs(runType, initialDocumentIds, artifacts);
         boolean shortCircuit = shouldShortCircuit(runType, initialDocumentIds);
-        List<StepPlan> steps = shortCircuit ? List.of() : buildPlans(runId, runType, scope, artifacts);
+        List<StepPlan> steps = shortCircuit ? List.of() : stepPlanFactory.buildPlans(runId, runType, scope, artifacts);
         TransactionTemplate transactionTemplate = new TransactionTemplate(transactionManager);
         transactionTemplate.executeWithoutResult(status -> {
             repository.acquirePipelineStartLock();
@@ -229,7 +224,7 @@ public class PipelineAdminService {
             }
         });
         if (shortCircuit) {
-            return new PipelineAdminDtos.PipelineRunActionResponse(
+            return new PipelineExecutionDtos.PipelineRunActionResponse(
                     runId,
                     runType,
                     "warning",
@@ -241,7 +236,7 @@ public class PipelineAdminService {
         managedRuns.put(runId, context);
         adminPipelineExecutor.execute(() -> executeRun(context, scope));
 
-        return new PipelineAdminDtos.PipelineRunActionResponse(
+        return new PipelineExecutionDtos.PipelineRunActionResponse(
                 runId,
                 runType,
                 "queued",
@@ -410,7 +405,7 @@ public class PipelineAdminService {
         repository.cancelQueuedSteps(context.runId);
     }
 
-    private Scope resolveScope(String runType, PipelineAdminDtos.PipelineRunRequest request) {
+    private Scope resolveScope(String runType, PipelineExecutionDtos.PipelineRunRequest request) {
         UUID domainId = request.domainId();
         List<String> explicitSourceIds = normalizeValues(request.sourceIds());
         List<String> domainSourceIds = List.of();
@@ -659,198 +654,6 @@ public class PipelineAdminService {
         );
     }
 
-    private List<StepPlan> buildPlans(UUID runId, String runType, Scope scope, ArtifactContext artifacts) {
-        List<StepPlan> steps = new ArrayList<>();
-        if ("collect".equals(runType) || "full_ingest".equals(runType)) {
-            steps.add(new StepPlan(
-                    UUID.randomUUID(),
-                    "collect",
-                    steps.size() + 1,
-                    buildCollectCommand(runId, scope, artifacts),
-                    null,
-                    artifacts.rawPath.toString()
-            ));
-        }
-        if ("normalize".equals(runType) || "full_ingest".equals(runType)) {
-            steps.add(new StepPlan(
-                    UUID.randomUUID(),
-                    "normalize",
-                    steps.size() + 1,
-                    buildNormalizeCommand(runId, scope, artifacts),
-                    artifacts.rawPath.toString(),
-                    artifacts.sectionsPath.toString()
-            ));
-        }
-        if ("chunk".equals(runType) || "full_ingest".equals(runType)) {
-            steps.add(new StepPlan(
-                    UUID.randomUUID(),
-                    "chunk",
-                    steps.size() + 1,
-                    buildChunkCommand(runId, scope, artifacts),
-                    artifacts.sectionsPath.toString(),
-                    artifacts.chunksPath.toString()
-            ));
-        }
-        if ("glossary".equals(runType) || "full_ingest".equals(runType)) {
-            steps.add(new StepPlan(
-                    UUID.randomUUID(),
-                    "glossary",
-                    steps.size() + 1,
-                    buildGlossaryCommand(runId, scope, artifacts),
-                    artifacts.sectionsPath.toString(),
-                    artifacts.glossaryPath.toString()
-            ));
-        }
-        if ("import".equals(runType) || "full_ingest".equals(runType)) {
-            steps.add(new StepPlan(
-                    UUID.randomUUID(),
-                    "import",
-                    steps.size() + 1,
-                    buildImportCommand(runId, scope, runType, artifacts),
-                    artifacts.sectionsPath.toString(),
-                    "postgresql://corpus"
-            ));
-        }
-        return steps;
-    }
-
-    private List<String> buildCollectCommand(UUID runId, Scope scope, ArtifactContext artifacts) {
-        List<String> command = baseCommand("collect-docs");
-        command.add("--config-dir");
-        command.add(resolveRepoRelative(properties.sourceConfigDir()).toString());
-        command.add("--output");
-        command.add(artifacts.rawPath.toString());
-        command.add("--run-id");
-        command.add(runId.toString());
-        if (scope.limit() != null) {
-            command.add("--limit");
-            command.add(scope.limit().toString());
-        }
-        for (String sourceId : scope.sourceIds()) {
-            command.add("--source-id");
-            command.add(sourceId);
-        }
-        return command;
-    }
-
-    private List<String> buildNormalizeCommand(UUID runId, Scope scope, ArtifactContext artifacts) {
-        List<String> command = baseCommand("preprocess");
-        command.add("--input");
-        command.add(artifacts.rawPath.toString());
-        command.add("--output");
-        command.add(artifacts.sectionsPath.toString());
-        command.add("--run-id");
-        command.add(runId.toString());
-        if (scope.limit() != null) {
-            command.add("--limit");
-            command.add(scope.limit().toString());
-        }
-        return command;
-    }
-
-    private List<String> buildChunkCommand(UUID runId, Scope scope, ArtifactContext artifacts) {
-        List<String> command = baseCommand("chunk-docs");
-        command.add("--input");
-        command.add(artifacts.sectionsPath.toString());
-        command.add("--output-chunks");
-        command.add(artifacts.chunksPath.toString());
-        command.add("--output-glossary");
-        command.add(artifacts.glossaryPath.toString());
-        command.add("--output-relations-sql");
-        command.add(artifacts.relationsPath.toString());
-        command.add("--output-visualization");
-        command.add(artifacts.visualizationPath.toString());
-        command.add("--config");
-        command.add(resolveRepoRelative(properties.chunkingConfig()).toString());
-        command.add("--run-id");
-        command.add(runId.toString());
-        if (scope.limit() != null) {
-            command.add("--limit-documents");
-            command.add(scope.limit().toString());
-        }
-        return command;
-    }
-
-    private List<String> buildGlossaryCommand(UUID runId, Scope scope, ArtifactContext artifacts) {
-        List<String> command = baseCommand("glossary-docs");
-        command.add("--input");
-        command.add(artifacts.sectionsPath.toString());
-        command.add("--output-glossary");
-        command.add(artifacts.glossaryPath.toString());
-        command.add("--config");
-        command.add(resolveRepoRelative(properties.chunkingConfig()).toString());
-        command.add("--run-id");
-        command.add(runId.toString());
-        if (scope.limit() != null) {
-            command.add("--limit-documents");
-            command.add(scope.limit().toString());
-        }
-        return command;
-    }
-
-    private List<String> buildImportCommand(UUID runId, Scope scope, String runType, ArtifactContext artifacts) {
-        DatabaseTarget databaseTarget = resolveDatabaseTarget();
-        List<String> command = baseCommand("import-corpus");
-        command.add("--db-host");
-        command.add(databaseTarget.host());
-        command.add("--db-port");
-        command.add(String.valueOf(databaseTarget.port()));
-        command.add("--db-name");
-        command.add(databaseTarget.database());
-        command.add("--db-user");
-        command.add(Objects.requireNonNullElse(dataSourceProperties.getUsername(), ""));
-        command.add("--db-password");
-        command.add(Objects.requireNonNullElse(dataSourceProperties.getPassword(), ""));
-        command.add("--source-config-dir");
-        command.add(resolveRepoRelative(properties.sourceConfigDir()).toString());
-        command.add("--raw-input");
-        command.add(artifacts.rawPath.toString());
-        command.add("--sections-input");
-        command.add(artifacts.sectionsPath.toString());
-        command.add("--chunks-input");
-        command.add(artifacts.chunksPath.toString());
-        command.add("--glossary-input");
-        command.add(artifacts.glossaryPath.toString());
-        command.add("--external-run-id");
-        command.add(runId.toString());
-        command.add("--run-type");
-        command.add("full_ingest".equals(runType) ? "full_ingest" : "import");
-        if (scope.domainId() != null) {
-            command.add("--domain-id");
-            command.add(scope.domainId().toString());
-        }
-        command.add("--trigger-type");
-        command.add(scope.triggerType());
-        command.add("--created-by");
-        command.add(scope.createdBy());
-        command.add("--run-id");
-        command.add(runId.toString());
-        if (scope.dryRun()) {
-            command.add("--dry-run");
-        }
-        return command;
-    }
-
-    private List<String> baseCommand(String subCommand) {
-        List<String> command = new ArrayList<>();
-        command.add(properties.pythonCommand());
-        command.add(sourceCatalogService.resolveWithinRepo("pipeline/cli.py", "pipeline CLI entrypoint").toString());
-        command.add(subCommand);
-        return command;
-    }
-
-    private DatabaseTarget resolveDatabaseTarget() {
-        String jdbcUrl = dataSourceProperties.getUrl();
-        String normalized = jdbcUrl.replace("jdbc:postgresql://", "");
-        String[] parts = normalized.split("/", 2);
-        String hostPort = parts[0];
-        String database = parts.length > 1 ? parts[1] : "query_forge";
-        String[] hostPortParts = hostPort.split(":", 2);
-        String host = hostPortParts[0];
-        int port = hostPortParts.length > 1 ? Integer.parseInt(hostPortParts[1]) : 5432;
-        return new DatabaseTarget(host, port, database);
-    }
-
     private Map<String, Object> parseStepMetrics(String stdout) {
         if (stdout == null || stdout.isBlank()) {
             return new LinkedHashMap<>();
@@ -865,8 +668,8 @@ public class PipelineAdminService {
         }
     }
 
-    private PipelineAdminDtos.StepLogDto toStepLog(CorpusRunDtos.RunStep step) {
-        return new PipelineAdminDtos.StepLogDto(
+    private PipelineExecutionDtos.StepLogDto toStepLog(CorpusRunDtos.RunStep step) {
+        return new PipelineExecutionDtos.StepLogDto(
                 step.stepId(),
                 step.stepName(),
                 step.stdoutLogPath(),
@@ -952,10 +755,6 @@ public class PipelineAdminService {
         return fallback;
     }
 
-    private Path resolveRepoRelative(String relative) {
-        return sourceCatalogService.resolveWithinRepo(relative, "repo-relative path");
-    }
-
     private record StepWarningDecision(
             boolean warning,
             String message
@@ -965,7 +764,7 @@ public class PipelineAdminService {
         }
     }
 
-    private record Scope(
+    record Scope(
             UUID domainId,
             List<String> sourceIds,
             List<String> documentIds,
@@ -997,7 +796,7 @@ public class PipelineAdminService {
         }
     }
 
-    private record ArtifactContext(
+    record ArtifactContext(
             Path repoRoot,
             Path workspace,
             Path logsDirectory,
@@ -1021,7 +820,7 @@ public class PipelineAdminService {
         }
     }
 
-    private record StepPlan(
+    record StepPlan(
             UUID stepId,
             String stepName,
             int stepOrder,
@@ -1054,12 +853,4 @@ public class PipelineAdminService {
             this.currentDocumentIds = new ArrayList<>(currentDocumentIds);
         }
     }
-
-    private record DatabaseTarget(
-            String host,
-            int port,
-            String database
-    ) {
-    }
 }
-

@@ -1,9 +1,8 @@
 package io.queryforge.backend.admin.pipeline.source;
 
 import io.queryforge.backend.admin.pipeline.AdminPipelineProperties;
-import io.queryforge.backend.admin.pipeline.PipelineAdminRepository;
-import lombok.extern.slf4j.Slf4j;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.yaml.snakeyaml.Yaml;
 
@@ -29,9 +28,8 @@ public class SourceCatalogService {
             Map.entry("spring-security-reference", "spring"),
             Map.entry("docs-python-org-ko-3-14", "python")
     );
-
     private final AdminPipelineProperties properties;
-    private final PipelineAdminRepository repository;
+    private final PipelineSourceRepository repository;
     private volatile Path repoRoot;
 
     public void syncSourcesFromConfig() {

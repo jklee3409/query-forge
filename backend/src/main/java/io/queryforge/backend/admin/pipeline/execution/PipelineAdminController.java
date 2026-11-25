@@ -1,4 +1,4 @@
-package io.queryforge.backend.admin.pipeline;
+package io.queryforge.backend.admin.pipeline.execution;
 
 import io.queryforge.backend.admin.corpus.run.CorpusRunDtos;
 import lombok.RequiredArgsConstructor;
@@ -20,62 +20,55 @@ public class PipelineAdminController {
 
     private final PipelineAdminService service;
 
-    @GetMapping("/dashboard")
-    public PipelineAdminDtos.DashboardStats dashboard(
-            @RequestParam(name = "domain_id", required = false) UUID domainId
-    ) {
-        return service.getDashboardStats(domainId);
-    }
-
     @PostMapping("/collect")
-    public PipelineAdminDtos.PipelineRunActionResponse collect(
-            @RequestBody(required = false) PipelineAdminDtos.PipelineRunRequest request
+    public PipelineExecutionDtos.PipelineRunActionResponse collect(
+            @RequestBody(required = false) PipelineExecutionDtos.PipelineRunRequest request
     ) {
         return service.startCollect(defaultRequest(request));
     }
 
     @PostMapping("/normalize")
-    public PipelineAdminDtos.PipelineRunActionResponse normalize(
-            @RequestBody(required = false) PipelineAdminDtos.PipelineRunRequest request
+    public PipelineExecutionDtos.PipelineRunActionResponse normalize(
+            @RequestBody(required = false) PipelineExecutionDtos.PipelineRunRequest request
     ) {
         return service.startNormalize(defaultRequest(request));
     }
 
     @PostMapping("/chunk")
-    public PipelineAdminDtos.PipelineRunActionResponse chunk(
-            @RequestBody(required = false) PipelineAdminDtos.PipelineRunRequest request
+    public PipelineExecutionDtos.PipelineRunActionResponse chunk(
+            @RequestBody(required = false) PipelineExecutionDtos.PipelineRunRequest request
     ) {
         return service.startChunk(defaultRequest(request));
     }
 
     @PostMapping("/glossary")
-    public PipelineAdminDtos.PipelineRunActionResponse glossary(
-            @RequestBody(required = false) PipelineAdminDtos.PipelineRunRequest request
+    public PipelineExecutionDtos.PipelineRunActionResponse glossary(
+            @RequestBody(required = false) PipelineExecutionDtos.PipelineRunRequest request
     ) {
         return service.startGlossary(defaultRequest(request));
     }
 
     @PostMapping("/import")
-    public PipelineAdminDtos.PipelineRunActionResponse importCorpus(
-            @RequestBody(required = false) PipelineAdminDtos.PipelineRunRequest request
+    public PipelineExecutionDtos.PipelineRunActionResponse importCorpus(
+            @RequestBody(required = false) PipelineExecutionDtos.PipelineRunRequest request
     ) {
         return service.startImport(defaultRequest(request));
     }
 
     @PostMapping("/full-ingest")
-    public PipelineAdminDtos.PipelineRunActionResponse fullIngest(
-            @RequestBody(required = false) PipelineAdminDtos.PipelineRunRequest request
+    public PipelineExecutionDtos.PipelineRunActionResponse fullIngest(
+            @RequestBody(required = false) PipelineExecutionDtos.PipelineRunRequest request
     ) {
         return service.startFullIngest(defaultRequest(request));
     }
 
     @PostMapping("/runs/{runId}/retry")
-    public PipelineAdminDtos.PipelineRunActionResponse retry(@PathVariable UUID runId) {
+    public PipelineExecutionDtos.PipelineRunActionResponse retry(@PathVariable UUID runId) {
         return service.retryRun(runId);
     }
 
     @PostMapping("/runs/{runId}/cancel")
-    public PipelineAdminDtos.PipelineRunActionResponse cancel(@PathVariable UUID runId) {
+    public PipelineExecutionDtos.PipelineRunActionResponse cancel(@PathVariable UUID runId) {
         return service.cancelRun(runId);
     }
 
@@ -102,15 +95,15 @@ public class PipelineAdminController {
     }
 
     @GetMapping("/runs/{runId}/logs")
-    public PipelineAdminDtos.PipelineRunLogsResponse getRunLogs(@PathVariable UUID runId) {
+    public PipelineExecutionDtos.PipelineRunLogsResponse getRunLogs(@PathVariable UUID runId) {
         return service.getRunLogs(runId);
     }
 
-    private PipelineAdminDtos.PipelineRunRequest defaultRequest(PipelineAdminDtos.PipelineRunRequest request) {
+    private PipelineExecutionDtos.PipelineRunRequest defaultRequest(PipelineExecutionDtos.PipelineRunRequest request) {
         if (request != null) {
             return request;
         }
-        return new PipelineAdminDtos.PipelineRunRequest(
+        return new PipelineExecutionDtos.PipelineRunRequest(
                 null,
                 List.of(),
                 List.of(),

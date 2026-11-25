@@ -3,7 +3,7 @@ package io.queryforge.backend.admin.pipeline.artifact;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.queryforge.backend.admin.pipeline.AdminPipelineProperties;
-import io.queryforge.backend.admin.pipeline.PipelineAdminRepository;
+import io.queryforge.backend.admin.pipeline.source.PipelineSourceRepository;
 import io.queryforge.backend.admin.pipeline.source.SourceCatalogService;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -114,7 +114,7 @@ class DocumentArtifactStoreServiceTest {
                 12000,
                 14400
         );
-        SourceCatalogService sourceCatalogService = new SourceCatalogService(properties, mock(PipelineAdminRepository.class));
+        SourceCatalogService sourceCatalogService = new SourceCatalogService(properties, mock(PipelineSourceRepository.class));
         return new DocumentArtifactStoreService(properties, sourceCatalogService, objectMapper);
     }
 
