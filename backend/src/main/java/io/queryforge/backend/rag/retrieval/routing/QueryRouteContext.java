@@ -1,6 +1,6 @@
 package io.queryforge.backend.rag.retrieval.routing;
 
-import io.queryforge.backend.rag.runtime.ChatConfigDtos;
+import io.queryforge.backend.rag.runtime.configuration.ChatConfigDtos;
 import io.queryforge.backend.rag.runtime.readiness.ChatReadinessDtos;
 
 import java.util.UUID;

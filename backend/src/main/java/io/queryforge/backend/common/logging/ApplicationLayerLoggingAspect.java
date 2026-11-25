@@ -11,8 +11,8 @@ import org.aspectj.lang.annotation.Aspect;
 import org.aspectj.lang.annotation.Pointcut;
 import org.aspectj.lang.reflect.MethodSignature;
 import org.springframework.core.Ordered;
-import org.springframework.core.io.Resource;
 import org.springframework.core.annotation.Order;
+import org.springframework.core.io.Resource;
 import org.springframework.stereotype.Component;
 import org.springframework.validation.BindingResult;
 import org.springframework.web.context.request.RequestAttributes;
@@ -46,8 +46,8 @@ public class ApplicationLayerLoggingAspect {
     @Pointcut("execution(public * io.queryforge.backend..*Service.*(..))"
             + " || execution(public * io.queryforge.backend.admin.pipeline.execution.*CommandRunner.*(..))"
             + " || execution(public * io.queryforge.backend.rag.retrieval.routing.QueryStrategyRouter.*(..))"
-            + " || execution(public * io.queryforge.backend.rag.retrieval.agentic.SearchResultMerger.*(..))"
-            + " || execution(public * io.queryforge.backend.rag.provider.*Gateway.*(..))")
+            + " || execution(public * io.queryforge.backend.rag.retrieval.agentic.fusion.SearchResultMerger.*(..))"
+            + " || execution(public * io.queryforge.backend.rag.provider..*Gateway.*(..))")
     public void anyServicePublicMethod() {
     }
 

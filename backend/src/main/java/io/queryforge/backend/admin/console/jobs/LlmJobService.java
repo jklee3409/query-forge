@@ -7,8 +7,8 @@ import io.queryforge.backend.admin.console.evaluation.RagTestRunRepository;
 import io.queryforge.backend.admin.console.gating.GatingRepository;
 import io.queryforge.backend.admin.console.jobs.result.LlmJobResultService;
 import io.queryforge.backend.admin.console.synthetic.SyntheticGenerationRepository;
-import io.queryforge.backend.rag.experiment.ExperimentPipelineService;
-import io.queryforge.backend.rag.experiment.RagExperimentDtos;
+import io.queryforge.backend.rag.experiment.command.ExperimentCommandDtos;
+import io.queryforge.backend.rag.experiment.command.ExperimentPipelineService;
 import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -380,8 +380,8 @@ public class LlmJobService {
                 }
                 llmJobRepository.markItemRunning(item.jobItemId());
                 long commandStartedAtNano = System.nanoTime();
-                RagExperimentDtos.ExperimentCommandResponse response = experimentPipelineService.run(
-                        new RagExperimentDtos.ExperimentCommandRequest(command, experiment),
+                ExperimentCommandDtos.ExperimentCommandResponse response = experimentPipelineService.run(
+                        new ExperimentCommandDtos.ExperimentCommandRequest(command, experiment),
                         job.jobId().toString()
                 );
                 commandDurationMs.put(command, elapsedMillis(commandStartedAtNano));
@@ -583,7 +583,7 @@ public class LlmJobService {
             LlmJobDtos.LlmJobItemRow item,
             String command,
             String experiment,
-            RagExperimentDtos.ExperimentCommandResponse response,
+            ExperimentCommandDtos.ExperimentCommandResponse response,
             String reason,
             String errorMessage
     ) {

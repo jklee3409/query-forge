@@ -4,22 +4,25 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import io.queryforge.backend.rag.retrieval.CohereRerankService;
-import io.queryforge.backend.rag.retrieval.DomainScopedRetrievalService;
-import io.queryforge.backend.rag.retrieval.DomainScopedRetrievalService.RetrievalRuntime;
-import io.queryforge.backend.rag.retrieval.RagPersistPolicy;
-import io.queryforge.backend.rag.retrieval.RetrievalDoc;
-import io.queryforge.backend.rag.retrieval.RetrievalDtos;
+import io.queryforge.backend.rag.retrieval.agentic.fusion.SearchResultMerger;
+import io.queryforge.backend.rag.retrieval.agentic.planning.AgenticPlanningDtos;
+import io.queryforge.backend.rag.retrieval.agentic.planning.AgenticQueryPlannerService;
+import io.queryforge.backend.rag.retrieval.candidate.DomainScopedRetrievalService.RetrievalRuntime;
+import io.queryforge.backend.rag.retrieval.candidate.DomainScopedRetrievalService;
+import io.queryforge.backend.rag.retrieval.candidate.RetrievalDoc;
+import io.queryforge.backend.rag.retrieval.candidate.RetrievalDtos;
+import io.queryforge.backend.rag.retrieval.execution.RagPersistPolicy;
 import io.queryforge.backend.rag.retrieval.memory.MemoryCandidate;
+import io.queryforge.backend.rag.retrieval.rerank.CohereRerankService;
 import io.queryforge.backend.rag.retrieval.rewrite.RewriteCandidateService;
 import io.queryforge.backend.rag.retrieval.rewrite.RewriteDtos;
 import io.queryforge.backend.rag.retrieval.routing.QueryRouteContext;
 import io.queryforge.backend.rag.retrieval.routing.QueryRouteDecision;
 import io.queryforge.backend.rag.retrieval.routing.QueryStrategy;
 import io.queryforge.backend.rag.retrieval.routing.QueryStrategyRouter;
-import io.queryforge.backend.rag.runtime.ChatConfigDtos;
+import io.queryforge.backend.rag.runtime.configuration.ChatConfigDtos;
 import io.queryforge.backend.rag.runtime.readiness.ChatReadinessDtos;
-import io.queryforge.backend.rag.trace.RagTracePersistenceService;
+import io.queryforge.backend.rag.trace.write.agentic.AgenticTracePersistenceService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
@@ -38,7 +41,7 @@ public class AgenticRetrievalService {
     private static final Pattern SEARCH_TOKEN_PATTERN = Pattern.compile("[@A-Za-z0-9_./:$-]{2,}|\\p{InHangulSyllables}{2,}");
     private static final Pattern TECHNICAL_TOKEN_PATTERN = Pattern.compile("[@A-Za-z_][A-Za-z0-9_./:$-]{1,}");
     private final DomainScopedRetrievalService domainScopedRetrievalService;
-    private final RagTracePersistenceService ragTracePersistenceService;
+    private final AgenticTracePersistenceService agenticTracePersistenceService;
     private final CohereRerankService cohereRerankService;
     private final RewriteCandidateService rewriteCandidateService;
     private final QueryStrategyRouter queryStrategyRouter;
@@ -50,7 +53,7 @@ public class AgenticRetrievalService {
         long started = System.nanoTime();
         RetrievalRuntime retrievalRuntime = domainScopedRetrievalService.retrievalRuntime(request.config());
         long planningStarted = System.nanoTime();
-        AgenticRetrievalDtos.AgenticQueryPlan plan = plannerService.plan(
+        AgenticPlanningDtos.AgenticQueryPlan plan = plannerService.plan(
                 request.rawQuery(),
                 request.config(),
                 domainContext(request.config()),
@@ -62,7 +65,7 @@ public class AgenticRetrievalService {
         List<SubqueryExecution> executions = new ArrayList<>();
         List<List<RetrievalDoc>> resultSets = new ArrayList<>();
         List<PersistedRewriteCandidate> persistedCandidates = new ArrayList<>();
-        for (AgenticRetrievalDtos.AgenticSubquery subquery : plan.subqueries()) {
+        for (AgenticPlanningDtos.AgenticSubquery subquery : plan.subqueries()) {
             SubqueryExecution execution = executeSubquery(request, subquery, retrievalRuntime);
             executions.add(execution);
             resultSets.add(execution.decision().finalRetrieved());
@@ -96,7 +99,7 @@ public class AgenticRetrievalService {
 
     private SubqueryExecution executeSubquery(
             AgenticExecutionRequest request,
-            AgenticRetrievalDtos.AgenticSubquery subquery,
+            AgenticPlanningDtos.AgenticSubquery subquery,
             RetrievalRuntime retrievalRuntime
     ) {
         long started = System.nanoTime();
@@ -151,7 +154,7 @@ public class AgenticRetrievalService {
                 rawRetrievedLocal,
                 rawRetrievalLatency,
                 "raw",
-                RagTracePersistenceService.AgenticSubqueryRetrievalTraceWriteScope.SUBQUERY_RAW_RETRIEVAL
+                AgenticTracePersistenceService.AgenticSubqueryRetrievalTraceWriteScope.SUBQUERY_RAW_RETRIEVAL
         );
         List<RetrievalDoc> rawRetrieved = cohereRerankService.rerank(
                 query,
@@ -212,11 +215,11 @@ public class AgenticRetrievalService {
                 int candidateRank = subquery.index() * 10 + index + 1;
                 String candidateLabel = subqueryLabel(subquery, template.label());
                 JsonNode candidateScoreBreakdown = scoreBreakdown(candidateRetrieved, memories);
-                UUID candidateId = ragTracePersistenceService.createAgenticRewriteCandidateTrace(
-                        new RagTracePersistenceService.AgenticRewriteCandidateTracePersistenceRequest(
+                UUID candidateId = agenticTracePersistenceService.createAgenticRewriteCandidateTrace(
+                        new AgenticTracePersistenceService.AgenticRewriteCandidateTracePersistenceRequest(
                                 persistPolicy,
                                 request.onlineQueryId(),
-                                RagTracePersistenceService.AgenticRetrievalExecutionKind.AGENTIC_MULTI_QUERY,
+                                AgenticTracePersistenceService.AgenticRetrievalExecutionKind.AGENTIC_MULTI_QUERY,
                                 subquery.index(),
                                 query,
                                 candidateRank,
@@ -238,7 +241,7 @@ public class AgenticRetrievalService {
                         candidateRetrievedLocal,
                         candidateRetrievalLatency,
                         "rewrite_candidate",
-                        RagTracePersistenceService.AgenticSubqueryRetrievalTraceWriteScope.SUBQUERY_CANDIDATE_RETRIEVAL
+                        AgenticTracePersistenceService.AgenticSubqueryRetrievalTraceWriteScope.SUBQUERY_CANDIDATE_RETRIEVAL
                 );
                 generatedCandidates.add(new GeneratedCandidate(
                         candidateKey(subquery.index(), candidateRank, candidateLabel),
@@ -268,12 +271,12 @@ public class AgenticRetrievalService {
         );
         for (GeneratedCandidate candidate : generatedCandidates) {
             boolean selected = isSelectedCandidate(decision, candidate);
-            ragTracePersistenceService.markAgenticRewriteCandidateAdopted(
-                    new RagTracePersistenceService.AgenticRewriteCandidateAdoptionPersistenceRequest(
+            agenticTracePersistenceService.markAgenticRewriteCandidateAdopted(
+                    new AgenticTracePersistenceService.AgenticRewriteCandidateAdoptionPersistenceRequest(
                             persistPolicy,
                             request.onlineQueryId(),
                             candidate.rewriteCandidateId(),
-                            RagTracePersistenceService.AgenticRetrievalExecutionKind.AGENTIC_MULTI_QUERY,
+                            AgenticTracePersistenceService.AgenticRetrievalExecutionKind.AGENTIC_MULTI_QUERY,
                             subquery.index(),
                             selected,
                             selected ? null : decision.rejectedReason()
@@ -310,20 +313,20 @@ public class AgenticRetrievalService {
 
     private void persistSubqueryRetrievalTrace(
             AgenticExecutionRequest request,
-            AgenticRetrievalDtos.AgenticSubquery subquery,
+            AgenticPlanningDtos.AgenticSubquery subquery,
             String subqueryText,
             RetrievalRuntime retrievalRuntime,
             UUID rewriteCandidateId,
             List<RetrievalDoc> retrievedDocs,
             long latencyMs,
             String phase,
-            RagTracePersistenceService.AgenticSubqueryRetrievalTraceWriteScope writeScope
+            AgenticTracePersistenceService.AgenticSubqueryRetrievalTraceWriteScope writeScope
     ) {
-        ragTracePersistenceService.persistAgenticSubqueryRetrievalTrace(
-                new RagTracePersistenceService.AgenticSubqueryRetrievalTracePersistenceRequest(
+        agenticTracePersistenceService.persistAgenticSubqueryRetrievalTrace(
+                new AgenticTracePersistenceService.AgenticSubqueryRetrievalTracePersistenceRequest(
                         request.persistPolicy(),
                         request.onlineQueryId(),
-                        RagTracePersistenceService.AgenticRetrievalExecutionKind.AGENTIC_MULTI_QUERY,
+                        AgenticTracePersistenceService.AgenticRetrievalExecutionKind.AGENTIC_MULTI_QUERY,
                         subquery.index(),
                         subqueryText,
                         request.mode(),
@@ -415,7 +418,7 @@ public class AgenticRetrievalService {
         return new Decision(rawQuery, false, rawRetrieved, null, null, routeDecision.reason(), rejectedReason);
     }
 
-    private String subqueryLabel(AgenticRetrievalDtos.AgenticSubquery subquery, String label) {
+    private String subqueryLabel(AgenticPlanningDtos.AgenticSubquery subquery, String label) {
         String suffix = label == null || label.isBlank() ? "candidate" : label.trim();
         return "subquery_" + subquery.index() + "_" + suffix;
     }
@@ -432,7 +435,7 @@ public class AgenticRetrievalService {
                 && decision.selectedCandidateKey().equals(candidate.candidateKey());
     }
 
-    private ObjectNode agenticCandidateMetadata(AgenticRetrievalDtos.AgenticSubquery subquery, String templateLabel) {
+    private ObjectNode agenticCandidateMetadata(AgenticPlanningDtos.AgenticSubquery subquery, String templateLabel) {
         ObjectNode node = objectMapper.createObjectNode();
         node.put("agentic_multi_query", true);
         node.put("subquery_index", subquery.index());
@@ -444,7 +447,7 @@ public class AgenticRetrievalService {
 
     private ObjectNode retrievalMetadata(
             RetrievalRuntime runtime,
-            AgenticRetrievalDtos.AgenticSubquery subquery,
+            AgenticPlanningDtos.AgenticSubquery subquery,
             String phase
     ) {
         ObjectNode node = objectMapper.createObjectNode();
@@ -726,7 +729,7 @@ public class AgenticRetrievalService {
     }
 
     public record AgenticExecutionResult(
-            AgenticRetrievalDtos.AgenticQueryPlan plan,
+            AgenticPlanningDtos.AgenticQueryPlan plan,
             List<AgenticRetrievalDtos.SubqueryRetrievalTrace> traces,
             List<PersistedRewriteCandidate> persistedCandidates,
             List<RetrievalDoc> mergedDocs,

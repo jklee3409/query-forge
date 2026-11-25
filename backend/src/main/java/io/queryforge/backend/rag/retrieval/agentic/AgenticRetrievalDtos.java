@@ -1,38 +1,15 @@
 package io.queryforge.backend.rag.retrieval.agentic;
 
 import com.fasterxml.jackson.databind.JsonNode;
-import io.queryforge.backend.rag.retrieval.RetrievalDtos.ScoredDocumentDto;
+import io.queryforge.backend.rag.retrieval.agentic.planning.AgenticPlanningDtos.AgenticQueryPlan;
+import io.queryforge.backend.rag.retrieval.candidate.RetrievalDtos.ScoredDocumentDto;
 import io.queryforge.backend.rag.retrieval.rewrite.RewriteDtos.RewriteCandidateDto;
 
 import java.util.List;
-import java.util.UUID;
 
 public final class AgenticRetrievalDtos {
 
     private AgenticRetrievalDtos() {
-    }
-
-    public record AgenticSubquery(
-            int index,
-            String query,
-            String intent,
-            double weight,
-            JsonNode metadata
-    ) {
-    }
-
-    public record AgenticQueryPlan(
-            String originalQuery,
-            UUID domainId,
-            String domainKey,
-            String domainName,
-            int maxSubqueries,
-            List<AgenticSubquery> subqueries,
-            String plannerModel,
-            boolean fallbackApplied,
-            String fallbackReason,
-            JsonNode metadata
-    ) {
     }
 
     public record SubqueryRetrievalTrace(

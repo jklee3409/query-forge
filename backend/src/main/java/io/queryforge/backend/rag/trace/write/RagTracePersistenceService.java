@@ -1,0 +1,758 @@
+package io.queryforge.backend.rag.trace.write;
+
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.node.JsonNodeFactory;
+import io.queryforge.backend.rag.retrieval.candidate.RetrievalDoc;
+import io.queryforge.backend.rag.retrieval.execution.ForcedRetrievalMode;
+import io.queryforge.backend.rag.retrieval.execution.RagPersistPolicy;
+import io.queryforge.backend.rag.retrieval.execution.RagRetrievalExecutionResult;
+import io.queryforge.backend.rag.retrieval.execution.RagRetrievalExecutionService;
+import io.queryforge.backend.rag.retrieval.memory.MemoryCandidate;
+import io.queryforge.backend.rag.trace.write.TraceWriteResults.OnlineRewriteLogPersistenceResult;
+import io.queryforge.backend.rag.trace.write.TraceWriteResults.RagTracePersistenceResult;
+import io.queryforge.backend.rag.trace.write.TraceWriteResults.RewriteCandidatePersistenceResult;
+import lombok.RequiredArgsConstructor;
+import org.springframework.stereotype.Service;
+
+import java.util.List;
+import java.util.Locale;
+import java.util.UUID;
+
+@Service
+@RequiredArgsConstructor
+public class RagTracePersistenceService {
+
+    private final RagTraceRepository traceRepository;
+
+    public RagTracePersistenceResult persist(RagTracePersistenceRequest request) {
+        if (request == null) {
+            throw new IllegalArgumentException("request is required");
+        }
+        return switch (request.persistPolicy()) {
+            case NONE -> new RagTracePersistenceResult(
+                    RagPersistPolicy.NONE,
+                    request.onlineQueryId(),
+                    false,
+                    "skipped_none"
+            );
+            case TRACE_ONLY -> throw new UnsupportedOperationException(
+                    "TRACE_ONLY persistence is not implemented in Phase 5F"
+            );
+            case ONLINE_QUERY -> throw new UnsupportedOperationException(
+                    "ONLINE_QUERY generic persistence migration is not implemented in Phase 5F; use a phase-specific trace persistence method"
+            );
+        };
+    }
+
+    public RagTracePersistenceResult persistRawOnlyTrace(RawOnlyTracePersistenceRequest request) {
+        if (request == null) {
+            throw new IllegalArgumentException("request is required");
+        }
+        return switch (request.persistPolicy()) {
+            case NONE -> new RagTracePersistenceResult(
+                    RagPersistPolicy.NONE,
+                    request.onlineQueryId(),
+                    false,
+                    "skipped_none"
+            );
+            case TRACE_ONLY -> throw new UnsupportedOperationException(
+                    "TRACE_ONLY persistence is not implemented in Phase 5F"
+            );
+            case ONLINE_QUERY -> persistRawOnlyOnlineQueryTrace(request);
+        };
+    }
+
+    public RagTracePersistenceResult persistRewriteCandidateTrace(RewriteCandidateTracePersistenceRequest request) {
+        if (request == null) {
+            throw new IllegalArgumentException("request is required");
+        }
+        return switch (request.persistPolicy()) {
+            case NONE -> new RagTracePersistenceResult(
+                    RagPersistPolicy.NONE,
+                    request.onlineQueryId(),
+                    false,
+                    "skipped_none"
+            );
+            case TRACE_ONLY -> throw new UnsupportedOperationException(
+                    "TRACE_ONLY persistence is not implemented in Phase 5F"
+            );
+            case ONLINE_QUERY -> persistRewriteCandidateOnlineQueryTrace(request);
+        };
+    }
+
+    public RewriteCandidatePersistenceResult createRewriteCandidateTrace(
+            CreateRewriteCandidateTracePersistenceRequest request
+    ) {
+        if (request == null) {
+            throw new IllegalArgumentException("request is required");
+        }
+        return switch (request.persistPolicy()) {
+            case NONE -> new RewriteCandidatePersistenceResult(
+                    RagPersistPolicy.NONE,
+                    request.onlineQueryId(),
+                    null,
+                    false,
+                    "skipped_none"
+            );
+            case TRACE_ONLY -> throw new UnsupportedOperationException(
+                    "TRACE_ONLY persistence is not implemented in Phase 5F"
+            );
+            case ONLINE_QUERY -> createRewriteCandidateOnlineQueryTrace(request);
+        };
+    }
+
+    public RewriteCandidatePersistenceResult markRewriteCandidateAdopted(
+            RewriteCandidateAdoptionPersistenceRequest request
+    ) {
+        if (request == null) {
+            throw new IllegalArgumentException("request is required");
+        }
+        return switch (request.persistPolicy()) {
+            case NONE -> new RewriteCandidatePersistenceResult(
+                    RagPersistPolicy.NONE,
+                    request.onlineQueryId(),
+                    request.rewriteCandidateId(),
+                    false,
+                    "skipped_none"
+            );
+            case TRACE_ONLY -> throw new UnsupportedOperationException(
+                    "TRACE_ONLY persistence is not implemented in Phase 5F"
+            );
+            case ONLINE_QUERY -> markRewriteCandidateAdoptedOnlineQueryTrace(request);
+        };
+    }
+
+    public OnlineRewriteLogPersistenceResult createOnlineRewriteLogTrace(
+            OnlineRewriteLogPersistenceRequest request
+    ) {
+        if (request == null) {
+            throw new IllegalArgumentException("request is required");
+        }
+        return switch (request.persistPolicy()) {
+            case NONE -> new OnlineRewriteLogPersistenceResult(
+                    RagPersistPolicy.NONE,
+                    request.onlineQueryId(),
+                    null,
+                    false,
+                    "skipped_none"
+            );
+            case TRACE_ONLY -> throw new UnsupportedOperationException(
+                    "TRACE_ONLY persistence is not implemented in Phase 5F"
+            );
+            case ONLINE_QUERY -> createOnlineRewriteLogOnlineQueryTrace(request);
+        };
+    }
+
+    public RagTracePersistenceResult insertMemoryRetrievalTrace(
+            MemoryRetrievalLogPersistenceRequest request
+    ) {
+        if (request == null) {
+            throw new IllegalArgumentException("request is required");
+        }
+        return switch (request.persistPolicy()) {
+            case NONE -> new RagTracePersistenceResult(
+                    RagPersistPolicy.NONE,
+                    request.onlineQueryId(),
+                    false,
+                    "skipped_none"
+            );
+            case TRACE_ONLY -> throw new UnsupportedOperationException(
+                    "TRACE_ONLY persistence is not implemented in Phase 5F"
+            );
+            case ONLINE_QUERY -> insertMemoryRetrievalOnlineQueryTrace(request);
+        };
+    }
+
+    public RagTracePersistenceResult insertRewriteCandidateTrace(
+            RewriteCandidateLogPersistenceRequest request
+    ) {
+        if (request == null) {
+            throw new IllegalArgumentException("request is required");
+        }
+        return switch (request.persistPolicy()) {
+            case NONE -> new RagTracePersistenceResult(
+                    RagPersistPolicy.NONE,
+                    request.onlineQueryId(),
+                    false,
+                    "skipped_none"
+            );
+            case TRACE_ONLY -> throw new UnsupportedOperationException(
+                    "TRACE_ONLY persistence is not implemented in Phase 5F"
+            );
+            case ONLINE_QUERY -> insertRewriteCandidateOnlineQueryTrace(request);
+        };
+    }
+
+    public RagTracePersistenceResult persistOnlineQueryDecision(
+            OnlineQueryDecisionPersistenceRequest request
+    ) {
+        if (request == null) {
+            throw new IllegalArgumentException("request is required");
+        }
+        return switch (request.persistPolicy()) {
+            case NONE -> new RagTracePersistenceResult(
+                    RagPersistPolicy.NONE,
+                    request.onlineQueryId(),
+                    false,
+                    "skipped_none"
+            );
+            case TRACE_ONLY -> throw new UnsupportedOperationException(
+                    "TRACE_ONLY persistence is not implemented in Phase 5F"
+            );
+            case ONLINE_QUERY -> persistOnlineQueryDecisionTrace(request);
+        };
+    }
+
+    public RagTracePersistenceResult mergeOnlineQueryMetadata(
+            OnlineQueryMetadataMergePersistenceRequest request
+    ) {
+        if (request == null) {
+            throw new IllegalArgumentException("request is required");
+        }
+        return switch (request.persistPolicy()) {
+            case NONE -> new RagTracePersistenceResult(
+                    RagPersistPolicy.NONE,
+                    request.onlineQueryId(),
+                    false,
+                    "skipped_none"
+            );
+            case TRACE_ONLY -> throw new UnsupportedOperationException(
+                    "TRACE_ONLY persistence is not implemented in Phase 5F"
+            );
+            case ONLINE_QUERY -> mergeOnlineQueryMetadataTrace(request);
+        };
+    }
+
+    private RagTracePersistenceResult persistRawOnlyOnlineQueryTrace(RawOnlyTracePersistenceRequest request) {
+        if (request.onlineQueryId() == null) {
+            throw new IllegalArgumentException("onlineQueryId is required for ONLINE_QUERY raw_only trace persistence");
+        }
+        if (!"raw_only".equals(request.mode())) {
+            throw new IllegalArgumentException("raw_only trace persistence requires mode=raw_only");
+        }
+        switch (request.writeScope()) {
+            case RETRIEVAL -> traceRepository.insertRetrievalResults(
+                    request.onlineQueryId(),
+                    null,
+                    "raw",
+                    request.rawRetrievedDocs(),
+                    request.mode(),
+                    request.retrieverName(),
+                    request.retrievalMetadata()
+            );
+            case RERANK -> traceRepository.insertRerankResults(
+                    request.onlineQueryId(),
+                    null,
+                    request.rawRerankedDocs(),
+                    request.rerankerModel()
+            );
+        }
+        return new RagTracePersistenceResult(
+                RagPersistPolicy.ONLINE_QUERY,
+                request.onlineQueryId(),
+                true,
+                "persisted_raw_only_" + request.writeScope().statusSuffix
+        );
+    }
+
+    private RagTracePersistenceResult persistRewriteCandidateOnlineQueryTrace(
+            RewriteCandidateTracePersistenceRequest request
+    ) {
+        if (request.onlineQueryId() == null) {
+            throw new IllegalArgumentException("onlineQueryId is required for ONLINE_QUERY rewrite candidate trace persistence");
+        }
+        if (request.rewriteCandidateId() == null) {
+            throw new IllegalArgumentException("rewriteCandidateId is required for ONLINE_QUERY rewrite candidate trace persistence");
+        }
+        validateRewriteCandidateExecutionKind(request.executionKind(), "rewrite candidate trace persistence");
+        if (request.mode().isBlank()) {
+            throw new IllegalArgumentException("mode is required for ONLINE_QUERY rewrite candidate trace persistence");
+        }
+        switch (request.writeScope()) {
+            case CANDIDATE_RETRIEVAL -> traceRepository.insertRetrievalResults(
+                    request.onlineQueryId(),
+                    request.rewriteCandidateId(),
+                    "rewrite_candidate",
+                    request.retrievedDocs(),
+                    request.mode(),
+                    request.retrieverName(),
+                    request.retrievalMetadata()
+            );
+            case CANDIDATE_RERANK -> traceRepository.insertRerankResults(
+                    request.onlineQueryId(),
+                    request.rewriteCandidateId(),
+                    request.rerankedDocs(),
+                    request.rerankerModel()
+            );
+        }
+        return new RagTracePersistenceResult(
+                RagPersistPolicy.ONLINE_QUERY,
+                request.onlineQueryId(),
+                true,
+                "persisted_" + request.executionKind().name().toLowerCase(Locale.ROOT) + "_" + request.writeScope().statusSuffix
+        );
+    }
+
+    private RewriteCandidatePersistenceResult createRewriteCandidateOnlineQueryTrace(
+            CreateRewriteCandidateTracePersistenceRequest request
+    ) {
+        if (request.onlineQueryId() == null) {
+            throw new IllegalArgumentException("onlineQueryId is required for ONLINE_QUERY rewrite candidate creation persistence");
+        }
+        validateRewriteCandidateExecutionKind(request.executionKind(), "rewrite candidate creation persistence");
+        UUID rewriteCandidateId = traceRepository.createRewriteCandidate(
+                request.onlineQueryId(),
+                request.candidateIndex(),
+                request.candidateLabel(),
+                request.candidateQuery(),
+                request.memorySourceIds(),
+                request.retrievalTopKDocs(),
+                request.confidenceScore(),
+                request.scoreBreakdown()
+        );
+        return new RewriteCandidatePersistenceResult(
+                RagPersistPolicy.ONLINE_QUERY,
+                request.onlineQueryId(),
+                rewriteCandidateId,
+                true,
+                "persisted_" + request.executionKind().name().toLowerCase(Locale.ROOT) + "_candidate_root"
+        );
+    }
+
+    private RewriteCandidatePersistenceResult markRewriteCandidateAdoptedOnlineQueryTrace(
+            RewriteCandidateAdoptionPersistenceRequest request
+    ) {
+        if (request.onlineQueryId() == null) {
+            throw new IllegalArgumentException("onlineQueryId is required for ONLINE_QUERY rewrite candidate adoption persistence");
+        }
+        if (request.rewriteCandidateId() == null) {
+            throw new IllegalArgumentException("rewriteCandidateId is required for ONLINE_QUERY rewrite candidate adoption persistence");
+        }
+        validateRewriteCandidateExecutionKind(request.executionKind(), "rewrite candidate adoption persistence");
+        traceRepository.markRewriteCandidateAdopted(
+                request.rewriteCandidateId(),
+                request.adopted(),
+                request.rejectedReason()
+        );
+        return new RewriteCandidatePersistenceResult(
+                RagPersistPolicy.ONLINE_QUERY,
+                request.onlineQueryId(),
+                request.rewriteCandidateId(),
+                true,
+                "persisted_" + request.executionKind().name().toLowerCase(Locale.ROOT) + "_candidate_adoption"
+        );
+    }
+
+    private OnlineRewriteLogPersistenceResult createOnlineRewriteLogOnlineQueryTrace(
+            OnlineRewriteLogPersistenceRequest request
+    ) {
+        if (request.onlineQueryId() == null) {
+            throw new IllegalArgumentException("onlineQueryId is required for ONLINE_QUERY rewrite log persistence");
+        }
+        validateRewriteCandidateExecutionKind(request.executionKind(), "rewrite log persistence");
+        UUID rewriteLogId = traceRepository.createOnlineRewriteLog(
+                request.onlineQueryId(),
+                request.runId(),
+                request.rawQuery(),
+                request.finalQuery(),
+                request.rewriteStrategy(),
+                request.generationMethodCodes(),
+                request.generationBatchIds(),
+                request.gatingApplied(),
+                request.gatingPreset(),
+                request.rewriteApplied(),
+                request.selectiveRewrite(),
+                request.useSessionContext(),
+                request.rawConfidence(),
+                request.selectedConfidence(),
+                request.confidenceDelta(),
+                request.decisionReason(),
+                request.rejectionReason(),
+                request.metadata()
+        );
+        return new OnlineRewriteLogPersistenceResult(
+                RagPersistPolicy.ONLINE_QUERY,
+                request.onlineQueryId(),
+                rewriteLogId,
+                true,
+                "persisted_" + request.executionKind().name().toLowerCase(Locale.ROOT) + "_rewrite_log"
+        );
+    }
+
+    private RagTracePersistenceResult insertMemoryRetrievalOnlineQueryTrace(
+            MemoryRetrievalLogPersistenceRequest request
+    ) {
+        if (request.onlineQueryId() == null) {
+            throw new IllegalArgumentException("onlineQueryId is required for ONLINE_QUERY memory retrieval log persistence");
+        }
+        if (request.rewriteLogId() == null) {
+            throw new IllegalArgumentException("rewriteLogId is required for ONLINE_QUERY memory retrieval log persistence");
+        }
+        if (request.candidate() == null) {
+            throw new IllegalArgumentException("candidate is required for ONLINE_QUERY memory retrieval log persistence");
+        }
+        validateRewriteCandidateExecutionKind(request.executionKind(), "memory retrieval log persistence");
+        traceRepository.insertMemoryRetrievalLog(
+                request.rewriteLogId(),
+                request.onlineQueryId(),
+                request.retrievalRank(),
+                request.candidate(),
+                request.metadata()
+        );
+        return new RagTracePersistenceResult(
+                RagPersistPolicy.ONLINE_QUERY,
+                request.onlineQueryId(),
+                true,
+                "persisted_" + request.executionKind().name().toLowerCase(Locale.ROOT) + "_memory_retrieval_log"
+        );
+    }
+
+    private RagTracePersistenceResult insertRewriteCandidateOnlineQueryTrace(
+            RewriteCandidateLogPersistenceRequest request
+    ) {
+        if (request.onlineQueryId() == null) {
+            throw new IllegalArgumentException("onlineQueryId is required for ONLINE_QUERY rewrite candidate log persistence");
+        }
+        if (request.rewriteLogId() == null) {
+            throw new IllegalArgumentException("rewriteLogId is required for ONLINE_QUERY rewrite candidate log persistence");
+        }
+        if (request.rewriteCandidateId() == null) {
+            throw new IllegalArgumentException("rewriteCandidateId is required for ONLINE_QUERY rewrite candidate log persistence");
+        }
+        validateRewriteCandidateExecutionKind(request.executionKind(), "rewrite candidate log persistence");
+        traceRepository.insertRewriteCandidateLog(
+                request.rewriteLogId(),
+                request.onlineQueryId(),
+                request.rewriteCandidateId(),
+                request.candidateRank(),
+                request.candidateLabel(),
+                request.candidateQuery(),
+                request.confidenceScore(),
+                request.selected(),
+                request.rejectionReason(),
+                request.retrievalTopKDocs(),
+                request.scoreBreakdown(),
+                request.metadata()
+        );
+        return new RagTracePersistenceResult(
+                RagPersistPolicy.ONLINE_QUERY,
+                request.onlineQueryId(),
+                true,
+                "persisted_" + request.executionKind().name().toLowerCase(Locale.ROOT) + "_rewrite_candidate_log"
+        );
+    }
+
+    private RagTracePersistenceResult persistOnlineQueryDecisionTrace(
+            OnlineQueryDecisionPersistenceRequest request
+    ) {
+        if (request.onlineQueryId() == null) {
+            throw new IllegalArgumentException("onlineQueryId is required for ONLINE_QUERY decision persistence");
+        }
+        validateNonAgenticExecutionKind(request.executionKind(), "online query decision persistence");
+        traceRepository.upsertOnlineQueryDecision(
+                request.onlineQueryId(),
+                request.finalQueryUsed(),
+                request.rewriteApplied(),
+                request.memoryTopN(),
+                request.rawScore(),
+                request.selectedRewriteCandidateId(),
+                request.selectedReason(),
+                request.rejectedReason(),
+                request.latencyBreakdown()
+        );
+        return new RagTracePersistenceResult(
+                RagPersistPolicy.ONLINE_QUERY,
+                request.onlineQueryId(),
+                true,
+                "persisted_" + request.executionKind().name().toLowerCase(Locale.ROOT) + "_online_query_decision"
+        );
+    }
+
+    private RagTracePersistenceResult mergeOnlineQueryMetadataTrace(
+            OnlineQueryMetadataMergePersistenceRequest request
+    ) {
+        if (request.onlineQueryId() == null) {
+            throw new IllegalArgumentException("onlineQueryId is required for ONLINE_QUERY metadata merge persistence");
+        }
+        validateNonAgenticExecutionKind(request.executionKind(), "online query metadata merge persistence");
+        traceRepository.mergeOnlineQueryMetadata(request.onlineQueryId(), request.metadata());
+        return new RagTracePersistenceResult(
+                RagPersistPolicy.ONLINE_QUERY,
+                request.onlineQueryId(),
+                true,
+                "persisted_" + request.executionKind().name().toLowerCase(Locale.ROOT) + "_online_query_metadata"
+        );
+    }
+
+    private void validateRewriteCandidateExecutionKind(
+            RagRetrievalExecutionService.NonAgenticExecutionKind executionKind,
+            String context
+    ) {
+        validateNonAgenticExecutionKind(executionKind, context);
+        if (executionKind == RagRetrievalExecutionService.NonAgenticExecutionKind.RAW_ONLY) {
+            throw new IllegalArgumentException(context + " does not support RAW_ONLY execution kind");
+        }
+    }
+
+    private void validateNonAgenticExecutionKind(
+            RagRetrievalExecutionService.NonAgenticExecutionKind executionKind,
+            String context
+    ) {
+        if (executionKind == null) {
+            throw new IllegalArgumentException("executionKind is required for ONLINE_QUERY " + context);
+        }
+    }
+
+    public record RagTracePersistenceRequest(
+            RagPersistPolicy persistPolicy,
+            String source,
+            String evalRunId,
+            String sampleId,
+            ForcedRetrievalMode forcedMode,
+            UUID onlineQueryId,
+            RagRetrievalExecutionResult executionResult
+    ) {
+        public RagTracePersistenceRequest {
+            persistPolicy = persistPolicy == null ? RagPersistPolicy.NONE : persistPolicy;
+        }
+    }
+
+    public record OnlineQueryDecisionPersistenceRequest(
+            RagPersistPolicy persistPolicy,
+            UUID onlineQueryId,
+            RagRetrievalExecutionService.NonAgenticExecutionKind executionKind,
+            String rawQuery,
+            String finalQueryUsed,
+            boolean rewriteApplied,
+            JsonNode memoryTopN,
+            Double rawScore,
+            UUID selectedRewriteCandidateId,
+            int finalRetrievedDocsCount,
+            String selectedReason,
+            String rejectedReason,
+            JsonNode latencyBreakdown
+    ) {
+        public OnlineQueryDecisionPersistenceRequest {
+            persistPolicy = persistPolicy == null ? RagPersistPolicy.NONE : persistPolicy;
+            rawQuery = rawQuery == null ? "" : rawQuery;
+            finalQueryUsed = finalQueryUsed == null ? rawQuery : finalQueryUsed;
+            memoryTopN = memoryTopN == null ? JsonNodeFactory.instance.arrayNode() : memoryTopN;
+            finalRetrievedDocsCount = Math.max(0, finalRetrievedDocsCount);
+            latencyBreakdown = latencyBreakdown == null ? JsonNodeFactory.instance.objectNode() : latencyBreakdown;
+        }
+    }
+
+    public record OnlineQueryMetadataMergePersistenceRequest(
+            RagPersistPolicy persistPolicy,
+            UUID onlineQueryId,
+            RagRetrievalExecutionService.NonAgenticExecutionKind executionKind,
+            JsonNode metadata,
+            String sourceMarker
+    ) {
+        public OnlineQueryMetadataMergePersistenceRequest {
+            persistPolicy = persistPolicy == null ? RagPersistPolicy.NONE : persistPolicy;
+            metadata = metadata == null ? JsonNodeFactory.instance.objectNode() : metadata;
+            sourceMarker = sourceMarker == null || sourceMarker.isBlank() ? null : sourceMarker;
+        }
+    }
+
+    public record RawOnlyTracePersistenceRequest(
+            RagPersistPolicy persistPolicy,
+            UUID onlineQueryId,
+            String rawQuery,
+            String finalQuery,
+            String mode,
+            List<RetrievalDoc> rawRetrievedDocs,
+            List<RetrievalDoc> rawRerankedDocs,
+            JsonNode retrievalMetadata,
+            String retrieverName,
+            String rerankerModel,
+            long latencyMs,
+            RawOnlyTraceWriteScope writeScope
+    ) {
+        public RawOnlyTracePersistenceRequest {
+            persistPolicy = persistPolicy == null ? RagPersistPolicy.NONE : persistPolicy;
+            rawQuery = rawQuery == null ? "" : rawQuery;
+            finalQuery = finalQuery == null ? rawQuery : finalQuery;
+            mode = mode == null ? "raw_only" : mode;
+            rawRetrievedDocs = rawRetrievedDocs == null ? List.of() : List.copyOf(rawRetrievedDocs);
+            rawRerankedDocs = rawRerankedDocs == null ? List.of() : List.copyOf(rawRerankedDocs);
+            retrievalMetadata = retrievalMetadata == null ? JsonNodeFactory.instance.objectNode() : retrievalMetadata;
+            retrieverName = retrieverName == null ? "unknown" : retrieverName;
+            rerankerModel = rerankerModel == null ? "unknown" : rerankerModel;
+            writeScope = writeScope == null ? RawOnlyTraceWriteScope.RETRIEVAL : writeScope;
+            latencyMs = Math.max(0L, latencyMs);
+        }
+    }
+
+    public record RewriteCandidateTracePersistenceRequest(
+            RagPersistPolicy persistPolicy,
+            UUID onlineQueryId,
+            UUID rewriteCandidateId,
+            RagRetrievalExecutionService.NonAgenticExecutionKind executionKind,
+            int candidateIndex,
+            String candidateQuery,
+            String candidateLabel,
+            String mode,
+            List<RetrievalDoc> retrievedDocs,
+            List<RetrievalDoc> rerankedDocs,
+            JsonNode retrievalMetadata,
+            String retrieverName,
+            String rerankerModel,
+            long latencyMs,
+            RewriteCandidateTraceWriteScope writeScope
+    ) {
+        public RewriteCandidateTracePersistenceRequest {
+            persistPolicy = persistPolicy == null ? RagPersistPolicy.NONE : persistPolicy;
+            candidateIndex = Math.max(0, candidateIndex);
+            candidateQuery = candidateQuery == null ? "" : candidateQuery;
+            candidateLabel = candidateLabel == null ? "" : candidateLabel;
+            mode = mode == null ? "" : mode;
+            retrievedDocs = retrievedDocs == null ? List.of() : List.copyOf(retrievedDocs);
+            rerankedDocs = rerankedDocs == null ? List.of() : List.copyOf(rerankedDocs);
+            retrievalMetadata = retrievalMetadata == null ? JsonNodeFactory.instance.objectNode() : retrievalMetadata;
+            retrieverName = retrieverName == null ? "unknown" : retrieverName;
+            rerankerModel = rerankerModel == null ? "unknown" : rerankerModel;
+            latencyMs = Math.max(0L, latencyMs);
+            writeScope = writeScope == null ? RewriteCandidateTraceWriteScope.CANDIDATE_RETRIEVAL : writeScope;
+        }
+    }
+
+    public record CreateRewriteCandidateTracePersistenceRequest(
+            RagPersistPolicy persistPolicy,
+            UUID onlineQueryId,
+            RagRetrievalExecutionService.NonAgenticExecutionKind executionKind,
+            int candidateIndex,
+            String candidateLabel,
+            String candidateQuery,
+            JsonNode candidateMetadata,
+            JsonNode memorySourceIds,
+            JsonNode retrievalTopKDocs,
+            double confidenceScore,
+            JsonNode scoreBreakdown
+    ) {
+        public CreateRewriteCandidateTracePersistenceRequest {
+            persistPolicy = persistPolicy == null ? RagPersistPolicy.NONE : persistPolicy;
+            candidateIndex = Math.max(0, candidateIndex);
+            candidateLabel = candidateLabel == null ? "" : candidateLabel;
+            candidateQuery = candidateQuery == null ? "" : candidateQuery;
+            candidateMetadata = candidateMetadata == null ? JsonNodeFactory.instance.objectNode() : candidateMetadata;
+            memorySourceIds = memorySourceIds == null ? JsonNodeFactory.instance.arrayNode() : memorySourceIds;
+            retrievalTopKDocs = retrievalTopKDocs == null ? JsonNodeFactory.instance.arrayNode() : retrievalTopKDocs;
+            scoreBreakdown = scoreBreakdown == null ? JsonNodeFactory.instance.objectNode() : scoreBreakdown;
+        }
+    }
+
+    public record RewriteCandidateAdoptionPersistenceRequest(
+            RagPersistPolicy persistPolicy,
+            UUID onlineQueryId,
+            UUID rewriteCandidateId,
+            RagRetrievalExecutionService.NonAgenticExecutionKind executionKind,
+            boolean adopted,
+            String rejectedReason
+    ) {
+        public RewriteCandidateAdoptionPersistenceRequest {
+            persistPolicy = persistPolicy == null ? RagPersistPolicy.NONE : persistPolicy;
+        }
+    }
+
+    public record OnlineRewriteLogPersistenceRequest(
+            RagPersistPolicy persistPolicy,
+            UUID onlineQueryId,
+            UUID runId,
+            RagRetrievalExecutionService.NonAgenticExecutionKind executionKind,
+            String rawQuery,
+            String finalQuery,
+            String rewriteStrategy,
+            JsonNode generationMethodCodes,
+            JsonNode generationBatchIds,
+            boolean gatingApplied,
+            String gatingPreset,
+            boolean rewriteApplied,
+            Boolean selectiveRewrite,
+            Boolean useSessionContext,
+            Double rawConfidence,
+            Double selectedConfidence,
+            Double confidenceDelta,
+            String decisionReason,
+            String rejectionReason,
+            JsonNode metadata
+    ) {
+        public OnlineRewriteLogPersistenceRequest {
+            persistPolicy = persistPolicy == null ? RagPersistPolicy.NONE : persistPolicy;
+            rawQuery = rawQuery == null ? "" : rawQuery;
+            finalQuery = finalQuery == null ? rawQuery : finalQuery;
+            rewriteStrategy = rewriteStrategy == null ? "" : rewriteStrategy;
+            generationMethodCodes = generationMethodCodes == null ? JsonNodeFactory.instance.arrayNode() : generationMethodCodes;
+            generationBatchIds = generationBatchIds == null ? JsonNodeFactory.instance.arrayNode() : generationBatchIds;
+            gatingPreset = gatingPreset == null ? "" : gatingPreset;
+            metadata = metadata == null ? JsonNodeFactory.instance.objectNode() : metadata;
+        }
+    }
+
+    public record MemoryRetrievalLogPersistenceRequest(
+            RagPersistPolicy persistPolicy,
+            UUID onlineQueryId,
+            UUID rewriteLogId,
+            RagRetrievalExecutionService.NonAgenticExecutionKind executionKind,
+            int retrievalRank,
+            MemoryCandidate candidate,
+            JsonNode metadata
+    ) {
+        public MemoryRetrievalLogPersistenceRequest {
+            persistPolicy = persistPolicy == null ? RagPersistPolicy.NONE : persistPolicy;
+            retrievalRank = Math.max(0, retrievalRank);
+            metadata = metadata == null ? JsonNodeFactory.instance.objectNode() : metadata;
+        }
+    }
+
+    public record RewriteCandidateLogPersistenceRequest(
+            RagPersistPolicy persistPolicy,
+            UUID onlineQueryId,
+            UUID rewriteLogId,
+            UUID rewriteCandidateId,
+            RagRetrievalExecutionService.NonAgenticExecutionKind executionKind,
+            int candidateRank,
+            String candidateLabel,
+            String candidateQuery,
+            Double confidenceScore,
+            boolean selected,
+            String rejectionReason,
+            JsonNode retrievalTopKDocs,
+            JsonNode scoreBreakdown,
+            JsonNode metadata
+    ) {
+        public RewriteCandidateLogPersistenceRequest {
+            persistPolicy = persistPolicy == null ? RagPersistPolicy.NONE : persistPolicy;
+            candidateRank = Math.max(0, candidateRank);
+            candidateLabel = candidateLabel == null ? "" : candidateLabel;
+            candidateQuery = candidateQuery == null ? "" : candidateQuery;
+            retrievalTopKDocs = retrievalTopKDocs == null ? JsonNodeFactory.instance.arrayNode() : retrievalTopKDocs;
+            scoreBreakdown = scoreBreakdown == null ? JsonNodeFactory.instance.objectNode() : scoreBreakdown;
+            metadata = metadata == null ? JsonNodeFactory.instance.objectNode() : metadata;
+        }
+    }
+
+    public enum RawOnlyTraceWriteScope {
+        RETRIEVAL("retrieval"),
+        RERANK("rerank");
+
+        private final String statusSuffix;
+
+        RawOnlyTraceWriteScope(String statusSuffix) {
+            this.statusSuffix = statusSuffix;
+        }
+    }
+
+    public enum RewriteCandidateTraceWriteScope {
+        CANDIDATE_RETRIEVAL("candidate_retrieval"),
+        CANDIDATE_RERANK("candidate_rerank");
+
+        private final String statusSuffix;
+
+        RewriteCandidateTraceWriteScope(String statusSuffix) {
+            this.statusSuffix = statusSuffix;
+        }
+    }
+
+}

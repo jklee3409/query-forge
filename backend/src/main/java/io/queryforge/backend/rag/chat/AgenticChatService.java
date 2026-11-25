@@ -5,17 +5,18 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import io.queryforge.backend.rag.chat.ChatResponseAssembler.AgenticSettings;
 import io.queryforge.backend.rag.chat.ChatResponseAssembler.AnswerDraft;
-import io.queryforge.backend.rag.retrieval.DomainScopedRetrievalService;
-import io.queryforge.backend.rag.retrieval.RagPersistPolicy;
-import io.queryforge.backend.rag.retrieval.RetrievalDoc;
 import io.queryforge.backend.rag.retrieval.agentic.AgenticRetrievalDtos;
 import io.queryforge.backend.rag.retrieval.agentic.AgenticRetrievalService;
+import io.queryforge.backend.rag.retrieval.candidate.DomainScopedRetrievalService;
+import io.queryforge.backend.rag.retrieval.candidate.RetrievalDoc;
+import io.queryforge.backend.rag.retrieval.execution.RagPersistPolicy;
 import io.queryforge.backend.rag.retrieval.memory.MemoryCandidate;
 import io.queryforge.backend.rag.retrieval.routing.QueryRouteDecision;
-import io.queryforge.backend.rag.runtime.ChatConfigDtos;
+import io.queryforge.backend.rag.runtime.configuration.ChatConfigDtos;
 import io.queryforge.backend.rag.runtime.readiness.ChatReadinessDtos;
-import io.queryforge.backend.rag.trace.RagTracePersistenceService;
-import io.queryforge.backend.rag.trace.RagTraceRepository;
+import io.queryforge.backend.rag.trace.write.RagTraceRepository;
+import io.queryforge.backend.rag.trace.write.TraceWriteResults;
+import io.queryforge.backend.rag.trace.write.agentic.AgenticTracePersistenceService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
@@ -25,8 +26,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
-import static io.queryforge.backend.rag.retrieval.RewriteScoring.confidence;
-import static io.queryforge.backend.rag.retrieval.RewriteScoring.scoreBreakdown;
+import static io.queryforge.backend.rag.retrieval.rewrite.RewriteScoring.confidence;
+import static io.queryforge.backend.rag.retrieval.rewrite.RewriteScoring.scoreBreakdown;
 
 @Service
 @RequiredArgsConstructor
@@ -34,7 +35,7 @@ class AgenticChatService {
 
     private final ChatResponseAssembler responses;
     private final RagTraceRepository traceRepository;
-    private final RagTracePersistenceService ragTracePersistenceService;
+    private final AgenticTracePersistenceService agenticTracePersistenceService;
     private final AgenticRetrievalService agenticRetrievalService;
     private final ObjectMapper objectMapper;
 
@@ -93,11 +94,11 @@ class AgenticChatService {
 
         stageStart = System.nanoTime();
         List<RetrievalDoc> mergedDocs = agenticResult.mergedDocs();
-        ragTracePersistenceService.persistAgenticFinalRerankTrace(
-                new RagTracePersistenceService.AgenticFinalRerankTracePersistenceRequest(
+        agenticTracePersistenceService.persistAgenticFinalRerankTrace(
+                new AgenticTracePersistenceService.AgenticFinalRerankTracePersistenceRequest(
                         RagPersistPolicy.ONLINE_QUERY,
                         onlineQueryId,
-                        RagTracePersistenceService.AgenticRetrievalExecutionKind.AGENTIC_MULTI_QUERY,
+                        AgenticTracePersistenceService.AgenticRetrievalExecutionKind.AGENTIC_MULTI_QUERY,
                         mergedDocs,
                         "agentic-rrf",
                         "agentic-rrf",
@@ -139,11 +140,11 @@ class AgenticChatService {
         double denseHint = plannerMemoryCandidates.isEmpty() ? 0.0d : plannerMemoryCandidates.getFirst().similarity();
         double selectedConfidence = confidence(mergedDocs, denseHint);
         JsonNode latencyBreakdownJson = objectMapper.valueToTree(latencyBreakdown);
-        ragTracePersistenceService.persistAgenticOnlineQueryDecision(
-                new RagTracePersistenceService.AgenticOnlineQueryDecisionPersistenceRequest(
+        agenticTracePersistenceService.persistAgenticOnlineQueryDecision(
+                new AgenticTracePersistenceService.AgenticOnlineQueryDecisionPersistenceRequest(
                         RagPersistPolicy.ONLINE_QUERY,
                         onlineQueryId,
-                        RagTracePersistenceService.AgenticRetrievalExecutionKind.AGENTIC_MULTI_QUERY,
+                        AgenticTracePersistenceService.AgenticRetrievalExecutionKind.AGENTIC_MULTI_QUERY,
                         rawQuery,
                         rawQuery,
                         agenticResult.rewriteApplied(),
@@ -157,11 +158,11 @@ class AgenticChatService {
                 )
         );
         ObjectNode agenticEnvelope = responses.agenticMetadataEnvelope(agenticResult, agenticSettings, retrievalTopK, routeDecision);
-        ragTracePersistenceService.mergeAgenticOnlineQueryMetadata(
-                new RagTracePersistenceService.AgenticOnlineQueryMetadataMergePersistenceRequest(
+        agenticTracePersistenceService.mergeAgenticOnlineQueryMetadata(
+                new AgenticTracePersistenceService.AgenticOnlineQueryMetadataMergePersistenceRequest(
                         RagPersistPolicy.ONLINE_QUERY,
                         onlineQueryId,
-                        RagTracePersistenceService.AgenticRetrievalExecutionKind.AGENTIC_MULTI_QUERY,
+                        AgenticTracePersistenceService.AgenticRetrievalExecutionKind.AGENTIC_MULTI_QUERY,
                         agenticEnvelope,
                         "agentic_retrieval"
                 )
@@ -182,13 +183,13 @@ class AgenticChatService {
                 routeDecision
         );
         rewriteMetadata.set("agentic_retrieval", agenticEnvelope);
-        RagTracePersistenceService.OnlineRewriteLogPersistenceResult rewriteLogPersistence =
-                ragTracePersistenceService.createAgenticOnlineRewriteLogTrace(
-                        new RagTracePersistenceService.AgenticOnlineRewriteLogPersistenceRequest(
+        TraceWriteResults.OnlineRewriteLogPersistenceResult rewriteLogPersistence =
+                agenticTracePersistenceService.createAgenticOnlineRewriteLogTrace(
+                        new AgenticTracePersistenceService.AgenticOnlineRewriteLogPersistenceRequest(
                                 RagPersistPolicy.ONLINE_QUERY,
                                 onlineQueryId,
                                 null,
-                                RagTracePersistenceService.AgenticRetrievalExecutionKind.AGENTIC_MULTI_QUERY,
+                                AgenticTracePersistenceService.AgenticRetrievalExecutionKind.AGENTIC_MULTI_QUERY,
                                 rawQuery,
                                 rawQuery,
                                 mode,
@@ -211,12 +212,12 @@ class AgenticChatService {
 
         for (int index = 0; index < plannerMemoryCandidates.size(); index++) {
             MemoryCandidate memoryCandidate = plannerMemoryCandidates.get(index);
-            ragTracePersistenceService.insertAgenticMemoryRetrievalTrace(
-                    new RagTracePersistenceService.AgenticMemoryRetrievalLogPersistenceRequest(
+            agenticTracePersistenceService.insertAgenticMemoryRetrievalTrace(
+                    new AgenticTracePersistenceService.AgenticMemoryRetrievalLogPersistenceRequest(
                             RagPersistPolicy.ONLINE_QUERY,
                             onlineQueryId,
                             rewriteLogId,
-                            RagTracePersistenceService.AgenticRetrievalExecutionKind.AGENTIC_MULTI_QUERY,
+                            AgenticTracePersistenceService.AgenticRetrievalExecutionKind.AGENTIC_MULTI_QUERY,
                             index + 1,
                             memoryCandidate,
                             objectMapper.valueToTree(Map.of(
@@ -237,13 +238,13 @@ class AgenticChatService {
             candidateMetadata.put("mode", mode);
             candidateMetadata.put("selected_reason", agenticResult.selectedReason());
             candidateMetadata.put("agentic_multi_query", true);
-            ragTracePersistenceService.insertAgenticRewriteCandidateTrace(
-                    new RagTracePersistenceService.AgenticRewriteCandidateLogPersistenceRequest(
+            agenticTracePersistenceService.insertAgenticRewriteCandidateTrace(
+                    new AgenticTracePersistenceService.AgenticRewriteCandidateLogPersistenceRequest(
                             RagPersistPolicy.ONLINE_QUERY,
                             onlineQueryId,
                             rewriteLogId,
                             candidate.rewriteCandidateId(),
-                            RagTracePersistenceService.AgenticRetrievalExecutionKind.AGENTIC_MULTI_QUERY,
+                            AgenticTracePersistenceService.AgenticRetrievalExecutionKind.AGENTIC_MULTI_QUERY,
                             index + 1,
                             candidate.label(),
                             candidate.query(),

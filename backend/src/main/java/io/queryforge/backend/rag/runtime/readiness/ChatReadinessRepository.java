@@ -22,16 +22,6 @@ public class ChatReadinessRepository {
 
     private final NamedParameterJdbcTemplate jdbcTemplate;
 
-    public record GatingSnapshot(
-            UUID gatingBatchId,
-            UUID sourceGatingRunId,
-            UUID domainId,
-            String gatingPreset,
-            String methodCode,
-            String status
-    ) {
-    }
-
     public record DomainChunkEmbeddingStatus(
             long domainChunkCount,
             long materializedChunkCount,
@@ -63,35 +53,6 @@ public class ChatReadinessRepository {
                 Boolean.class
         );
         return Boolean.TRUE.equals(exists);
-    }
-
-    public Optional<GatingSnapshot> findGatingSnapshot(UUID gatingBatchId) {
-        String sql = """
-                SELECT qb.gating_batch_id,
-                       qb.source_gating_run_id,
-                       qb.domain_id,
-                       qb.gating_preset,
-                       m.method_code,
-                       qb.status
-                FROM quality_gating_batch qb
-                LEFT JOIN synthetic_query_generation_method m
-                  ON m.generation_method_id = qb.generation_method_id
-                WHERE qb.gating_batch_id = :gatingBatchId
-                """;
-        return jdbcTemplate.query(
-                        sql,
-                        new MapSqlParameterSource("gatingBatchId", gatingBatchId),
-                        (rs, rowNum) -> new GatingSnapshot(
-                                readUuid(rs, "gating_batch_id"),
-                                readUuid(rs, "source_gating_run_id"),
-                                readUuid(rs, "domain_id"),
-                                rs.getString("gating_preset"),
-                                rs.getString("method_code"),
-                                rs.getString("status")
-                        )
-                )
-                .stream()
-                .findFirst();
     }
 
     public DomainChunkEmbeddingStatus findDomainChunkEmbeddingStatus(UUID domainId, String embeddingModel) {

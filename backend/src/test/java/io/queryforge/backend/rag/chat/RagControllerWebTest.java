@@ -1,9 +1,10 @@
 package io.queryforge.backend.rag.chat;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import io.queryforge.backend.rag.eval.EvalReportController;
-import io.queryforge.backend.rag.eval.EvalReportDtos;
-import io.queryforge.backend.rag.eval.EvalReportService;
+import io.queryforge.backend.rag.chat.answer.GeminiServiceUnavailableException;
+import io.queryforge.backend.rag.eval.report.EvalReportController;
+import io.queryforge.backend.rag.eval.report.EvalReportDtos;
+import io.queryforge.backend.rag.eval.report.EvalReportService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;

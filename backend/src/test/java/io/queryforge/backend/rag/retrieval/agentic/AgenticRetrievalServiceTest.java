@@ -4,19 +4,23 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import io.queryforge.backend.rag.embedding.DenseEmbeddingService;
 import io.queryforge.backend.rag.embedding.HashEmbeddingService;
-import io.queryforge.backend.rag.retrieval.ChunkRetrievalRepository;
-import io.queryforge.backend.rag.retrieval.CohereRerankService;
-import io.queryforge.backend.rag.retrieval.DomainScopedRetrievalService;
-import io.queryforge.backend.rag.retrieval.RagPersistPolicy;
-import io.queryforge.backend.rag.retrieval.RetrievalDoc;
+import io.queryforge.backend.rag.retrieval.agentic.fusion.SearchResultMerger;
+import io.queryforge.backend.rag.retrieval.agentic.planning.AgenticPlanningDtos;
+import io.queryforge.backend.rag.retrieval.agentic.planning.AgenticQueryPlannerService;
+import io.queryforge.backend.rag.retrieval.candidate.ChunkRetrievalRepository;
+import io.queryforge.backend.rag.retrieval.candidate.DomainScopedRetrievalService;
+import io.queryforge.backend.rag.retrieval.candidate.RetrievalDoc;
+import io.queryforge.backend.rag.retrieval.execution.RagPersistPolicy;
 import io.queryforge.backend.rag.retrieval.memory.MemoryCandidate;
 import io.queryforge.backend.rag.retrieval.memory.RagMemoryRepository;
+import io.queryforge.backend.rag.retrieval.rerank.CohereRerankService;
 import io.queryforge.backend.rag.retrieval.rewrite.RewriteCandidateService;
 import io.queryforge.backend.rag.retrieval.routing.QueryStrategyRouter;
-import io.queryforge.backend.rag.runtime.ChatConfigDtos;
+import io.queryforge.backend.rag.runtime.configuration.ChatConfigDtos;
 import io.queryforge.backend.rag.runtime.readiness.ChatReadinessDtos;
-import io.queryforge.backend.rag.trace.RagTracePersistenceService;
-import io.queryforge.backend.rag.trace.RagTraceRepository;
+import io.queryforge.backend.rag.trace.write.RagTraceRepository;
+import io.queryforge.backend.rag.trace.write.TraceWriteResults;
+import io.queryforge.backend.rag.trace.write.agentic.AgenticTracePersistenceService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -53,7 +57,7 @@ class AgenticRetrievalServiceTest {
     @Mock
     private RagMemoryRepository memoryRepository;
     @Mock
-    private RagTracePersistenceService ragTracePersistenceService;
+    private AgenticTracePersistenceService agenticTracePersistenceService;
     @Mock
     private HashEmbeddingService embeddingService;
     @Mock
@@ -71,7 +75,7 @@ class AgenticRetrievalServiceTest {
     void setUp() {
         service = new AgenticRetrievalService(
                 new DomainScopedRetrievalService(chunkRepository, memoryRepository, embeddingService, denseEmbeddingService),
-                ragTracePersistenceService,
+                agenticTracePersistenceService,
                 cohereRerankService,
                 rewriteCandidateService,
                 new QueryStrategyRouter(),
@@ -86,13 +90,13 @@ class AgenticRetrievalServiceTest {
         String rawQuery = "security filter order";
         ChatConfigDtos.ChatRuntimeConfigResponse config = config();
         ChatReadinessDtos.ChatDomainReadinessResponse readiness = readiness();
-        AgenticRetrievalDtos.AgenticQueryPlan plan = new AgenticRetrievalDtos.AgenticQueryPlan(
+        AgenticPlanningDtos.AgenticQueryPlan plan = new AgenticPlanningDtos.AgenticQueryPlan(
                 rawQuery,
                 domainId,
                 "spring",
                 "Spring",
                 3,
-                List.of(new AgenticRetrievalDtos.AgenticSubquery(
+                List.of(new AgenticPlanningDtos.AgenticSubquery(
                         1,
                         "FilterChainProxy order",
                         "filter order",
@@ -142,14 +146,14 @@ class AgenticRetrievalServiceTest {
         assertThat(result.mergedDocs()).extracting(RetrievalDoc::chunkId)
                 .containsExactly("chunk-1");
         verify(chunkRepository).findTopChunksByEmbedding(anyString(), anyInt(), eq(domainId));
-        ArgumentCaptor<RagTracePersistenceService.AgenticSubqueryRetrievalTracePersistenceRequest> traceCaptor =
-                ArgumentCaptor.forClass(RagTracePersistenceService.AgenticSubqueryRetrievalTracePersistenceRequest.class);
-        verify(ragTracePersistenceService).persistAgenticSubqueryRetrievalTrace(traceCaptor.capture());
-        RagTracePersistenceService.AgenticSubqueryRetrievalTracePersistenceRequest traceRequest = traceCaptor.getValue();
+        ArgumentCaptor<AgenticTracePersistenceService.AgenticSubqueryRetrievalTracePersistenceRequest> traceCaptor =
+                ArgumentCaptor.forClass(AgenticTracePersistenceService.AgenticSubqueryRetrievalTracePersistenceRequest.class);
+        verify(agenticTracePersistenceService).persistAgenticSubqueryRetrievalTrace(traceCaptor.capture());
+        AgenticTracePersistenceService.AgenticSubqueryRetrievalTracePersistenceRequest traceRequest = traceCaptor.getValue();
         assertThat(traceRequest.persistPolicy()).isEqualTo(RagPersistPolicy.ONLINE_QUERY);
         assertThat(traceRequest.onlineQueryId()).isEqualTo(onlineQueryId);
-        assertThat(traceRequest.executionKind()).isEqualTo(RagTracePersistenceService.AgenticRetrievalExecutionKind.AGENTIC_MULTI_QUERY);
-        assertThat(traceRequest.writeScope()).isEqualTo(RagTracePersistenceService.AgenticSubqueryRetrievalTraceWriteScope.SUBQUERY_RAW_RETRIEVAL);
+        assertThat(traceRequest.executionKind()).isEqualTo(AgenticTracePersistenceService.AgenticRetrievalExecutionKind.AGENTIC_MULTI_QUERY);
+        assertThat(traceRequest.writeScope()).isEqualTo(AgenticTracePersistenceService.AgenticSubqueryRetrievalTraceWriteScope.SUBQUERY_RAW_RETRIEVAL);
         assertThat(traceRequest.subqueryIndex()).isEqualTo(1);
         assertThat(traceRequest.subqueryText()).isEqualTo("FilterChainProxy order");
         assertThat(traceRequest.mode()).isEqualTo("raw_only");
@@ -159,8 +163,8 @@ class AgenticRetrievalServiceTest {
         assertThat(traceRequest.retrieverName()).isEqualTo("local:dense_only:hash-embedding-v1");
         assertThat(traceRequest.retrievalMetadata().path("agentic_phase").asText()).isEqualTo("raw");
         assertThat(traceRequest.retrievalMetadata().path("subquery_index").asInt()).isEqualTo(1);
-        verify(ragTracePersistenceService, never()).createAgenticRewriteCandidateTrace(any());
-        verify(ragTracePersistenceService, never()).markAgenticRewriteCandidateAdopted(any());
+        verify(agenticTracePersistenceService, never()).createAgenticRewriteCandidateTrace(any());
+        verify(agenticTracePersistenceService, never()).markAgenticRewriteCandidateAdopted(any());
         verify(memoryRepository, never()).findMemoryTopN(anyString(), anyInt(), anyString(), any(), anyList(), anyList(), anyList());
         verify(rewriteCandidateService, never()).buildCandidates(anyString(), any(), anyList(), anyInt(), anyString(), anyBoolean(), any());
         verifyNoOnlineRootAnswerDecisionOrLogWrites();
@@ -171,13 +175,13 @@ class AgenticRetrievalServiceTest {
         String rawQuery = "security filter order";
         ChatConfigDtos.ChatRuntimeConfigResponse config = config("selective_rewrite", false);
         ChatReadinessDtos.ChatDomainReadinessResponse readiness = readiness();
-        AgenticRetrievalDtos.AgenticQueryPlan plan = new AgenticRetrievalDtos.AgenticQueryPlan(
+        AgenticPlanningDtos.AgenticQueryPlan plan = new AgenticPlanningDtos.AgenticQueryPlan(
                 rawQuery,
                 domainId,
                 "spring",
                 "Spring",
                 3,
-                List.of(new AgenticRetrievalDtos.AgenticSubquery(
+                List.of(new AgenticPlanningDtos.AgenticSubquery(
                         2,
                         "security filter order",
                         "filter order",
@@ -215,8 +219,8 @@ class AgenticRetrievalServiceTest {
                         "candidate-1",
                         "FilterChainProxy SecurityFilterChain order"
                 )));
-        when(ragTracePersistenceService.createAgenticRewriteCandidateTrace(any()))
-                .thenReturn(new RagTracePersistenceService.RewriteCandidatePersistenceResult(
+        when(agenticTracePersistenceService.createAgenticRewriteCandidateTrace(any()))
+                .thenReturn(new TraceWriteResults.RewriteCandidatePersistenceResult(
                         RagPersistPolicy.ONLINE_QUERY,
                         onlineQueryId,
                         rewriteCandidateId,
@@ -249,15 +253,15 @@ class AgenticRetrievalServiceTest {
         assertThat(result.persistedCandidates().getFirst().retrieved())
                 .extracting(RetrievalDoc::chunkId)
                 .containsExactly("chunk-candidate");
-        ArgumentCaptor<RagTracePersistenceService.AgenticSubqueryRetrievalTracePersistenceRequest> traceCaptor =
-                ArgumentCaptor.forClass(RagTracePersistenceService.AgenticSubqueryRetrievalTracePersistenceRequest.class);
-        verify(ragTracePersistenceService, times(2)).persistAgenticSubqueryRetrievalTrace(traceCaptor.capture());
-        List<RagTracePersistenceService.AgenticSubqueryRetrievalTracePersistenceRequest> traceRequests = traceCaptor.getAllValues();
+        ArgumentCaptor<AgenticTracePersistenceService.AgenticSubqueryRetrievalTracePersistenceRequest> traceCaptor =
+                ArgumentCaptor.forClass(AgenticTracePersistenceService.AgenticSubqueryRetrievalTracePersistenceRequest.class);
+        verify(agenticTracePersistenceService, times(2)).persistAgenticSubqueryRetrievalTrace(traceCaptor.capture());
+        List<AgenticTracePersistenceService.AgenticSubqueryRetrievalTracePersistenceRequest> traceRequests = traceCaptor.getAllValues();
         assertThat(traceRequests)
-                .extracting(RagTracePersistenceService.AgenticSubqueryRetrievalTracePersistenceRequest::writeScope)
+                .extracting(AgenticTracePersistenceService.AgenticSubqueryRetrievalTracePersistenceRequest::writeScope)
                 .containsExactly(
-                        RagTracePersistenceService.AgenticSubqueryRetrievalTraceWriteScope.SUBQUERY_RAW_RETRIEVAL,
-                        RagTracePersistenceService.AgenticSubqueryRetrievalTraceWriteScope.SUBQUERY_CANDIDATE_RETRIEVAL
+                        AgenticTracePersistenceService.AgenticSubqueryRetrievalTraceWriteScope.SUBQUERY_RAW_RETRIEVAL,
+                        AgenticTracePersistenceService.AgenticSubqueryRetrievalTraceWriteScope.SUBQUERY_CANDIDATE_RETRIEVAL
                 );
         assertThat(traceRequests.get(0).rewriteCandidateId()).isNull();
         assertThat(traceRequests.get(0).retrievedDocs()).extracting(RetrievalDoc::chunkId)
@@ -270,13 +274,13 @@ class AgenticRetrievalServiceTest {
         assertThat(traceRequests.get(1).subqueryIndex()).isEqualTo(2);
         assertThat(traceRequests.get(1).subqueryText()).isEqualTo("security filter order");
         assertThat(traceRequests.get(1).mode()).isEqualTo("selective_rewrite");
-        ArgumentCaptor<RagTracePersistenceService.AgenticRewriteCandidateTracePersistenceRequest> createCaptor =
-                ArgumentCaptor.forClass(RagTracePersistenceService.AgenticRewriteCandidateTracePersistenceRequest.class);
-        verify(ragTracePersistenceService).createAgenticRewriteCandidateTrace(createCaptor.capture());
-        RagTracePersistenceService.AgenticRewriteCandidateTracePersistenceRequest createRequest = createCaptor.getValue();
+        ArgumentCaptor<AgenticTracePersistenceService.AgenticRewriteCandidateTracePersistenceRequest> createCaptor =
+                ArgumentCaptor.forClass(AgenticTracePersistenceService.AgenticRewriteCandidateTracePersistenceRequest.class);
+        verify(agenticTracePersistenceService).createAgenticRewriteCandidateTrace(createCaptor.capture());
+        AgenticTracePersistenceService.AgenticRewriteCandidateTracePersistenceRequest createRequest = createCaptor.getValue();
         assertThat(createRequest.persistPolicy()).isEqualTo(RagPersistPolicy.ONLINE_QUERY);
         assertThat(createRequest.onlineQueryId()).isEqualTo(onlineQueryId);
-        assertThat(createRequest.executionKind()).isEqualTo(RagTracePersistenceService.AgenticRetrievalExecutionKind.AGENTIC_MULTI_QUERY);
+        assertThat(createRequest.executionKind()).isEqualTo(AgenticTracePersistenceService.AgenticRetrievalExecutionKind.AGENTIC_MULTI_QUERY);
         assertThat(createRequest.subqueryIndex()).isEqualTo(2);
         assertThat(createRequest.subqueryText()).isEqualTo("security filter order");
         assertThat(createRequest.candidateIndex()).isEqualTo(21);
@@ -285,14 +289,14 @@ class AgenticRetrievalServiceTest {
         assertThat(createRequest.candidateMetadata().path("subquery_index").asInt()).isEqualTo(2);
         assertThat(createRequest.retrievalTopKDocs().toString()).contains("chunk-candidate");
 
-        ArgumentCaptor<RagTracePersistenceService.AgenticRewriteCandidateAdoptionPersistenceRequest> adoptionCaptor =
-                ArgumentCaptor.forClass(RagTracePersistenceService.AgenticRewriteCandidateAdoptionPersistenceRequest.class);
-        verify(ragTracePersistenceService).markAgenticRewriteCandidateAdopted(adoptionCaptor.capture());
-        RagTracePersistenceService.AgenticRewriteCandidateAdoptionPersistenceRequest adoptionRequest = adoptionCaptor.getValue();
+        ArgumentCaptor<AgenticTracePersistenceService.AgenticRewriteCandidateAdoptionPersistenceRequest> adoptionCaptor =
+                ArgumentCaptor.forClass(AgenticTracePersistenceService.AgenticRewriteCandidateAdoptionPersistenceRequest.class);
+        verify(agenticTracePersistenceService).markAgenticRewriteCandidateAdopted(adoptionCaptor.capture());
+        AgenticTracePersistenceService.AgenticRewriteCandidateAdoptionPersistenceRequest adoptionRequest = adoptionCaptor.getValue();
         assertThat(adoptionRequest.persistPolicy()).isEqualTo(RagPersistPolicy.ONLINE_QUERY);
         assertThat(adoptionRequest.onlineQueryId()).isEqualTo(onlineQueryId);
         assertThat(adoptionRequest.rewriteCandidateId()).isEqualTo(rewriteCandidateId);
-        assertThat(adoptionRequest.executionKind()).isEqualTo(RagTracePersistenceService.AgenticRetrievalExecutionKind.AGENTIC_MULTI_QUERY);
+        assertThat(adoptionRequest.executionKind()).isEqualTo(AgenticTracePersistenceService.AgenticRetrievalExecutionKind.AGENTIC_MULTI_QUERY);
         assertThat(adoptionRequest.subqueryIndex()).isEqualTo(2);
         assertThat(adoptionRequest.adopted()).isTrue();
         assertThat(adoptionRequest.rejectedReason()).isNull();
@@ -304,13 +308,13 @@ class AgenticRetrievalServiceTest {
         String rawQuery = "\uC2A4\uD504\uB9C1 \uC694\uCCAD \uD750\uB984\uC744 \uBE44\uAD50\uD558\uACE0 mvc \uB77C\uC6B0\uD305\uACFC \uCC98\uB9AC \uB2E8\uACC4\uB97C \uC124\uBA85";
         ChatConfigDtos.ChatRuntimeConfigResponse config = config("selective_rewrite", true, true);
         ChatReadinessDtos.ChatDomainReadinessResponse readiness = readiness();
-        AgenticRetrievalDtos.AgenticQueryPlan plan = new AgenticRetrievalDtos.AgenticQueryPlan(
+        AgenticPlanningDtos.AgenticQueryPlan plan = new AgenticPlanningDtos.AgenticQueryPlan(
                 rawQuery,
                 domainId,
                 "spring",
                 "Spring",
                 3,
-                List.of(new AgenticRetrievalDtos.AgenticSubquery(
+                List.of(new AgenticPlanningDtos.AgenticSubquery(
                         1,
                         "\uC2A4\uD504\uB9C1 \uC694\uCCAD \uD750\uB984\uC744 \uBE44\uAD50\uD558\uACE0 mvc \uB77C\uC6B0\uD305\uACFC \uCC98\uB9AC \uB2E8\uACC4\uB97C \uC124\uBA85",
                         "multi intent",
@@ -348,8 +352,8 @@ class AgenticRetrievalServiceTest {
                         "candidate-1",
                         "FilterChainProxy DispatcherServlet request flow"
                 )));
-        when(ragTracePersistenceService.createAgenticRewriteCandidateTrace(any()))
-                .thenReturn(new RagTracePersistenceService.RewriteCandidatePersistenceResult(
+        when(agenticTracePersistenceService.createAgenticRewriteCandidateTrace(any()))
+                .thenReturn(new TraceWriteResults.RewriteCandidatePersistenceResult(
                         RagPersistPolicy.ONLINE_QUERY,
                         onlineQueryId,
                         rewriteCandidateId,
@@ -385,7 +389,7 @@ class AgenticRetrievalServiceTest {
                 .isEqualTo("agentic_subquery_recursion_guard");
         assertThat(result.persistedCandidates()).hasSize(1);
         verify(rewriteCandidateService).buildCandidates(anyString(), any(), anyList(), anyInt(), eq("compact_anchor"), eq(false), any());
-        verify(ragTracePersistenceService).createAgenticRewriteCandidateTrace(any());
+        verify(agenticTracePersistenceService).createAgenticRewriteCandidateTrace(any());
         verifyNoOnlineRootAnswerDecisionOrLogWrites();
     }
 
@@ -393,12 +397,12 @@ class AgenticRetrievalServiceTest {
         assertThat(java.util.Arrays.stream(AgenticRetrievalService.class.getDeclaredFields())
                 .map(java.lang.reflect.Field::getType).toList())
                 .doesNotContain(RagTraceRepository.class);
-        verify(ragTracePersistenceService, never()).persistAgenticFinalRerankTrace(any());
-        verify(ragTracePersistenceService, never()).persistAgenticOnlineQueryDecision(any());
-        verify(ragTracePersistenceService, never()).mergeAgenticOnlineQueryMetadata(any());
-        verify(ragTracePersistenceService, never()).createAgenticOnlineRewriteLogTrace(any());
-        verify(ragTracePersistenceService, never()).insertAgenticMemoryRetrievalTrace(any());
-        verify(ragTracePersistenceService, never()).insertAgenticRewriteCandidateTrace(any());
+        verify(agenticTracePersistenceService, never()).persistAgenticFinalRerankTrace(any());
+        verify(agenticTracePersistenceService, never()).persistAgenticOnlineQueryDecision(any());
+        verify(agenticTracePersistenceService, never()).mergeAgenticOnlineQueryMetadata(any());
+        verify(agenticTracePersistenceService, never()).createAgenticOnlineRewriteLogTrace(any());
+        verify(agenticTracePersistenceService, never()).insertAgenticMemoryRetrievalTrace(any());
+        verify(agenticTracePersistenceService, never()).insertAgenticRewriteCandidateTrace(any());
     }
 
     private ChatConfigDtos.ChatRuntimeConfigResponse config() {

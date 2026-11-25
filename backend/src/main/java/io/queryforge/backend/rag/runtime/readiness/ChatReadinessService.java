@@ -1,7 +1,8 @@
 package io.queryforge.backend.rag.runtime.readiness;
 
-import io.queryforge.backend.rag.runtime.ChatConfigDtos;
-import io.queryforge.backend.rag.runtime.ChatRuntimeConfigService;
+import io.queryforge.backend.rag.runtime.configuration.ChatConfigDtos;
+import io.queryforge.backend.rag.runtime.configuration.ChatRuntimeConfigService;
+import io.queryforge.backend.rag.runtime.snapshot.GatingSnapshotRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
@@ -18,6 +19,7 @@ public class ChatReadinessService {
 
     private final ChatRuntimeConfigService configService;
     private final ChatReadinessRepository repository;
+    private final GatingSnapshotRepository snapshotRepository;
     private static final String DEFAULT_DENSE_EMBEDDING_MODEL = "intfloat/multilingual-e5-small";
 
     public ChatReadinessDtos.ChatDomainReadinessResponse getReadiness(UUID domainId) {
@@ -41,15 +43,15 @@ public class ChatReadinessService {
         if (configSourceGatingRunIds.isEmpty() && config.sourceGatingRunId() != null) {
             configSourceGatingRunIds = List.of(config.sourceGatingRunId());
         }
-        List<ChatReadinessRepository.GatingSnapshot> snapshots = new ArrayList<>();
+        List<GatingSnapshotRepository.GatingSnapshot> snapshots = new ArrayList<>();
         for (UUID selectedBatchId : selectedBatchIds) {
-            repository.findGatingSnapshot(selectedBatchId).ifPresent(snapshots::add);
+            snapshotRepository.findGatingSnapshot(selectedBatchId).ifPresent(snapshots::add);
         }
-        ChatReadinessRepository.GatingSnapshot snapshot = snapshots.isEmpty() ? null : snapshots.getFirst();
+        GatingSnapshotRepository.GatingSnapshot snapshot = snapshots.isEmpty() ? null : snapshots.getFirst();
         boolean selectedSnapshotPresent = !selectedBatchIds.isEmpty() && snapshots.size() == selectedBatchIds.size();
         LinkedHashSet<UUID> snapshotSourceRunSet = new LinkedHashSet<>();
         LinkedHashSet<String> snapshotMethods = new LinkedHashSet<>();
-        for (ChatReadinessRepository.GatingSnapshot item : snapshots) {
+        for (GatingSnapshotRepository.GatingSnapshot item : snapshots) {
             if (item.sourceGatingRunId() != null) {
                 snapshotSourceRunSet.add(item.sourceGatingRunId());
             }

@@ -1,10 +1,10 @@
 package io.queryforge.backend.rag.chat;
 
 import com.fasterxml.jackson.databind.JsonNode;
-import io.queryforge.backend.rag.retrieval.RetrievalDtos.ScoredDocumentDto;
 import io.queryforge.backend.rag.retrieval.agentic.AgenticRetrievalDtos.AgenticRetrievalMetadata;
+import io.queryforge.backend.rag.retrieval.candidate.RetrievalDtos.ScoredDocumentDto;
 import io.queryforge.backend.rag.retrieval.rewrite.RewriteDtos.RewriteCandidateDto;
-import io.queryforge.backend.rag.runtime.ChatConfigDtos;
+import io.queryforge.backend.rag.runtime.configuration.ChatConfigDtos;
 
 import java.util.List;
 import java.util.Map;

@@ -1,7 +1,7 @@
 package io.queryforge.backend.rag.embedding;
 
-import io.queryforge.backend.rag.provider.SpringAiEmbeddingGateway;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.queryforge.backend.rag.provider.springai.SpringAiEmbeddingGateway;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;

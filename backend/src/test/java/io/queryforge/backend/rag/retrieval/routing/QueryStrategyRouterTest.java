@@ -2,7 +2,7 @@ package io.queryforge.backend.rag.retrieval.routing;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import io.queryforge.backend.rag.runtime.ChatConfigDtos;
+import io.queryforge.backend.rag.runtime.configuration.ChatConfigDtos;
 import io.queryforge.backend.rag.runtime.readiness.ChatReadinessDtos;
 import org.junit.jupiter.api.Test;
 

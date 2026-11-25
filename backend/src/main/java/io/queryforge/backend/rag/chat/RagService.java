@@ -5,24 +5,24 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import io.queryforge.backend.rag.chat.ChatResponseAssembler.AgenticSettings;
 import io.queryforge.backend.rag.chat.ChatResponseAssembler.AnswerDraft;
-import io.queryforge.backend.rag.retrieval.CohereRerankService;
-import io.queryforge.backend.rag.retrieval.DomainScopedRetrievalService;
-import io.queryforge.backend.rag.retrieval.RagPersistPolicy;
-import io.queryforge.backend.rag.retrieval.RagRetrievalExecutionService;
-import io.queryforge.backend.rag.retrieval.RetrievalDoc;
+import io.queryforge.backend.rag.retrieval.candidate.DomainScopedRetrievalService;
+import io.queryforge.backend.rag.retrieval.candidate.RetrievalDoc;
+import io.queryforge.backend.rag.retrieval.execution.RagPersistPolicy;
+import io.queryforge.backend.rag.retrieval.execution.RagRetrievalExecutionService;
 import io.queryforge.backend.rag.retrieval.memory.MemoryCandidate;
+import io.queryforge.backend.rag.retrieval.rerank.CohereRerankService;
 import io.queryforge.backend.rag.retrieval.rewrite.RewriteCandidateService;
 import io.queryforge.backend.rag.retrieval.rewrite.RewriteDtos;
-import io.queryforge.backend.rag.retrieval.routing.QueryRouteContext;
 import io.queryforge.backend.rag.retrieval.routing.QueryRouteDecision;
 import io.queryforge.backend.rag.retrieval.routing.QueryStrategy;
 import io.queryforge.backend.rag.retrieval.routing.QueryStrategyRouter;
-import io.queryforge.backend.rag.runtime.ChatConfigDtos;
-import io.queryforge.backend.rag.runtime.ChatRuntimeConfigService;
+import io.queryforge.backend.rag.runtime.configuration.ChatConfigDtos;
+import io.queryforge.backend.rag.runtime.configuration.ChatRuntimeConfigService;
 import io.queryforge.backend.rag.runtime.readiness.ChatReadinessDtos;
 import io.queryforge.backend.rag.runtime.readiness.ChatReadinessService;
-import io.queryforge.backend.rag.trace.RagTracePersistenceService;
-import io.queryforge.backend.rag.trace.RagTraceRepository;
+import io.queryforge.backend.rag.trace.write.RagTracePersistenceService;
+import io.queryforge.backend.rag.trace.write.RagTraceRepository;
+import io.queryforge.backend.rag.trace.write.TraceWriteResults;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
@@ -35,11 +35,10 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
-import static io.queryforge.backend.rag.retrieval.RewriteScoring.confidence;
-import static io.queryforge.backend.rag.retrieval.RewriteScoring.scoreBreakdown;
+import static io.queryforge.backend.rag.chat.routing.ChatRequestRouting.routeContext;
+import static io.queryforge.backend.rag.retrieval.rewrite.RewriteScoring.confidence;
+import static io.queryforge.backend.rag.retrieval.rewrite.RewriteScoring.scoreBreakdown;
 
 @Service
 @RequiredArgsConstructor
@@ -48,8 +47,6 @@ public class RagService {
 
     private final ChatResponseAssembler responses;
     private final AgenticChatService agenticChatService;
-    private static final Pattern SEARCH_TOKEN_PATTERN = Pattern.compile("[@A-Za-z0-9_./:$-]{2,}|\\p{InHangulSyllables}{2,}");
-    private static final Pattern TECHNICAL_TOKEN_PATTERN = Pattern.compile("[@A-Za-z_][A-Za-z0-9_./:$-]{1,}");
     private final RagTraceRepository traceRepository;
     private final DomainScopedRetrievalService domainScopedRetrievalService;
     private final RagRetrievalExecutionService ragRetrievalExecutionService;
@@ -339,7 +336,7 @@ public class RagService {
                 for (int index = 0; index < executedCandidates.size(); index++) {
                     RagRetrievalExecutionService.ExecutedRewriteCandidate executed = executedCandidates.get(index);
                     int candidateIndex = executed.index() > 0 ? executed.index() : index + 1;
-                    RagTracePersistenceService.RewriteCandidatePersistenceResult candidatePersistence =
+                    TraceWriteResults.RewriteCandidatePersistenceResult candidatePersistence =
                             ragTracePersistenceService.createRewriteCandidateTrace(
                                     new RagTracePersistenceService.CreateRewriteCandidateTracePersistenceRequest(
                                             RagPersistPolicy.ONLINE_QUERY,
@@ -620,7 +617,7 @@ public class RagService {
         );
         UUID rewriteLogId;
         if (candidateRootAdoptionPersistenceKind != null) {
-            RagTracePersistenceService.OnlineRewriteLogPersistenceResult rewriteLogPersistence =
+            TraceWriteResults.OnlineRewriteLogPersistenceResult rewriteLogPersistence =
                     ragTracePersistenceService.createOnlineRewriteLogTrace(
                             new RagTracePersistenceService.OnlineRewriteLogPersistenceRequest(
                                     RagPersistPolicy.ONLINE_QUERY,
@@ -886,77 +883,6 @@ public class RagService {
             return new Decision(best.query(), true, best.retrieved(), best.rewriteCandidateId(), "delta_above_threshold", null);
         }
         return new Decision(rawQuery, false, rawRetrieved, null, "delta_below_threshold", "best-candidate delta below threshold");
-    }
-
-    private QueryRouteContext routeContext(
-            String rawQuery,
-            ChatConfigDtos.ChatRuntimeConfigResponse config,
-            ChatReadinessDtos.ChatDomainReadinessResponse readiness,
-            String mode,
-            String rewriteQueryProfile,
-            boolean anchorInjectionEnabled,
-            boolean memoryCandidatesKnown,
-            boolean memoryCandidatesAvailable,
-            Double rawRetrievalConfidence
-    ) {
-        return new QueryRouteContext(
-                rawQuery,
-                config.domainId(),
-                config,
-                readiness,
-                mode,
-                rewriteQueryProfile,
-                anchorInjectionEnabled,
-                rawQuery == null ? 0 : rawQuery.length(),
-                queryTokenCount(rawQuery),
-                containsKorean(rawQuery),
-                containsEnglish(rawQuery),
-                containsTechnicalAnchor(rawQuery),
-                memoryCandidatesKnown,
-                memoryCandidatesAvailable,
-                rawRetrievalConfidence,
-                false
-        );
-    }
-
-    private int queryTokenCount(String query) {
-        Matcher matcher = SEARCH_TOKEN_PATTERN.matcher(query == null ? "" : query);
-        int count = 0;
-        while (matcher.find()) {
-            count++;
-        }
-        return count;
-    }
-
-    private boolean containsKorean(String query) {
-        return query != null && query.codePoints().anyMatch(codePoint -> codePoint >= 0xAC00 && codePoint <= 0xD7A3);
-    }
-
-    private boolean containsEnglish(String query) {
-        return query != null && query.codePoints().anyMatch(codePoint ->
-                (codePoint >= 'A' && codePoint <= 'Z') || (codePoint >= 'a' && codePoint <= 'z'));
-    }
-
-    private boolean containsTechnicalAnchor(String query) {
-        if (query == null || query.isBlank()) {
-            return false;
-        }
-        Matcher matcher = TECHNICAL_TOKEN_PATTERN.matcher(query);
-        while (matcher.find()) {
-            String token = matcher.group();
-            if (token.contains(".")
-                    || token.contains("/")
-                    || token.contains(":")
-                    || token.contains("$")
-                    || token.contains("-")
-                    || token.matches(".*[A-Z].*[A-Z].*")
-                    || token.matches(".*\\d.*")
-                    || token.endsWith("Exception")
-                    || token.endsWith("Error")) {
-                return true;
-            }
-        }
-        return false;
     }
 
     private String normalizedMode(String mode) {
