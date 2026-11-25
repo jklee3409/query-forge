@@ -1,6 +1,5 @@
-package io.queryforge.backend.admin.domain;
+package io.queryforge.backend.admin.domain.identity;
 
-import io.queryforge.backend.admin.domain.source.DomainSourceRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -12,29 +11,19 @@ import java.util.regex.Pattern;
 
 @Service
 @RequiredArgsConstructor
-public class DomainAdminService {
+public class DomainIdentityService {
 
-    private final DomainSourceRepository sourceRepository;
     private static final Pattern DOMAIN_KEY_PATTERN = Pattern.compile("^[a-z0-9][a-z0-9-]{1,62}$");
-    private final DomainAdminRepository repository;
+    private final DomainIdentityRepository repository;
 
     public List<DomainIdentityDtos.DomainSummary> listDomains() {
         return repository.findDomains();
     }
 
-    public DomainIdentityDtos.DomainDetail getDomain(String domainRef) {
-        DomainIdentityDtos.DomainSummary domain = resolveDomain(domainRef);
-        return new DomainIdentityDtos.DomainDetail(
-                domain,
-                sourceRepository.findSources(domain.domainId()),
-                sourceRepository.findMethodPolicies(domain.domainId())
-        );
-    }
-
     @Transactional
-    public DomainIdentityDtos.DomainDetail createDomain(DomainIdentityDtos.DomainCreateRequest request) {
+    public UUID createDomain(DomainIdentityDtos.DomainCreateRequest request) {
         validateCreateRequest(request);
-        UUID domainId = repository.createDomain(new DomainIdentityDtos.DomainCreateRequest(
+        return repository.createDomain(new DomainIdentityDtos.DomainCreateRequest(
                 normalizeDomainKey(request.domainKey()),
                 request.displayName().trim(),
                 request.description(),
@@ -43,15 +32,14 @@ public class DomainAdminService {
                 request.metadata(),
                 request.createdBy()
         ));
-        return getDomain(domainId.toString());
     }
 
     @Transactional
-    public DomainIdentityDtos.DomainDetail updateDomain(String domainRef, DomainIdentityDtos.DomainUpdateRequest request) {
+    public UUID updateDomain(String domainRef, DomainIdentityDtos.DomainUpdateRequest request) {
         DomainIdentityDtos.DomainSummary domain = resolveDomain(domainRef);
         validateStatus(request.status());
         repository.updateDomain(domain.domainId(), request);
-        return getDomain(domain.domainId().toString());
+        return domain.domainId();
     }
 
     public DomainIdentityDtos.DomainSummary resolveDomain(String domainRef) {

@@ -9,7 +9,7 @@ Spring Boot backend for Admin Console APIs, RAG APIs, pipeline command orchestra
 - `src/main/java/io/queryforge/backend/admin/console/`: synthetic generation, gating, evaluation, embedding, dashboard, job execution and results, runtime, and scope
 - `src/main/java/io/queryforge/backend/admin/corpus/`: source, run, document, glossary, and anchor administration
 - `src/main/java/io/queryforge/backend/admin/pipeline/`: dashboard, artifact storage, execution, and source catalog
-- `src/main/java/io/queryforge/backend/admin/domain/`: domain identity, source membership, and dashboard
+- `src/main/java/io/queryforge/backend/admin/domain/`: `identity`, `source`, `policy`, `workspace` for API coordination and detail responses, and `dashboard` for operational counts
 - `src/main/java/io/queryforge/backend/admin/prompt/`: prompt assets and revisions, bindings, and validation
 - `src/main/java/io/queryforge/backend/rag/`: `chat`, `runtime` with readiness, `retrieval` with `agentic`, `memory`, `rewrite`, and `routing`, plus `eval`, `experiment`, `trace`, `embedding`, `provider`, and shared JDBC helpers in `persistence`
 - `src/main/java/io/queryforge/backend/{common,ui}/`: shared logging and React routes

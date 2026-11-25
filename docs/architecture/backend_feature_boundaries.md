@@ -21,7 +21,7 @@
 | 비동기 LLM 작업 | `LlmJobController` → `LlmJobService` → `LlmJobRepository`, `ExperimentPipelineService`, `LlmJobResultService` | queue와 재시도·중단·복구는 작업 서비스에 있다. 결과 수집은 보고서 JSON을 읽어 생성·게이팅·평가의 각 저장소에 반영한다. 기존 커밋 후 enqueue와 작업 유형 코드는 유지한다. |
 | 코퍼스 | `CorpusSource*`, `CorpusDocument*`, `CorpusGlossary*`, `CorpusRun*` | 소스 등록과 도메인 연결, 문서·섹션·청크 조회 및 preview, 용어·별칭·근거, 실행 이력이 각 패키지에 있다. 파이프라인은 코퍼스 전체 서비스 대신 소스 및 실행 조회만 사용한다. |
 | 코퍼스 앵커 | `CorpusAnchor*`, `AnchorExtractionService`, `AnchorNormalization*`, `MultiSourceAnchor*`, `AnchorEval*` | 추출은 선택 문서·청크에서 Python의 기존 후보 추출을 호출한다. 정규화의 검토·승인, 복수 소스의 관계 빌드, 앵커 평가의 샘플·라벨·요약은 별개 흐름이다. |
-| 도메인 | `DomainAdmin*`, `DomainSource*`, `DomainDashboard*` | 도메인 생성과 상태 수정, 소스 멤버십·메서드 정책, 도메인 집계가 각각 분리되어 있다. 도메인 상세 응답은 기존 소스와 정책 데이터를 조합한다. |
+| 도메인 | `DomainWorkspaceController` → `DomainWorkspaceService` → `DomainIdentityService`, `DomainSourceService`, `DomainMethodPolicyRepository` | `identity`는 도메인 생성·수정과 키/UUID 조회, `source`는 멤버십 조회·변경, `policy`는 메서드 정책 조회를 맡는다. `workspace`는 변경과 상세 응답 조회를 한 트랜잭션에서 처리한다. 운영 집계는 `dashboard`에서 독립적으로 조회한다. |
 | 프롬프트 | `PromptAsset*`, `PromptBinding*` | 자산 내용과 DB revision·활성 상태는 `asset`에서 다룬다. 바인딩의 조회·변경과 입력 프롬프트 검증은 `binding`에서 처리한다. |
 | 수집 파이프라인 | `PipelineAdminController` → `PipelineAdminService` → `PipelineStepPlanFactory`, `PipelineCommandRunner`, `PipelineAdminRepository` | 실행 흐름과 상태·취소·재시도는 `execution`에 있다. 소스 카탈로그 SQL, Dashboard 집계 SQL, 문서별 파일 아티팩트는 각각 `source`, `dashboard`, `artifact`에서 처리한다. |
 | UI와 공통 코드 | `ReactUiController`, `AdminApiExceptionHandler`, `RagApiExceptionHandler`, `ApplicationLayerLoggingAspect`, `QueryForgeApplication` | React 번들의 forward와 레거시 redirect, API 응답 형식, 요청 호출 로그, Spring 스캔과 구성 프로퍼티 등록을 제공한다. |
@@ -189,7 +189,7 @@ flowchart LR
 
 ## Current production packages
 
-The table lists the 198 top-level production types in the package that owns each implementation. DTO records nested in their feature contract types are omitted.
+The table lists the 201 top-level production types in the package that owns each implementation. DTO records nested in their feature contract types are omitted.
 
 | Package | Types |
 | --- | --- |
@@ -212,9 +212,11 @@ The table lists the 198 top-level production types in the package that owns each
 | `admin.corpus.glossary` | `CorpusGlossaryController`, `CorpusGlossaryDtos`, `CorpusGlossaryRepository`, `CorpusGlossaryService` |
 | `admin.corpus.run` | `CorpusRunController`, `CorpusRunDtos`, `CorpusRunRepository`, `CorpusRunService` |
 | `admin.corpus.source` | `CorpusSourceController`, `CorpusSourceDtos`, `CorpusSourceRepository`, `CorpusSourceService` |
-| `admin.domain` | `DomainAdminController`, `DomainAdminRepository`, `DomainAdminService`, `DomainIdentityDtos` |
 | `admin.domain.dashboard` | `DomainDashboardController`, `DomainDashboardDtos`, `DomainDashboardRepository`, `DomainDashboardService` |
-| `admin.domain.source` | `DomainSourceController`, `DomainSourceDtos`, `DomainSourceRepository`, `DomainSourceService` |
+| `admin.domain.identity` | `DomainIdentityDtos`, `DomainIdentityRepository`, `DomainIdentityService` |
+| `admin.domain.policy` | `DomainMethodPolicy`, `DomainMethodPolicyRepository` |
+| `admin.domain.source` | `DomainSourceDtos`, `DomainSourceRepository`, `DomainSourceService` |
+| `admin.domain.workspace` | `DomainDetail`, `DomainWorkspaceController`, `DomainWorkspaceService` |
 | `admin.pipeline` | `AdminPipelineConfiguration`, `AdminPipelineProperties` |
 | `admin.pipeline.artifact` | `DocumentArtifactStoreService` |
 | `admin.pipeline.dashboard` | `PipelineDashboardController`, `PipelineDashboardDtos`, `PipelineDashboardRepository`, `PipelineDashboardService` |

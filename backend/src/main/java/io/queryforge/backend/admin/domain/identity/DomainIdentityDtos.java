@@ -1,11 +1,8 @@
-package io.queryforge.backend.admin.domain;
+package io.queryforge.backend.admin.domain.identity;
 
 import com.fasterxml.jackson.databind.JsonNode;
-import io.queryforge.backend.admin.domain.source.DomainSourceDtos.DomainMethodPolicy;
-import io.queryforge.backend.admin.domain.source.DomainSourceDtos.DomainSource;
 
 import java.time.Instant;
-import java.util.List;
 import java.util.UUID;
 
 public final class DomainIdentityDtos {
@@ -30,13 +27,6 @@ public final class DomainIdentityDtos {
             long ragTestRunCount,
             Instant createdAt,
             Instant updatedAt
-    ) {
-    }
-
-    public record DomainDetail(
-            DomainSummary domain,
-            List<DomainSource> sources,
-            List<DomainMethodPolicy> methodPolicies
     ) {
     }
 

@@ -1,7 +1,5 @@
 package io.queryforge.backend.admin.domain.source;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
@@ -14,16 +12,14 @@ import java.sql.SQLException;
 import java.sql.Timestamp;
 import java.time.Instant;
 import java.util.List;
-import java.util.Map;
 import java.util.UUID;
 
 @Repository
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
-public class DomainSourceRepository {
+class DomainSourceRepository {
 
     private final NamedParameterJdbcTemplate jdbcTemplate;
-    private final ObjectMapper objectMapper;
 
     public List<DomainSourceDtos.DomainSource> findSources(UUID domainId) {
         String sql = """
@@ -50,23 +46,6 @@ public class DomainSourceRepository {
                 ORDER BY ds.active DESC, cs.product_name, cs.source_id
                 """;
         return jdbcTemplate.query(sql, new MapSqlParameterSource("domainId", domainId), sourceRowMapper());
-    }
-
-    public List<DomainSourceDtos.DomainMethodPolicy> findMethodPolicies(UUID domainId) {
-        String sql = """
-                SELECT p.method_code,
-                       m.method_name,
-                       m.active AS method_active,
-                       p.enabled,
-                       p.default_query_language,
-                       p.metadata_json::text AS metadata_json,
-                       p.created_at
-                FROM tech_doc_domain_method_policy p
-                JOIN synthetic_query_generation_method m ON m.method_code = p.method_code
-                WHERE p.domain_id = :domainId
-                ORDER BY p.method_code
-                """;
-        return jdbcTemplate.query(sql, new MapSqlParameterSource("domainId", domainId), methodPolicyRowMapper());
     }
 
     @Transactional
@@ -119,30 +98,6 @@ public class DomainSourceRepository {
                 rs.getLong("active_chunk_count"),
                 readInstant(rs, "created_at")
         );
-    }
-
-    private RowMapper<DomainSourceDtos.DomainMethodPolicy> methodPolicyRowMapper() {
-        return (rs, rowNum) -> new DomainSourceDtos.DomainMethodPolicy(
-                rs.getString("method_code"),
-                rs.getString("method_name"),
-                rs.getBoolean("method_active"),
-                rs.getBoolean("enabled"),
-                rs.getString("default_query_language"),
-                readJson(rs, "metadata_json"),
-                readInstant(rs, "created_at")
-        );
-    }
-
-    private JsonNode readJson(ResultSet rs, String column) throws SQLException {
-        String raw = rs.getString(column);
-        if (raw == null || raw.isBlank()) {
-            return objectMapper.createObjectNode();
-        }
-        try {
-            return objectMapper.readTree(raw);
-        } catch (Exception exception) {
-            return objectMapper.valueToTree(Map.of("raw", raw));
-        }
     }
 
     private Instant readInstant(ResultSet rs, String column) throws SQLException {

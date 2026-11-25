@@ -1,5 +1,10 @@
 # progress.md
 
+## [2026-11-25] Session Summary (Admin Domain Packages)
+- Reorganized `admin/domain` into identity, source membership, method policy, workspace, and dashboard packages. The workspace coordinates detail responses with the original routes and JSON fields.
+- Fixed PostgreSQL domain updates when a PATCH omits metadata. The update preserves the stored metadata in that case.
+- Passed 16 targeted Docker PostgreSQL tests for the domain workspace, corpus, and pipeline.
+
 ## [2026-11-25] Session Summary (Backend Feature Implementations)
 - Moved the controllers, business methods, DTOs, and SQL of the backend's shared admin and RAG entry points into their owning feature packages. Documented the original 84 production and 26 test types and their direct references.
 - Verified 131 HTTP method and path pairs, 132 used DTO declarations, all 180 backend tests with PostgreSQL via Testcontainers, and 36 Python Java-backed retrieval tests.

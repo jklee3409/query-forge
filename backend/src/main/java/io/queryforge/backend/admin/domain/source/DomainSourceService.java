@@ -1,35 +1,38 @@
 package io.queryforge.backend.admin.domain.source;
 
-import io.queryforge.backend.admin.domain.DomainAdminService;
-import io.queryforge.backend.admin.domain.DomainIdentityDtos;
+import io.queryforge.backend.admin.domain.identity.DomainIdentityService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+
+import java.util.List;
+import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
 public class DomainSourceService {
 
     private final DomainSourceRepository repository;
-    private final DomainAdminService domainService;
+    private final DomainIdentityService identityService;
 
-    @Transactional
-    public DomainIdentityDtos.DomainDetail attachSource(
-            String domainRef,
-            DomainSourceDtos.DomainSourceAttachRequest request
-    ) {
-        DomainIdentityDtos.DomainSummary domain = domainService.resolveDomain(domainRef);
-        if (request.sourceId() == null || request.sourceId().isBlank()) {
-            throw new IllegalArgumentException("sourceId is required");
-        }
-        repository.attachSource(domain.domainId(), request);
-        return domainService.getDomain(domain.domainId().toString());
+    public List<DomainSourceDtos.DomainSource> findSources(UUID domainId) {
+        return repository.findSources(domainId);
     }
 
     @Transactional
-    public DomainIdentityDtos.DomainDetail detachSource(String domainRef, String sourceId) {
-        DomainIdentityDtos.DomainSummary domain = domainService.resolveDomain(domainRef);
-        repository.detachSource(domain.domainId(), sourceId);
-        return domainService.getDomain(domain.domainId().toString());
+    public UUID attachSource(String domainRef, DomainSourceDtos.DomainSourceAttachRequest request) {
+        UUID domainId = identityService.resolveDomain(domainRef).domainId();
+        if (request.sourceId() == null || request.sourceId().isBlank()) {
+            throw new IllegalArgumentException("sourceId is required");
+        }
+        repository.attachSource(domainId, request);
+        return domainId;
+    }
+
+    @Transactional
+    public UUID detachSource(String domainRef, String sourceId) {
+        UUID domainId = identityService.resolveDomain(domainRef).domainId();
+        repository.detachSource(domainId, sourceId);
+        return domainId;
     }
 }

@@ -1,4 +1,4 @@
-package io.queryforge.backend.admin.domain;
+package io.queryforge.backend.admin.domain.identity;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -21,7 +21,7 @@ import java.util.UUID;
 @Repository
 @RequiredArgsConstructor
 @Transactional(readOnly = true)
-public class DomainAdminRepository {
+class DomainIdentityRepository {
 
     private final NamedParameterJdbcTemplate jdbcTemplate;
     private final ObjectMapper objectMapper;
@@ -240,9 +240,5 @@ public class DomainAdminRepository {
 
     private String blankToNull(String value) {
         return value == null || value.isBlank() ? null : value.trim();
-    }
-
-    private String blankToDefault(String value, String fallback) {
-        return value == null || value.isBlank() ? fallback : value.trim();
     }
 }

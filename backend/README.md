@@ -37,7 +37,12 @@ src/main/java/io/queryforge/backend/
       source/, run/, document/, glossary/
       anchor/        추출, 정규화, 다중 소스 관계, 평가
       persistence/
-    domain/          도메인 정보, source membership, 대시보드
+    domain/
+      identity/      도메인 정보와 식별자 조회
+      source/        소스 멤버십 조회와 변경
+      policy/        도메인별 생성 메서드 정책 조회
+      workspace/     관리자 API와 상세 응답 조합
+      dashboard/     도메인 운영 집계
     pipeline/        dashboard/, artifact/, execution/, source/
     prompt/          asset/, binding/
   common/        호출 로깅

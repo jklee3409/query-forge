@@ -1,5 +1,10 @@
 # progress.md
 
+## [2026-11-25] Session Summary (Admin Domain Workspace)
+- Moved domain identity, source membership, and method-policy persistence into their feature packages. The workspace assembles responses in the same transaction as each mutation. Corpus registration calls the source membership operation directly.
+- Fixed JSONB type inference for a domain PATCH with omitted metadata. Added a PostgreSQL integration test for all seven domain routes and the persisted source association.
+- Passed all 16 targeted domain workspace, corpus, and pipeline tests with Docker PostgreSQL.
+
 ## [2026-11-25] Session Summary (Feature Implementations and Contracts)
 - Split console, corpus, domain, prompt, pipeline, and RAG implementations at their feature boundaries. Kept Spring/JDBC transactions, run and trace persistence rules, and the existing backend-managed Python commands.
 - Shared domain-scoped retrieval between the ordinary and agentic paths. Located answer assembly in online chat and kept retrieval evaluation on the no-write path.
