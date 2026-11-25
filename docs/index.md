@@ -24,6 +24,7 @@ Key experiment docs:
 - `experiments/bad_rewrite_cases.md`
 
 Key architecture docs:
+- [Backend feature boundaries and type dependencies](architecture/backend_feature_boundaries.md)
 - `architecture/domain_pipeline_integration_design.md`
 
 Key migration docs:

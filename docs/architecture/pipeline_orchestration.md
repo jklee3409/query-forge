@@ -5,7 +5,7 @@
 ## 핵심 구조
 
 1. 관리자가 `/admin/pipeline`에서 collect/normalize/chunk/glossary/import/full-ingest를 시작한다.
-2. Spring Boot `PipelineAdminService`가 `corpus_runs`에 run을 만들고 `corpus_run_steps`를 `queued` 상태로 생성한다.
+2. `admin.pipeline.execution`의 `PipelineStepPlanFactory`가 CLI 단계를 구성한다. `PipelineAdminService`는 `corpus_runs`에 run을 만들고 `corpus_run_steps`를 `queued` 상태로 생성한다.
 3. 단일 worker executor가 run을 순차 실행한다.
 4. 각 step은 `ProcessBuilder` 기반 `SubprocessPipelineCommandRunner`로 `python pipeline/cli.py ...`를 호출한다.
 5. stdout/stderr는 `data/logs/admin-pipeline/{runId}/` 아래 파일로 저장되고, step row에는 log path/excerpt가 기록된다.

@@ -1,5 +1,10 @@
 # progress.md
 
+## [2026-11-25] Session Summary (Backend Feature Implementations)
+- Moved the controllers, business methods, DTOs, and SQL of the backend's shared admin and RAG entry points into their owning feature packages. Documented the original 84 production and 26 test types and their direct references.
+- Verified 131 HTTP method and path pairs, 132 used DTO declarations, all 180 backend tests with PostgreSQL via Testcontainers, and 36 Python Java-backed retrieval tests.
+- [Backend feature boundaries and type dependencies](docs/architecture/backend_feature_boundaries.md)
+
 ## [2026-11-24] Session Summary (Backend Feature Packages)
 - Reorganized Java backend code and tests around RAG, admin, pipeline, and UI capabilities. Kept the HTTP contracts and Java/Python execution boundary.
 - Restored Boot 4 database startup and fixed the PostgreSQL source query for requests without a domain. Updated integration fixtures to exercise the current contracts.

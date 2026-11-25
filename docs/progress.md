@@ -3,6 +3,11 @@
 ## Overview
 High-level progress tracking for the `docs` directory.
 
+## [2026-11-25] Session Summary (Backend Feature Boundaries)
+- Documented backend API, transaction, dependency, and execution paths. The class appendix lists 84 production and 26 test types from the baseline and the 47 production packages after the refactor.
+- Updated backend package guidance and the current status of Java agentic retrieval eval. Retained the migration and design notes as phase records.
+- [Backend feature boundaries and type dependencies](architecture/backend_feature_boundaries.md)
+
 ## [2026-06-25] Session Summary (Phase 11A Agentic No-Write Retrieval Eval Design)
 - What was done: Added `rag-agentic-no-write-eval-design.md` and linked it from `docs/index.md`.
 - Design result: The document records current Java/Python blockers, compares Option A vs Option B, selects the minimal-change `AgenticRetrievalService` no-write mode with strict eval boundary, and defines transient subquery/candidate/retrieval/RRF identities.

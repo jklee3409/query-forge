@@ -1,5 +1,7 @@
 # Agentic No-Write Retrieval Eval Design
 
+The following sections record the Phase 11 design baseline. The no-write path is now implemented in `RagRetrievalEvalService` and `AgenticRetrievalService`. Forced and router-selected agentic eval use transient candidate identities and return ordered chunk IDs with `persistPolicy=NONE`. `AgenticChatService` owns live-only answer and trace orchestration. See the [current backend feature boundaries](architecture/backend_feature_boundaries.md).
+
 ## 1. Background
 
 The Java retrieval eval endpoint is the retrieval-only source of truth for Java-backed evaluation. Live `/api/chat/ask` already supports explicit and router-selected `AGENTIC_MULTI_QUERY` through the Java agentic path, but `/api/rag/eval/retrieval` still blocks forced and router-selected agentic execution.

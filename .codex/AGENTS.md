@@ -713,14 +713,10 @@ Router-selected `AGENTIC_MULTI_QUERY` is allowed only when `routerEnabled` and m
 Agentic subquery recursion must be prevented.
 Existing raw, selective rewrite, and anchor-aware behavior must not be weakened when changing router rules.
 
-Agentic live chat is supported.
-Agentic retrieval-only eval is currently blocked as a safety boundary, not as a permanent prohibition.
-Future Phase 11 work may add agentic retrieval-only eval after an explicit no-write design is approved.
-
-Agents MUST NOT bypass the current agentic eval blocker by reusing the live `/api/chat/ask` path or by enabling DB-writing agentic execution inside retrieval-only eval.
-Future agentic eval work MUST define `persistPolicy=NONE` propagation, execution without `onlineQueryId`, transient in-memory candidate identity, no answer generation, and no `insertAnswer`.
-
-The eval endpoint MUST block forced or router-selected agentic execution until that no-write agentic eval design is implemented.
+Live chat and retrieval-only eval both support agentic retrieval.
+Forced and router-selected agentic eval MUST use the shared no-write execution path with `persistPolicy=NONE`, no `onlineQueryId`, and transient candidate identities.
+Eval MUST reject answer generation and any persistence policy other than `NONE`.
+Eval MUST remain independent of the live `/api/chat/ask` orchestration and online answer or trace writes.
 
 ### 3.9.2 Python Eval and Java-Backed Eval
 
@@ -729,7 +725,7 @@ Python legacy eval remains available as fallback/regression/comparison.
 Python retrieval eval backend policy is `retrieval_eval_backend=java|legacy`.
 Python can call `/api/rag/eval/retrieval` for Java-backed retrieval execution.
 Java-backed eval uses `retrievedChunkIds` as the primary metric input.
-`agentic_multi_query` must remain blocked in Java-backed eval until explicit no-write agentic eval design is implemented.
+Java-backed eval supports `agentic_multi_query` through the Java no-write contract.
 
 ---
 
@@ -819,6 +815,8 @@ Agents must:
 - prefer reusing existing code, extending existing modules, or integrating with the current structure
 - keep changes minimal, targeted, and consistent with the current architecture
 
+For an explicitly requested backend-wide structural refactor, inventory backend source and test types and move implementations as well as declarations to their feature packages. Preserve HTTP and JSON contracts, transaction and job boundaries, migration scripts, and Java/Python execution ownership. Validate the affected backend features together when they share Spring wiring or persistence.
+
 Agents must not replace working code with entirely new implementations unless the existing structure clearly cannot satisfy the requirement.
 
 ### 4.5 Session Start Checklist (MANDATORY)
@@ -879,20 +877,21 @@ For each directory, it lists core features, key methods (or entry points), and r
 ### 5.3 `backend/` (Spring Boot)
 - Core features: Admin Console API, Pipeline Admin API, live `/api/chat/ask` serving, retrieval-only eval endpoint, runtime config, StrategyRouter / agentic routing, LLM job orchestration, DB migrations.
 - Key methods/entry points:
-  - `RagController.ask`, `previewRewrite`, `queryTrace`, `runExperimentCommand`
-  - `RagService.ask`, `previewRewrite`, `reindex`, `readEvalReport`
+  - `RagController.ask`, `RagService.ask`, `AgenticChatService`, `ChatResponseAssembler`
+  - `RewritePreviewController`, `RagTraceQueryController`, `RagExperimentController`, `EvalReportController`, `RagReindexController`
   - `RagRetrievalEvalController`, `RagRetrievalEvalService`
   - `QueryStrategyRouter`, `AgenticRetrievalService`, `RagRetrievalExecutionService`, `RagTracePersistenceService`
-  - `ChatRuntimeConfigService`
+  - `ChatRuntimeConfigService`, `ChatConfigPromotionService`, `ChatReadinessService`
   - `PipelineAdminService.startCollect`, `startNormalize`, `startChunk`, `startGlossary`, `startImport`, `startFullIngest`
-  - `AdminConsoleService.runSyntheticGeneration`, `runGating`, `runRagTest`
+  - `SyntheticGenerationService.runSyntheticGeneration`, `GatingService.runGating`, `RagTestService.runRagTest`
   - `LlmJobService.createGenerationJob`, `createGatingJob`, `createRagTestJob`, `pauseJob`, `resumeJob`, `cancelJob`, `retryJob`
   - `DocumentArtifactStoreService.materialize*`, `persist*`
-  - `RagRepository.findTopChunksByEmbedding`, `findMemoryTopN`, `createOnlineQuery`, `insertRerankResults`
+  - `ChunkRetrievalRepository.findTopChunksByEmbedding`, `RagMemoryRepository.findMemoryTopN`, `RagTraceRepository.createOnlineQuery`
 - Documentation paths:
   - `backend/README.md`
   - `backend/index.md`
   - `backend/progress.md`
+  - `docs/architecture/backend_feature_boundaries.md`
 
 ### 5.4 `pipeline/` (Python)
 - Core features: Collection, preprocessing, chunking, glossary extraction, import, synthetic generation, gating, memory build, eval dataset build, metrics, reports, Java-backed eval client, legacy vs Java-backed comparison runner, retrieval eval, answer eval.

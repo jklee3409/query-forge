@@ -5,6 +5,7 @@ Query Forge는 "영문 기술 문서 + 한국어/영어 질의 혼합" 상황에
 ## 1. 모듈 구성
 
 - `backend` (Spring Boot)
+  - [기능별 구현 경계와 클래스 의존 관계](backend_feature_boundaries.md)
   - Flyway 마이그레이션
   - 관리자 API(`corpus`, `pipeline`, `console`)
   - 사용자 채팅/RAG API
@@ -42,13 +43,10 @@ Query Forge는 "영문 기술 문서 + 한국어/영어 질의 혼합" 상황에
 
 ## 3. 온라인 요청 흐름
 
-1. `/api/chat/ask` 요청 수신
-2. raw query 임베딩 생성 + memory top-N 검색
-3. rewrite 후보 3개 생성 및 후보별 retrieval
-4. raw/candidate confidence 비교 후 selective rewrite 채택
-5. vector retrieval -> rerank -> answer 생성
-6. trace(후보 점수, 선택/기각 이유, latency breakdown) 저장
-7. answer + 근거 + trace 데이터 응답
+1. `/api/chat/ask` 요청에서 도메인별 런타임 설정을 조회하고 검색 전략을 결정한다.
+2. 일반 경로는 원 질의 임베딩과 메모리 검색을 수행한다. 재작성 전략에서는 후보를 생성하고 원 질의와 후보 검색의 confidence를 비교한다.
+3. Agentic 경로는 하위 질의를 계획하고 도메인 범위에서 검색한 뒤 RRF로 결과를 병합한다.
+4. 답변과 근거를 조립하고, 후보 점수·채택 사유·처리 시간과 함께 온라인 trace를 저장한다.
 
 온라인 경로는 gold document/gold answer를 사용하지 않는다.
 

@@ -1,5 +1,10 @@
 # progress.md
 
+## [2026-11-25] Session Summary (Feature Implementations and Contracts)
+- Split console, corpus, domain, prompt, pipeline, and RAG implementations at their feature boundaries. Kept Spring/JDBC transactions, run and trace persistence rules, and the existing backend-managed Python commands.
+- Shared domain-scoped retrieval between the ordinary and agentic paths. Located answer assembly in online chat and kept retrieval evaluation on the no-write path.
+- Passed all 180 backend tests with Testcontainers and 36 targeted Python Java client and comparison tests. Verified 131 HTTP routes and 132 used DTO declarations against the previous version.
+
 ## [2026-11-24] Session Summary (Feature Package Refactor)
 - Grouped RAG code and tests by chat, runtime, retrieval, eval, experiment, trace, embedding, provider, and persistence. Grouped admin code by console evaluation, jobs, scope, synthetic methods, corpus anchors, pipeline artifacts, execution, and source configuration.
 - Kept the existing API and Spring wiring. Updated logging pointcuts and widened access for the existing methods used across feature packages.

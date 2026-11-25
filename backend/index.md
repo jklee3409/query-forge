@@ -6,11 +6,12 @@ Spring Boot backend for Admin Console APIs, RAG APIs, pipeline command orchestra
 ---
 
 ## Structure
-- `src/main/java/io/queryforge/backend/admin/console/`: console API and orchestration, with `evaluation`, `jobs`, `scope`, and `synthetic` packages
-- `src/main/java/io/queryforge/backend/admin/corpus/`: corpus administration and the `anchor` package
-- `src/main/java/io/queryforge/backend/admin/pipeline/`: ingest orchestration, with `artifact`, `execution`, and `source` packages
-- `src/main/java/io/queryforge/backend/admin/{domain,prompt}/`: domain workspaces and prompt management
-- `src/main/java/io/queryforge/backend/rag/`: `chat`, `runtime`, `retrieval` (including `agentic`, `rewrite`, and `routing`), `eval`, `experiment`, `trace`, `embedding`, `provider`, and `persistence`
+- `src/main/java/io/queryforge/backend/admin/console/`: synthetic generation, gating, evaluation, embedding, dashboard, job execution and results, runtime, and scope
+- `src/main/java/io/queryforge/backend/admin/corpus/`: source, run, document, glossary, and anchor administration
+- `src/main/java/io/queryforge/backend/admin/pipeline/`: dashboard, artifact storage, execution, and source catalog
+- `src/main/java/io/queryforge/backend/admin/domain/`: domain identity, source membership, and dashboard
+- `src/main/java/io/queryforge/backend/admin/prompt/`: prompt assets and revisions, bindings, and validation
+- `src/main/java/io/queryforge/backend/rag/`: `chat`, `runtime` with readiness, `retrieval` with `agentic`, `memory`, `rewrite`, and `routing`, plus `eval`, `experiment`, `trace`, `embedding`, `provider`, and shared JDBC helpers in `persistence`
 - `src/main/java/io/queryforge/backend/{common,ui}/`: shared logging and React routes
 - `src/test/java/io/queryforge/backend/`: unit, MVC, and integration tests in their corresponding feature packages
 - `src/main/resources/db/migration/*`: Flyway schema migrations
@@ -31,7 +32,8 @@ Spring Boot backend for Admin Console APIs, RAG APIs, pipeline command orchestra
 - Legacy single-table `synthetic_queries_raw` is retired by migration `V17`.
 - Read paths use `synthetic_queries_raw_all` (union view over `synthetic_queries_raw_a/b/c/d/e/f/g`).
 - Write/provenance updates for synthetic raw rows are strategy-table specific.
-- Admin Console persistence is being decomposed behind the existing `AdminConsoleRepository` facade. `AdminSyntheticMethodRepository` owns synthetic method lookup SQL, `AdminConsoleDomainScopeRepository` owns domain/source/dataset scope validation SQL, `AdminEvalDatasetRepository` owns eval dataset/item management SQL, and `AdminConsoleStrategyTables` centralizes the A-G raw table allowlist.
+- Admin Console controllers, services, and SQL live in their feature packages. `ConsoleScopeService` validates domain, source, and dataset selection. `AdminConsoleStrategyTables` owns the A–G raw table allowlist.
+- See the [backend feature boundaries and type dependencies](../docs/architecture/backend_feature_boundaries.md) for implementation entry points and the full class inventory.
 - Pipeline Admin persistence now uses `NamedParameterJdbcTemplate` directly; the previous unused JPA entity/repository layer and JPA auditing config have been removed.
 - Admin gating result API supports strategy filtering via `method_code` and paging via `limit/offset`.
 - Admin gating funnel API supports optional strategy filtering via `method_code` (`전체 + DB 등록 전략 코드`).

@@ -25,33 +25,36 @@ API, 서비스, 저장소, 요청·응답 타입은 해당 기능의 패키지�
 src/main/java/io/queryforge/backend/
   QueryForgeApplication.java
   admin/
-    console/     합성 질의, quality gating, RAG 테스트 API
-      evaluation/  평가 데이터셋과 rewrite anchor 평가
-      jobs/        LLM 작업 실행과 상태 저장
-      scope/       도메인과 소스의 조회 범위 검증
-      synthetic/   합성 질의 메서드 조회
-    corpus/      코퍼스 문서·섹션·청크 관리
-      anchor/      추출, 정규화, 다중 소스 관계
-    domain/      기술 문서 domain workspace 관리
-    pipeline/    Python pipeline 운영 API 및 run/step 관리
-      artifact/    문서 아티팩트 저장과 materialization
-      execution/   Python subprocess 실행
-      source/      소스 카탈로그와 프로젝트 경로
-    prompt/      prompt asset/revision/binding 관리
+    console/
+      synthetic/     합성 질의 메서드, 배치, 결과
+      gating/        품질 게이팅 배치와 결과
+      evaluation/    RAG 실험, 데이터셋, 실행 이력, rewrite 진단
+      embedding/     청크 임베딩 관리
+      dashboard/     콘솔 집계
+      jobs/          LLM 작업 큐, 실행, 결과 처리
+      configuration/, runtime/, scope/, persistence/
+    corpus/
+      source/, run/, document/, glossary/
+      anchor/        추출, 정규화, 다중 소스 관계, 평가
+      persistence/
+    domain/          도메인 정보, source membership, 대시보드
+    pipeline/        dashboard/, artifact/, execution/, source/
+    prompt/          asset/, binding/
   common/        호출 로깅
   rag/
-    chat/        온라인 질의, rewrite preview, 답변 생성
-    runtime/     도메인별 채팅 설정과 readiness
+    chat/        온라인 질의와 답변 조립
+    runtime/     도메인별 설정, 실험 설정 승격, readiness
     retrieval/   도메인 검색과 reranking
       agentic/     멀티 쿼리 검색과 결과 병합
-      rewrite/     재작성 후보 생성
+      memory/      합성 질의 메모리 검색
+      rewrite/     재작성 후보 생성과 미리보기
       routing/     검색 전략 선택
-    eval/        retrieval-only 평가 API
-    experiment/  실험 파이프라인 명령 실행
-    trace/       검색 및 답변 trace 저장
-    embedding/   dense 및 hash embedding
+    eval/        retrieval-only 평가와 리포트 조회
+    experiment/  실험 명령 실행과 요약 조회
+    trace/       검색 및 답변 trace 저장과 조회
+    embedding/   dense/hash 임베딩과 재색인
     provider/    Spring AI gateway와 런타임 환경 값
-    persistence/ 검색과 trace가 공유하는 JDBC 저장소
+    persistence/ RAG 저장소 공통 JDBC 유틸리티
   ui/            React Admin route forwarding
 
 src/main/resources/
@@ -59,6 +62,8 @@ src/main/resources/
   db/migration/  PostgreSQL/Flyway schema history
   static/react/  Admin Console production bundle
 ```
+
+기능별 구현 진입점과 타입 의존 관계는 [백엔드 기능 경계와 타입 분석](../docs/architecture/backend_feature_boundaries.md)을 참고합니다.
 
 ## 주요 API 경로
 

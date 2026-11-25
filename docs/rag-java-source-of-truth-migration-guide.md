@@ -1,5 +1,7 @@
 # Query-Forge RAG Java Source-of-Truth Migration Guide
 
+This guide records the migration phases and their initial constraints. Today, `RagRetrievalEvalService` supports forced and router-selected agentic retrieval with `persistPolicy=NONE` and no answer generation. The Python Java retrieval client accepts `agentic_multi_query`. Current implementation entry points are listed in the [backend feature boundaries](architecture/backend_feature_boundaries.md).
+
 ## 1. Problem Definition
 
 Query-Forge currently has overlapping RAG execution logic in the Python pipeline and the Java backend.
