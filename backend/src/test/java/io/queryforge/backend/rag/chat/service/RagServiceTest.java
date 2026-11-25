@@ -37,7 +37,10 @@ import io.queryforge.backend.rag.trace.write.service.RagTracePersistenceService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.CsvSource;
 import org.mockito.ArgumentCaptor;
+import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -53,9 +56,11 @@ import static org.mockito.ArgumentMatchers.anyDouble;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.ArgumentMatchers.nullable;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.times;
@@ -123,7 +128,6 @@ class RagServiceTest {
                 ragRetrievalExecutionService,
                 ragTracePersistenceService,
                 cohereRerankService,
-                rewriteCandidateService,
                 chatRuntimeConfigService,
                 chatReadinessService,
                 new QueryStrategyRouter(),
@@ -316,13 +320,13 @@ class RagServiceTest {
 
         verify(memoryRepository).findMemoryTopN(anyString(), anyInt(), eq("full_gating"), eq(domainId), eq(List.of("C")), eq(List.of(sourceGatingRunId)), eq(List.of(sourceGatingBatchId)));
         verify(chunkRepository, times(2)).findTopChunksByEmbedding(anyString(), anyInt(), eq(domainId));
-        ArgumentCaptor<RetrievalExecutionDtos.SelectiveRewriteExecutionRequest> executionRequestCaptor =
-                ArgumentCaptor.forClass(RetrievalExecutionDtos.SelectiveRewriteExecutionRequest.class);
-        verify(ragRetrievalExecutionService).executeSelectiveRewrite(executionRequestCaptor.capture());
+        ArgumentCaptor<RetrievalExecutionDtos.RewriteExecutionRequest> executionRequestCaptor =
+                ArgumentCaptor.forClass(RetrievalExecutionDtos.RewriteExecutionRequest.class);
+        verify(ragRetrievalExecutionService).executeRewrite(executionRequestCaptor.capture());
         assertThat(executionRequestCaptor.getValue().domainId()).isEqualTo(domainId);
         assertThat(executionRequestCaptor.getValue().memoryCandidates()).isEqualTo(memories);
         assertThat(executionRequestCaptor.getValue().rewriteQueryProfile()).isEqualTo("compact_anchor");
-        verify(ragRetrievalExecutionService, never()).executeAnchorAwareRewrite(any());
+        assertThat(executionRequestCaptor.getValue().anchorInjectionEnabled()).isFalse();
         verify(rewriteCandidateService).buildCandidates(eq(query), any(), eq(memories), eq(2), eq("compact_anchor"), eq(false), any());
         verify(traceRepository).createRewriteCandidate(eq(onlineQueryId), eq(1), eq("candidate-1"), eq(rewrittenQuery), any(), any(), anyDouble(), any());
         verify(traceRepository).markRewriteCandidateAdopted(eq(rewriteCandidateId), eq(true), isNull());
@@ -391,6 +395,93 @@ class RagServiceTest {
     }
 
     @Test
+    void rewriteAlwaysPersistsFirstCandidateBeforeSecondCandidateFails() {
+        UUID onlineQueryId = UUID.randomUUID();
+        UUID firstCandidateId = UUID.randomUUID();
+        String query = "spring filter order";
+        List<MemoryCandidate> memories = memories();
+        List<RetrievalDoc> firstDocs = docs("first-doc", "first-chunk", 0.90d);
+        stubCommonAskDependencies(config("rewrite_always", false, false), onlineQueryId);
+        when(memoryRepository.findMemoryTopN(anyString(), anyInt(), eq("full_gating"), eq(domainId),
+                eq(List.of("C")), eq(List.of(sourceGatingRunId)), eq(List.of(sourceGatingBatchId))))
+                .thenReturn(memories);
+        when(rewriteCandidateService.buildCandidates(eq(query), any(), eq(memories), eq(2),
+                eq("compact_anchor"), eq(false), any())).thenReturn(List.of(
+                new RewriteDtos.CandidateTemplate("first", "first rewrite"),
+                new RewriteDtos.CandidateTemplate("second", "second rewrite")
+        ));
+        when(chunkRepository.findTopChunksByEmbedding(anyString(), anyInt(), eq(domainId)))
+                .thenReturn(docs("raw-doc", "raw-chunk", 0.10d), firstDocs)
+                .thenThrow(new IllegalStateException("second candidate search failed"));
+        when(cohereRerankService.rerank(anyString(), anyList(), anyInt())).thenAnswer(invocation -> invocation.getArgument(1));
+        when(traceRepository.createRewriteCandidate(eq(onlineQueryId), eq(1), eq("first"), eq("first rewrite"),
+                any(), any(), anyDouble(), any())).thenReturn(firstCandidateId);
+
+        assertThatThrownBy(() -> ragService.ask(request(query)))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessage("second candidate search failed");
+
+        InOrder writes = inOrder(traceRepository, chunkRepository);
+        writes.verify(traceRepository).createRewriteCandidate(eq(onlineQueryId), eq(1), eq("first"), eq("first rewrite"),
+                any(), any(), anyDouble(), any());
+        writes.verify(traceRepository).insertRetrievalResults(eq(onlineQueryId), eq(firstCandidateId),
+                eq("rewrite_candidate"),
+                argThat(docs -> docs.size() == 1 && "first-chunk".equals(docs.getFirst().chunkId())),
+                eq("rewrite_always"), anyString(), any());
+        writes.verify(chunkRepository).findTopChunksByEmbedding(anyString(), anyInt(), eq(domainId));
+        verify(traceRepository, never()).createRewriteCandidate(eq(onlineQueryId), eq(2), anyString(), anyString(),
+                any(), any(), anyDouble(), any());
+        verify(traceRepository, never()).markRewriteCandidateAdopted(any(), anyBoolean(), any());
+        verify(chatAnswerService, never()).generateAnswer(anyString(), anyString(), anyString(), anyList());
+    }
+
+    @ParameterizedTest
+    @CsvSource({"0.95, true", "0.18, false"})
+    void selectiveRewriteUsesCandidateOrderToLinkAdoptionToStoredIds(double secondScore, boolean adopted) {
+        UUID onlineQueryId = UUID.randomUUID();
+        UUID firstCandidateId = UUID.randomUUID();
+        UUID secondCandidateId = UUID.randomUUID();
+        String query = "spring filter order";
+        List<MemoryCandidate> memories = memories();
+        stubCommonAskDependencies(config("selective_rewrite", false, false), onlineQueryId);
+        when(memoryRepository.findMemoryTopN(anyString(), anyInt(), eq("full_gating"), eq(domainId),
+                eq(List.of("C")), eq(List.of(sourceGatingRunId)), eq(List.of(sourceGatingBatchId))))
+                .thenReturn(memories);
+        when(rewriteCandidateService.buildCandidates(eq(query), any(), eq(memories), eq(2),
+                eq("compact_anchor"), eq(false), any())).thenReturn(List.of(
+                new RewriteDtos.CandidateTemplate("first", "first rewrite"),
+                new RewriteDtos.CandidateTemplate("second", "second rewrite")
+        ));
+        when(chunkRepository.findTopChunksByEmbedding(anyString(), anyInt(), eq(domainId))).thenReturn(
+                docs("raw-doc", "raw-chunk", 0.10d),
+                docs("first-doc", "first-chunk", 0.12d),
+                docs("second-doc", "second-chunk", secondScore)
+        );
+        when(cohereRerankService.rerank(anyString(), anyList(), anyInt())).thenAnswer(invocation -> invocation.getArgument(1));
+        when(traceRepository.createRewriteCandidate(eq(onlineQueryId), eq(1), eq("first"), eq("first rewrite"),
+                any(), any(), anyDouble(), any())).thenReturn(firstCandidateId);
+        when(traceRepository.createRewriteCandidate(eq(onlineQueryId), eq(2), eq("second"), eq("second rewrite"),
+                any(), any(), anyDouble(), any())).thenReturn(secondCandidateId);
+        stubRewriteLog(UUID.randomUUID());
+        when(chatAnswerService.generateAnswer(anyString(), anyString(), anyString(), anyList()))
+                .thenReturn(generatedAnswer("answer"));
+
+        ChatDtos.AskResponse response = ragService.ask(request(query));
+
+        assertThat(response.finalQueryUsed()).isEqualTo(adopted ? "second rewrite" : query);
+        assertThat(response.rewriteApplied()).isEqualTo(adopted);
+        assertThat(response.rewriteCandidates()).extracting(RewriteDtos.RewriteCandidateDto::rewriteCandidateId)
+                .containsExactly(firstCandidateId, secondCandidateId);
+        assertThat(response.rewriteCandidates()).extracting(RewriteDtos.RewriteCandidateDto::adopted)
+                .containsExactly(false, adopted);
+        String rejectedReason = adopted ? null : "best-candidate delta below threshold";
+        verify(traceRepository).markRewriteCandidateAdopted(firstCandidateId, false, rejectedReason);
+        verify(traceRepository).markRewriteCandidateAdopted(secondCandidateId, adopted, rejectedReason);
+        verify(traceRepository).insertRerankResults(eq(onlineQueryId), eq(adopted ? secondCandidateId : null),
+                anyList(), any());
+    }
+
+    @Test
     void routerSelectedSelectiveRewriteUsesExecutionServiceAndKeepsPersistenceWrites() {
         UUID onlineQueryId = UUID.fromString("44444444-4444-4444-4444-444444444448");
         UUID rewriteCandidateId = UUID.fromString("66666666-6666-6666-6666-666666666668");
@@ -424,13 +515,13 @@ class RagServiceTest {
         assertThat(response.rewriteCandidates()).hasSize(1);
         assertThat(response.rewriteCandidates().getFirst().adopted()).isTrue();
 
-        ArgumentCaptor<RetrievalExecutionDtos.SelectiveRewriteExecutionRequest> executionRequestCaptor =
-                ArgumentCaptor.forClass(RetrievalExecutionDtos.SelectiveRewriteExecutionRequest.class);
-        verify(ragRetrievalExecutionService).executeSelectiveRewrite(executionRequestCaptor.capture());
+        ArgumentCaptor<RetrievalExecutionDtos.RewriteExecutionRequest> executionRequestCaptor =
+                ArgumentCaptor.forClass(RetrievalExecutionDtos.RewriteExecutionRequest.class);
+        verify(ragRetrievalExecutionService).executeRewrite(executionRequestCaptor.capture());
         assertThat(executionRequestCaptor.getValue().domainId()).isEqualTo(domainId);
         assertThat(executionRequestCaptor.getValue().memoryCandidates()).isEqualTo(memories);
         assertThat(executionRequestCaptor.getValue().rewriteQueryProfile()).isEqualTo("compact_anchor");
-        verify(ragRetrievalExecutionService, never()).executeAnchorAwareRewrite(any());
+        assertThat(executionRequestCaptor.getValue().anchorInjectionEnabled()).isFalse();
         verify(rewriteCandidateService).buildCandidates(eq(query), any(), eq(memories), eq(2), eq("compact_anchor"), eq(false), any());
         verify(traceRepository).createRewriteCandidate(eq(onlineQueryId), eq(1), eq("candidate-1"), eq(rewrittenQuery), any(), any(), anyDouble(), any());
         verify(traceRepository).markRewriteCandidateAdopted(eq(rewriteCandidateId), eq(true), isNull());
@@ -530,13 +621,13 @@ class RagServiceTest {
 
         assertThat(response.answer()).isEqualTo("anchor answer");
         assertThat(response.answerModel()).isEqualTo("test-answer-model");
-        verify(ragRetrievalExecutionService, never()).executeSelectiveRewrite(any());
-        ArgumentCaptor<RetrievalExecutionDtos.AnchorAwareRewriteExecutionRequest> executionRequestCaptor =
-                ArgumentCaptor.forClass(RetrievalExecutionDtos.AnchorAwareRewriteExecutionRequest.class);
-        verify(ragRetrievalExecutionService).executeAnchorAwareRewrite(executionRequestCaptor.capture());
+        ArgumentCaptor<RetrievalExecutionDtos.RewriteExecutionRequest> executionRequestCaptor =
+                ArgumentCaptor.forClass(RetrievalExecutionDtos.RewriteExecutionRequest.class);
+        verify(ragRetrievalExecutionService).executeRewrite(executionRequestCaptor.capture());
         assertThat(executionRequestCaptor.getValue().domainId()).isEqualTo(domainId);
         assertThat(executionRequestCaptor.getValue().memoryCandidates()).isEqualTo(memories);
         assertThat(executionRequestCaptor.getValue().rewriteQueryProfile()).isEqualTo("compact_anchor");
+        assertThat(executionRequestCaptor.getValue().anchorInjectionEnabled()).isTrue();
         verify(rewriteCandidateService).buildCandidates(eq(query), any(), eq(memories), eq(2), eq("compact_anchor"), eq(true), any());
         verify(traceRepository).createRewriteCandidate(eq(onlineQueryId), eq(1), eq("anchor-aware"), eq(rewrittenQuery), any(), any(), anyDouble(), any());
         verify(traceRepository).markRewriteCandidateAdopted(eq(rewriteCandidateId), eq(true), isNull());

@@ -10,12 +10,15 @@ import io.queryforge.backend.rag.retrieval.candidate.dto.RetrievalDtos;
 import io.queryforge.backend.rag.retrieval.candidate.model.RetrievalDoc;
 import io.queryforge.backend.rag.retrieval.candidate.service.DomainScopedRetrievalService;
 import io.queryforge.backend.rag.retrieval.execution.dto.RetrievalExecutionDtos;
+import io.queryforge.backend.rag.retrieval.execution.dto.RetrievalExecutionDtos.ExecutedRewriteCandidate;
+import io.queryforge.backend.rag.retrieval.execution.dto.RetrievalExecutionDtos.NonAgenticExecutionKind;
+import io.queryforge.backend.rag.retrieval.execution.dto.RetrievalExecutionDtos.RewriteExecutionRequest;
+import io.queryforge.backend.rag.retrieval.execution.dto.RetrievalExecutionDtos.RewriteExecutionResult;
 import io.queryforge.backend.rag.retrieval.execution.model.RagPersistPolicy;
 import io.queryforge.backend.rag.retrieval.execution.service.RagRetrievalExecutionService;
 import io.queryforge.backend.rag.retrieval.memory.model.MemoryCandidate;
 import io.queryforge.backend.rag.retrieval.rerank.service.CohereRerankService;
 import io.queryforge.backend.rag.retrieval.rewrite.dto.RewriteDtos;
-import io.queryforge.backend.rag.retrieval.rewrite.service.RewriteCandidateService;
 import io.queryforge.backend.rag.retrieval.routing.dto.QueryRouteDecision;
 import io.queryforge.backend.rag.retrieval.routing.model.QueryStrategy;
 import io.queryforge.backend.rag.retrieval.routing.service.QueryStrategyRouter;
@@ -36,6 +39,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -57,7 +61,6 @@ public class RagService {
     private final RagRetrievalExecutionService ragRetrievalExecutionService;
     private final RagTracePersistenceService ragTracePersistenceService;
     private final CohereRerankService cohereRerankService;
-    private final RewriteCandidateService rewriteCandidateService;
     private final ChatRuntimeConfigService chatRuntimeConfigService;
     private final ChatReadinessService chatReadinessService;
     private final QueryStrategyRouter queryStrategyRouter;
@@ -297,141 +300,45 @@ public class RagService {
         }
 
         stageStart = System.nanoTime();
-        List<GeneratedCandidate> scoredCandidates = new ArrayList<>();
-        RetrievalExecutionDtos.NonAgenticExecutionKind candidateRootAdoptionPersistenceKind = null;
+        List<ExecutedRewriteCandidate> scoredCandidates = new ArrayList<>();
+        Map<Integer, UUID> candidateIds = new HashMap<>();
+        NonAgenticExecutionKind rewriteTraceKind = null;
         if (!rawOnlyRoute) {
-            List<RetrievalExecutionDtos.ExecutedRewriteCandidate> executedCandidates = null;
-            RetrievalExecutionDtos.NonAgenticExecutionKind executedCandidateKind = null;
-            if (usesSelectiveRewriteExecutionService(mode, routeDecision)) {
-                RetrievalExecutionDtos.SelectiveRewriteExecutionResult selectiveExecution =
-                        ragRetrievalExecutionService.executeSelectiveRewrite(new RetrievalExecutionDtos.SelectiveRewriteExecutionRequest(
-                                rawQuery,
-                                sessionContextSnapshot,
-                                memoryCandidates,
-                                candidateCount,
-                                routeDecision.rewriteQueryProfile(),
-                                responses.domainContext(config),
-                                retrievalTopK,
-                                rerankTopN,
-                                config.domainId(),
-                                retrievalRuntime,
-                                rawDense
-                        ));
-                executedCandidates = selectiveExecution.candidates();
-                executedCandidateKind = selectiveExecution.executionKind();
-            } else if (usesAnchorAwareRewriteExecutionService(routeDecision)) {
-                RetrievalExecutionDtos.AnchorAwareRewriteExecutionResult anchorAwareExecution =
-                        ragRetrievalExecutionService.executeAnchorAwareRewrite(new RetrievalExecutionDtos.AnchorAwareRewriteExecutionRequest(
-                                rawQuery,
-                                sessionContextSnapshot,
-                                memoryCandidates,
-                                candidateCount,
-                                routeDecision.rewriteQueryProfile(),
-                                responses.domainContext(config),
-                                retrievalTopK,
-                                rerankTopN,
-                                config.domainId(),
-                                retrievalRuntime,
-                                rawDense
-                        ));
-                executedCandidates = anchorAwareExecution.candidates();
-                executedCandidateKind = anchorAwareExecution.executionKind();
-            }
-            if (executedCandidates != null) {
-                candidateRootAdoptionPersistenceKind = executedCandidateKind;
-                for (int index = 0; index < executedCandidates.size(); index++) {
-                    RetrievalExecutionDtos.ExecutedRewriteCandidate executed = executedCandidates.get(index);
-                    int candidateIndex = executed.index() > 0 ? executed.index() : index + 1;
-                    TraceWriteResults.RewriteCandidatePersistenceResult candidatePersistence =
-                            ragTracePersistenceService.createRewriteCandidateTrace(
-                                    new RagTraceWriteDtos.CreateRewriteCandidateTracePersistenceRequest(
-                                            RagPersistPolicy.ONLINE_QUERY,
-                                            onlineQueryId,
-                                            executedCandidateKind,
-                                            candidateIndex,
-                                            executed.label(),
-                                            executed.query(),
-                                            executed.metadata(),
-                                            responses.memorySourceIds(memoryCandidates),
-                                            objectMapper.valueToTree(executed.rerankedDocs()),
-                                            executed.confidence(),
-                                            scoreBreakdown(objectMapper, executed.rerankedDocs(), memoryCandidates)
-                                    )
-                            );
-                    UUID candidateId = candidatePersistence.rewriteCandidateId();
-                    ragTracePersistenceService.persistRewriteCandidateTrace(
-                            new RagTraceWriteDtos.RewriteCandidateTracePersistenceRequest(
-                                    RagPersistPolicy.ONLINE_QUERY,
-                                    onlineQueryId,
-                                    candidateId,
-                                    executedCandidateKind,
-                                    candidateIndex,
-                                    executed.query(),
-                                    executed.label(),
-                                    mode,
-                                    executed.localRetrievedDocs(),
-                                    executed.rerankedDocs(),
-                                    executed.retrievalMetadata(),
-                                    executed.retrieverName(),
-                                    executed.rerankerModel(),
-                                    executed.latencyMs(),
-                                    RagTraceWriteDtos.RewriteCandidateTraceWriteScope.CANDIDATE_RETRIEVAL
-                            )
-                    );
-                    scoredCandidates.add(new GeneratedCandidate(
-                            executed.label(),
-                            executed.query(),
-                            executed.rerankedDocs(),
-                            executed.confidence(),
-                            candidateId
-                    ));
+            boolean selectiveExecution = isSelectiveRewriteExecution(mode, routeDecision);
+            boolean anchorAwareExecution = !selectiveExecution && isAnchorAwareRewriteExecution(routeDecision);
+            RewriteExecutionRequest executionRequest = new RewriteExecutionRequest(
+                    rawQuery,
+                    sessionContextSnapshot,
+                    memoryCandidates,
+                    candidateCount,
+                    routeDecision.rewriteQueryProfile(),
+                    responses.domainContext(config),
+                    retrievalTopK,
+                    rerankTopN,
+                    config.domainId(),
+                    retrievalRuntime,
+                    rawDense,
+                    anchorAwareExecution
+            );
+            if (selectiveExecution || anchorAwareExecution) {
+                RewriteExecutionResult execution = ragRetrievalExecutionService.executeRewrite(executionRequest);
+                rewriteTraceKind = execution.executionKind();
+                scoredCandidates.addAll(execution.candidates());
+                for (ExecutedRewriteCandidate candidate : scoredCandidates) {
+                    UUID candidateId = persistRewriteCandidate(candidate, onlineQueryId, mode, memoryCandidates, rewriteTraceKind);
+                    candidateIds.put(candidate.index(), candidateId);
                 }
             } else {
-                List<RewriteDtos.CandidateTemplate> generatedCandidates = rewriteCandidateService.buildCandidates(
-                        rawQuery,
-                        sessionContextSnapshot,
-                        memoryCandidates,
-                        candidateCount,
-                        routeDecision.rewriteQueryProfile(),
-                        routeDecision.anchorInjectionEnabled(),
-                        responses.domainContext(config)
-                );
-                for (int index = 0; index < generatedCandidates.size(); index++) {
-                    RewriteDtos.CandidateTemplate generated = generatedCandidates.get(index);
-                    String embeddingLiteral = domainScopedRetrievalService.embeddingLiteral(generated.query(), retrievalRuntime);
-                    List<RetrievalDoc> candidateRetrievedLocal = domainScopedRetrievalService.retrieveChunks(
-                            generated.query(),
-                            embeddingLiteral,
-                            retrievalTopK,
-                            config.domainId(),
-                            retrievalRuntime
+                // This path records each completed candidate before executing the next.
+                List<RewriteDtos.CandidateTemplate> templates =
+                        ragRetrievalExecutionService.generateRewriteCandidates(executionRequest);
+                for (int index = 0; index < templates.size(); index++) {
+                    ExecutedRewriteCandidate candidate = ragRetrievalExecutionService.executeCandidate(
+                            executionRequest, index + 1, templates.get(index)
                     );
-                    List<RetrievalDoc> candidateRetrieved = cohereRerankService.rerank(
-                            generated.query(),
-                            candidateRetrievedLocal,
-                            rerankTopN
-                    );
-                    double confidence = confidence(candidateRetrieved, rawDense);
-                    UUID candidateId = traceRepository.createRewriteCandidate(
-                            onlineQueryId,
-                            index + 1,
-                            generated.label(),
-                            generated.query(),
-                            responses.memorySourceIds(memoryCandidates),
-                            objectMapper.valueToTree(candidateRetrieved),
-                            confidence,
-                            scoreBreakdown(objectMapper, candidateRetrieved, memoryCandidates)
-                    );
-                    traceRepository.insertRetrievalResults(
-                            onlineQueryId,
-                            candidateId,
-                            "rewrite_candidate",
-                            candidateRetrievedLocal,
-                            mode,
-                            retrievalRuntime.retrieverName(),
-                            responses.retrievalMetadata(retrievalRuntime)
-                    );
-                    scoredCandidates.add(new GeneratedCandidate(generated.label(), generated.query(), candidateRetrieved, confidence, candidateId));
+                    UUID candidateId = persistRewriteCandidate(candidate, onlineQueryId, mode, memoryCandidates, null);
+                    candidateIds.put(candidate.index(), candidateId);
+                    scoredCandidates.add(candidate);
                 }
             }
         }
@@ -451,44 +358,25 @@ public class RagService {
                 config.domainId(),
                 retrievalRuntime
         );
-        if (decision.selectedCandidateId() != null) {
-            for (GeneratedCandidate candidate : scoredCandidates) {
-                boolean adopted = candidate.rewriteCandidateId().equals(decision.selectedCandidateId());
-                if (candidateRootAdoptionPersistenceKind != null) {
-                    ragTracePersistenceService.markRewriteCandidateAdopted(
-                            new RagTraceWriteDtos.RewriteCandidateAdoptionPersistenceRequest(
-                                    RagPersistPolicy.ONLINE_QUERY,
-                                    onlineQueryId,
-                                    candidate.rewriteCandidateId(),
-                                    candidateRootAdoptionPersistenceKind,
-                                    adopted,
-                                    adopted ? null : decision.rejectedReason()
-                            )
-                    );
-                } else {
-                    traceRepository.markRewriteCandidateAdopted(
-                            candidate.rewriteCandidateId(),
-                            adopted,
-                            adopted ? null : decision.rejectedReason()
-                    );
-                }
-            }
-        } else {
-            for (GeneratedCandidate candidate : scoredCandidates) {
-                if (candidateRootAdoptionPersistenceKind != null) {
-                    ragTracePersistenceService.markRewriteCandidateAdopted(
-                            new RagTraceWriteDtos.RewriteCandidateAdoptionPersistenceRequest(
-                                    RagPersistPolicy.ONLINE_QUERY,
-                                    onlineQueryId,
-                                    candidate.rewriteCandidateId(),
-                                    candidateRootAdoptionPersistenceKind,
-                                    false,
-                                    decision.rejectedReason()
-                            )
-                    );
-                } else {
-                    traceRepository.markRewriteCandidateAdopted(candidate.rewriteCandidateId(), false, decision.rejectedReason());
-                }
+        ExecutedRewriteCandidate selectedCandidate = decision.selectedCandidate();
+        UUID selectedCandidateId = selectedCandidate == null ? null : candidateIds.get(selectedCandidate.index());
+        for (ExecutedRewriteCandidate candidate : scoredCandidates) {
+            UUID candidateId = candidateIds.get(candidate.index());
+            boolean adopted = selectedCandidate != null && selectedCandidate.index() == candidate.index();
+            String rejectedReason = adopted ? null : decision.rejectedReason();
+            if (rewriteTraceKind != null) {
+                ragTracePersistenceService.markRewriteCandidateAdopted(
+                        new RagTraceWriteDtos.RewriteCandidateAdoptionPersistenceRequest(
+                                RagPersistPolicy.ONLINE_QUERY,
+                                onlineQueryId,
+                                candidateId,
+                                rewriteTraceKind,
+                                adopted,
+                                rejectedReason
+                        )
+                );
+            } else {
+                traceRepository.markRewriteCandidateAdopted(candidateId, adopted, rejectedReason);
             }
         }
         long decisionLatency = responses.elapsedMs(stageStart);
@@ -510,42 +398,28 @@ public class RagService {
                     rawRetrievalLatency,
                     RagTraceWriteDtos.RawOnlyTraceWriteScope.RERANK
             ));
+        } else if (selectedCandidate != null) {
+            ragTracePersistenceService.persistRewriteCandidateTrace(
+                    new RagTraceWriteDtos.RewriteCandidateTracePersistenceRequest(
+                            RagPersistPolicy.ONLINE_QUERY,
+                            onlineQueryId,
+                            selectedCandidateId,
+                            rewriteCandidateTraceExecutionKind(routeDecision),
+                            selectedCandidate.index(),
+                            selectedCandidate.query(),
+                            selectedCandidate.label(),
+                            mode,
+                            List.of(),
+                            reranked,
+                            objectMapper.createObjectNode(),
+                            null,
+                            cohereRerankService.modelName(),
+                            0L,
+                            RagTraceWriteDtos.RewriteCandidateTraceWriteScope.CANDIDATE_RERANK
+                    )
+            );
         } else {
-            GeneratedCandidate selectedGeneratedCandidate = null;
-            int selectedGeneratedCandidateIndex = 0;
-            if (decision.selectedCandidateId() != null) {
-                for (int index = 0; index < scoredCandidates.size(); index++) {
-                    GeneratedCandidate candidate = scoredCandidates.get(index);
-                    if (decision.selectedCandidateId().equals(candidate.rewriteCandidateId())) {
-                        selectedGeneratedCandidate = candidate;
-                        selectedGeneratedCandidateIndex = index + 1;
-                        break;
-                    }
-                }
-            }
-            if (selectedGeneratedCandidate != null) {
-                ragTracePersistenceService.persistRewriteCandidateTrace(
-                        new RagTraceWriteDtos.RewriteCandidateTracePersistenceRequest(
-                                RagPersistPolicy.ONLINE_QUERY,
-                                onlineQueryId,
-                                decision.selectedCandidateId(),
-                                rewriteCandidateTraceExecutionKind(routeDecision),
-                                selectedGeneratedCandidateIndex,
-                                selectedGeneratedCandidate.query(),
-                                selectedGeneratedCandidate.label(),
-                                mode,
-                                List.of(),
-                                reranked,
-                                objectMapper.createObjectNode(),
-                                null,
-                                cohereRerankService.modelName(),
-                                0L,
-                                RagTraceWriteDtos.RewriteCandidateTraceWriteScope.CANDIDATE_RERANK
-                        )
-                );
-            } else {
-                traceRepository.insertRerankResults(onlineQueryId, decision.selectedCandidateId(), reranked, cohereRerankService.modelName());
-            }
+            traceRepository.insertRerankResults(onlineQueryId, null, reranked, cohereRerankService.modelName());
         }
         long rerankLatency = responses.elapsedMs(stageStart);
 
@@ -577,7 +451,7 @@ public class RagService {
                 "answerGenerationMs", answerLatency,
                 "totalMs", java.time.Duration.between(started, Instant.now()).toMillis()
         );
-        RetrievalExecutionDtos.NonAgenticExecutionKind decisionPersistenceKind =
+        NonAgenticExecutionKind decisionPersistenceKind =
                 onlineQueryDecisionPersistenceKind(mode, routeDecision, rawOnlyRoute);
         ragTracePersistenceService.persistOnlineQueryDecision(
                 new RagTraceWriteDtos.OnlineQueryDecisionPersistenceRequest(
@@ -589,7 +463,7 @@ public class RagService {
                         decision.rewriteApplied(),
                         memoryTopNJson,
                         rawConfidence,
-                        decision.selectedCandidateId(),
+                        selectedCandidateId,
                         decision.finalRetrieved().size(),
                         decision.selectedReason(),
                         decision.rejectedReason(),
@@ -622,14 +496,14 @@ public class RagService {
                 routeDecision
         );
         UUID rewriteLogId;
-        if (candidateRootAdoptionPersistenceKind != null) {
+        if (rewriteTraceKind != null) {
             TraceWriteResults.OnlineRewriteLogPersistenceResult rewriteLogPersistence =
                     ragTracePersistenceService.createOnlineRewriteLogTrace(
                             new RagTraceWriteDtos.OnlineRewriteLogPersistenceRequest(
                                     RagPersistPolicy.ONLINE_QUERY,
                                     onlineQueryId,
                                     null,
-                                    candidateRootAdoptionPersistenceKind,
+                                    rewriteTraceKind,
                                     rawQuery,
                                     decision.finalQuery(),
                                     mode,
@@ -680,13 +554,13 @@ public class RagService {
                     "source_gate_run_id", memoryCandidate.sourceGateRunId() == null ? "" : memoryCandidate.sourceGateRunId(),
                     "source_gating_batch_id", memoryCandidate.sourceGatingBatchId() == null ? "" : memoryCandidate.sourceGatingBatchId()
             ));
-            if (candidateRootAdoptionPersistenceKind != null) {
+            if (rewriteTraceKind != null) {
                 ragTracePersistenceService.insertMemoryRetrievalTrace(
                         new RagTraceWriteDtos.MemoryRetrievalLogPersistenceRequest(
                                 RagPersistPolicy.ONLINE_QUERY,
                                 onlineQueryId,
                                 rewriteLogId,
-                                candidateRootAdoptionPersistenceKind,
+                                rewriteTraceKind,
                                 index + 1,
                                 memoryCandidate,
                                 memoryMetadata
@@ -703,29 +577,29 @@ public class RagService {
             }
         }
 
-        for (int index = 0; index < scoredCandidates.size(); index++) {
-            GeneratedCandidate candidate = scoredCandidates.get(index);
-            boolean selected = decision.selectedCandidateId() != null && decision.selectedCandidateId().equals(candidate.rewriteCandidateId());
+        for (ExecutedRewriteCandidate candidate : scoredCandidates) {
+            UUID candidateId = candidateIds.get(candidate.index());
+            boolean selected = selectedCandidate != null && selectedCandidate.index() == candidate.index();
             JsonNode candidateMetadata = objectMapper.valueToTree(Map.of(
                     "mode", mode,
                     "selected_reason", decision.selectedReason()
             ));
-            if (candidateRootAdoptionPersistenceKind != null) {
+            if (rewriteTraceKind != null) {
                 ragTracePersistenceService.insertRewriteCandidateTrace(
                         new RagTraceWriteDtos.RewriteCandidateLogPersistenceRequest(
                                 RagPersistPolicy.ONLINE_QUERY,
                                 onlineQueryId,
                                 rewriteLogId,
-                                candidate.rewriteCandidateId(),
-                                candidateRootAdoptionPersistenceKind,
-                                index + 1,
+                                candidateId,
+                                rewriteTraceKind,
+                                candidate.index(),
                                 candidate.label(),
                                 candidate.query(),
                                 candidate.confidence(),
                                 selected,
                                 selected ? null : decision.rejectedReason(),
-                                objectMapper.valueToTree(candidate.retrieved()),
-                                scoreBreakdown(objectMapper, candidate.retrieved(), memoryCandidates),
+                                objectMapper.valueToTree(candidate.rerankedDocs()),
+                                scoreBreakdown(objectMapper, candidate.rerankedDocs(), memoryCandidates),
                                 candidateMetadata
                         )
                 );
@@ -733,15 +607,15 @@ public class RagService {
                 traceRepository.insertRewriteCandidateLog(
                         rewriteLogId,
                         onlineQueryId,
-                        candidate.rewriteCandidateId(),
-                        index + 1,
+                        candidateId,
+                        candidate.index(),
                         candidate.label(),
                         candidate.query(),
                         candidate.confidence(),
                         selected,
                         selected ? null : decision.rejectedReason(),
-                        objectMapper.valueToTree(candidate.retrieved()),
-                        scoreBreakdown(objectMapper, candidate.retrieved(), memoryCandidates),
+                        objectMapper.valueToTree(candidate.rerankedDocs()),
+                        scoreBreakdown(objectMapper, candidate.rerankedDocs(), memoryCandidates),
                         candidateMetadata
                 );
             }
@@ -753,7 +627,7 @@ public class RagService {
                 decision.finalQuery(),
                 rawQuery,
                 decision.rewriteApplied(),
-                toRewriteDtos(scoredCandidates, decision.selectedCandidateId()),
+                toRewriteDtos(scoredCandidates, candidateIds, selectedCandidate),
                 responses.toScoredDocs(decision.finalRetrieved()),
                 responses.toScoredDocs(reranked),
                 memoryTopNJson,
@@ -766,23 +640,83 @@ public class RagService {
         );
     }
 
-    private List<RewriteDtos.RewriteCandidateDto> toRewriteDtos(
-            List<GeneratedCandidate> candidates,
-            UUID selectedCandidateId
+    private UUID persistRewriteCandidate(
+            ExecutedRewriteCandidate candidate,
+            UUID onlineQueryId,
+            String mode,
+            List<MemoryCandidate> memoryCandidates,
+            NonAgenticExecutionKind executionKind
     ) {
-        return candidates.stream()
-                .map(candidate -> new RewriteDtos.RewriteCandidateDto(
-                        candidate.rewriteCandidateId(),
+        JsonNode memorySourceIds = responses.memorySourceIds(memoryCandidates);
+        JsonNode rerankedDocs = objectMapper.valueToTree(candidate.rerankedDocs());
+        JsonNode scores = scoreBreakdown(objectMapper, candidate.rerankedDocs(), memoryCandidates);
+        if (executionKind == null) {
+            UUID candidateId = traceRepository.createRewriteCandidate(
+                    onlineQueryId, candidate.index(), candidate.label(), candidate.query(),
+                    memorySourceIds, rerankedDocs, candidate.confidence(), scores
+            );
+            traceRepository.insertRetrievalResults(
+                    onlineQueryId, candidateId, "rewrite_candidate", candidate.localRetrievedDocs(),
+                    mode, candidate.retrieverName(), candidate.retrievalMetadata()
+            );
+            return candidateId;
+        }
+        UUID candidateId = ragTracePersistenceService.createRewriteCandidateTrace(
+                new RagTraceWriteDtos.CreateRewriteCandidateTracePersistenceRequest(
+                        RagPersistPolicy.ONLINE_QUERY,
+                        onlineQueryId,
+                        executionKind,
+                        candidate.index(),
                         candidate.label(),
                         candidate.query(),
+                        candidate.metadata(),
+                        memorySourceIds,
+                        rerankedDocs,
                         candidate.confidence(),
-                        selectedCandidateId != null && selectedCandidateId.equals(candidate.rewriteCandidateId()),
-                        selectedCandidateId != null && !selectedCandidateId.equals(candidate.rewriteCandidateId())
-                                ? "not_selected"
-                                : null,
-                        objectMapper.valueToTree(candidate.retrieved()),
-                        scoreBreakdown(objectMapper, candidate.retrieved(), List.of())
-                ))
+                        scores
+                )
+        ).rewriteCandidateId();
+        ragTracePersistenceService.persistRewriteCandidateTrace(
+                new RagTraceWriteDtos.RewriteCandidateTracePersistenceRequest(
+                        RagPersistPolicy.ONLINE_QUERY,
+                        onlineQueryId,
+                        candidateId,
+                        executionKind,
+                        candidate.index(),
+                        candidate.query(),
+                        candidate.label(),
+                        mode,
+                        candidate.localRetrievedDocs(),
+                        candidate.rerankedDocs(),
+                        candidate.retrievalMetadata(),
+                        candidate.retrieverName(),
+                        candidate.rerankerModel(),
+                        candidate.latencyMs(),
+                        RagTraceWriteDtos.RewriteCandidateTraceWriteScope.CANDIDATE_RETRIEVAL
+                )
+        );
+        return candidateId;
+    }
+
+    private List<RewriteDtos.RewriteCandidateDto> toRewriteDtos(
+            List<ExecutedRewriteCandidate> candidates,
+            Map<Integer, UUID> candidateIds,
+            ExecutedRewriteCandidate selectedCandidate
+    ) {
+        return candidates.stream()
+                .map(candidate -> {
+                    boolean adopted = selectedCandidate != null && selectedCandidate.index() == candidate.index();
+                    return new RewriteDtos.RewriteCandidateDto(
+                            candidateIds.get(candidate.index()),
+                            candidate.label(),
+                            candidate.query(),
+                            candidate.confidence(),
+                            adopted,
+                            selectedCandidate != null && !adopted ? "not_selected" : null,
+                            objectMapper.valueToTree(candidate.rerankedDocs()),
+                            scoreBreakdown(objectMapper, candidate.rerankedDocs(), List.of())
+                    );
+                })
                 .toList();
     }
 
@@ -804,7 +738,7 @@ public class RagService {
         );
     }
 
-    private boolean usesSelectiveRewriteExecutionService(String mode, QueryRouteDecision routeDecision) {
+    private boolean isSelectiveRewriteExecution(String mode, QueryRouteDecision routeDecision) {
         boolean forcedNonAnchorSelective = mode.startsWith("selective_rewrite")
                 && !routeDecision.routerEnabled()
                 && !routeDecision.anchorInjectionEnabled();
@@ -818,28 +752,28 @@ public class RagService {
         return rawOnlyRoute && "raw_only".equals(mode);
     }
 
-    private RetrievalExecutionDtos.NonAgenticExecutionKind onlineQueryDecisionPersistenceKind(
+    private NonAgenticExecutionKind onlineQueryDecisionPersistenceKind(
             String mode,
             QueryRouteDecision routeDecision,
             boolean rawOnlyRoute
     ) {
         if (rawOnlyRoute || "raw_only".equals(mode)) {
-            return RetrievalExecutionDtos.NonAgenticExecutionKind.RAW_ONLY;
+            return NonAgenticExecutionKind.RAW_ONLY;
         }
         return rewriteCandidateTraceExecutionKind(routeDecision);
     }
 
-    private boolean usesAnchorAwareRewriteExecutionService(QueryRouteDecision routeDecision) {
+    private boolean isAnchorAwareRewriteExecution(QueryRouteDecision routeDecision) {
         return routeDecision.strategy() == QueryStrategy.ANCHOR_AWARE_REWRITE
                 || routeDecision.anchorInjectionEnabled();
     }
 
-    private RetrievalExecutionDtos.NonAgenticExecutionKind rewriteCandidateTraceExecutionKind(
+    private NonAgenticExecutionKind rewriteCandidateTraceExecutionKind(
             QueryRouteDecision routeDecision
     ) {
-        return usesAnchorAwareRewriteExecutionService(routeDecision)
-                ? RetrievalExecutionDtos.NonAgenticExecutionKind.ANCHOR_AWARE_REWRITE
-                : RetrievalExecutionDtos.NonAgenticExecutionKind.SELECTIVE_REWRITE;
+        return isAnchorAwareRewriteExecution(routeDecision)
+                ? NonAgenticExecutionKind.ANCHOR_AWARE_REWRITE
+                : NonAgenticExecutionKind.SELECTIVE_REWRITE;
     }
 
     private Decision decide(
@@ -848,7 +782,7 @@ public class RagService {
             double rawConfidence,
             List<RetrievalDoc> rawRetrieved,
             List<MemoryCandidate> memoryCandidates,
-            List<GeneratedCandidate> candidates,
+            List<ExecutedRewriteCandidate> candidates,
             double threshold,
             UUID domainId,
             RetrievalDtos.RetrievalRuntime retrievalRuntime
@@ -873,20 +807,20 @@ public class RagService {
             return new Decision(memoryQuery, true, retrieved, null, "memory_only", null);
         }
 
-        GeneratedCandidate best = candidates.stream()
-                .max(Comparator.comparingDouble(GeneratedCandidate::confidence))
+        ExecutedRewriteCandidate best = candidates.stream()
+                .max(Comparator.comparingDouble(ExecutedRewriteCandidate::confidence))
                 .orElse(null);
         if (best == null) {
             return new Decision(rawQuery, false, rawRetrieved, null, "no_candidate", "rewrite candidate missing");
         }
 
         if ("rewrite_always".equals(mode)) {
-            return new Decision(best.query(), true, best.retrieved(), best.rewriteCandidateId(), "forced", null);
+            return new Decision(best.query(), true, best.rerankedDocs(), best, "forced", null);
         }
 
         double delta = best.confidence() - rawConfidence;
         if (delta >= threshold) {
-            return new Decision(best.query(), true, best.retrieved(), best.rewriteCandidateId(), "delta_above_threshold", null);
+            return new Decision(best.query(), true, best.rerankedDocs(), best, "delta_above_threshold", null);
         }
         return new Decision(rawQuery, false, rawRetrieved, null, "delta_below_threshold", "best-candidate delta below threshold");
     }
@@ -920,20 +854,11 @@ public class RagService {
         return value.trim();
     }
 
-    private record GeneratedCandidate(
-            String label,
-            String query,
-            List<RetrievalDoc> retrieved,
-            double confidence,
-            UUID rewriteCandidateId
-    ) {
-    }
-
     private record Decision(
             String finalQuery,
             boolean rewriteApplied,
             List<RetrievalDoc> finalRetrieved,
-            UUID selectedCandidateId,
+            ExecutedRewriteCandidate selectedCandidate,
             String selectedReason,
             String rejectedReason
     ) {

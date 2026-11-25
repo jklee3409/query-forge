@@ -112,13 +112,9 @@ class RagRetrievalExecutionServiceTest {
         assertThat(result.retrieverName()).isEqualTo("local:dense_only:hash-embedding-v1");
         assertThat(result.retrievalMetadata().path("retriever_mode").asText()).isEqualTo("dense_only");
         assertThat(result.latencyMs()).isGreaterThanOrEqualTo(0L);
-        assertThat(result.executionKind()).isEqualTo(RetrievalExecutionDtos.NonAgenticExecutionKind.RAW_ONLY);
-        assertThat(result.rawQuery()).isEqualTo(query);
         assertThat(result.rawRetrieval().query()).isEqualTo(query);
         assertThat(result.rawRetrieval().rerankerModel()).isEqualTo("local-rerank-fallback");
-        assertThat(result.rawRerankedChunkIds()).containsExactly("chunk-1");
-        assertThat(result.candidateExecutions()).isEmpty();
-        assertThat(result.anchorInjectionApplied()).isFalse();
+        assertThat(result.rawRetrieval().rerankedChunkIds()).containsExactly("chunk-1");
 
         verify(chunkRepository).findTopChunksByEmbedding("embedding", 20, domainId);
         verify(memoryRepository, never()).findMemoryTopN(anyString(), anyInt(), anyString(), any(), anyList(), anyList(), anyList());
@@ -149,7 +145,7 @@ class RagRetrievalExecutionServiceTest {
         assertThat(result.localRetrievedDocs()).isEmpty();
         assertThat(result.rerankedDocs()).isEmpty();
         assertThat(result.rawRetrievalConfidence()).isZero();
-        assertThat(result.rawRerankedChunkIds()).isEmpty();
+        assertThat(result.rawRetrieval().rerankedChunkIds()).isEmpty();
         verify(chunkRepository).findTopChunksByEmbedding("embedding", 20, domainId);
         verifyNoRepositoryWrites();
     }
@@ -187,8 +183,8 @@ class RagRetrievalExecutionServiceTest {
         when(cohereRerankService.rerank(rewrittenQuery, localDocs, 3)).thenReturn(rerankedDocs);
         when(cohereRerankService.modelName()).thenReturn("local-rerank-fallback");
 
-        RetrievalExecutionDtos.SelectiveRewriteExecutionResult result = service.executeSelectiveRewrite(
-                new RetrievalExecutionDtos.SelectiveRewriteExecutionRequest(
+        RetrievalExecutionDtos.RewriteExecutionResult result = service.executeRewrite(
+                new RetrievalExecutionDtos.RewriteExecutionRequest(
                         query,
                         objectMapper.createObjectNode(),
                         memories,
@@ -199,17 +195,13 @@ class RagRetrievalExecutionServiceTest {
                         3,
                         domainId,
                         runtime,
-                        0.72d
+                        0.72d,
+                        false
                 )
         );
 
         assertThat(result.executionKind()).isEqualTo(RetrievalExecutionDtos.NonAgenticExecutionKind.SELECTIVE_REWRITE);
-        assertThat(result.rawQuery()).isEqualTo(query);
-        assertThat(result.rawRetrieval()).isNull();
-        assertThat(result.candidateExecutions()).hasSize(1);
         assertThat(result.anchorInjectionApplied()).isFalse();
-        assertThat(result.retrieverName()).isEqualTo("local:dense_only:hash-embedding-v1");
-        assertThat(result.retrievalMetadata().path("retriever_mode").asText()).isEqualTo("dense_only");
         assertThat(result.candidates()).hasSize(1);
         RetrievalExecutionDtos.ExecutedRewriteCandidate candidate = result.candidates().getFirst();
         assertThat(candidate.index()).isEqualTo(1);
@@ -273,8 +265,8 @@ class RagRetrievalExecutionServiceTest {
         when(cohereRerankService.rerank(rewrittenQuery, localDocs, 3)).thenReturn(rerankedDocs);
         when(cohereRerankService.modelName()).thenReturn("local-rerank-fallback");
 
-        RetrievalExecutionDtos.AnchorAwareRewriteExecutionResult result = service.executeAnchorAwareRewrite(
-                new RetrievalExecutionDtos.AnchorAwareRewriteExecutionRequest(
+        RetrievalExecutionDtos.RewriteExecutionResult result = service.executeRewrite(
+                new RetrievalExecutionDtos.RewriteExecutionRequest(
                         query,
                         objectMapper.createObjectNode(),
                         memories,
@@ -285,17 +277,13 @@ class RagRetrievalExecutionServiceTest {
                         3,
                         domainId,
                         runtime,
-                        0.72d
+                        0.72d,
+                        true
                 )
         );
 
         assertThat(result.executionKind()).isEqualTo(RetrievalExecutionDtos.NonAgenticExecutionKind.ANCHOR_AWARE_REWRITE);
-        assertThat(result.rawQuery()).isEqualTo(query);
-        assertThat(result.rawRetrieval()).isNull();
-        assertThat(result.candidateExecutions()).hasSize(1);
         assertThat(result.anchorInjectionApplied()).isTrue();
-        assertThat(result.retrieverName()).isEqualTo("local:dense_only:hash-embedding-v1");
-        assertThat(result.retrievalMetadata().path("retriever_mode").asText()).isEqualTo("dense_only");
         assertThat(result.candidates()).hasSize(1);
         RetrievalExecutionDtos.ExecutedRewriteCandidate candidate = result.candidates().getFirst();
         assertThat(candidate.index()).isEqualTo(1);
@@ -341,8 +329,8 @@ class RagRetrievalExecutionServiceTest {
                 any()
         )).thenReturn(List.of());
 
-        RetrievalExecutionDtos.AnchorAwareRewriteExecutionResult result = service.executeAnchorAwareRewrite(
-                new RetrievalExecutionDtos.AnchorAwareRewriteExecutionRequest(
+        RetrievalExecutionDtos.RewriteExecutionResult result = service.executeRewrite(
+                new RetrievalExecutionDtos.RewriteExecutionRequest(
                         query,
                         objectMapper.createObjectNode(),
                         memories,
@@ -353,7 +341,8 @@ class RagRetrievalExecutionServiceTest {
                         3,
                         domainId,
                         runtime,
-                        0.72d
+                        0.72d,
+                        true
                 )
         );
 
@@ -378,8 +367,8 @@ class RagRetrievalExecutionServiceTest {
                 any()
         )).thenReturn(List.of());
 
-        RetrievalExecutionDtos.SelectiveRewriteExecutionResult result = service.executeSelectiveRewrite(
-                new RetrievalExecutionDtos.SelectiveRewriteExecutionRequest(
+        RetrievalExecutionDtos.RewriteExecutionResult result = service.executeRewrite(
+                new RetrievalExecutionDtos.RewriteExecutionRequest(
                         query,
                         objectMapper.createObjectNode(),
                         memories,
@@ -390,7 +379,8 @@ class RagRetrievalExecutionServiceTest {
                         3,
                         domainId,
                         runtime,
-                        0.72d
+                        0.72d,
+                        false
                 )
         );
 

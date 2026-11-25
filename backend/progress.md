@@ -1,5 +1,9 @@
 # progress.md
 
+## [2026-11-25] Session Summary (Shared Rewrite Candidate Execution)
+- Unified selective and anchor-aware requests and results. Use `ExecutedRewriteCandidate` through chat selection and map candidate indexes to persisted IDs for trace writes and responses.
+- Covered threshold adoption, stored candidate IDs, and the first candidate trace writes when a later candidate fails. Passed 119 targeted backend tests and 36 Python Java retrieval client and comparison tests.
+
 ## [2026-11-25] Session Summary (Shared RAG Execution Settings)
 - Added `RagExecutionSettings` for the five numeric retrieval and rewrite parameters. Use catalog defaults and ranges for administrator settings and enforce shared execution bounds.
 - Java evaluation preserves the rerank limit supplied by the experiment while supporting the existing Top-K-only request. Keep evaluation answer-free with `persistPolicy=NONE`.

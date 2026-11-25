@@ -1,5 +1,9 @@
 # progress.md
 
+## [2026-11-25] Session Summary (Shared Rewrite Candidate Execution)
+- Shared rewrite candidate execution across chat and Java evaluation. Removed three internal records and separated candidate selection from persisted IDs.
+- Passed 119 targeted backend tests and 36 Python Java retrieval client and comparison tests.
+
 ## [2026-11-25] Session Summary (Shared RAG Execution Settings)
 - Unified retrieval Top-K, rerank Top-N, memory Top-N, rewrite candidate count, and rewrite threshold across administrator experiment registration, live chat, and Java retrieval evaluation.
 - Java-backed evaluation now honors the recorded rerank limit when a request also supplies Top-K. Passed 72 targeted backend tests and 36 Python client and comparison tests.

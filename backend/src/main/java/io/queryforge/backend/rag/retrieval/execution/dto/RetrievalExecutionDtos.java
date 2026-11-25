@@ -41,35 +41,6 @@ public final class RetrievalExecutionDtos {
         }
     }
 
-    public interface NonAgenticExecutionResult {
-        NonAgenticExecutionKind executionKind();
-
-        String rawQuery();
-
-        default RetrievalMaterial rawRetrieval() {
-            return null;
-        }
-
-        default List<ExecutedRewriteCandidate> candidateExecutions() {
-            return List.of();
-        }
-
-        default boolean anchorInjectionApplied() {
-            return false;
-        }
-
-        String retrieverName();
-
-        JsonNode retrievalMetadata();
-
-        long latencyMs();
-
-        default List<String> rawRerankedChunkIds() {
-            RetrievalMaterial material = rawRetrieval();
-            return material == null ? List.of() : material.rerankedChunkIds();
-        }
-    }
-
     public enum NonAgenticExecutionKind {
         RAW_ONLY,
         SELECTIVE_REWRITE,
@@ -110,21 +81,11 @@ public final class RetrievalExecutionDtos {
             String finalQuery,
             RetrievalMaterial rawRetrieval,
             long latencyMs
-    ) implements NonAgenticExecutionResult {
+    ) {
         public RawOnlyExecutionResult {
             if (rawRetrieval == null) {
                 throw new IllegalArgumentException("rawRetrieval is required");
             }
-        }
-
-        @Override
-        public NonAgenticExecutionKind executionKind() {
-            return NonAgenticExecutionKind.RAW_ONLY;
-        }
-
-        @Override
-        public String rawQuery() {
-            return originalQuery;
         }
 
         public List<RetrievalDoc> localRetrievedDocs() {
@@ -139,18 +100,16 @@ public final class RetrievalExecutionDtos {
             return rawRetrieval.confidence();
         }
 
-        @Override
         public String retrieverName() {
             return rawRetrieval.retrieverName();
         }
 
-        @Override
         public JsonNode retrievalMetadata() {
             return rawRetrieval.retrievalMetadata();
         }
     }
 
-    public record SelectiveRewriteExecutionRequest(
+    public record RewriteExecutionRequest(
             String rawQuery,
             JsonNode sessionContextSnapshot,
             List<MemoryCandidate> memoryCandidates,
@@ -161,9 +120,10 @@ public final class RetrievalExecutionDtos {
             int rerankTopN,
             UUID domainId,
             RetrievalDtos.RetrievalRuntime retrievalRuntime,
-            double rawDenseScore
+            double rawDenseScore,
+            boolean anchorInjectionEnabled
     ) {
-        public SelectiveRewriteExecutionRequest {
+        public RewriteExecutionRequest {
             if (rawQuery == null || rawQuery.isBlank()) {
                 throw new IllegalArgumentException("rawQuery must not be blank");
             }
@@ -180,85 +140,19 @@ public final class RetrievalExecutionDtos {
         }
     }
 
-    public record SelectiveRewriteExecutionResult(
-            String rawQuery,
-            List<ExecutedRewriteCandidate> candidates,
-            String retrieverName,
-            JsonNode retrievalMetadata,
-            long latencyMs
-    ) implements NonAgenticExecutionResult {
-        public SelectiveRewriteExecutionResult {
-            candidates = candidates == null ? List.of() : List.copyOf(candidates);
-            retrievalMetadata = retrievalMetadata == null ? JsonNodeFactory.instance.objectNode() : retrievalMetadata;
-        }
-
-        @Override
-        public NonAgenticExecutionKind executionKind() {
-            return NonAgenticExecutionKind.SELECTIVE_REWRITE;
-        }
-
-        @Override
-        public List<ExecutedRewriteCandidate> candidateExecutions() {
-            return candidates;
-        }
-
-        @Override
-        public boolean anchorInjectionApplied() {
-            return false;
-        }
-    }
-
-    public record AnchorAwareRewriteExecutionRequest(
-            String rawQuery,
-            JsonNode sessionContextSnapshot,
-            List<MemoryCandidate> memoryCandidates,
-            int candidateCount,
-            String rewriteQueryProfile,
-            ObjectNode domainContext,
-            int retrievalTopK,
-            int rerankTopN,
-            UUID domainId,
-            RetrievalDtos.RetrievalRuntime retrievalRuntime,
-            double rawDenseScore
-    ) {
-        public AnchorAwareRewriteExecutionRequest {
-            if (rawQuery == null || rawQuery.isBlank()) {
-                throw new IllegalArgumentException("rawQuery must not be blank");
-            }
-            if (domainId == null) {
-                throw new IllegalArgumentException("domainId is required");
-            }
-            if (retrievalRuntime == null) {
-                throw new IllegalArgumentException("retrievalRuntime is required");
-            }
-            memoryCandidates = memoryCandidates == null ? List.of() : List.copyOf(memoryCandidates);
-            candidateCount = Math.max(1, candidateCount);
-            retrievalTopK = Math.max(1, retrievalTopK);
-            rerankTopN = Math.max(1, rerankTopN);
-        }
-    }
-
-    public record AnchorAwareRewriteExecutionResult(
-            String rawQuery,
+    public record RewriteExecutionResult(
             List<ExecutedRewriteCandidate> candidates,
             boolean anchorInjectionApplied,
-            String retrieverName,
-            JsonNode retrievalMetadata,
             long latencyMs
-    ) implements NonAgenticExecutionResult {
-        public AnchorAwareRewriteExecutionResult {
+    ) {
+        public RewriteExecutionResult {
             candidates = candidates == null ? List.of() : List.copyOf(candidates);
-            retrievalMetadata = retrievalMetadata == null ? JsonNodeFactory.instance.objectNode() : retrievalMetadata;
         }
 
-        @Override
         public NonAgenticExecutionKind executionKind() {
-            return NonAgenticExecutionKind.ANCHOR_AWARE_REWRITE;
-        }
-
-        @Override
-        public List<ExecutedRewriteCandidate> candidateExecutions() {
-            return candidates;
+            return anchorInjectionApplied
+                    ? NonAgenticExecutionKind.ANCHOR_AWARE_REWRITE
+                    : NonAgenticExecutionKind.SELECTIVE_REWRITE;
         }
     }
 

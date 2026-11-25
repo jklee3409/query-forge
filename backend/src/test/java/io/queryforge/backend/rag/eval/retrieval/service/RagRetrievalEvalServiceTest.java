@@ -223,8 +223,7 @@ class RagRetrievalEvalServiceTest {
         assertThat(response.warnings()).isEmpty();
         assertThat(response.persisted()).isFalse();
         assertThat(response.persistPolicy()).isEqualTo(RagPersistPolicy.NONE);
-        verify(ragRetrievalExecutionService, never()).executeSelectiveRewrite(any());
-        verify(ragRetrievalExecutionService, never()).executeAnchorAwareRewrite(any());
+        verify(ragRetrievalExecutionService, never()).executeRewrite(any());
     }
 
     @Test
@@ -269,7 +268,7 @@ class RagRetrievalEvalServiceTest {
         )))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessage("rewriteCandidateCount must be between 1 and 2");
-        verify(ragRetrievalExecutionService, never()).executeSelectiveRewrite(any());
+        verify(ragRetrievalExecutionService, never()).executeRewrite(any());
     }
 
     @Test
@@ -405,14 +404,15 @@ class RagRetrievalEvalServiceTest {
         List<MemoryCandidate> memories = List.of(memory());
         List<RetrievalDoc> docs = List.of(doc("chunk-selective", 0.93d));
         givenMemoryCandidates(memories);
-        when(ragRetrievalExecutionService.executeSelectiveRewrite(any()))
-                .thenReturn(selectiveResult("rewritten query", docs));
+        when(ragRetrievalExecutionService.executeRewrite(any()))
+                .thenReturn(rewriteResult("rewritten query", docs, false));
 
         RagRetrievalEvalDtos.RagRetrievalEvalResponse response = service.execute(request("selective_rewrite", null, null));
 
-        ArgumentCaptor<RetrievalExecutionDtos.SelectiveRewriteExecutionRequest> captor =
-                ArgumentCaptor.forClass(RetrievalExecutionDtos.SelectiveRewriteExecutionRequest.class);
-        verify(ragRetrievalExecutionService).executeSelectiveRewrite(captor.capture());
+        ArgumentCaptor<RetrievalExecutionDtos.RewriteExecutionRequest> captor =
+                ArgumentCaptor.forClass(RetrievalExecutionDtos.RewriteExecutionRequest.class);
+        verify(ragRetrievalExecutionService).executeRewrite(captor.capture());
+        assertThat(captor.getValue().anchorInjectionEnabled()).isFalse();
         assertThat(captor.getValue().rawQuery()).isEqualTo(QUERY);
         assertThat(captor.getValue().memoryCandidates()).isEqualTo(memories);
         assertThat(captor.getValue().domainId()).isEqualTo(DOMAIN_ID);
@@ -420,7 +420,8 @@ class RagRetrievalEvalServiceTest {
         assertThat(response.finalQuery()).isEqualTo("rewritten query");
         assertThat(response.retrievedChunkIds()).containsExactly("chunk-selective");
         verify(ragRetrievalExecutionService, never()).executeRawOnly(any());
-        verify(ragRetrievalExecutionService, never()).executeAnchorAwareRewrite(any());
+        assertThat(response.persisted()).isFalse();
+        assertThat(response.persistPolicy()).isEqualTo(RagPersistPolicy.NONE);
     }
 
     @Test
@@ -429,14 +430,15 @@ class RagRetrievalEvalServiceTest {
         List<MemoryCandidate> memories = List.of(memory());
         List<RetrievalDoc> docs = List.of(doc("chunk-anchor", 0.95d));
         givenMemoryCandidates(memories);
-        when(ragRetrievalExecutionService.executeAnchorAwareRewrite(any()))
-                .thenReturn(anchorResult("anchored query", docs));
+        when(ragRetrievalExecutionService.executeRewrite(any()))
+                .thenReturn(rewriteResult("anchored query", docs, true));
 
         RagRetrievalEvalDtos.RagRetrievalEvalResponse response = service.execute(request("anchor_aware_rewrite", null, null));
 
-        ArgumentCaptor<RetrievalExecutionDtos.AnchorAwareRewriteExecutionRequest> captor =
-                ArgumentCaptor.forClass(RetrievalExecutionDtos.AnchorAwareRewriteExecutionRequest.class);
-        verify(ragRetrievalExecutionService).executeAnchorAwareRewrite(captor.capture());
+        ArgumentCaptor<RetrievalExecutionDtos.RewriteExecutionRequest> captor =
+                ArgumentCaptor.forClass(RetrievalExecutionDtos.RewriteExecutionRequest.class);
+        verify(ragRetrievalExecutionService).executeRewrite(captor.capture());
+        assertThat(captor.getValue().anchorInjectionEnabled()).isTrue();
         assertThat(captor.getValue().rawQuery()).isEqualTo(QUERY);
         assertThat(captor.getValue().memoryCandidates()).isEqualTo(memories);
         assertThat(captor.getValue().domainId()).isEqualTo(DOMAIN_ID);
@@ -444,7 +446,8 @@ class RagRetrievalEvalServiceTest {
         assertThat(response.finalQuery()).isEqualTo("anchored query");
         assertThat(response.retrievedChunkIds()).containsExactly("chunk-anchor");
         verify(ragRetrievalExecutionService, never()).executeRawOnly(any());
-        verify(ragRetrievalExecutionService, never()).executeSelectiveRewrite(any());
+        assertThat(response.persisted()).isFalse();
+        assertThat(response.persistPolicy()).isEqualTo(RagPersistPolicy.NONE);
     }
 
     @Test
@@ -453,13 +456,13 @@ class RagRetrievalEvalServiceTest {
         List<MemoryCandidate> memories = List.of(memory());
         givenMemoryCandidates(memories);
         when(queryStrategyRouter.route(any())).thenReturn(routeDecision(QueryStrategy.SYNTHETIC_SELECTIVE_REWRITE));
-        when(ragRetrievalExecutionService.executeSelectiveRewrite(any()))
-                .thenReturn(selectiveResult("router rewrite", List.of(doc("chunk-router", 0.88d))));
+        when(ragRetrievalExecutionService.executeRewrite(any()))
+                .thenReturn(rewriteResult("router rewrite", List.of(doc("chunk-router", 0.88d)), false));
 
         RagRetrievalEvalDtos.RagRetrievalEvalResponse response = service.execute(request(null, null, null));
 
         verify(queryStrategyRouter).route(any());
-        verify(ragRetrievalExecutionService).executeSelectiveRewrite(any());
+        verify(ragRetrievalExecutionService).executeRewrite(any());
         assertThat(response.forcedMode()).isEqualTo("strategy_router");
         assertThat(response.selectedMode()).isEqualTo("selective_rewrite");
         assertThat(response.retrievedChunkIds()).containsExactly("chunk-router");
@@ -484,8 +487,7 @@ class RagRetrievalEvalServiceTest {
         assertThat(response.selectedMode()).isEqualTo("agentic_multi_query");
         assertThat(response.retrievedChunkIds()).containsExactly("chunk-agentic-router");
         verify(ragRetrievalExecutionService, never()).executeRawOnly(any());
-        verify(ragRetrievalExecutionService, never()).executeSelectiveRewrite(any());
-        verify(ragRetrievalExecutionService, never()).executeAnchorAwareRewrite(any());
+        verify(ragRetrievalExecutionService, never()).executeRewrite(any());
     }
 
     @Test
@@ -685,30 +687,15 @@ class RagRetrievalEvalServiceTest {
         );
     }
 
-    private RetrievalExecutionDtos.SelectiveRewriteExecutionResult selectiveResult(
+    private RetrievalExecutionDtos.RewriteExecutionResult rewriteResult(
             String finalQuery,
-            List<RetrievalDoc> docs
+            List<RetrievalDoc> docs,
+            boolean anchorInjectionEnabled
     ) {
-        return new RetrievalExecutionDtos.SelectiveRewriteExecutionResult(
-                QUERY,
+        return new RetrievalExecutionDtos.RewriteExecutionResult(
                 List.of(candidate(finalQuery, docs, 0.85d)),
-                "retriever",
-                objectMapper.createObjectNode(),
+                anchorInjectionEnabled,
                 12L
-        );
-    }
-
-    private RetrievalExecutionDtos.AnchorAwareRewriteExecutionResult anchorResult(
-            String finalQuery,
-            List<RetrievalDoc> docs
-    ) {
-        return new RetrievalExecutionDtos.AnchorAwareRewriteExecutionResult(
-                QUERY,
-                List.of(candidate(finalQuery, docs, 0.87d)),
-                true,
-                "retriever",
-                objectMapper.createObjectNode(),
-                13L
         );
     }
 

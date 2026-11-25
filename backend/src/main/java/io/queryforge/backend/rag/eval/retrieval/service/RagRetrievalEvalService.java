@@ -300,9 +300,8 @@ public class RagRetrievalEvalService {
     ) {
         double rawDenseScore = memoryCandidates.isEmpty() ? 0.0d : memoryCandidates.getFirst().similarity();
         String rewriteProfile = normalizedRewriteProfile(config.rewriteQueryProfile());
-        RetrievalExecutionDtos.NonAgenticExecutionResult result = anchorAware
-                ? ragRetrievalExecutionService.executeAnchorAwareRewrite(
-                new RetrievalExecutionDtos.AnchorAwareRewriteExecutionRequest(
+        RetrievalExecutionDtos.RewriteExecutionResult result = ragRetrievalExecutionService.executeRewrite(
+                new RetrievalExecutionDtos.RewriteExecutionRequest(
                         query,
                         objectMapper.createObjectNode(),
                         memoryCandidates,
@@ -313,25 +312,11 @@ public class RagRetrievalEvalService {
                         settings.rerankTopN(),
                         config.domainId(),
                         retrievalRuntime,
-                        rawDenseScore
-                )
-        )
-                : ragRetrievalExecutionService.executeSelectiveRewrite(
-                new RetrievalExecutionDtos.SelectiveRewriteExecutionRequest(
-                        query,
-                        objectMapper.createObjectNode(),
-                        memoryCandidates,
-                        settings.rewriteCandidateCount(),
-                        rewriteProfile,
-                        domainContext(config),
-                        settings.retrievalTopK(),
-                        settings.rerankTopN(),
-                        config.domainId(),
-                        retrievalRuntime,
-                        rawDenseScore
+                        rawDenseScore,
+                        anchorAware
                 )
         );
-        RetrievalExecutionDtos.ExecutedRewriteCandidate selected = selectCandidate(result.candidateExecutions());
+        RetrievalExecutionDtos.ExecutedRewriteCandidate selected = selectCandidate(result.candidates());
         List<String> warnings = selected == null
                 ? List.of("rewrite execution returned no candidates; retrievedChunkIds is empty")
                 : List.of();
@@ -347,7 +332,7 @@ public class RagRetrievalEvalService {
                 result.latencyMs(),
                 started,
                 routeDecision,
-                retrievalTrace(selectedMode, null, result.candidateExecutions()),
+                retrievalTrace(selectedMode, null, result.candidates()),
                 warnings
         );
     }
