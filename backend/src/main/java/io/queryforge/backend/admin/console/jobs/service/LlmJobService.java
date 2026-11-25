@@ -1,0 +1,738 @@
+package io.queryforge.backend.admin.console.jobs.service;
+
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
+import io.queryforge.backend.admin.console.evaluation.run.repository.RagTestRunRepository;
+import io.queryforge.backend.admin.console.gating.repository.GatingRepository;
+import io.queryforge.backend.admin.console.jobs.dto.LlmJobDtos;
+import io.queryforge.backend.admin.console.jobs.model.LlmJobType;
+import io.queryforge.backend.admin.console.jobs.repository.LlmJobRepository;
+import io.queryforge.backend.admin.console.jobs.result.service.LlmJobResultService;
+import io.queryforge.backend.admin.console.synthetic.repository.SyntheticGenerationRepository;
+import io.queryforge.backend.rag.experiment.command.dto.ExperimentCommandDtos;
+import io.queryforge.backend.rag.experiment.command.service.ExperimentPipelineService;
+import jakarta.annotation.PostConstruct;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionSynchronization;
+import org.springframework.transaction.support.TransactionSynchronizationManager;
+
+import java.time.Duration;
+import java.time.Instant;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
+import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentLinkedDeque;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+
+@Service
+@RequiredArgsConstructor
+@Slf4j
+public class LlmJobService {
+
+    private final LlmJobResultService resultService;
+    private static final int MAX_CONCURRENT_WORKERS = 3;
+    private static final int MAX_TOKENS_TRUNCATED_RETRY_LIMIT = 1;
+    private static final String FAILURE_CATEGORY_MAX_TOKENS_TRUNCATED = "max_tokens_truncated";
+    private static final String FAILURE_POLICY_FAILED_NEEDS_CONFIG = "failed_needs_config";
+
+    private static final Pattern FAILURE_CATEGORY_PATTERN = Pattern.compile(
+            "(?:category|failure_category)\"?\\s*[:=]\\s*\"?([A-Za-z0-9_-]+)\"?",
+            Pattern.CASE_INSENSITIVE
+    );
+    private final LlmJobRepository llmJobRepository;
+    private final RagTestRunRepository ragTestRunRepository;
+    private final GatingRepository gatingRepository;
+    private final SyntheticGenerationRepository generationRepository;
+    private final ExperimentPipelineService experimentPipelineService;
+    private final ObjectMapper objectMapper;
+
+    @Autowired
+    @Qualifier("llmJobExecutor")
+    private ExecutorService llmJobExecutor;
+
+    private final ConcurrentLinkedDeque<UUID> queue = new ConcurrentLinkedDeque<>();
+
+    private final Set<UUID> queuedIds = ConcurrentHashMap.newKeySet();
+
+    private final AtomicInteger activeWorkers = new AtomicInteger(0);
+
+    @PostConstruct
+    void recoverQueuedJobs() {
+        List<UUID> cancelledJobs = llmJobRepository.finalizeCancelRequestedJobs(200);
+        for (UUID jobId : cancelledJobs) {
+            llmJobRepository.markRemainingItemsCancelled(jobId);
+            llmJobRepository.findJob(jobId).ifPresent(this::markRelatedCancelled);
+        }
+        if (!cancelledJobs.isEmpty()) {
+            log.warn("Recovered {} cancel_requested LLM jobs to cancelled state after restart.", cancelledJobs.size());
+        }
+
+        List<UUID> recoveredJobs = llmJobRepository.recoverInterruptedJobs(200);
+        for (UUID jobId : recoveredJobs) {
+            llmJobRepository.resetRunningItemsToQueued(jobId);
+        }
+        if (!recoveredJobs.isEmpty()) {
+            log.warn("Recovered {} interrupted LLM jobs to queued state after restart.", recoveredJobs.size());
+        }
+
+        List<UUID> queuedJobs = llmJobRepository.findQueuedJobIds(500);
+        for (UUID jobId : queuedJobs) {
+            enqueue(jobId);
+        }
+        if (!queuedJobs.isEmpty()) {
+            log.info("Bootstrapped {} queued LLM jobs into in-memory queue.", queuedJobs.size());
+        }
+    }
+
+    @Transactional(readOnly = true)
+    public List<LlmJobDtos.LlmJobRow> listJobs(Integer limit) {
+        return llmJobRepository.findJobs(limit);
+    }
+
+    @Transactional(readOnly = true)
+    public LlmJobDtos.LlmJobRow getJob(UUID jobId) {
+        return llmJobRepository.findJob(jobId)
+                .orElseThrow(() -> new IllegalArgumentException("llm job not found: " + jobId));
+    }
+
+    @Transactional(readOnly = true)
+    public List<LlmJobDtos.LlmJobItemRow> listJobItems(UUID jobId) {
+        return llmJobRepository.findJobItems(jobId);
+    }
+
+    @Transactional
+    public UUID createGenerationJob(UUID generationBatchId, String experimentName, String createdBy) {
+        JsonNode commandArgs = objectMapper.valueToTree(Map.of("experiment", experimentName, "command", "generate-queries"));
+        UUID jobId = llmJobRepository.createJob(
+                LlmJobType.GENERATE_SYNTHETIC_QUERY.name(),
+                "generate-queries",
+                experimentName,
+                commandArgs,
+                generationBatchId,
+                null,
+                null,
+                1,
+                -1,
+                createdBy
+        );
+        llmJobRepository.createJobItem(jobId, 1, "generate-queries", commandArgs, -1);
+        enqueue(jobId);
+        return jobId;
+    }
+
+    @Transactional
+    public UUID createGatingJob(UUID gatingBatchId, String experimentName, String createdBy) {
+        JsonNode commandArgs = objectMapper.valueToTree(Map.of("experiment", experimentName, "command", "gate-queries"));
+        UUID jobId = llmJobRepository.createJob(
+                LlmJobType.RUN_LLM_SELF_EVAL.name(),
+                "gate-queries",
+                experimentName,
+                commandArgs,
+                null,
+                gatingBatchId,
+                null,
+                1,
+                5,
+                createdBy
+        );
+        llmJobRepository.createJobItem(jobId, 1, "gate-queries", commandArgs, 5);
+        enqueue(jobId);
+        return jobId;
+    }
+
+    @Transactional
+    public UUID createChunkEmbeddingMaterializationJob(String experimentName, String createdBy) {
+        JsonNode commandArgs = objectMapper.valueToTree(
+                Map.of("experiment", experimentName, "command", "materialize-chunk-embeddings")
+        );
+        UUID jobId = llmJobRepository.createJob(
+                LlmJobType.MATERIALIZE_CHUNK_EMBEDDINGS.name(),
+                "materialize-chunk-embeddings",
+                experimentName,
+                commandArgs,
+                null,
+                null,
+                null,
+                1,
+                1,
+                createdBy
+        );
+        llmJobRepository.createJobItem(jobId, 1, "materialize-chunk-embeddings", commandArgs, 1);
+        enqueue(jobId);
+        return jobId;
+    }
+
+    @Transactional
+    public UUID createRagTestJob(UUID ragTestRunId, String experimentName, String createdBy) {
+        JsonNode commandArgs = objectMapper.valueToTree(Map.of("experiment", experimentName));
+        UUID jobId = llmJobRepository.createJob(
+                LlmJobType.RUN_RAG_TEST.name(),
+                "rag-pipeline",
+                experimentName,
+                commandArgs,
+                null,
+                null,
+                ragTestRunId,
+                3,
+                1,
+                createdBy
+        );
+        llmJobRepository.createJobItem(
+                jobId,
+                1,
+                "build-memory",
+                objectMapper.valueToTree(Map.of("experiment", experimentName, "command", "build-memory")),
+                1
+        );
+        llmJobRepository.createJobItem(
+                jobId,
+                2,
+                "eval-retrieval",
+                objectMapper.valueToTree(Map.of("experiment", experimentName, "command", "eval-retrieval")),
+                1
+        );
+        llmJobRepository.createJobItem(
+                jobId,
+                3,
+                "eval-answer",
+                objectMapper.valueToTree(Map.of("experiment", experimentName, "command", "eval-answer")),
+                1
+        );
+        enqueue(jobId);
+        return jobId;
+    }
+
+    @Transactional
+    public void pauseJob(UUID jobId) {
+        llmJobRepository.requestPause(jobId);
+    }
+
+    @Transactional
+    public void resumeJob(UUID jobId) {
+        llmJobRepository.resumePaused(jobId);
+        enqueue(jobId);
+    }
+
+    @Transactional
+    public void cancelJob(UUID jobId) {
+        llmJobRepository.requestCancel(jobId);
+        experimentPipelineService.cancelRunningCommand(jobId.toString());
+        llmJobRepository.findJob(jobId).ifPresent(job -> {
+            if ("cancelled".equalsIgnoreCase(job.jobStatus())) {
+                llmJobRepository.markRemainingItemsCancelled(jobId);
+                markRelatedCancelled(job);
+                queuedIds.remove(jobId);
+                queue.remove(jobId);
+            }
+        });
+    }
+
+    @Transactional
+    public void retryJob(UUID jobId) {
+        llmJobRepository.retryFailed(jobId);
+        llmJobRepository.prepareItemsForRetry(jobId);
+        enqueue(jobId);
+    }
+
+    private void enqueue(UUID jobId) {
+        if (TransactionSynchronizationManager.isSynchronizationActive()) {
+            TransactionSynchronizationManager.registerSynchronization(new TransactionSynchronization() {
+                @Override
+                public void afterCommit() {
+                    enqueueNow(jobId);
+                }
+            });
+            return;
+        }
+        enqueueNow(jobId);
+    }
+
+    private void enqueueNow(UUID jobId) {
+        if (!queuedIds.add(jobId)) {
+            return;
+        }
+        queue.offer(jobId);
+        runWorkersIfNeeded();
+    }
+
+    private void runWorkersIfNeeded() {
+        while (true) {
+            if (queue.isEmpty()) {
+                return;
+            }
+            int current = activeWorkers.get();
+            if (current >= MAX_CONCURRENT_WORKERS) {
+                return;
+            }
+            if (activeWorkers.compareAndSet(current, current + 1)) {
+                try {
+                    llmJobExecutor.execute(this::workerLoop);
+                } catch (RuntimeException exception) {
+                    activeWorkers.decrementAndGet();
+                    throw exception;
+                }
+                return;
+            }
+        }
+    }
+
+    private void workerLoop() {
+        try {
+            while (true) {
+                UUID jobId = queue.poll();
+                if (jobId == null) {
+                    break;
+                }
+                queuedIds.remove(jobId);
+                Optional<LlmJobDtos.LlmJobRow> jobOptional = llmJobRepository.findJob(jobId);
+                if (jobOptional.isEmpty()) {
+                    continue;
+                }
+                LlmJobDtos.LlmJobRow job = jobOptional.get();
+                if (!"queued".equalsIgnoreCase(job.jobStatus())) {
+                    continue;
+                }
+                if (job.nextRunAt() != null && job.nextRunAt().isAfter(Instant.now())) {
+                    long delaySeconds = Math.max(1L, job.nextRunAt().getEpochSecond() - Instant.now().getEpochSecond());
+                    scheduleEnqueue(job.jobId(), delaySeconds);
+                    continue;
+                }
+                executeJob(job);
+            }
+        } finally {
+            activeWorkers.decrementAndGet();
+            if (!queue.isEmpty()) {
+                runWorkersIfNeeded();
+            }
+        }
+    }
+
+    private void executeJob(LlmJobDtos.LlmJobRow job) {
+        llmJobRepository.markJobRunning(job.jobId());
+        if (job.generationBatchId() != null) {
+            generationRepository.markGenerationBatchRunning(job.generationBatchId());
+        }
+        if (job.gatingBatchId() != null) {
+            gatingRepository.markGatingBatchRunning(job.gatingBatchId());
+        }
+        if (job.ragTestRunId() != null) {
+            ragTestRunRepository.markRagTestRunRunning(job.ragTestRunId());
+        }
+
+        List<LlmJobDtos.LlmJobItemRow> items = llmJobRepository.findJobItems(job.jobId());
+        long jobStartedAtNano = System.nanoTime();
+        Map<String, Long> commandDurationMs = new LinkedHashMap<>();
+        int totalItems = Math.max(1, items.size());
+        int processed = 0;
+        Map<String, JsonNode> resultByCommand = new LinkedHashMap<>();
+        for (LlmJobDtos.LlmJobItemRow item : items) {
+            String command = item.payloadJson().path("command").asText(item.itemType());
+            if ("completed".equalsIgnoreCase(item.itemStatus())) {
+                resultByCommand.putIfAbsent(command, item.resultJson());
+                if (item.startedAt() != null && item.finishedAt() != null) {
+                    long durationMs = Math.max(0L, Duration.between(item.startedAt(), item.finishedAt()).toMillis());
+                    commandDurationMs.putIfAbsent(command, durationMs);
+                }
+                processed += 1;
+            }
+        }
+        if (processed > 0) {
+            llmJobRepository.markJobProgress(
+                    job.jobId(),
+                    processed,
+                    totalItems,
+                    (processed * 100.0) / totalItems,
+                    objectMapper.valueToTree(Map.of("resume_from_completed_items", processed))
+            );
+        }
+
+        try {
+            for (LlmJobDtos.LlmJobItemRow item : items) {
+                String command = item.payloadJson().path("command").asText(item.itemType());
+                String experiment = item.payloadJson().path("experiment").asText(job.experimentName());
+                if ("completed".equalsIgnoreCase(item.itemStatus())) {
+                    continue;
+                }
+                LlmJobDtos.LlmJobRow current = llmJobRepository.findJob(job.jobId())
+                        .orElseThrow(() -> new IllegalStateException("llm job missing while running: " + job.jobId()));
+                if ("pause_requested".equalsIgnoreCase(current.jobStatus())) {
+                    llmJobRepository.markRemainingItemsCancelled(job.jobId());
+                    llmJobRepository.markPaused(job.jobId(), objectMapper.valueToTree(Map.of("reason", "pause_requested")));
+                    return;
+                }
+                if ("cancel_requested".equalsIgnoreCase(current.jobStatus())) {
+                    llmJobRepository.markRemainingItemsCancelled(job.jobId());
+                    llmJobRepository.markCancelled(job.jobId(), objectMapper.valueToTree(Map.of("reason", "cancel_requested")));
+                    markRelatedCancelled(current);
+                    return;
+                }
+                llmJobRepository.markItemRunning(item.jobItemId());
+                long commandStartedAtNano = System.nanoTime();
+                ExperimentCommandDtos.ExperimentCommandResponse response = experimentPipelineService.run(
+                        new ExperimentCommandDtos.ExperimentCommandRequest(command, experiment),
+                        job.jobId().toString()
+                );
+                commandDurationMs.put(command, elapsedMillis(commandStartedAtNano));
+                resultByCommand.put(command, response.summary());
+                LlmJobDtos.LlmJobRow afterRun = llmJobRepository.findJob(job.jobId())
+                        .orElseThrow(() -> new IllegalStateException("llm job missing after command run: " + job.jobId()));
+                if ("cancel_requested".equalsIgnoreCase(afterRun.jobStatus())) {
+                    JsonNode cancellationSnapshot = buildCommandObservation(
+                            job,
+                            item,
+                            command,
+                            experiment,
+                            response,
+                            "cancel_requested_during_command",
+                            trimError(response.stderr(), response.stdout())
+                    );
+                    if (isSyntheticGenerationJob(job)) {
+                        llmJobRepository.preserveFailureSnapshot(job.jobId(), item.jobItemId(), cancellationSnapshot);
+                    }
+                    llmJobRepository.markRemainingItemsCancelled(job.jobId());
+                    llmJobRepository.markCancelled(
+                            job.jobId(),
+                            objectMapper.valueToTree(Map.of("reason", "cancel_requested_during_command", "last_command", command))
+                    );
+                    markRelatedCancelled(afterRun);
+                    return;
+                }
+                if (response.exitCode() != 0) {
+                    String errorMessage = trimError(response.stderr(), response.stdout());
+                    JsonNode failureSnapshot = buildCommandObservation(
+                            job,
+                            item,
+                            command,
+                            experiment,
+                            response,
+                            "command_failed",
+                            errorMessage
+                    );
+                    resultByCommand.put(command, failureSnapshot);
+                    llmJobRepository.markItemFailed(
+                            item.jobItemId(),
+                            errorMessage,
+                            failureSnapshot
+                    );
+                    throw new IllegalStateException(command + " failed: " + errorMessage);
+                }
+                llmJobRepository.markItemCompleted(item.jobItemId(), response.summary());
+                processed += 1;
+                llmJobRepository.markJobProgress(
+                        job.jobId(),
+                        processed,
+                        totalItems,
+                        (processed * 100.0) / totalItems,
+                        objectMapper.valueToTree(Map.of("last_command", command))
+                );
+            }
+
+            resultService.finalizeRelatedRows(job, resultByCommand, commandDurationMs, elapsedMillis(jobStartedAtNano));
+            llmJobRepository.markJobCompleted(job.jobId(), objectMapper.valueToTree(resultByCommand));
+        } catch (RuntimeException exception) {
+            handleJobFailure(job, resultByCommand, exception);
+        }
+    }
+
+    private void handleJobFailure(
+            LlmJobDtos.LlmJobRow job,
+            Map<String, JsonNode> resultByCommand,
+            RuntimeException exception
+    ) {
+        int nextRetry = (job.retryCount() == null ? 0 : job.retryCount()) + 1;
+        int maxRetries = job.maxRetries() == null ? 0 : job.maxRetries();
+        String errorMessage = exception.getMessage() == null ? "job_failed" : exception.getMessage();
+        String failureCategory = resolveFailureCategory(errorMessage, resultByCommand);
+        String failurePolicy = failurePolicyForCategory(failureCategory);
+        if (isSyntheticGenerationJob(job)) {
+            llmJobRepository.preserveFailureSnapshot(
+                    job.jobId(),
+                    null,
+                    buildJobFailureAttempt(job, resultByCommand, errorMessage, nextRetry, failureCategory, failurePolicy)
+            );
+        }
+        if (shouldRetryFailure(job, nextRetry, maxRetries, failureCategory)) {
+            long backoffSeconds = (long) Math.min(60, Math.pow(2, nextRetry) * 2);
+            Instant nextRunAt = Instant.now().plusSeconds(backoffSeconds);
+            llmJobRepository.prepareItemsForRetry(job.jobId());
+            llmJobRepository.queueJobWithBackoff(job.jobId(), nextRetry, nextRunAt, errorMessage);
+            scheduleEnqueue(job.jobId(), backoffSeconds);
+            return;
+        }
+
+        Integer purgedSyntheticQueries = null;
+        String cleanupError = null;
+        if (job.generationBatchId() != null) {
+            try {
+                purgedSyntheticQueries = generationRepository.deleteSyntheticQueriesByGenerationBatch(job.generationBatchId());
+            } catch (RuntimeException cleanupException) {
+                cleanupError = cleanupException.getMessage();
+                log.error(
+                        "Failed to purge synthetic queries for failed generation batch. batchId={}, jobId={}",
+                        job.generationBatchId(),
+                        job.jobId(),
+                        cleanupException
+                );
+            }
+        }
+
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("error", errorMessage);
+        payload.put("steps", resultByCommand);
+        if (!failureCategory.isBlank()) {
+            payload.put("failure_category", failureCategory);
+        }
+        if (!failurePolicy.isBlank()) {
+            payload.put("failure_policy", failurePolicy);
+            payload.put(
+                    "retry_policy",
+                    Map.of(
+                            "category", failureCategory,
+                            "max_retries_for_category", MAX_TOKENS_TRUNCATED_RETRY_LIMIT,
+                            "retry_exhausted", true
+                    )
+            );
+        }
+        if (purgedSyntheticQueries != null || cleanupError != null) {
+            Map<String, Object> cleanupPayload = new LinkedHashMap<>();
+            if (purgedSyntheticQueries != null) {
+                cleanupPayload.put("purged_synthetic_queries", purgedSyntheticQueries);
+            }
+            if (cleanupError != null && !cleanupError.isBlank()) {
+                cleanupPayload.put("cleanup_error", cleanupError);
+            }
+            payload.put("cleanup", cleanupPayload);
+        }
+        JsonNode resultJson = objectMapper.valueToTree(payload);
+        llmJobRepository.markJobFailed(job.jobId(), errorMessage, resultJson);
+        if (job.generationBatchId() != null) {
+            generationRepository.failGenerationBatch(job.generationBatchId(), errorMessage, resultJson);
+        }
+        if (job.gatingBatchId() != null) {
+            gatingRepository.failGatingBatch(job.gatingBatchId(), errorMessage);
+        }
+        if (job.ragTestRunId() != null) {
+            ragTestRunRepository.failRagTestRun(job.ragTestRunId(), errorMessage);
+        }
+    }
+
+    private void markRelatedCancelled(LlmJobDtos.LlmJobRow job) {
+        if (job.generationBatchId() != null) {
+            try {
+                int purged = generationRepository.deleteSyntheticQueriesByGenerationBatch(job.generationBatchId());
+                if (purged > 0) {
+                    log.info(
+                            "Purged {} synthetic queries after generation job cancellation. batchId={}, jobId={}",
+                            purged,
+                            job.generationBatchId(),
+                            job.jobId()
+                    );
+                }
+            } catch (RuntimeException cleanupException) {
+                log.warn(
+                        "Failed to purge synthetic queries after generation job cancellation. batchId={}, jobId={}",
+                        job.generationBatchId(),
+                        job.jobId(),
+                        cleanupException
+                );
+            }
+            generationRepository.cancelGenerationBatch(job.generationBatchId(), "cancel requested by user");
+        }
+        if (job.gatingBatchId() != null) {
+            gatingRepository.cancelGatingBatch(job.gatingBatchId(), "cancel requested by user");
+        }
+        if (job.ragTestRunId() != null) {
+            ragTestRunRepository.cancelRagTestRun(job.ragTestRunId(), "cancel requested by user");
+        }
+    }
+
+    private void scheduleEnqueue(UUID jobId, long delaySeconds) {
+        long safeDelaySeconds = Math.max(1L, delaySeconds);
+        CompletableFuture.runAsync(
+                () -> enqueue(jobId),
+                CompletableFuture.delayedExecutor(safeDelaySeconds, TimeUnit.SECONDS)
+        );
+    }
+
+    private long elapsedMillis(long startedAtNano) {
+        long elapsedNs = System.nanoTime() - startedAtNano;
+        if (elapsedNs <= 0L) {
+            return 0L;
+        }
+        return TimeUnit.NANOSECONDS.toMillis(elapsedNs);
+    }
+
+    private boolean isSyntheticGenerationJob(LlmJobDtos.LlmJobRow job) {
+        return job != null && LlmJobType.GENERATE_SYNTHETIC_QUERY.name().equals(job.jobType());
+    }
+
+    private JsonNode buildCommandObservation(
+            LlmJobDtos.LlmJobRow job,
+            LlmJobDtos.LlmJobItemRow item,
+            String command,
+            String experiment,
+            ExperimentCommandDtos.ExperimentCommandResponse response,
+            String reason,
+            String errorMessage
+    ) {
+        ObjectNode payload = objectMapper.createObjectNode();
+        payload.put("reason", reason);
+        payload.put("job_type", job.jobType());
+        payload.put("job_id", job.jobId().toString());
+        if (job.generationBatchId() != null) {
+            payload.put("generation_batch_id", job.generationBatchId().toString());
+        }
+        payload.put("command", command);
+        payload.put("experiment", experiment);
+        payload.put("job_retry_count", job.retryCount() == null ? 0 : job.retryCount());
+        payload.put("item_order", item.itemOrder() == null ? 0 : item.itemOrder());
+        payload.put("item_retry_count", item.retryCount() == null ? 0 : item.retryCount());
+        payload.put("exit_code", response.exitCode());
+        payload.put("error", firstNonBlank(errorMessage, response.stderr(), response.stdout()));
+        String failureCategory = firstNonBlank(
+                extractFailureCategory(errorMessage),
+                extractFailureCategory(response.stderr()),
+                extractFailureCategory(response.stdout()),
+                extractFailureCategory(response.summary())
+        );
+        payload.put("failure_category", failureCategory);
+        String failurePolicy = failurePolicyForCategory(failureCategory);
+        if (!failurePolicy.isBlank()) {
+            payload.put("failure_policy", failurePolicy);
+        }
+        payload.set("summary", nullableJson(response.summary()));
+        payload.put("stderr", response.stderr() == null ? "" : response.stderr());
+        payload.put("stdout", response.stdout() == null ? "" : response.stdout());
+        payload.put("observed_at", Instant.now().toString());
+        return payload;
+    }
+
+    private JsonNode buildJobFailureAttempt(
+            LlmJobDtos.LlmJobRow job,
+            Map<String, JsonNode> resultByCommand,
+            String errorMessage,
+            int nextRetry,
+            String failureCategory,
+            String failurePolicy
+    ) {
+        ObjectNode payload = objectMapper.createObjectNode();
+        payload.put("reason", "job_retry_or_failure");
+        payload.put("job_type", job.jobType());
+        payload.put("job_id", job.jobId().toString());
+        if (job.generationBatchId() != null) {
+            payload.put("generation_batch_id", job.generationBatchId().toString());
+        }
+        payload.put("experiment", job.experimentName());
+        payload.put("command", job.commandName());
+        payload.put("retry_count_before_failure", job.retryCount() == null ? 0 : job.retryCount());
+        payload.put("next_retry_count", nextRetry);
+        payload.put("error", errorMessage);
+        payload.put("failure_category", failureCategory == null ? "" : failureCategory);
+        if (failurePolicy != null && !failurePolicy.isBlank()) {
+            payload.put("failure_policy", failurePolicy);
+        }
+        payload.set("steps", objectMapper.valueToTree(resultByCommand));
+        payload.put("observed_at", Instant.now().toString());
+        return payload;
+    }
+
+    private boolean shouldRetryFailure(
+            LlmJobDtos.LlmJobRow job,
+            int nextRetry,
+            int maxRetries,
+            String failureCategory
+    ) {
+        if (isMaxTokensTruncated(failureCategory)) {
+            return nextRetry <= MAX_TOKENS_TRUNCATED_RETRY_LIMIT;
+        }
+        boolean unlimitedRetry = LlmJobType.GENERATE_SYNTHETIC_QUERY.name().equals(job.jobType()) && maxRetries < 0;
+        return unlimitedRetry || nextRetry <= maxRetries;
+    }
+
+    private String resolveFailureCategory(String errorMessage, Map<String, JsonNode> resultByCommand) {
+        return firstNonBlank(
+                extractFailureCategory(errorMessage),
+                extractFailureCategory(objectMapper.valueToTree(resultByCommand))
+        );
+    }
+
+    private String failurePolicyForCategory(String failureCategory) {
+        return isMaxTokensTruncated(failureCategory) ? FAILURE_POLICY_FAILED_NEEDS_CONFIG : "";
+    }
+
+    private boolean isMaxTokensTruncated(String failureCategory) {
+        return FAILURE_CATEGORY_MAX_TOKENS_TRUNCATED.equalsIgnoreCase(failureCategory == null ? "" : failureCategory);
+    }
+
+    private String extractFailureCategory(String value) {
+        if (value == null || value.isBlank()) {
+            return "";
+        }
+        Matcher matcher = FAILURE_CATEGORY_PATTERN.matcher(value);
+        if (matcher.find()) {
+            return matcher.group(1);
+        }
+        return "";
+    }
+
+    private String extractFailureCategory(JsonNode node) {
+        if (node == null || node.isMissingNode() || node.isNull()) {
+            return "";
+        }
+        String direct = firstNonBlank(
+                node.path("failure_category").asText(""),
+                node.path("category").asText(""),
+                node.path("error_category").asText("")
+        );
+        if (!direct.isBlank()) {
+            return direct;
+        }
+        return extractFailureCategory(node.toString());
+    }
+
+    private JsonNode nullableJson(JsonNode node) {
+        if (node == null || node.isMissingNode() || node.isNull()) {
+            return objectMapper.createArrayNode();
+        }
+        return node;
+    }
+
+    private String firstNonBlank(String... values) {
+        if (values == null || values.length == 0) {
+            return "";
+        }
+        for (String value : values) {
+            if (value != null && !value.isBlank()) {
+                return value.trim();
+            }
+        }
+        return "";
+    }
+
+    private String trimError(String stderr, String stdout) {
+        String target = stderr != null && !stderr.isBlank() ? stderr : stdout;
+        if (target == null) {
+            return "";
+        }
+        String normalized = target.trim();
+        if (normalized.length() <= 2000) {
+            return normalized;
+        }
+        return normalized.substring(normalized.length() - 2000);
+    }
+}

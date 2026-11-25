@@ -1,0 +1,859 @@
+package io.queryforge.backend.admin.pipeline.execution.service;
+
+import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import io.queryforge.backend.admin.corpus.run.dto.CorpusRunDtos;
+import io.queryforge.backend.admin.corpus.run.service.CorpusRunService;
+import io.queryforge.backend.admin.corpus.source.dto.CorpusSourceDtos;
+import io.queryforge.backend.admin.corpus.source.service.CorpusSourceService;
+import io.queryforge.backend.admin.pipeline.artifact.dto.DocumentArtifactDtos;
+import io.queryforge.backend.admin.pipeline.artifact.service.DocumentArtifactStoreService;
+import io.queryforge.backend.admin.pipeline.configuration.AdminPipelineProperties;
+import io.queryforge.backend.admin.pipeline.execution.dto.PipelineExecutionDtos;
+import io.queryforge.backend.admin.pipeline.execution.repository.PipelineAdminRepository;
+import io.queryforge.backend.admin.pipeline.source.service.SourceCatalogService;
+import jakarta.annotation.PostConstruct;
+import lombok.RequiredArgsConstructor;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.annotation.Propagation;
+import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
+
+import java.io.IOException;
+import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Optional;
+import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.atomic.AtomicBoolean;
+
+@Service
+@RequiredArgsConstructor
+@Transactional(readOnly = true)
+public class PipelineAdminService {
+
+    private final PipelineStepPlanFactory stepPlanFactory;
+    private final AdminPipelineProperties properties;
+    private final PipelineAdminRepository repository;
+    private final CorpusRunService runService;
+    private final CorpusSourceService sourceService;
+    private final SourceCatalogService sourceCatalogService;
+    private final DocumentArtifactStoreService artifactStoreService;
+    private final PipelineCommandRunner commandRunner;
+    private final ExecutorService adminPipelineExecutor;
+    private final PlatformTransactionManager transactionManager;
+    private final ObjectMapper objectMapper;
+
+    private final Map<UUID, ManagedRunContext> managedRuns = new ConcurrentHashMap<>();
+
+    @PostConstruct
+    void recoverStaleRuns() {
+        repository.markStaleRunsFailed();
+        sourceCatalogService.syncSourcesFromConfig();
+    }
+
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    public PipelineExecutionDtos.PipelineRunActionResponse startCollect(PipelineExecutionDtos.PipelineRunRequest request) {
+        return startRun("collect", request);
+    }
+
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    public PipelineExecutionDtos.PipelineRunActionResponse startNormalize(PipelineExecutionDtos.PipelineRunRequest request) {
+        return startRun("normalize", request);
+    }
+
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    public PipelineExecutionDtos.PipelineRunActionResponse startChunk(PipelineExecutionDtos.PipelineRunRequest request) {
+        return startRun("chunk", request);
+    }
+
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    public PipelineExecutionDtos.PipelineRunActionResponse startGlossary(PipelineExecutionDtos.PipelineRunRequest request) {
+        return startRun("glossary", request);
+    }
+
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    public PipelineExecutionDtos.PipelineRunActionResponse startImport(PipelineExecutionDtos.PipelineRunRequest request) {
+        return startRun("import", request);
+    }
+
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    public PipelineExecutionDtos.PipelineRunActionResponse startFullIngest(PipelineExecutionDtos.PipelineRunRequest request) {
+        return startRun("full_ingest", request);
+    }
+
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
+    public PipelineExecutionDtos.PipelineRunActionResponse retryRun(UUID runId) {
+        CorpusRunDtos.RunDetail detail = runService.getRunDetail(runId);
+        Map<String, Object> sourceScope = objectMapper.convertValue(
+                detail.run().sourceScope(),
+                new TypeReference<>() {
+                }
+        );
+        Map<String, Object> configSnapshot = objectMapper.convertValue(
+                detail.run().configSnapshot(),
+                new TypeReference<>() {
+                }
+        );
+        PipelineExecutionDtos.PipelineRunRequest request = new PipelineExecutionDtos.PipelineRunRequest(
+                detail.run().domainId(),
+                toStringList(sourceScope.get("source_ids")),
+                toStringList(sourceScope.get("document_ids")),
+                booleanValue(configSnapshot.get("dry_run")),
+                detail.run().createdBy(),
+                detail.run().triggerType(),
+                integerValue(configSnapshot.get("limit")),
+                null
+        );
+        return startRun(detail.run().runType(), request);
+    }
+
+    @Transactional
+    public PipelineExecutionDtos.PipelineRunActionResponse cancelRun(UUID runId) {
+        ManagedRunContext context = managedRuns.get(runId);
+        if (context == null) {
+            repository.requestRunCancellation(runId);
+            return new PipelineExecutionDtos.PipelineRunActionResponse(
+                    runId,
+                    runService.getRunDetail(runId).run().runType(),
+                    "cancel_requested",
+                    "실행 중인 프로세스는 없지만 취소 요청 상태를 기록했습니다."
+            );
+        }
+
+        context.cancelRequested.set(true);
+        repository.requestRunCancellation(runId);
+        if (context.currentProcess != null) {
+            commandRunner.cancel(context.currentProcess);
+        }
+        return new PipelineExecutionDtos.PipelineRunActionResponse(
+                runId,
+                context.runType,
+                "cancel_requested",
+                "실행 중인 파이프라인에 취소 요청을 보냈습니다."
+        );
+    }
+
+    public List<CorpusRunDtos.RunSummary> listRuns(
+            UUID runId,
+            String runStatus,
+            String runType,
+            UUID domainId,
+            Integer limit,
+            Integer offset
+    ) {
+        return runService.listRuns(runId, runStatus, runType, domainId, limit, offset);
+    }
+
+    public CorpusRunDtos.RunDetail getRun(UUID runId) {
+        return runService.getRunDetail(runId);
+    }
+
+    public List<CorpusRunDtos.RunStep> getRunSteps(UUID runId) {
+        return runService.getRunDetail(runId).steps();
+    }
+
+    public PipelineExecutionDtos.PipelineRunLogsResponse getRunLogs(UUID runId) {
+        List<PipelineExecutionDtos.StepLogDto> logs = runService.getRunDetail(runId).steps().stream()
+                .map(this::toStepLog)
+                .toList();
+        return new PipelineExecutionDtos.PipelineRunLogsResponse(runId, logs);
+    }
+
+    private PipelineExecutionDtos.PipelineRunActionResponse startRun(
+            String runType,
+            PipelineExecutionDtos.PipelineRunRequest request
+    ) {
+        sourceCatalogService.syncSourcesFromConfig();
+        Optional<UUID> activeRunId = repository.findActiveRunId();
+        if (activeRunId.isPresent()) {
+            throw new IllegalStateException("다른 파이프라인 실행이 아직 진행 중입니다. runId=" + activeRunId.get());
+        }
+
+        UUID runId = UUID.randomUUID();
+        Scope scope = resolveScope(runType, request);
+        ArtifactContext artifacts = prepareArtifacts(runId);
+        List<String> initialDocumentIds = resolveInitialDocumentIds(runType, scope);
+        materializeInitialInputs(runType, initialDocumentIds, artifacts);
+        boolean shortCircuit = shouldShortCircuit(runType, initialDocumentIds);
+        List<StepPlan> steps = shortCircuit ? List.of() : stepPlanFactory.buildPlans(runId, runType, scope, artifacts);
+        TransactionTemplate transactionTemplate = new TransactionTemplate(transactionManager);
+        transactionTemplate.executeWithoutResult(status -> {
+            repository.acquirePipelineStartLock();
+            Optional<UUID> lockedActiveRunId = repository.findActiveRunId();
+            if (lockedActiveRunId.isPresent()) {
+                throw new IllegalStateException("?ㅻⅨ ?뚯씠?꾨씪???ㅽ뻾???꾩쭅 吏꾪뻾 以묒엯?덈떎. runId=" + lockedActiveRunId.get());
+            }
+
+            repository.createRun(
+                    runId,
+                    runType,
+                    scope.domainId(),
+                    normalizedTriggerType(request.triggerType()),
+                    scope.toSourceScope(),
+                    scope.toConfigSnapshot(artifacts),
+                    normalizedCreatedBy(request.createdBy())
+            );
+            if (shortCircuit) {
+                Map<String, Object> summary = new LinkedHashMap<>();
+                summary.put("step_count", 0);
+                summary.put("artifacts", artifacts.toSummary());
+                summary.put("source_scope", scope.toSourceScope());
+                summary.put("document_count", 0);
+                summary.put("message", shortCircuitMessage(runType));
+                summary.put("warning", true);
+                repository.finishRun(runId, "warning", summary, "Completed with warnings.");
+                return;
+            }
+
+            for (StepPlan step : steps) {
+                repository.createStep(
+                        step.stepId(),
+                        runId,
+                        step.stepName(),
+                        step.stepOrder(),
+                        step.inputArtifactPath(),
+                        step.outputArtifactPath()
+                );
+            }
+        });
+        if (shortCircuit) {
+            return new PipelineExecutionDtos.PipelineRunActionResponse(
+                    runId,
+                    runType,
+                    "warning",
+                    shortCircuitMessage(runType)
+            );
+        }
+
+        ManagedRunContext context = new ManagedRunContext(runId, runType, steps, artifacts, initialDocumentIds);
+        managedRuns.put(runId, context);
+        adminPipelineExecutor.execute(() -> executeRun(context, scope));
+
+        return new PipelineExecutionDtos.PipelineRunActionResponse(
+                runId,
+                runType,
+                "queued",
+                "파이프라인 실행이 대기열에 등록되었습니다."
+        );
+    }
+
+    private void executeRun(ManagedRunContext context, Scope scope) {
+        repository.markRunRunning(context.runId);
+        Map<String, Object> runSummary = new LinkedHashMap<>();
+        runSummary.put("step_count", context.steps.size());
+        runSummary.put("artifacts", context.artifacts.toSummary());
+        runSummary.put("source_scope", scope.toSourceScope());
+        runSummary.put("document_scope_count", context.currentDocumentIds.size());
+        runSummary.put("document_scope", context.currentDocumentIds);
+        List<String> warningSteps = new ArrayList<>();
+        StepPlan activeStep = null;
+
+        try {
+            for (StepPlan step : context.steps) {
+                activeStep = step;
+                if (context.cancelRequested.get()) {
+                    cancelRemaining(context);
+                    repository.finishRun(context.runId, "cancelled", runSummary, "Cancellation requested by user.");
+                    return;
+                }
+
+                if (shouldSkipStep(step.stepName(), context.currentDocumentIds)) {
+                    Map<String, Object> metrics = skippedMetrics(step.stepName(), context.currentDocumentIds);
+                    String warningMessage = skippedStepWarningMessage(metrics);
+                    repository.finishStep(
+                            step.stepId(),
+                            "warning",
+                            metrics,
+                            warningMessage,
+                            "",
+                            "",
+                            step.outputArtifactPath()
+                    );
+                    runSummary.put(step.stepName(), metrics);
+                    warningSteps.add(step.stepName());
+                    activeStep = null;
+                    continue;
+                }
+
+                Path stdoutPath = context.artifacts.logsDirectory.resolve(step.stepName() + ".stdout.log");
+                Path stderrPath = context.artifacts.logsDirectory.resolve(step.stepName() + ".stderr.log");
+                repository.markStepRunning(
+                        step.stepId(),
+                        String.join(" ", step.command()),
+                        stdoutPath.toString(),
+                        stderrPath.toString()
+                );
+
+                PipelineExecutionDtos.CommandResult result = commandRunner.run(
+                        new PipelineExecutionDtos.CommandRequest(
+                                step.command(),
+                                context.artifacts.repoRoot,
+                                stdoutPath,
+                                stderrPath
+                        ),
+                        handle -> context.currentProcess = handle
+                );
+                context.currentProcess = null;
+
+                if (context.cancelRequested.get()) {
+                    repository.finishStep(
+                            step.stepId(),
+                            "cancelled",
+                            Map.of("exit_code", result.exitCode()),
+                            "Cancellation requested by user.",
+                            excerpt(result.stdout()),
+                            excerpt(result.stderr()),
+                            step.outputArtifactPath()
+                    );
+                    cancelRemaining(context);
+                    repository.finishRun(context.runId, "cancelled", runSummary, "Cancellation requested by user.");
+                    return;
+                }
+
+                Map<String, Object> metrics = parseStepMetrics(result.stdout());
+                metrics.put("exit_code", result.exitCode());
+                metrics.put("finished_at", result.finishedAt().toString());
+
+                if (result.exitCode() != 0) {
+                    repository.finishStep(
+                            step.stepId(),
+                            "failed",
+                            metrics,
+                            firstNonBlank(result.stderr(), "Pipeline command exited with non-zero status."),
+                            excerpt(result.stdout()),
+                            excerpt(result.stderr()),
+                            step.outputArtifactPath()
+                    );
+                    runSummary.put("failed_step", step.stepName());
+                    repository.finishRun(
+                            context.runId,
+                            "failed",
+                            runSummary,
+                            firstNonBlank(result.stderr(), "Pipeline command exited with non-zero status.")
+                    );
+                    return;
+                }
+
+                DocumentArtifactDtos.PersistResult persistResult = applyStepOutputs(step.stepName(), context, scope);
+                if ("import".equals(step.stepName()) && scope.domainId() != null) {
+                    repository.propagateImportedRunDomain(context.runId, scope.domainId());
+                }
+                metrics.put("documents_discovered", persistResult.discoveredDocumentCount());
+                metrics.put("documents_persisted", persistResult.persistedDocumentCount());
+                metrics.put("document_ids", persistResult.documentIds());
+                StepWarningDecision warningDecision = evaluateStepWarning(step.stepName(), metrics);
+                repository.finishStep(
+                        step.stepId(),
+                        warningDecision.warning() ? "warning" : "success",
+                        metrics,
+                        warningDecision.message(),
+                        excerpt(result.stdout()),
+                        excerpt(result.stderr()),
+                        step.outputArtifactPath()
+                );
+                runSummary.put(step.stepName(), metrics);
+                if (warningDecision.warning()) {
+                    warningSteps.add(step.stepName());
+                }
+                runSummary.put("current_document_ids", context.currentDocumentIds);
+                activeStep = null;
+            }
+
+            if (!warningSteps.isEmpty()) {
+                runSummary.put("warning", true);
+                runSummary.put("warning_step_count", warningSteps.size());
+                runSummary.put("warning_steps", warningSteps);
+            }
+            repository.finishRun(
+                    context.runId,
+                    warningSteps.isEmpty() ? "success" : "warning",
+                    runSummary,
+                    warningSteps.isEmpty() ? null : "Completed with warnings."
+            );
+        } catch (Exception exception) {
+            if (activeStep != null) {
+                repository.finishStep(
+                        activeStep.stepId(),
+                        context.cancelRequested.get() ? "cancelled" : "failed",
+                        Map.of("exception_type", exception.getClass().getSimpleName()),
+                        exception.getMessage(),
+                        "",
+                        "",
+                        activeStep.outputArtifactPath()
+                );
+            }
+            cancelRemaining(context);
+            repository.finishRun(
+                    context.runId,
+                    context.cancelRequested.get() ? "cancelled" : "failed",
+                    runSummary,
+                    exception.getMessage()
+            );
+        } finally {
+            managedRuns.remove(context.runId);
+        }
+    }
+
+    private void cancelRemaining(ManagedRunContext context) {
+        repository.cancelQueuedSteps(context.runId);
+    }
+
+    private Scope resolveScope(String runType, PipelineExecutionDtos.PipelineRunRequest request) {
+        UUID domainId = request.domainId();
+        List<String> explicitSourceIds = normalizeValues(request.sourceIds());
+        List<String> domainSourceIds = List.of();
+        if (domainId != null) {
+            domainSourceIds = sourceService.listSources(domainId).stream()
+                    .map(CorpusSourceDtos.SourceSummary::sourceId)
+                    .toList();
+            if (!explicitSourceIds.isEmpty()) {
+                LinkedHashSet<String> domainSourceSet = new LinkedHashSet<>(domainSourceIds);
+                List<String> outOfDomainSourceIds = explicitSourceIds.stream()
+                        .filter(sourceId -> !domainSourceSet.contains(sourceId))
+                        .toList();
+                if (!outOfDomainSourceIds.isEmpty()) {
+                    throw new IllegalArgumentException("selected source does not belong to domain: " + outOfDomainSourceIds);
+                }
+            }
+            if (explicitSourceIds.isEmpty()) {
+                explicitSourceIds = domainSourceIds;
+            }
+            if (explicitSourceIds.isEmpty() && ("collect".equals(runType) || "full_ingest".equals(runType))) {
+                throw new IllegalArgumentException("domain has no active sources for collection");
+            }
+        }
+        if (domainId == null && explicitSourceIds.isEmpty() && ("collect".equals(runType) || "full_ingest".equals(runType))) {
+            explicitSourceIds = sourceService.listSources().stream()
+                    .filter(CorpusSourceDtos.SourceSummary::enabled)
+                    .map(CorpusSourceDtos.SourceSummary::sourceId)
+                    .toList();
+        }
+
+        LinkedHashSet<String> documentIds = new LinkedHashSet<>(normalizeValues(request.documentIds()));
+        if (documentIds.isEmpty() && !"collect".equals(runType) && !"full_ingest".equals(runType)) {
+            if (!explicitSourceIds.isEmpty()) {
+                documentIds.addAll(artifactStoreService.resolveDocumentIdsBySource(explicitSourceIds));
+            } else {
+                documentIds.addAll(artifactStoreService.resolveAllDocumentIds());
+            }
+        }
+
+        return new Scope(
+                domainId,
+                explicitSourceIds,
+                List.copyOf(documentIds),
+                request.dryRun() != null && request.dryRun(),
+                normalizedCreatedBy(request.createdBy()),
+                normalizedTriggerType(request.triggerType()),
+                request.limit()
+        );
+    }
+
+    private List<String> resolveInitialDocumentIds(String runType, Scope scope) {
+        return switch (runType) {
+            case "normalize" -> artifactStoreService.selectDocumentsForNormalize(scope.documentIds());
+            case "chunk" -> artifactStoreService.selectDocumentsForChunk(scope.documentIds());
+            case "glossary" -> artifactStoreService.selectDocumentsForGlossary(scope.documentIds());
+            case "import" -> artifactStoreService.selectDocumentsForImport(scope.documentIds());
+            default -> scope.documentIds();
+        };
+    }
+
+    private void materializeInitialInputs(String runType, List<String> documentIds, ArtifactContext artifacts) {
+        switch (runType) {
+            case "normalize" -> artifactStoreService.materializeRawArtifacts(documentIds, artifacts.rawPath);
+            case "chunk", "glossary" -> artifactStoreService.materializeNormalizedArtifacts(documentIds, artifacts.sectionsPath);
+            case "import" -> {
+                artifactStoreService.materializeRawArtifacts(documentIds, artifacts.rawPath);
+                artifactStoreService.materializeNormalizedArtifacts(documentIds, artifacts.sectionsPath);
+                artifactStoreService.materializeChunkArtifacts(documentIds, artifacts.chunksPath);
+                artifactStoreService.materializeGlossaryArtifacts(documentIds, artifacts.glossaryPath);
+            }
+            default -> {
+            }
+        }
+    }
+
+    private boolean shouldShortCircuit(String runType, List<String> initialDocumentIds) {
+        return !"collect".equals(runType) && !"full_ingest".equals(runType) && initialDocumentIds.isEmpty();
+    }
+
+    private String shortCircuitMessage(String runType) {
+        return switch (runType) {
+            case "normalize" -> "요청한 문서는 이미 최신 정제 산출물이 있어 정제 단계를 건너뛰었습니다.";
+            case "chunk" -> "요청한 문서는 이미 최신 청킹 산출물이 있어 청킹 단계를 건너뛰었습니다.";
+            case "glossary" -> "요청한 문서는 이미 최신 용어 산출물이 있어 용어 추출 단계를 건너뛰었습니다.";
+            case "import" -> "가져올 최신 문서 산출물이 없어 적재 단계를 건너뛰었습니다.";
+            default -> "실행할 작업이 없습니다.";
+        };
+    }
+
+    private boolean shouldSkipStep(String stepName, List<String> currentDocumentIds) {
+        if ("collect".equals(stepName)) {
+            return false;
+        }
+        if (currentDocumentIds.isEmpty()) {
+            return true;
+        }
+        if ("glossary".equals(stepName)) {
+            return artifactStoreService.selectDocumentsForGlossary(currentDocumentIds).isEmpty();
+        }
+        return false;
+    }
+
+    private Map<String, Object> skippedMetrics(String stepName, List<String> currentDocumentIds) {
+        Map<String, Object> metrics = new LinkedHashMap<>();
+        metrics.put("skipped", true);
+        metrics.put("reason", currentDocumentIds.isEmpty() ? "no_documents_pending" : "already_current");
+        metrics.put("document_count", currentDocumentIds.size());
+        metrics.put("step", stepName);
+        return metrics;
+    }
+
+    private String skippedStepWarningMessage(Map<String, Object> metrics) {
+        String reason = String.valueOf(metrics.getOrDefault("reason", "skipped"));
+        return "Step skipped: " + reason;
+    }
+
+    private StepWarningDecision evaluateStepWarning(String stepName, Map<String, Object> metrics) {
+        if ("collect".equals(stepName)) {
+            int fetchFailures = intMetric(metrics, "fetch_failures");
+            if (fetchFailures > 0) {
+                return new StepWarningDecision(true, "Collect completed with fetch failures: " + fetchFailures);
+            }
+            int discovered = intMetric(metrics, "documents_discovered");
+            int persisted = intMetric(metrics, "documents_persisted");
+            if (discovered > 0 && persisted == 0) {
+                return new StepWarningDecision(true, "Collect discovered documents but persisted none.");
+            }
+            return StepWarningDecision.none();
+        }
+        if ("normalize".equals(stepName)) {
+            int processed = intMetric(metrics, "documents_processed");
+            int sectionsWritten = intMetric(metrics, "sections_written");
+            if (processed > 0 && sectionsWritten == 0) {
+                return new StepWarningDecision(true, "Normalize processed documents but produced 0 sections.");
+            }
+            return StepWarningDecision.none();
+        }
+        if ("chunk".equals(stepName)) {
+            int processed = intMetric(metrics, "documents_processed");
+            int chunksWritten = intMetric(metrics, "chunks_written");
+            if (processed > 0 && chunksWritten == 0) {
+                return new StepWarningDecision(true, "Chunk processed documents but produced 0 chunks.");
+            }
+            return StepWarningDecision.none();
+        }
+        if ("glossary".equals(stepName)) {
+            int processed = intMetric(metrics, "documents_processed");
+            int glossaryTermsWritten = intMetric(metrics, "glossary_terms_written");
+            if (processed > 0 && glossaryTermsWritten == 0) {
+                return new StepWarningDecision(true, "Glossary processed documents but produced 0 terms.");
+            }
+            return StepWarningDecision.none();
+        }
+        return StepWarningDecision.none();
+    }
+
+    private int intMetric(Map<String, Object> metrics, String key) {
+        Object value = metrics.get(key);
+        if (value == null) {
+            return 0;
+        }
+        if (value instanceof Number number) {
+            return number.intValue();
+        }
+        try {
+            return Integer.parseInt(String.valueOf(value));
+        } catch (NumberFormatException ignored) {
+            return 0;
+        }
+    }
+
+    private DocumentArtifactDtos.PersistResult applyStepOutputs(
+            String stepName,
+            ManagedRunContext context,
+            Scope scope
+    ) {
+        return switch (stepName) {
+            case "collect" -> {
+                DocumentArtifactDtos.PersistResult persisted = artifactStoreService.persistRawArtifacts(context.artifacts.rawPath, context.runId);
+                List<String> nextDocumentIds = persisted.documentIds();
+                if (!scope.documentIds().isEmpty()) {
+                    nextDocumentIds = nextDocumentIds.stream().filter(scope.documentIds()::contains).toList();
+                }
+                context.currentDocumentIds = nextDocumentIds;
+                artifactStoreService.materializeRawArtifacts(nextDocumentIds, context.artifacts.rawPath);
+                yield new DocumentArtifactDtos.PersistResult(
+                        nextDocumentIds,
+                        persisted.discoveredDocumentCount(),
+                        persisted.persistedDocumentCount()
+                );
+            }
+            case "normalize" -> {
+                DocumentArtifactDtos.PersistResult persisted = artifactStoreService.persistNormalizedArtifacts(context.artifacts.sectionsPath, context.runId);
+                context.currentDocumentIds = persisted.documentIds();
+                yield persisted;
+            }
+            case "chunk" -> {
+                DocumentArtifactDtos.PersistResult persisted = artifactStoreService.persistChunkArtifacts(
+                        context.artifacts.chunksPath,
+                        context.artifacts.glossaryPath,
+                        context.runId
+                );
+                context.currentDocumentIds = persisted.documentIds();
+                yield persisted;
+            }
+            case "glossary" -> {
+                DocumentArtifactDtos.PersistResult persisted = artifactStoreService.persistGlossaryArtifacts(
+                        context.artifacts.glossaryPath,
+                        context.runId
+                );
+                context.currentDocumentIds = persisted.documentIds();
+                yield persisted;
+            }
+            case "import" -> new DocumentArtifactDtos.PersistResult(
+                    context.currentDocumentIds,
+                    context.currentDocumentIds.size(),
+                    context.currentDocumentIds.size()
+            );
+            default -> DocumentArtifactDtos.PersistResult.empty();
+        };
+    }
+
+    private ArtifactContext prepareArtifacts(UUID runId) {
+        Path repoRoot = sourceCatalogService.repoRoot();
+        Path workspaceRoot = sourceCatalogService.resolveWithinRepo("data/tmp/admin-runs", "admin run workspace");
+        Path logsRoot = sourceCatalogService.resolveWithinRepo(properties.logsDir(), "admin pipeline logs directory");
+        Path workspace = workspaceRoot.resolve(runId.toString()).normalize();
+        Path logsDirectory = logsRoot.resolve(runId.toString()).normalize();
+        try {
+            Files.createDirectories(workspace);
+            Files.createDirectories(logsDirectory);
+        } catch (IOException exception) {
+            throw new IllegalStateException("Failed to prepare run workspace.", exception);
+        }
+
+        return new ArtifactContext(
+                repoRoot,
+                workspace,
+                logsDirectory,
+                workspace.resolve("spring_docs_raw.jsonl"),
+                workspace.resolve("spring_docs_sections.jsonl"),
+                workspace.resolve("chunks.jsonl"),
+                workspace.resolve("glossary_terms.jsonl"),
+                workspace.resolve("chunk_neighbors.sql"),
+                workspace.resolve("chunking_visualization.md")
+        );
+    }
+
+    private Map<String, Object> parseStepMetrics(String stdout) {
+        if (stdout == null || stdout.isBlank()) {
+            return new LinkedHashMap<>();
+        }
+        try {
+            return objectMapper.readValue(stdout, new TypeReference<>() {
+            });
+        } catch (Exception exception) {
+            Map<String, Object> fallback = new LinkedHashMap<>();
+            fallback.put("stdout_excerpt", excerpt(stdout));
+            return fallback;
+        }
+    }
+
+    private PipelineExecutionDtos.StepLogDto toStepLog(CorpusRunDtos.RunStep step) {
+        return new PipelineExecutionDtos.StepLogDto(
+                step.stepId(),
+                step.stepName(),
+                step.stdoutLogPath(),
+                step.stderrLogPath(),
+                readLog(step.stdoutLogPath()),
+                readLog(step.stderrLogPath()),
+                step.updatedAt()
+        );
+    }
+
+    private String readLog(String path) {
+        if (path == null || path.isBlank()) {
+            return "";
+        }
+        Path logPath = Path.of(path);
+        if (!Files.exists(logPath)) {
+            return "";
+        }
+        try {
+            String content = Files.readString(logPath, StandardCharsets.UTF_8);
+            return excerpt(content);
+        } catch (IOException exception) {
+            return "Failed to read log: " + exception.getMessage();
+        }
+    }
+
+    private String excerpt(String content) {
+        if (content == null || content.isBlank()) {
+            return "";
+        }
+        String trimmed = content.trim();
+        if (trimmed.length() <= properties.maxLogChars()) {
+            return trimmed;
+        }
+        return trimmed.substring(trimmed.length() - properties.maxLogChars());
+    }
+
+    private String normalizedCreatedBy(String createdBy) {
+        return createdBy == null || createdBy.isBlank() ? "admin-ui" : createdBy;
+    }
+
+    private String normalizedTriggerType(String triggerType) {
+        return triggerType == null || triggerType.isBlank() ? "api" : triggerType;
+    }
+
+    private List<String> normalizeValues(List<String> values) {
+        if (values == null) {
+            return List.of();
+        }
+        return values.stream()
+                .filter(Objects::nonNull)
+                .map(String::trim)
+                .filter(value -> !value.isBlank())
+                .distinct()
+                .toList();
+    }
+
+    private List<String> toStringList(Object value) {
+        if (!(value instanceof List<?> list)) {
+            return List.of();
+        }
+        return list.stream().filter(Objects::nonNull).map(String::valueOf).toList();
+    }
+
+    private Boolean booleanValue(Object value) {
+        if (value == null) {
+            return null;
+        }
+        return Boolean.parseBoolean(String.valueOf(value));
+    }
+
+    private Integer integerValue(Object value) {
+        if (value == null) {
+            return null;
+        }
+        return Integer.parseInt(String.valueOf(value));
+    }
+
+    private String firstNonBlank(String primary, String fallback) {
+        if (primary != null && !primary.isBlank()) {
+            return primary.trim();
+        }
+        return fallback;
+    }
+
+    private record StepWarningDecision(
+            boolean warning,
+            String message
+    ) {
+        private static StepWarningDecision none() {
+            return new StepWarningDecision(false, null);
+        }
+    }
+
+    record Scope(
+            UUID domainId,
+            List<String> sourceIds,
+            List<String> documentIds,
+            boolean dryRun,
+            String createdBy,
+            String triggerType,
+            Integer limit
+    ) {
+        Map<String, Object> toSourceScope() {
+            Map<String, Object> scope = new LinkedHashMap<>();
+            scope.put("domain_id", domainId == null ? null : domainId.toString());
+            scope.put("source_ids", sourceIds);
+            scope.put("document_ids", documentIds);
+            return scope;
+        }
+
+        Map<String, Object> toConfigSnapshot(ArtifactContext artifacts) {
+            Map<String, Object> config = new LinkedHashMap<>();
+            config.put("domain_id", domainId == null ? null : domainId.toString());
+            config.put("dry_run", dryRun);
+            config.put("trigger_type", triggerType);
+            config.put("created_by", createdBy);
+            config.put("limit", limit);
+            config.put("raw_output_path", artifacts.rawPath.toString());
+            config.put("sections_output_path", artifacts.sectionsPath.toString());
+            config.put("chunks_output_path", artifacts.chunksPath.toString());
+            config.put("glossary_output_path", artifacts.glossaryPath.toString());
+            return config;
+        }
+    }
+
+    record ArtifactContext(
+            Path repoRoot,
+            Path workspace,
+            Path logsDirectory,
+            Path rawPath,
+            Path sectionsPath,
+            Path chunksPath,
+            Path glossaryPath,
+            Path relationsPath,
+            Path visualizationPath
+    ) {
+        Map<String, Object> toSummary() {
+            Map<String, Object> summary = new LinkedHashMap<>();
+            summary.put("workspace", workspace.toString());
+            summary.put("raw_output_path", rawPath.toString());
+            summary.put("sections_output_path", sectionsPath.toString());
+            summary.put("chunks_output_path", chunksPath.toString());
+            summary.put("glossary_output_path", glossaryPath.toString());
+            summary.put("relations_output_path", relationsPath.toString());
+            summary.put("visualization_output_path", visualizationPath.toString());
+            return summary;
+        }
+    }
+
+    record StepPlan(
+            UUID stepId,
+            String stepName,
+            int stepOrder,
+            List<String> command,
+            String inputArtifactPath,
+            String outputArtifactPath
+    ) {
+    }
+
+    private static final class ManagedRunContext {
+        private final UUID runId;
+        private final String runType;
+        private final List<StepPlan> steps;
+        private final ArtifactContext artifacts;
+        private volatile List<String> currentDocumentIds;
+        private final AtomicBoolean cancelRequested = new AtomicBoolean(false);
+        private volatile ProcessHandle currentProcess;
+
+        private ManagedRunContext(
+                UUID runId,
+                String runType,
+                List<StepPlan> steps,
+                ArtifactContext artifacts,
+                List<String> currentDocumentIds
+        ) {
+            this.runId = runId;
+            this.runType = runType;
+            this.steps = steps;
+            this.artifacts = artifacts;
+            this.currentDocumentIds = new ArrayList<>(currentDocumentIds);
+        }
+    }
+}
