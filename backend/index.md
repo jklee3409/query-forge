@@ -13,6 +13,7 @@ Spring Boot backend for Admin Console APIs, RAG APIs, pipeline command orchestra
 - `src/main/java/io/queryforge/backend/admin/domain/`: `identity`, `source`, `policy`, `workspace` for API coordination and detail responses, and `dashboard` for operational counts
 - `src/main/java/io/queryforge/backend/admin/prompt/`: prompt assets and revisions, bindings, and validation
 - `src/main/java/io/queryforge/backend/rag/`: chat and answer generation, retrieval candidates and execution, agentic planning and fusion, retrieval evaluation and reports, runtime configuration and promotion, experiment commands and summaries, and trace reads and writes
+- `rag.runtime.configuration.model.RagExecutionSettings` defines the shared numeric contract for retrieval Top-K, rerank Top-N, memory Top-N, rewrite candidate count, and rewrite threshold. The model catalog provides defaults and allowed ranges for new administrator settings. Existing domain configuration and recorded evaluation settings retain their values within the supported bounds.
 - `src/main/java/io/queryforge/backend/{common,ui}/`: shared logging and React routes
 - `src/test/java/io/queryforge/backend/`: unit and MVC tests in their corresponding feature and role packages, and cross-role tests in `integration`
 - `src/main/resources/db/migration/*`: Flyway schema migrations

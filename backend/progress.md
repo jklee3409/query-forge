@@ -1,5 +1,10 @@
 # progress.md
 
+## [2026-11-25] Session Summary (Shared RAG Execution Settings)
+- Added `RagExecutionSettings` for the five numeric retrieval and rewrite parameters. Use catalog defaults and ranges for administrator settings and enforce shared execution bounds.
+- Java evaluation preserves the rerank limit supplied by the experiment while supporting the existing Top-K-only request. Keep evaluation answer-free with `persistPolicy=NONE`.
+- Passed 72 targeted backend tests, including PostgreSQL integration tests, and 36 Python Java retrieval client and comparison tests.
+
 ## [2026-11-25] Session Summary (Atomic LLM Worker Results)
 - Prepare RAG report details and anchor rows once, then persist related results and batch, run, and job completion together. Keep subprocess execution and progress updates outside the result transaction.
 - Lock the job row during finalization and during failure recording. Retain completed items and synthetic raw output for retry.

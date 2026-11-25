@@ -1,9 +1,29 @@
 # progress.md
 
+## [2026-11-25] Session Summary (Shared RAG Execution Settings)
+- Unified retrieval Top-K, rerank Top-N, memory Top-N, rewrite candidate count, and rewrite threshold across administrator experiment registration, live chat, and Java retrieval evaluation.
+- Java-backed evaluation now honors the recorded rerank limit when a request also supplies Top-K. Passed 72 targeted backend tests and 36 Python client and comparison tests.
+
+## [2026-11-25] Session Summary (Backend Code Maintainability)
+- Compared configuration resolution in live RAG, evaluation, and the admin console. Identified shared execution settings and validation as the first code refactoring boundary.
+- Reviewed retention options for synthetic query snapshots and incremental extraction and review for corpus glossary terms.
+
+## [2026-11-25] Session Summary (Backend Refactoring Priority)
+- Traced gating reruns through snapshot cleanup, gated-query upserts, memory rebuilds, and live chat readiness. Prioritized preserving completed snapshots and their memory across reruns.
+
+## [2026-11-25] Session Summary (Chat Ask Refactoring Design)
+- Defined the boundaries for request preparation, retrieval, rewrite adoption, trace persistence, and response assembly in `RagService.ask()`.
+- Identified decisions on live/eval adoption behavior, legacy modes, failure traces, and the scope of Spring AI adoption.
+
 ## [2026-11-25] Session Summary (LLM Worker Result Finalization)
 - Commit worker results and job completion in one PostgreSQL transaction after report preparation. Check the locked job status before applying results.
 - Preserve completed Python items and generated queries on finalization failure. Treat missing or invalid RAG reports as failures while accepting a valid empty report.
 - Passed 53 targeted backend tests, including PostgreSQL rollback, retry, and stop-request cases.
+
+## [2026-11-25] Session Summary (Spring AI Adoption Review)
+- Reviewed the full backend source inventory, Flyway migrations, and the Java/Python execution boundary for Spring AI adoption.
+- Confirmed optional chat and dense query embedding adapters and traced the JDBC retrieval, snapshot-based rewrite, agentic RRF, and no-write evaluation paths. Identified migration decisions for model provenance, prompt bindings, embedding compatibility, and conversation history.
+- Static review only. No application code or runtime configuration changes.
 
 ## [2026-11-25] Session Summary (Transaction Boundary Review)
 - Verified the Java/Python execution boundary and reviewed administrator RAG run registration, default dataset synchronization, and LLM worker result persistence against the current source.
