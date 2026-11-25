@@ -1,5 +1,8 @@
 # progress.md
 
+## [2026-11-25] Session Summary (IDE Build Output)
+- Added `/backend/bin/` to the root Git ignore rules for local IDE build output.
+
 ## [2026-11-25] Session Summary (Feature-Local Backend Layers)
 - Organized backend Java by feature and then by role. Moved shared records into feature DTO packages and corpus anchor JDBC methods into their repositories.
 - Audited all 230 production and 27 test types. Verified 133 HTTP mappings and 227 record declarations. Passed 181 backend tests and 36 Java-backed Python evaluation tests.

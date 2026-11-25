@@ -23,6 +23,7 @@ configs/experiments/*.local.yaml
 **/.gradle/
 **/build/
 **/out/
+/backend/bin/
 **/.settings/
 **/.classpath
 **/.project
