@@ -3,6 +3,9 @@
 ## Overview
 High-level progress tracking for the `docs` directory.
 
+## [2026-11-25] Session Summary (Backend Role Packages)
+- Updated the package guidance, test commands, and full source inventory for the feature-first, role-second layout.
+
 ## [2026-11-25] Session Summary (Backend Source Inventory)
 - Added a file-by-file inventory of current Java production and test types, named nested types, and direct references.
 - Updated the feature map, build validation commands, and package documentation to match the final RAG and admin package paths.

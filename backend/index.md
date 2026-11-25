@@ -6,6 +6,7 @@ Spring Boot backend for Admin Console APIs, RAG APIs, pipeline command orchestra
 ---
 
 ## Structure
+- Java packages follow `<feature>.<role>`. For example, `admin.pipeline.execution` contains `controller`, `service`, `repository`, and `dto`.
 - `src/main/java/io/queryforge/backend/admin/console/`: synthetic generation, gating, evaluation datasets and lifecycle, runs, anchor evaluation, rewrite diagnostics, embedding, dashboard, jobs, runtime, and scope
 - `src/main/java/io/queryforge/backend/admin/corpus/`: source, run, document, glossary, and anchor lookup, extraction, normalization, relation builds, and evaluation
 - `src/main/java/io/queryforge/backend/admin/pipeline/`: configuration, dashboard, artifact storage, execution, and source catalog
@@ -13,7 +14,7 @@ Spring Boot backend for Admin Console APIs, RAG APIs, pipeline command orchestra
 - `src/main/java/io/queryforge/backend/admin/prompt/`: prompt assets and revisions, bindings, and validation
 - `src/main/java/io/queryforge/backend/rag/`: chat and answer generation, retrieval candidates and execution, agentic planning and fusion, retrieval evaluation and reports, runtime configuration and promotion, experiment commands and summaries, and trace reads and writes
 - `src/main/java/io/queryforge/backend/{common,ui}/`: shared logging and React routes
-- `src/test/java/io/queryforge/backend/`: unit, MVC, and integration tests in their corresponding feature packages
+- `src/test/java/io/queryforge/backend/`: unit and MVC tests in their corresponding feature and role packages, and cross-role tests in `integration`
 - `src/main/resources/db/migration/*`: Flyway schema migrations
 - `src/main/resources/static/react/*`: bundled admin UI assets
 

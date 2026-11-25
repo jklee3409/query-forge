@@ -1,5 +1,9 @@
 # progress.md
 
+## [2026-11-25] Session Summary (Feature-Local Backend Layers)
+- Organized backend Java by feature and then by role. Moved shared records into feature DTO packages and corpus anchor JDBC methods into their repositories.
+- Audited all 230 production and 27 test types. Verified 133 HTTP mappings and 227 record declarations. Passed 181 backend tests and 36 Java-backed Python evaluation tests.
+
 ## [2026-11-25] Session Summary (Backend Source Audit and Package Boundaries)
 - Reviewed every RAG subdirectory and inventoried the full backend Java source tree before and after migrating implementations by feature. Removed 32 empty legacy Java directories locally.
 - Verified 133 HTTP method and path pairs, 226 existing record declarations, all 181 backend tests with Docker PostgreSQL, and 36 Python Java-backed retrieval tests.

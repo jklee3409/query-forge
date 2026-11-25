@@ -19,13 +19,13 @@ Backend의 핵심 책임은 재현 가능한 실험 조건을 강제하는 것�
 
 ## 디렉터리 구조
 
-API, 서비스, 저장소, 요청·응답 타입은 해당 기능의 패키지에 배치합니다. 기능 안에서 독립적인 책임은 하위 패키지로 나누고, 테스트는 같은 패키지 경로를 따릅니다.
+먼저 기능으로 묶고, 그 안에서 HTTP 진입점은 `controller`, 유스케이스 로직은 `service`, JDBC 저장소는 `repository`, 클래스 간에 공유하는 요청·응답은 `dto`에 배치합니다. 실행 정책과 내부 데이터는 용도에 맞게 `model` 등으로 구분합니다. 단위·MVC 테스트는 검증하는 역할의 패키지 경로를 따릅니다. 여러 역할을 연결하는 테스트는 기능의 `integration`에 둡니다.
 
 ```text
 src/main/java/io/queryforge/backend/
   QueryForgeApplication.java
   admin/
-    web/             관리자 API 공통 오류 응답
+    web/advice/      관리자 API 공통 오류 응답
     console/
       synthetic/     합성 질의 메서드, 배치, 결과
       gating/        품질 게이팅 배치와 결과
@@ -64,14 +64,16 @@ src/main/java/io/queryforge/backend/
     embedding/   dense/hash 임베딩, reindex/
     provider/    springai/, environment/
     persistence/ RAG 저장소 공통 JDBC 처리
-    web/         RAG API 공통 오류 응답
-  ui/            React Admin route forwarding
+    web/advice/  RAG API 공통 오류 응답
+  ui/controller/ React Admin route forwarding
 
 src/main/resources/
   application.yml
   db/migration/  PostgreSQL/Flyway schema history
   static/react/  Admin Console production bundle
 ```
+
+파이프라인 실행은 `admin.pipeline.execution.controller`, `.service`, `.repository`, `.dto`에 배치했습니다. `rag.retrieval.execution`에는 검색 실행의 `service`, `dto`, `model`이 있습니다. RAG의 HTTP 진입점과 검색 후보 저장소는 각각 `rag.chat.controller`, `rag.eval.retrieval.controller`, `rag.retrieval.candidate.repository`에 있습니다.
 
 기능별 실행 흐름과 최종 운영·테스트 클래스의 경로 및 의존 관계를 문서에서 확인할 수 있습니다. [백엔드 기능 경계](../docs/architecture/backend_feature_boundaries.md) · [전체 소스 인벤토리](../docs/architecture/backend_source_inventory.md)
 

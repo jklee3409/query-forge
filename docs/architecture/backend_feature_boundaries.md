@@ -4,7 +4,7 @@
 
 ## 구조를 나눈 기준
 
-하나의 기능이 받는 요청, 실행 로직, JDBC 쿼리, 응답 레코드를 같은 패키지에 둔다. 다른 기능이 필요한 데이터는 해당 기능의 저장소나 응용 서비스를 요청한다. 부트스트랩과 공통 HTTP 예외 응답은 각 진입점에 공통으로 적용되므로 루트 패키지에 둔다. Spring Boot의 루트 구성과 기능별 패키지 관례를 따른다. [Spring Boot 코드 구조 가이드](https://docs.spring.io/spring-boot/reference/using/structuring-your-code.html)
+기능으로 먼저 묶은 뒤 해당 기능 내부에서 HTTP 진입점, 실행 로직, JDBC 쿼리, 공유 요청·응답을 각각 `controller`, `service`, `repository`, `dto`에 둔다. 기능 내부 모델, 설정, 공급자 연동 등의 역할에는 해당 하위 패키지를 둔다. 부트스트랩은 루트에, 영역 공통 HTTP 예외 응답은 각 영역의 `web.advice`에 둔다. [Spring Boot 코드 구조 가이드](https://docs.spring.io/spring-boot/reference/using/structuring-your-code.html)
 
 이전에는 콘솔과 코퍼스에 하위 패키지가 있었어도 공용 서비스와 저장소가 여러 기능의 실제 메서드와 SQL을 소유했다. 특히 `AdminConsoleRepository`가 기존 하위 저장소를 다시 묶고, 그 저장소의 응답 타입을 하위 저장소가 참조하는 순환 관계가 있었다. `RagRepository` 역시 검색과 메모리 조회, 채팅 이력 쓰기, 실험 조회, 재색인을 한 타입으로 노출했다. 현재 구조에서는 세 공용 저장소를 없애고, 소비자가 필요한 기능의 저장소에 직접 의존하도록 했다.
 
@@ -20,7 +20,7 @@
 | 임베딩 운영 | `ChunkEmbeddingAdminController` → `ChunkEmbeddingAdminService` → `ChunkEmbeddingAdminRepository` 및 `LlmJobService` | DB ANN에 필요한 모델별 청크 임베딩 상태를 확인하고 기존 materialization 작업을 생성한다. 채팅 설정 검증과 실험 실행도 같은 상태를 사용한다. |
 | 비동기 LLM 작업 | `LlmJobController` → `LlmJobService` → `LlmJobRepository`, `ExperimentPipelineService`, `LlmJobResultService` | queue와 재시도·중단·복구는 작업 서비스에 있다. 결과 수집은 보고서 JSON을 읽어 생성·게이팅·평가의 각 저장소에 반영한다. 기존 커밋 후 enqueue와 작업 유형 코드는 유지한다. |
 | 코퍼스 | `CorpusSource*`, `CorpusDocument*`, `CorpusGlossary*`, `CorpusRun*` | 소스 등록과 도메인 연결, 문서·섹션·청크 조회 및 preview, 용어·별칭·근거, 실행 이력이 각 패키지에 있다. 파이프라인은 코퍼스 전체 서비스 대신 소스 및 실행 조회만 사용한다. |
-| 코퍼스 앵커 | `CorpusAnchor*`, `AnchorExtraction*`, `AnchorNormalization*`, `MultiSourceAnchor*`, `AnchorEval*` | 앵커 조회, 증거 재추출, 정규화 검토·승인, 다중 소스 관계 생성, 평가가 각각의 패키지에 있다. 추출은 선택 문서·청크로 기존 Python 후보 추출을 호출한다. |
+| 코퍼스 앵커 | `CorpusAnchor*`, `AnchorExtraction*`, `AnchorNormalization*`, `MultiSourceAnchor*`, `AnchorEval*` | 앵커 조회, 증거 재추출, 정규화 검토·승인, 다중 소스 관계 생성, 평가는 각각의 기능 패키지에 있다. 추출·정규화·관계 생성의 서비스가 기존 트랜잭션을 관리하고 각 JDBC 저장소에 위임한다. 추출은 선택 문서·청크로 기존 Python 후보 추출을 호출한다. |
 | 도메인 | `DomainWorkspaceController` → `DomainWorkspaceService` → `DomainIdentityService`, `DomainSourceService`, `DomainMethodPolicyRepository` | `identity`는 도메인 생성·수정과 키/UUID 조회, `source`는 멤버십 조회·변경, `policy`는 메서드 정책 조회를 맡는다. `workspace`는 변경과 상세 응답 조회를 한 트랜잭션에서 처리한다. 운영 집계는 `dashboard`에서 독립적으로 조회한다. |
 | 프롬프트 | `PromptAsset*`, `PromptBinding*` | 자산 내용과 DB revision·활성 상태는 `asset`에서 다룬다. 바인딩의 조회·변경과 입력 프롬프트 검증은 `binding`에서 처리한다. |
 | 수집 파이프라인 | `PipelineAdminController` → `PipelineAdminService` → `PipelineStepPlanFactory`, `PipelineCommandRunner`, `PipelineAdminRepository` | 실행 흐름과 상태·취소·재시도는 `execution`에 있다. 소스 카탈로그 SQL, Dashboard 집계 SQL, 문서별 파일 아티팩트는 각각 `source`, `dashboard`, `artifact`에서 처리한다. |

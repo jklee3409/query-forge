@@ -1,5 +1,9 @@
 # progress.md
 
+## [2026-11-25] Session Summary (Package Roles Within Features)
+- Added feature-local controller, service, repository, DTO, and other applicable role packages, and aligned unit, MVC, and integration test packages.
+- Preserved the 133 existing HTTP mappings and 227 record declarations. Docker PostgreSQL-backed Gradle clean tests passed all 181 cases. The Java-backed Python checks passed 36 cases.
+
 ## [2026-11-25] Session Summary (RAG and Admin Source Packages)
 - Separated RAG candidate selection, retrieval execution, agentic planning and fusion, runtime configuration and promotion, and trace queries and writes. Moved evaluation request overrides into the retrieval-only evaluation package.
 - Separated admin evaluation dataset lifecycle, run history, anchor evaluation, and rewrite diagnostics. Moved corpus anchor lookup, extraction, normalization, and relation builds to the corresponding feature packages.

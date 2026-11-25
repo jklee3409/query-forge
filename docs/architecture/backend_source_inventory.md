@@ -1,19 +1,19 @@
 # 백엔드 소스 인벤토리
 
-기준 커밋 `285e3b9`의 Java 소스를 분석한 뒤 옮길 책임과 기존 기능에 속하는 책임을 구분했다. 리팩토링 후 `backend`의 운영·테스트 소스 트리를 다시 파싱해 모든 선언의 패키지와 실제 경로를 대조했다.
+기준 커밋 `f3a2cc2`의 Java 클래스 의존 관계를 확인한 뒤, 기능 안에 역할별 하위 패키지를 도입했다. 이관 후 운영·테스트 소스를 다시 파싱해 모든 선언의 패키지와 실제 경로를 대조했다.
 
 | 범위 | 최상위 타입 | 명명된 중첩 타입 | 타입이 선언된 패키지 |
 | --- | ---: | ---: | ---: |
-| `backend/src/main/java` | 217 | 227 | 71 |
-| `backend/src/test/java` | 27 | 2 | 21 |
-| 운영 소스 중 `rag` | 85 | — | 30 |
-| 테스트 소스 중 `rag` | 15 | — | 11 |
-
-타입 없이 하위 패키지를 묶는 디렉토리까지 포함하면 최종 `rag` 하위에 운영 디렉토리 36개와 테스트 디렉토리 14개가 있다. 운영·테스트 소스 트리 전체에서 기존 빈 레이어 폴더 32개를 정리했다.
+| `backend/src/main/java` | 230 | 227 | 203 |
+| `backend/src/test/java` | 27 | 2 | 24 |
+| 운영 소스 중 `rag` | 92 | — | 76 |
+| 테스트 소스 중 `rag` | 15 | — | 14 |
 
 `backend` 최상위에는 Gradle 빌드 정의, 래퍼, Dockerfile과 디렉토리 문서가 있다. `src/main/resources`에는 애플리케이션 설정, Flyway 마이그레이션, React 번들이 있고 `src/test/resources`에는 테스트 설정과 SQL 픽스처가 있다. `build`, `.gradle`, `bin`은 로컬 빌드·IDE 산출물로 확인했다. Gradle이 사용하는 Java 소스에는 패키지 경로 불일치나 빈 디렉토리가 없다.
 
-기준 커밋과 비교해 Spring HTTP 매핑 133개, 기존 레코드 선언 226개, 기존 테스트 메서드 181개가 모두 유지됐다. 레코드 1개가 추가됐으며 관리자 앵커 평가가 받는 내부 입력이다. Docker PostgreSQL을 포함한 Gradle 클린 테스트 181개와 Python의 Java 검색 연동 테스트 36개가 모두 통과했다.
+기능마다 구현된 역할을 `controller`, `service`, `repository`, `dto` 등의 하위 패키지에 둔다. 클래스 간에 공유하는 레코드와 요청·응답 타입은 `dto`로 옮겼다. 한 클래스의 내부에서 쓰는 타입은 그 구현 안에 둔다. `QueryForgeApplication`과 부트스트랩 테스트는 루트에 있다.
+
+기준 커밋과 비교해 Spring HTTP 매핑 133개, 기존 레코드 선언 227개, 기존 테스트 메서드 181개가 모두 유지됐다. Docker PostgreSQL을 포함한 백엔드 클린 테스트 181개와 Python의 Java 검색 연동 테스트 36개가 모두 통과했다.
 
 ## 기능 경계를 결정한 근거
 
@@ -24,271 +24,642 @@
 | RAG 평가와 실험 | 검색 평가 경로는 요청별 설정을 조합한 뒤 답변 생성 없이 실행한다. 보고서 파일 조회와 Python 실험 명령 실행은 별도의 입출력 경계를 가진다. | `eval.retrieval`, `eval.report`, `experiment.command`, `experiment.summary`로 나눴다. |
 | RAG 런타임과 추적 | 설정 검증과 준비 상태가 게이팅 스냅샷 조회를 공유한다. 추적 조회 SQL과 온라인 기록 SQL은 서로 다른 진입점에서 사용된다. | `runtime.configuration`, `promotion`, `snapshot`, `readiness`로 나눴다. 추적은 `query`, `write`, `write.agentic`에 배치했다. |
 | 관리자 평가 | 데이터셋 삭제는 실행 상태를 검증하고 연결된 이력을 같은 트랜잭션에서 정리한다. 앵커 평가 입력은 실행 응답 전체에 의존할 필요가 없다. | `dataset.lifecycle`에서 데이터셋과 실행의 삭제를 조정한다. `run`, `anchor`, `debug`에서 실행 이력과 각 진단을 소유한다. |
-| 코퍼스와 파이프라인 | 앵커 조회, 증거 재추출, 정규화 승인, 관계 생성, 평가가 각각 다른 데이터 흐름을 가진다. 파이프라인 설정은 실행과 소스 카탈로그에서 공유된다. | 앵커 구현을 `query`, `extraction`, `normalization`, `relation`, `evaluation`에 배치했다. 파이프라인 설정과 저장소 공통 유틸리티는 기능 영역의 하위 패키지로 옮겼다. |
-| 나머지 관리자 기능과 공통 코드 | 합성 질의, 게이팅, 도메인, 프롬프트, 소스·문서·용어는 이미 각 기능 패키지에 있다. 여러 기능을 묶는 통합 테스트는 공통 진입점을 검증한다. | 각 기능의 기존 소유 관계를 유지했다. 관리자와 RAG 오류 응답은 각 영역의 `web`에 두고 애플리케이션 부트스트랩은 루트에 유지했다. |
+| 코퍼스와 파이프라인 | 앵커 추출·정규화·관계 서비스에 데이터베이스 코드가 섞여 있었다. 파이프라인 실행에는 HTTP 진입점·실행 조정·SQL·계약이 있다. | 앵커 서비스는 각 기능의 `repository`에 JDBC를 위임한다. 파이프라인 실행의 네 역할을 각 하위 패키지로 나눴다. |
+| 나머지 관리자 기능과 공통 코드 | 합성 질의, 게이팅, 도메인, 프롬프트, 소스·문서·용어는 각 기능 패키지에 있었다. 여러 역할을 묶는 통합 테스트는 공통 진입점을 검증한다. | 모든 기능에서 역할별 하위 패키지를 사용한다. 영역 공통 오류 응답은 `web.advice`로, 여러 역할을 묶는 테스트는 `integration`으로 분리했다. |
 
 아래 표는 패키지별 전체 선언 목록이다. 직접 참조 열은 Java 타입 이름과 명시적 import의 정적 참조를 기준으로 하며, 실행 중 Spring 빈 연결은 통합 테스트에서 확인했다. 명명된 중첩 타입과 레코드는 바깥 타입의 행에 포함했다.
 
 ## Production source
 
-### `admin.console.configuration`
+### `admin.console.configuration.service`
 
 | Type | Named nested types | Backend type references |
 | --- | --- | --- |
-| [ConsoleExperimentConfig](../../backend/src/main/java/io/queryforge/backend/admin/console/configuration/ConsoleExperimentConfig.java#L20) | — | `AdminRuntimeOptionsService`, `ConsoleEnvironment`, `ConsoleParameters` |
-| [ConsoleParameters](../../backend/src/main/java/io/queryforge/backend/admin/console/configuration/ConsoleParameters.java#L6) | — | — |
+| [ConsoleExperimentConfig](../../backend/src/main/java/io/queryforge/backend/admin/console/configuration/service/ConsoleExperimentConfig.java#L20) | — | `AdminRuntimeOptionsDtos`, `AdminRuntimeOptionsService`, `ConsoleEnvironment`, `ConsoleParameters` |
 
-### `admin.console.dashboard`
-
-| Type | Named nested types | Backend type references |
-| --- | --- | --- |
-| [ConsoleDashboardController](../../backend/src/main/java/io/queryforge/backend/admin/console/dashboard/ConsoleDashboardController.java#L8) | — | `ConsoleDashboardDtos`, `ConsoleDashboardRepository` |
-| [ConsoleDashboardDtos](../../backend/src/main/java/io/queryforge/backend/admin/console/dashboard/ConsoleDashboardDtos.java#L3) | `AdminDashboardStats` | — |
-| [ConsoleDashboardRepository](../../backend/src/main/java/io/queryforge/backend/admin/console/dashboard/ConsoleDashboardRepository.java#L9) | — | `ConsoleDashboardDtos` |
-
-### `admin.console.embedding`
+### `admin.console.configuration.support`
 
 | Type | Named nested types | Backend type references |
 | --- | --- | --- |
-| [ChunkEmbeddingAdminController](../../backend/src/main/java/io/queryforge/backend/admin/console/embedding/ChunkEmbeddingAdminController.java#L12) | — | `ChunkEmbeddingAdminDtos`, `ChunkEmbeddingAdminService`, `LlmJobDtos` |
-| [ChunkEmbeddingAdminDtos](../../backend/src/main/java/io/queryforge/backend/admin/console/embedding/ChunkEmbeddingAdminDtos.java#L5) | `ChunkEmbeddingMaterializationRequest`, `ChunkEmbeddingMaterializationStatusResponse` | — |
-| [ChunkEmbeddingAdminRepository](../../backend/src/main/java/io/queryforge/backend/admin/console/embedding/ChunkEmbeddingAdminRepository.java#L13) | — | — |
-| [ChunkEmbeddingAdminService](../../backend/src/main/java/io/queryforge/backend/admin/console/embedding/ChunkEmbeddingAdminService.java#L22) | — | `AdminRetrieverConfiguration`, `AdminRuntimeOptionsDtos`, `AdminRuntimeOptionsService`, `ChunkEmbeddingAdminDtos`, `ChunkEmbeddingAdminRepository`, `ConsoleExperimentConfig`, `ConsoleParameters`, `LlmJobDtos`, `LlmJobService` |
+| [ConsoleParameters](../../backend/src/main/java/io/queryforge/backend/admin/console/configuration/support/ConsoleParameters.java#L6) | — | — |
 
-### `admin.console.evaluation.anchor`
+### `admin.console.dashboard.controller`
 
 | Type | Named nested types | Backend type references |
 | --- | --- | --- |
-| [CanonicalAnchorVersionMetadata](../../backend/src/main/java/io/queryforge/backend/admin/console/evaluation/anchor/CanonicalAnchorVersionMetadata.java#L8) | — | — |
-| [RagRewriteAnchorController](../../backend/src/main/java/io/queryforge/backend/admin/console/evaluation/anchor/RagRewriteAnchorController.java#L12) | — | `RagRewriteAnchorDtos`, `RagRewriteAnchorRepository` |
-| [RagRewriteAnchorDtos](../../backend/src/main/java/io/queryforge/backend/admin/console/evaluation/anchor/RagRewriteAnchorDtos.java#L8) | `RagRewriteAnchorEvalRow`, `AnchorEvaluationCase` | — |
-| [RagRewriteAnchorEvalService](../../backend/src/main/java/io/queryforge/backend/admin/console/evaluation/anchor/RagRewriteAnchorEvalService.java#L28) | `AnchorDraft` | `AdminPipelineProperties`, `RagRewriteAnchorDtos`, `RagRewriteAnchorRepository` |
-| [RagRewriteAnchorRepository](../../backend/src/main/java/io/queryforge/backend/admin/console/evaluation/anchor/RagRewriteAnchorRepository.java#L24) | `EvalDatasetAnchorMeta`, `MemoryAnchorSource` | `ConsoleJdbc`, `RagRewriteAnchorDtos` |
+| [ConsoleDashboardController](../../backend/src/main/java/io/queryforge/backend/admin/console/dashboard/controller/ConsoleDashboardController.java#L10) | — | `ConsoleDashboardDtos`, `ConsoleDashboardRepository` |
 
-### `admin.console.evaluation.dataset`
+### `admin.console.dashboard.dto`
 
 | Type | Named nested types | Backend type references |
 | --- | --- | --- |
-| [AdminEvalDatasetRepository](../../backend/src/main/java/io/queryforge/backend/admin/console/evaluation/dataset/AdminEvalDatasetRepository.java#L20) | `EvalSampleMeta` | `EvalDatasetDtos` |
-| [EvalDatasetController](../../backend/src/main/java/io/queryforge/backend/admin/console/evaluation/dataset/EvalDatasetController.java#L13) | — | `EvalDatasetDtos`, `EvalDatasetService` |
-| [EvalDatasetDtos](../../backend/src/main/java/io/queryforge/backend/admin/console/evaluation/dataset/EvalDatasetDtos.java#L8) | `EvalDatasetRow`, `EvalDatasetItemRow` | — |
-| [EvalDatasetService](../../backend/src/main/java/io/queryforge/backend/admin/console/evaluation/dataset/EvalDatasetService.java#L12) | — | `AdminEvalDatasetRepository`, `EvalDatasetDtos` |
+| [ConsoleDashboardDtos](../../backend/src/main/java/io/queryforge/backend/admin/console/dashboard/dto/ConsoleDashboardDtos.java#L3) | `AdminDashboardStats` | — |
 
-### `admin.console.evaluation.dataset.lifecycle`
+### `admin.console.dashboard.repository`
 
 | Type | Named nested types | Backend type references |
 | --- | --- | --- |
-| [EvalDatasetDeletionController](../../backend/src/main/java/io/queryforge/backend/admin/console/evaluation/dataset/lifecycle/EvalDatasetDeletionController.java#L11) | — | `EvalDatasetDeletionService` |
-| [EvalDatasetDeletionService](../../backend/src/main/java/io/queryforge/backend/admin/console/evaluation/dataset/lifecycle/EvalDatasetDeletionService.java#L17) | — | `AdminEvalDatasetRepository`, `EvalDatasetService`, `RagTestDtos`, `RagTestHistoryService`, `RagTestRunRepository` |
+| [ConsoleDashboardRepository](../../backend/src/main/java/io/queryforge/backend/admin/console/dashboard/repository/ConsoleDashboardRepository.java#L10) | — | `ConsoleDashboardDtos` |
 
-### `admin.console.evaluation.debug`
-
-| Type | Named nested types | Backend type references |
-| --- | --- | --- |
-| [RewriteDebugController](../../backend/src/main/java/io/queryforge/backend/admin/console/evaluation/debug/RewriteDebugController.java#L13) | — | `RewriteDebugDtos`, `RewriteDebugService` |
-| [RewriteDebugDtos](../../backend/src/main/java/io/queryforge/backend/admin/console/evaluation/debug/RewriteDebugDtos.java#L8) | `RewriteDebugRow`, `RewriteDebugDetail` | — |
-| [RewriteDebugRepository](../../backend/src/main/java/io/queryforge/backend/admin/console/evaluation/debug/RewriteDebugRepository.java#L21) | — | `ConsoleJdbc`, `RewriteDebugDtos` |
-| [RewriteDebugService](../../backend/src/main/java/io/queryforge/backend/admin/console/evaluation/debug/RewriteDebugService.java#L10) | — | `RewriteDebugDtos`, `RewriteDebugRepository` |
-
-### `admin.console.evaluation.run`
+### `admin.console.embedding.controller`
 
 | Type | Named nested types | Backend type references |
 | --- | --- | --- |
-| [RagTestController](../../backend/src/main/java/io/queryforge/backend/admin/console/evaluation/run/RagTestController.java#L16) | — | `RagTestDtos`, `RagTestHistoryService`, `RagTestService` |
-| [RagTestDtos](../../backend/src/main/java/io/queryforge/backend/admin/console/evaluation/run/RagTestDtos.java#L12) | `RagTestRunRequest`, `RagTestRunRow`, `RagTestRunDetail`, `RagTestResultDetailRow`, `RagCompareResponse` | `AdminRuntimeOptionsDtos`, `RagRewriteAnchorDtos` |
-| [RagTestHistoryService](../../backend/src/main/java/io/queryforge/backend/admin/console/evaluation/run/RagTestHistoryService.java#L15) | — | `RagRewriteAnchorRepository`, `RagTestDtos`, `RagTestRunRepository` |
-| [RagTestRunRepository](../../backend/src/main/java/io/queryforge/backend/admin/console/evaluation/run/RagTestRunRepository.java#L30) | — | `ConsoleJdbc`, `RagRewriteAnchorDtos`, `RagRewriteAnchorRepository`, `RagTestDtos` |
-| [RagTestService](../../backend/src/main/java/io/queryforge/backend/admin/console/evaluation/run/RagTestService.java#L40) | — | `AdminEvalDatasetRepository`, `AdminRetrieverConfiguration`, `AdminRuntimeOptionsService`, `CanonicalAnchorVersionMetadata`, `ChunkEmbeddingAdminService`, `ConsoleExperimentConfig`, `ConsoleParameters`, `ConsoleScopeService`, `EvalDatasetService`, `GatingDtos`, `GatingRepository`, `LlmJobService`, `RagTestDtos`, `RagTestRunRepository`, `RewriteLlmPreflight` |
-| [RewriteLlmPreflight](../../backend/src/main/java/io/queryforge/backend/admin/console/evaluation/run/RewriteLlmPreflight.java#L13) | — | `ConsoleEnvironment`, `ConsoleParameters` |
+| [ChunkEmbeddingAdminController](../../backend/src/main/java/io/queryforge/backend/admin/console/embedding/controller/ChunkEmbeddingAdminController.java#L14) | — | `ChunkEmbeddingAdminDtos`, `ChunkEmbeddingAdminService`, `LlmJobDtos` |
 
-### `admin.console.gating`
+### `admin.console.embedding.dto`
 
 | Type | Named nested types | Backend type references |
 | --- | --- | --- |
-| [GatingController](../../backend/src/main/java/io/queryforge/backend/admin/console/gating/GatingController.java#L15) | — | `GatingDtos`, `GatingService` |
-| [GatingDtos](../../backend/src/main/java/io/queryforge/backend/admin/console/gating/GatingDtos.java#L10) | `GatingBatchRunRequest`, `GatingRunConfig`, `GatingStageFlags`, `GatingRuleConfig`, `GatingWeightsConfig`, `GatingUtilityScoreConfig`, `GatingThresholdConfig`, `GatingBatchRow`, `GatingFunnelResponse`, `GatingResultRow` | `AdminRuntimeOptionsDtos` |
-| [GatingRepository](../../backend/src/main/java/io/queryforge/backend/admin/console/gating/GatingRepository.java#L24) | — | `ConsoleJdbc`, `GatingDtos` |
-| [GatingService](../../backend/src/main/java/io/queryforge/backend/admin/console/gating/GatingService.java#L33) | — | `AdminRetrieverConfiguration`, `AdminRuntimeOptionsService`, `AdminSyntheticMethodRepository`, `ConsoleExperimentConfig`, `ConsoleParameters`, `ConsoleScopeService`, `GatingDtos`, `GatingRepository`, `LlmJobService`, `SyntheticGenerationDtos`, `SyntheticGenerationRepository` |
+| [ChunkEmbeddingAdminDtos](../../backend/src/main/java/io/queryforge/backend/admin/console/embedding/dto/ChunkEmbeddingAdminDtos.java#L5) | `ChunkEmbeddingMaterializationRequest`, `ChunkEmbeddingMaterializationStatusResponse` | — |
 
-### `admin.console.jobs`
+### `admin.console.embedding.repository`
 
 | Type | Named nested types | Backend type references |
 | --- | --- | --- |
-| [LlmJobController](../../backend/src/main/java/io/queryforge/backend/admin/console/jobs/LlmJobController.java#L14) | — | `LlmJobDtos`, `LlmJobService` |
-| [LlmJobDtos](../../backend/src/main/java/io/queryforge/backend/admin/console/jobs/LlmJobDtos.java#L8) | `LlmJobRow`, `LlmJobItemRow` | — |
-| [LlmJobRepository](../../backend/src/main/java/io/queryforge/backend/admin/console/jobs/LlmJobRepository.java#L19) | — | `LlmJobDtos` |
-| [LlmJobService](../../backend/src/main/java/io/queryforge/backend/admin/console/jobs/LlmJobService.java#L39) | — | `ExperimentCommandDtos`, `ExperimentPipelineService`, `GatingRepository`, `LlmJobDtos`, `LlmJobRepository`, `LlmJobResultService`, `LlmJobType`, `RagTestRunRepository`, `SyntheticGenerationRepository` |
-| [LlmJobType](../../backend/src/main/java/io/queryforge/backend/admin/console/jobs/LlmJobType.java#L5) | — | — |
+| [ChunkEmbeddingAdminRepository](../../backend/src/main/java/io/queryforge/backend/admin/console/embedding/repository/ChunkEmbeddingAdminRepository.java#L13) | — | — |
 
-### `admin.console.jobs.result`
+### `admin.console.embedding.service`
 
 | Type | Named nested types | Backend type references |
 | --- | --- | --- |
-| [LlmJobResultService](../../backend/src/main/java/io/queryforge/backend/admin/console/jobs/result/LlmJobResultService.java#L32) | — | `AdminEvalDatasetRepository`, `AdminPipelineProperties`, `CanonicalAnchorVersionMetadata`, `GatingRepository`, `LlmJobDtos`, `LlmJobType`, `RagRewriteAnchorDtos`, `RagRewriteAnchorEvalService`, `RagRewriteAnchorRepository`, `RagTestDtos`, `RagTestRunRepository`, `SyntheticGenerationRepository` |
+| [ChunkEmbeddingAdminService](../../backend/src/main/java/io/queryforge/backend/admin/console/embedding/service/ChunkEmbeddingAdminService.java#L24) | — | `AdminRetrieverConfiguration`, `AdminRuntimeOptionsDtos`, `AdminRuntimeOptionsService`, `ChunkEmbeddingAdminDtos`, `ChunkEmbeddingAdminRepository`, `ConsoleExperimentConfig`, `ConsoleParameters`, `LlmJobDtos`, `LlmJobService` |
 
-### `admin.console.persistence`
-
-| Type | Named nested types | Backend type references |
-| --- | --- | --- |
-| [ConsoleJdbc](../../backend/src/main/java/io/queryforge/backend/admin/console/persistence/ConsoleJdbc.java#L13) | — | — |
-
-### `admin.console.runtime`
+### `admin.console.evaluation.anchor.controller`
 
 | Type | Named nested types | Backend type references |
 | --- | --- | --- |
-| [AdminRetrieverConfiguration](../../backend/src/main/java/io/queryforge/backend/admin/console/runtime/AdminRetrieverConfiguration.java#L17) | — | `AdminRuntimeOptionsDtos`, `AdminRuntimeOptionsService`, `ConsoleParameters` |
-| [AdminRuntimeOptionsController](../../backend/src/main/java/io/queryforge/backend/admin/console/runtime/AdminRuntimeOptionsController.java#L8) | — | `AdminRuntimeOptionsDtos`, `AdminRuntimeOptionsService` |
-| [AdminRuntimeOptionsDtos](../../backend/src/main/java/io/queryforge/backend/admin/console/runtime/AdminRuntimeOptionsDtos.java#L8) | `RetrieverConfigRequest`, `RuntimeOptionsResponse`, `RuntimeOption`, `RuntimeParameterRange` | — |
-| [AdminRuntimeOptionsService](../../backend/src/main/java/io/queryforge/backend/admin/console/runtime/AdminRuntimeOptionsService.java#L24) | `RuntimeCatalog`, `RuntimeOptionMetadata` | `AdminRuntimeOptionsDtos`, `ConsoleEnvironment`, `ConsoleParameters` |
-| [ConsoleEnvironment](../../backend/src/main/java/io/queryforge/backend/admin/console/runtime/ConsoleEnvironment.java#L12) | — | `AdminPipelineProperties` |
+| [RagRewriteAnchorController](../../backend/src/main/java/io/queryforge/backend/admin/console/evaluation/anchor/controller/RagRewriteAnchorController.java#L14) | — | `RagRewriteAnchorDtos`, `RagRewriteAnchorRepository` |
 
-### `admin.console.scope`
+### `admin.console.evaluation.anchor.dto`
 
 | Type | Named nested types | Backend type references |
 | --- | --- | --- |
-| [AdminConsoleDomainScopeRepository](../../backend/src/main/java/io/queryforge/backend/admin/console/scope/AdminConsoleDomainScopeRepository.java#L15) | `SourceStrategyContext`, `DatasetStrategyContext`, `DomainLanguageContext` | — |
-| [ConsoleScopeService](../../backend/src/main/java/io/queryforge/backend/admin/console/scope/ConsoleScopeService.java#L19) | `StrategyScope`, `SourceResolution`, `DatasetResolution` | `AdminConsoleDomainScopeRepository`, `AdminSyntheticMethodRepository`, `ConsoleParameters` |
+| [RagRewriteAnchorDtos](../../backend/src/main/java/io/queryforge/backend/admin/console/evaluation/anchor/dto/RagRewriteAnchorDtos.java#L8) | `RagRewriteAnchorEvalRow`, `AnchorEvaluationCase`, `EvalDatasetAnchorMeta`, `MemoryAnchorSource` | — |
 
-### `admin.console.synthetic`
-
-| Type | Named nested types | Backend type references |
-| --- | --- | --- |
-| [AdminConsoleStrategyTables](../../backend/src/main/java/io/queryforge/backend/admin/console/synthetic/AdminConsoleStrategyTables.java#L5) | — | — |
-| [AdminSyntheticMethodRepository](../../backend/src/main/java/io/queryforge/backend/admin/console/synthetic/AdminSyntheticMethodRepository.java#L17) | — | `SyntheticGenerationDtos` |
-| [SyntheticGenerationController](../../backend/src/main/java/io/queryforge/backend/admin/console/synthetic/SyntheticGenerationController.java#L16) | — | `SyntheticGenerationDtos`, `SyntheticGenerationService` |
-| [SyntheticGenerationDtos](../../backend/src/main/java/io/queryforge/backend/admin/console/synthetic/SyntheticGenerationDtos.java#L8) | `SyntheticGenerationMethod`, `SyntheticBatchRunRequest`, `SyntheticGenerationBatchRow`, `SyntheticQueryRow`, `SyntheticQueryDetailResponse`, `SyntheticStatsResponse` | — |
-| [SyntheticGenerationRepository](../../backend/src/main/java/io/queryforge/backend/admin/console/synthetic/SyntheticGenerationRepository.java#L22) | — | `AdminConsoleStrategyTables`, `ConsoleJdbc`, `SyntheticGenerationDtos` |
-| [SyntheticGenerationService](../../backend/src/main/java/io/queryforge/backend/admin/console/synthetic/SyntheticGenerationService.java#L25) | — | `AdminRuntimeOptionsService`, `AdminSyntheticMethodRepository`, `ConsoleExperimentConfig`, `ConsoleParameters`, `ConsoleScopeService`, `LlmJobService`, `SyntheticGenerationDtos`, `SyntheticGenerationRepository` |
-
-### `admin.corpus.anchor.evaluation`
+### `admin.console.evaluation.anchor.repository`
 
 | Type | Named nested types | Backend type references |
 | --- | --- | --- |
-| [AnchorEvalController](../../backend/src/main/java/io/queryforge/backend/admin/corpus/anchor/evaluation/AnchorEvalController.java#L15) | — | `AnchorEvalDtos`, `AnchorEvalService` |
-| [AnchorEvalDtos](../../backend/src/main/java/io/queryforge/backend/admin/corpus/anchor/evaluation/AnchorEvalDtos.java#L10) | `AnchorEvalRunCreateRequest`, `AnchorEvalRunSummary`, `AnchorEvalCandidateDto`, `AnchorEvalSampleDto`, `AnchorEvalRunDetail`, `AnchorEvalLabelRequest` | — |
-| [AnchorEvalRepository](../../backend/src/main/java/io/queryforge/backend/admin/corpus/anchor/evaluation/AnchorEvalRepository.java#L25) | — | `AnchorEvalDtos`, `CorpusDocumentDtos`, `CorpusJdbc` |
-| [AnchorEvalService](../../backend/src/main/java/io/queryforge/backend/admin/corpus/anchor/evaluation/AnchorEvalService.java#L12) | — | `AnchorEvalDtos`, `AnchorEvalRepository`, `CorpusDocumentDtos` |
+| [RagRewriteAnchorRepository](../../backend/src/main/java/io/queryforge/backend/admin/console/evaluation/anchor/repository/RagRewriteAnchorRepository.java#L27) | — | `ConsoleJdbc`, `RagRewriteAnchorDtos` |
 
-### `admin.corpus.anchor.extraction`
+### `admin.console.evaluation.anchor.service`
 
 | Type | Named nested types | Backend type references |
 | --- | --- | --- |
-| [AnchorExtractionController](../../backend/src/main/java/io/queryforge/backend/admin/corpus/anchor/extraction/AnchorExtractionController.java#L9) | — | `AnchorExtractionDtos`, `AnchorExtractionService` |
-| [AnchorExtractionDtos](../../backend/src/main/java/io/queryforge/backend/admin/corpus/anchor/extraction/AnchorExtractionDtos.java#L7) | `AnchorExtractRequest`, `AnchorExtractResponse` | — |
-| [AnchorExtractionService](../../backend/src/main/java/io/queryforge/backend/admin/corpus/anchor/extraction/AnchorExtractionService.java#L28) | `AnchorChunkRow`, `AnchorCandidate`, `TermStatRow`, `TermRefreshSummary`, `AnchorRemapSummary` | `AdminPipelineProperties`, `AnchorExtractionDtos`, `SourceCatalogService` |
+| [RagRewriteAnchorEvalService](../../backend/src/main/java/io/queryforge/backend/admin/console/evaluation/anchor/service/RagRewriteAnchorEvalService.java#L30) | `AnchorDraft` | `AdminPipelineProperties`, `RagRewriteAnchorDtos`, `RagRewriteAnchorRepository` |
 
-### `admin.corpus.anchor.normalization`
+### `admin.console.evaluation.anchor.support`
 
 | Type | Named nested types | Backend type references |
 | --- | --- | --- |
-| [AnchorNormalizationController](../../backend/src/main/java/io/queryforge/backend/admin/corpus/anchor/normalization/AnchorNormalizationController.java#L16) | — | `AnchorNormalizationDtos`, `AnchorNormalizationService` |
-| [AnchorNormalizationDtos](../../backend/src/main/java/io/queryforge/backend/admin/corpus/anchor/normalization/AnchorNormalizationDtos.java#L10) | `AnchorNormalizationRunCreateRequest`, `AnchorNormalizationReviewRequest`, `AnchorNormalizationCandidateReviewRequest`, `AnchorNormalizationCandidateDecision`, `AnchorNormalizationCandidateReviewBatchRequest`, `AnchorNormalizationRunSummary`, `AnchorNormalizationCandidateDto`, `AnchorNormalizationRunDetail` | — |
-| [AnchorNormalizationService](../../backend/src/main/java/io/queryforge/backend/admin/corpus/anchor/normalization/AnchorNormalizationService.java#L25) | `TargetAnchor`, `CandidateDraft` | `AnchorNormalizationDtos` |
+| [CanonicalAnchorVersionMetadata](../../backend/src/main/java/io/queryforge/backend/admin/console/evaluation/anchor/support/CanonicalAnchorVersionMetadata.java#L12) | — | `AnchorSchemaVersions` |
 
-### `admin.corpus.anchor.query`
+### `admin.console.evaluation.dataset.controller`
 
 | Type | Named nested types | Backend type references |
 | --- | --- | --- |
-| [CorpusAnchorController](../../backend/src/main/java/io/queryforge/backend/admin/corpus/anchor/query/CorpusAnchorController.java#L11) | — | `CorpusAnchorDtos`, `CorpusAnchorService` |
-| [CorpusAnchorDtos](../../backend/src/main/java/io/queryforge/backend/admin/corpus/anchor/query/CorpusAnchorDtos.java#L6) | `AnchorSummary` | — |
-| [CorpusAnchorRepository](../../backend/src/main/java/io/queryforge/backend/admin/corpus/anchor/query/CorpusAnchorRepository.java#L18) | — | `CorpusAnchorDtos`, `CorpusJdbc` |
-| [CorpusAnchorService](../../backend/src/main/java/io/queryforge/backend/admin/corpus/anchor/query/CorpusAnchorService.java#L9) | — | `CorpusAnchorDtos`, `CorpusAnchorRepository` |
+| [EvalDatasetController](../../backend/src/main/java/io/queryforge/backend/admin/console/evaluation/dataset/controller/EvalDatasetController.java#L15) | — | `EvalDatasetDtos`, `EvalDatasetService` |
 
-### `admin.corpus.anchor.relation`
+### `admin.console.evaluation.dataset.dto`
 
 | Type | Named nested types | Backend type references |
 | --- | --- | --- |
-| [MultiSourceAnchorController](../../backend/src/main/java/io/queryforge/backend/admin/corpus/anchor/relation/MultiSourceAnchorController.java#L15) | — | `MultiSourceAnchorDtos`, `MultiSourceAnchorService` |
-| [MultiSourceAnchorDtos](../../backend/src/main/java/io/queryforge/backend/admin/corpus/anchor/relation/MultiSourceAnchorDtos.java#L10) | `MultiSourceAnchorBuildRequest`, `MultiSourceAnchorBuildRunSummary` | — |
-| [MultiSourceAnchorService](../../backend/src/main/java/io/queryforge/backend/admin/corpus/anchor/relation/MultiSourceAnchorService.java#L24) | — | `MultiSourceAnchorDtos` |
+| [EvalDatasetDtos](../../backend/src/main/java/io/queryforge/backend/admin/console/evaluation/dataset/dto/EvalDatasetDtos.java#L8) | `EvalDatasetRow`, `EvalDatasetItemRow`, `EvalSampleMeta` | — |
 
-### `admin.corpus.document`
+### `admin.console.evaluation.dataset.lifecycle.controller`
 
 | Type | Named nested types | Backend type references |
 | --- | --- | --- |
-| [CorpusDocumentController](../../backend/src/main/java/io/queryforge/backend/admin/corpus/document/CorpusDocumentController.java#L13) | — | `CorpusDocumentDtos`, `CorpusDocumentService` |
-| [CorpusDocumentDtos](../../backend/src/main/java/io/queryforge/backend/admin/corpus/document/CorpusDocumentDtos.java#L9) | `DocumentSummary`, `DocumentDetail`, `SectionDto`, `ChunkSummary`, `ChunkDetail`, `ChunkNeighborDto`, `RawVsCleanedPreview`, `ChunkBoundaryDto`, `ChunkBoundaryPreview` | — |
-| [CorpusDocumentRepository](../../backend/src/main/java/io/queryforge/backend/admin/corpus/document/CorpusDocumentRepository.java#L22) | — | `CorpusDocumentDtos`, `CorpusJdbc` |
-| [CorpusDocumentService](../../backend/src/main/java/io/queryforge/backend/admin/corpus/document/CorpusDocumentService.java#L12) | — | `CorpusDocumentDtos`, `CorpusDocumentRepository` |
+| [EvalDatasetDeletionController](../../backend/src/main/java/io/queryforge/backend/admin/console/evaluation/dataset/lifecycle/controller/EvalDatasetDeletionController.java#L12) | — | `EvalDatasetDeletionService` |
 
-### `admin.corpus.glossary`
+### `admin.console.evaluation.dataset.lifecycle.service`
 
 | Type | Named nested types | Backend type references |
 | --- | --- | --- |
-| [CorpusGlossaryController](../../backend/src/main/java/io/queryforge/backend/admin/corpus/glossary/CorpusGlossaryController.java#L17) | — | `CorpusGlossaryDtos`, `CorpusGlossaryService` |
-| [CorpusGlossaryDtos](../../backend/src/main/java/io/queryforge/backend/admin/corpus/glossary/CorpusGlossaryDtos.java#L10) | `GlossaryAliasDto`, `GlossaryTermSummary`, `GlossaryTermDetail`, `GlossaryEvidenceDto`, `TopTermPreview`, `GlossaryTermPatchRequest`, `GlossaryAliasCreateRequest` | — |
-| [CorpusGlossaryRepository](../../backend/src/main/java/io/queryforge/backend/admin/corpus/glossary/CorpusGlossaryRepository.java#L22) | — | `CorpusGlossaryDtos`, `CorpusJdbc` |
-| [CorpusGlossaryService](../../backend/src/main/java/io/queryforge/backend/admin/corpus/glossary/CorpusGlossaryService.java#L10) | — | `CorpusGlossaryDtos`, `CorpusGlossaryRepository` |
+| [EvalDatasetDeletionService](../../backend/src/main/java/io/queryforge/backend/admin/console/evaluation/dataset/lifecycle/service/EvalDatasetDeletionService.java#L17) | — | `AdminEvalDatasetRepository`, `EvalDatasetService`, `RagTestDtos`, `RagTestHistoryService`, `RagTestRunRepository` |
 
-### `admin.corpus.persistence`
+### `admin.console.evaluation.dataset.repository`
 
 | Type | Named nested types | Backend type references |
 | --- | --- | --- |
-| [CorpusJdbc](../../backend/src/main/java/io/queryforge/backend/admin/corpus/persistence/CorpusJdbc.java#L12) | — | — |
+| [AdminEvalDatasetRepository](../../backend/src/main/java/io/queryforge/backend/admin/console/evaluation/dataset/repository/AdminEvalDatasetRepository.java#L22) | — | `EvalDatasetDtos` |
 
-### `admin.corpus.run`
-
-| Type | Named nested types | Backend type references |
-| --- | --- | --- |
-| [CorpusRunController](../../backend/src/main/java/io/queryforge/backend/admin/corpus/run/CorpusRunController.java#L13) | — | `CorpusRunDtos`, `CorpusRunService` |
-| [CorpusRunDtos](../../backend/src/main/java/io/queryforge/backend/admin/corpus/run/CorpusRunDtos.java#L9) | `RunSummary`, `RunStep`, `RunDetail` | — |
-| [CorpusRunRepository](../../backend/src/main/java/io/queryforge/backend/admin/corpus/run/CorpusRunRepository.java#L21) | — | `CorpusJdbc`, `CorpusRunDtos` |
-| [CorpusRunService](../../backend/src/main/java/io/queryforge/backend/admin/corpus/run/CorpusRunService.java#L10) | — | `CorpusRunDtos`, `CorpusRunRepository` |
-
-### `admin.corpus.source`
+### `admin.console.evaluation.dataset.service`
 
 | Type | Named nested types | Backend type references |
 | --- | --- | --- |
-| [CorpusSourceController](../../backend/src/main/java/io/queryforge/backend/admin/corpus/source/CorpusSourceController.java#L16) | — | `CorpusSourceDtos`, `CorpusSourceService` |
-| [CorpusSourceDtos](../../backend/src/main/java/io/queryforge/backend/admin/corpus/source/CorpusSourceDtos.java#L10) | `SourceSummary`, `SourceUpdateRequest`, `SourceUpsertRequest`, `SourceAutoRegisterRequest` | — |
-| [CorpusSourceRepository](../../backend/src/main/java/io/queryforge/backend/admin/corpus/source/CorpusSourceRepository.java#L17) | — | `CorpusJdbc`, `CorpusSourceDtos` |
-| [CorpusSourceService](../../backend/src/main/java/io/queryforge/backend/admin/corpus/source/CorpusSourceService.java#L17) | — | `CorpusSourceDtos`, `CorpusSourceRepository`, `DomainSourceDtos`, `DomainSourceService`, `SourceCatalogService` |
+| [EvalDatasetService](../../backend/src/main/java/io/queryforge/backend/admin/console/evaluation/dataset/service/EvalDatasetService.java#L14) | — | `AdminEvalDatasetRepository`, `EvalDatasetDtos` |
 
-### `admin.domain.dashboard`
+### `admin.console.evaluation.debug.controller`
 
 | Type | Named nested types | Backend type references |
 | --- | --- | --- |
-| [DomainDashboardController](../../backend/src/main/java/io/queryforge/backend/admin/domain/dashboard/DomainDashboardController.java#L9) | — | `DomainDashboardDtos`, `DomainDashboardService` |
-| [DomainDashboardDtos](../../backend/src/main/java/io/queryforge/backend/admin/domain/dashboard/DomainDashboardDtos.java#L6) | `DomainDashboardSummary` | — |
-| [DomainDashboardRepository](../../backend/src/main/java/io/queryforge/backend/admin/domain/dashboard/DomainDashboardRepository.java#L17) | — | `DomainDashboardDtos` |
-| [DomainDashboardService](../../backend/src/main/java/io/queryforge/backend/admin/domain/dashboard/DomainDashboardService.java#L6) | — | `DomainDashboardDtos`, `DomainDashboardRepository` |
+| [RewriteDebugController](../../backend/src/main/java/io/queryforge/backend/admin/console/evaluation/debug/controller/RewriteDebugController.java#L15) | — | `RewriteDebugDtos`, `RewriteDebugService` |
 
-### `admin.domain.identity`
+### `admin.console.evaluation.debug.dto`
 
 | Type | Named nested types | Backend type references |
 | --- | --- | --- |
-| [DomainIdentityDtos](../../backend/src/main/java/io/queryforge/backend/admin/domain/identity/DomainIdentityDtos.java#L8) | `DomainSummary`, `DomainCreateRequest`, `DomainUpdateRequest` | — |
-| [DomainIdentityRepository](../../backend/src/main/java/io/queryforge/backend/admin/domain/identity/DomainIdentityRepository.java#L21) | — | `DomainIdentityDtos` |
-| [DomainIdentityService](../../backend/src/main/java/io/queryforge/backend/admin/domain/identity/DomainIdentityService.java#L12) | — | `DomainIdentityDtos`, `DomainIdentityRepository` |
+| [RewriteDebugDtos](../../backend/src/main/java/io/queryforge/backend/admin/console/evaluation/debug/dto/RewriteDebugDtos.java#L8) | `RewriteDebugRow`, `RewriteDebugDetail` | — |
 
-### `admin.domain.policy`
+### `admin.console.evaluation.debug.repository`
 
 | Type | Named nested types | Backend type references |
 | --- | --- | --- |
-| [DomainMethodPolicy](../../backend/src/main/java/io/queryforge/backend/admin/domain/policy/DomainMethodPolicy.java#L7) | — | — |
-| [DomainMethodPolicyRepository](../../backend/src/main/java/io/queryforge/backend/admin/domain/policy/DomainMethodPolicyRepository.java#L17) | — | `DomainMethodPolicy` |
+| [RewriteDebugRepository](../../backend/src/main/java/io/queryforge/backend/admin/console/evaluation/debug/repository/RewriteDebugRepository.java#L22) | — | `ConsoleJdbc`, `RewriteDebugDtos` |
 
-### `admin.domain.source`
-
-| Type | Named nested types | Backend type references |
-| --- | --- | --- |
-| [DomainSourceDtos](../../backend/src/main/java/io/queryforge/backend/admin/domain/source/DomainSourceDtos.java#L5) | `DomainSource`, `DomainSourceAttachRequest` | — |
-| [DomainSourceRepository](../../backend/src/main/java/io/queryforge/backend/admin/domain/source/DomainSourceRepository.java#L17) | — | `DomainSourceDtos` |
-| [DomainSourceService](../../backend/src/main/java/io/queryforge/backend/admin/domain/source/DomainSourceService.java#L11) | — | `DomainIdentityService`, `DomainSourceDtos`, `DomainSourceRepository` |
-
-### `admin.domain.workspace`
+### `admin.console.evaluation.debug.service`
 
 | Type | Named nested types | Backend type references |
 | --- | --- | --- |
-| [DomainDetail](../../backend/src/main/java/io/queryforge/backend/admin/domain/workspace/DomainDetail.java#L9) | — | `DomainIdentityDtos`, `DomainMethodPolicy`, `DomainSourceDtos` |
-| [DomainWorkspaceController](../../backend/src/main/java/io/queryforge/backend/admin/domain/workspace/DomainWorkspaceController.java#L17) | — | `DomainDetail`, `DomainIdentityDtos`, `DomainSourceDtos`, `DomainWorkspaceService` |
-| [DomainWorkspaceService](../../backend/src/main/java/io/queryforge/backend/admin/domain/workspace/DomainWorkspaceService.java#L14) | — | `DomainDetail`, `DomainIdentityDtos`, `DomainIdentityService`, `DomainMethodPolicyRepository`, `DomainSourceDtos`, `DomainSourceService` |
+| [RewriteDebugService](../../backend/src/main/java/io/queryforge/backend/admin/console/evaluation/debug/service/RewriteDebugService.java#L12) | — | `RewriteDebugDtos`, `RewriteDebugRepository` |
 
-### `admin.pipeline.artifact`
+### `admin.console.evaluation.run.controller`
 
 | Type | Named nested types | Backend type references |
 | --- | --- | --- |
-| [DocumentArtifactStoreService](../../backend/src/main/java/io/queryforge/backend/admin/pipeline/artifact/DocumentArtifactStoreService.java#L31) | `PersistResult`, `Stage`, `StageMetadata`, `DocumentManifest`, `AggregatedGlossaryRow` | `AdminPipelineProperties`, `SourceCatalogService` |
+| [RagTestController](../../backend/src/main/java/io/queryforge/backend/admin/console/evaluation/run/controller/RagTestController.java#L19) | — | `RagTestDtos`, `RagTestHistoryService`, `RagTestService` |
+
+### `admin.console.evaluation.run.dto`
+
+| Type | Named nested types | Backend type references |
+| --- | --- | --- |
+| [RagTestDtos](../../backend/src/main/java/io/queryforge/backend/admin/console/evaluation/run/dto/RagTestDtos.java#L12) | `RagTestRunRequest`, `RagTestRunRow`, `RagTestRunDetail`, `RagTestResultDetailRow`, `RagCompareResponse` | `AdminRuntimeOptionsDtos`, `RagRewriteAnchorDtos` |
+
+### `admin.console.evaluation.run.repository`
+
+| Type | Named nested types | Backend type references |
+| --- | --- | --- |
+| [RagTestRunRepository](../../backend/src/main/java/io/queryforge/backend/admin/console/evaluation/run/repository/RagTestRunRepository.java#L31) | — | `ConsoleJdbc`, `RagRewriteAnchorDtos`, `RagRewriteAnchorRepository`, `RagTestDtos` |
+
+### `admin.console.evaluation.run.service`
+
+| Type | Named nested types | Backend type references |
+| --- | --- | --- |
+| [RagTestHistoryService](../../backend/src/main/java/io/queryforge/backend/admin/console/evaluation/run/service/RagTestHistoryService.java#L17) | — | `RagRewriteAnchorRepository`, `RagTestDtos`, `RagTestRunRepository` |
+| [RagTestService](../../backend/src/main/java/io/queryforge/backend/admin/console/evaluation/run/service/RagTestService.java#L42) | — | `AdminEvalDatasetRepository`, `AdminRetrieverConfiguration`, `AdminRuntimeOptionsDtos`, `AdminRuntimeOptionsService`, `CanonicalAnchorVersionMetadata`, `ChunkEmbeddingAdminService`, `ConsoleExperimentConfig`, `ConsoleParameters`, `ConsoleScopeService`, `EvalDatasetService`, `GatingDtos`, `GatingRepository`, `LlmJobService`, `RagTestDtos`, `RagTestRunRepository`, `RewriteLlmPreflight` |
+| [RewriteLlmPreflight](../../backend/src/main/java/io/queryforge/backend/admin/console/evaluation/run/service/RewriteLlmPreflight.java#L13) | — | `ConsoleEnvironment`, `ConsoleParameters` |
+
+### `admin.console.gating.controller`
+
+| Type | Named nested types | Backend type references |
+| --- | --- | --- |
+| [GatingController](../../backend/src/main/java/io/queryforge/backend/admin/console/gating/controller/GatingController.java#L17) | — | `GatingDtos`, `GatingService` |
+
+### `admin.console.gating.dto`
+
+| Type | Named nested types | Backend type references |
+| --- | --- | --- |
+| [GatingDtos](../../backend/src/main/java/io/queryforge/backend/admin/console/gating/dto/GatingDtos.java#L10) | `GatingBatchRunRequest`, `GatingRunConfig`, `GatingStageFlags`, `GatingRuleConfig`, `GatingWeightsConfig`, `GatingUtilityScoreConfig`, `GatingThresholdConfig`, `GatingBatchRow`, `GatingFunnelResponse`, `GatingResultRow` | `AdminRuntimeOptionsDtos` |
+
+### `admin.console.gating.repository`
+
+| Type | Named nested types | Backend type references |
+| --- | --- | --- |
+| [GatingRepository](../../backend/src/main/java/io/queryforge/backend/admin/console/gating/repository/GatingRepository.java#L25) | — | `ConsoleJdbc`, `GatingDtos` |
+
+### `admin.console.gating.service`
+
+| Type | Named nested types | Backend type references |
+| --- | --- | --- |
+| [GatingService](../../backend/src/main/java/io/queryforge/backend/admin/console/gating/service/GatingService.java#L35) | — | `AdminRetrieverConfiguration`, `AdminRuntimeOptionsDtos`, `AdminRuntimeOptionsService`, `AdminSyntheticMethodRepository`, `ConsoleExperimentConfig`, `ConsoleParameters`, `ConsoleScopeService`, `GatingDtos`, `GatingRepository`, `LlmJobService`, `SyntheticGenerationDtos`, `SyntheticGenerationRepository` |
+
+### `admin.console.jobs.controller`
+
+| Type | Named nested types | Backend type references |
+| --- | --- | --- |
+| [LlmJobController](../../backend/src/main/java/io/queryforge/backend/admin/console/jobs/controller/LlmJobController.java#L16) | — | `LlmJobDtos`, `LlmJobService` |
+
+### `admin.console.jobs.dto`
+
+| Type | Named nested types | Backend type references |
+| --- | --- | --- |
+| [LlmJobDtos](../../backend/src/main/java/io/queryforge/backend/admin/console/jobs/dto/LlmJobDtos.java#L8) | `LlmJobRow`, `LlmJobItemRow` | — |
+
+### `admin.console.jobs.model`
+
+| Type | Named nested types | Backend type references |
+| --- | --- | --- |
+| [LlmJobType](../../backend/src/main/java/io/queryforge/backend/admin/console/jobs/model/LlmJobType.java#L5) | — | — |
+
+### `admin.console.jobs.repository`
+
+| Type | Named nested types | Backend type references |
+| --- | --- | --- |
+| [LlmJobRepository](../../backend/src/main/java/io/queryforge/backend/admin/console/jobs/repository/LlmJobRepository.java#L20) | — | `LlmJobDtos` |
+
+### `admin.console.jobs.result.service`
+
+| Type | Named nested types | Backend type references |
+| --- | --- | --- |
+| [LlmJobResultService](../../backend/src/main/java/io/queryforge/backend/admin/console/jobs/result/service/LlmJobResultService.java#L33) | — | `AdminEvalDatasetRepository`, `AdminPipelineProperties`, `CanonicalAnchorVersionMetadata`, `EvalDatasetDtos`, `GatingRepository`, `LlmJobDtos`, `LlmJobType`, `RagRewriteAnchorDtos`, `RagRewriteAnchorEvalService`, `RagRewriteAnchorRepository`, `RagTestDtos`, `RagTestRunRepository`, `SyntheticGenerationRepository` |
+
+### `admin.console.jobs.service`
+
+| Type | Named nested types | Backend type references |
+| --- | --- | --- |
+| [LlmJobService](../../backend/src/main/java/io/queryforge/backend/admin/console/jobs/service/LlmJobService.java#L42) | — | `ExperimentCommandDtos`, `ExperimentPipelineService`, `GatingRepository`, `LlmJobDtos`, `LlmJobRepository`, `LlmJobResultService`, `LlmJobType`, `RagTestRunRepository`, `SyntheticGenerationRepository` |
+
+### `admin.console.persistence.support`
+
+| Type | Named nested types | Backend type references |
+| --- | --- | --- |
+| [ConsoleJdbc](../../backend/src/main/java/io/queryforge/backend/admin/console/persistence/support/ConsoleJdbc.java#L13) | — | — |
+
+### `admin.console.runtime.controller`
+
+| Type | Named nested types | Backend type references |
+| --- | --- | --- |
+| [AdminRuntimeOptionsController](../../backend/src/main/java/io/queryforge/backend/admin/console/runtime/controller/AdminRuntimeOptionsController.java#L10) | — | `AdminRuntimeOptionsDtos`, `AdminRuntimeOptionsService` |
+
+### `admin.console.runtime.dto`
+
+| Type | Named nested types | Backend type references |
+| --- | --- | --- |
+| [AdminRuntimeOptionsDtos](../../backend/src/main/java/io/queryforge/backend/admin/console/runtime/dto/AdminRuntimeOptionsDtos.java#L8) | `RetrieverConfigRequest`, `RuntimeOptionsResponse`, `RuntimeOption`, `RuntimeParameterRange`, `RuntimeCatalog`, `RuntimeOptionMetadata` | — |
+
+### `admin.console.runtime.service`
+
+| Type | Named nested types | Backend type references |
+| --- | --- | --- |
+| [AdminRetrieverConfiguration](../../backend/src/main/java/io/queryforge/backend/admin/console/runtime/service/AdminRetrieverConfiguration.java#L18) | — | `AdminRuntimeOptionsDtos`, `AdminRuntimeOptionsService`, `ConsoleParameters` |
+| [AdminRuntimeOptionsService](../../backend/src/main/java/io/queryforge/backend/admin/console/runtime/service/AdminRuntimeOptionsService.java#L27) | — | `AdminRuntimeOptionsDtos`, `ConsoleEnvironment`, `ConsoleParameters` |
+| [ConsoleEnvironment](../../backend/src/main/java/io/queryforge/backend/admin/console/runtime/service/ConsoleEnvironment.java#L12) | — | `AdminPipelineProperties` |
+
+### `admin.console.scope.dto`
+
+| Type | Named nested types | Backend type references |
+| --- | --- | --- |
+| [ConsoleScopeDtos](../../backend/src/main/java/io/queryforge/backend/admin/console/scope/dto/ConsoleScopeDtos.java#L5) | `SourceStrategyContext`, `DatasetStrategyContext`, `DomainLanguageContext` | — |
+
+### `admin.console.scope.repository`
+
+| Type | Named nested types | Backend type references |
+| --- | --- | --- |
+| [AdminConsoleDomainScopeRepository](../../backend/src/main/java/io/queryforge/backend/admin/console/scope/repository/AdminConsoleDomainScopeRepository.java#L18) | — | `ConsoleScopeDtos` |
+
+### `admin.console.scope.service`
+
+| Type | Named nested types | Backend type references |
+| --- | --- | --- |
+| [ConsoleScopeService](../../backend/src/main/java/io/queryforge/backend/admin/console/scope/service/ConsoleScopeService.java#L21) | `StrategyScope`, `SourceResolution`, `DatasetResolution` | `AdminConsoleDomainScopeRepository`, `AdminSyntheticMethodRepository`, `ConsoleParameters`, `ConsoleScopeDtos` |
+
+### `admin.console.synthetic.controller`
+
+| Type | Named nested types | Backend type references |
+| --- | --- | --- |
+| [SyntheticGenerationController](../../backend/src/main/java/io/queryforge/backend/admin/console/synthetic/controller/SyntheticGenerationController.java#L18) | — | `SyntheticGenerationDtos`, `SyntheticGenerationService` |
+
+### `admin.console.synthetic.dto`
+
+| Type | Named nested types | Backend type references |
+| --- | --- | --- |
+| [SyntheticGenerationDtos](../../backend/src/main/java/io/queryforge/backend/admin/console/synthetic/dto/SyntheticGenerationDtos.java#L8) | `SyntheticGenerationMethod`, `SyntheticBatchRunRequest`, `SyntheticGenerationBatchRow`, `SyntheticQueryRow`, `SyntheticQueryDetailResponse`, `SyntheticStatsResponse` | — |
+
+### `admin.console.synthetic.repository`
+
+| Type | Named nested types | Backend type references |
+| --- | --- | --- |
+| [AdminConsoleStrategyTables](../../backend/src/main/java/io/queryforge/backend/admin/console/synthetic/repository/AdminConsoleStrategyTables.java#L5) | — | — |
+| [AdminSyntheticMethodRepository](../../backend/src/main/java/io/queryforge/backend/admin/console/synthetic/repository/AdminSyntheticMethodRepository.java#L18) | — | `SyntheticGenerationDtos` |
+| [SyntheticGenerationRepository](../../backend/src/main/java/io/queryforge/backend/admin/console/synthetic/repository/SyntheticGenerationRepository.java#L23) | — | `AdminConsoleStrategyTables`, `ConsoleJdbc`, `SyntheticGenerationDtos` |
+
+### `admin.console.synthetic.service`
+
+| Type | Named nested types | Backend type references |
+| --- | --- | --- |
+| [SyntheticGenerationService](../../backend/src/main/java/io/queryforge/backend/admin/console/synthetic/service/SyntheticGenerationService.java#L28) | — | `AdminRuntimeOptionsDtos`, `AdminRuntimeOptionsService`, `AdminSyntheticMethodRepository`, `ConsoleExperimentConfig`, `ConsoleParameters`, `ConsoleScopeService`, `LlmJobService`, `SyntheticGenerationDtos`, `SyntheticGenerationRepository` |
+
+### `admin.corpus.anchor.evaluation.controller`
+
+| Type | Named nested types | Backend type references |
+| --- | --- | --- |
+| [AnchorEvalController](../../backend/src/main/java/io/queryforge/backend/admin/corpus/anchor/evaluation/controller/AnchorEvalController.java#L17) | — | `AnchorEvalDtos`, `AnchorEvalService` |
+
+### `admin.corpus.anchor.evaluation.dto`
+
+| Type | Named nested types | Backend type references |
+| --- | --- | --- |
+| [AnchorEvalDtos](../../backend/src/main/java/io/queryforge/backend/admin/corpus/anchor/evaluation/dto/AnchorEvalDtos.java#L10) | `AnchorEvalRunCreateRequest`, `AnchorEvalRunSummary`, `AnchorEvalCandidateDto`, `AnchorEvalSampleDto`, `AnchorEvalRunDetail`, `AnchorEvalLabelRequest` | — |
+
+### `admin.corpus.anchor.evaluation.repository`
+
+| Type | Named nested types | Backend type references |
+| --- | --- | --- |
+| [AnchorEvalRepository](../../backend/src/main/java/io/queryforge/backend/admin/corpus/anchor/evaluation/repository/AnchorEvalRepository.java#L26) | — | `AnchorEvalDtos`, `CorpusDocumentDtos`, `CorpusJdbc` |
+
+### `admin.corpus.anchor.evaluation.service`
+
+| Type | Named nested types | Backend type references |
+| --- | --- | --- |
+| [AnchorEvalService](../../backend/src/main/java/io/queryforge/backend/admin/corpus/anchor/evaluation/service/AnchorEvalService.java#L14) | — | `AnchorEvalDtos`, `AnchorEvalRepository`, `CorpusDocumentDtos` |
+
+### `admin.corpus.anchor.extraction.controller`
+
+| Type | Named nested types | Backend type references |
+| --- | --- | --- |
+| [AnchorExtractionController](../../backend/src/main/java/io/queryforge/backend/admin/corpus/anchor/extraction/controller/AnchorExtractionController.java#L11) | — | `AnchorExtractionDtos`, `AnchorExtractionService` |
+
+### `admin.corpus.anchor.extraction.dto`
+
+| Type | Named nested types | Backend type references |
+| --- | --- | --- |
+| [AnchorExtractionDtos](../../backend/src/main/java/io/queryforge/backend/admin/corpus/anchor/extraction/dto/AnchorExtractionDtos.java#L7) | `AnchorExtractRequest`, `AnchorExtractResponse`, `AnchorChunkRow`, `AnchorCandidate`, `TermRefreshSummary`, `AnchorRemapSummary` | — |
+
+### `admin.corpus.anchor.extraction.repository`
+
+| Type | Named nested types | Backend type references |
+| --- | --- | --- |
+| [AnchorExtractionRepository](../../backend/src/main/java/io/queryforge/backend/admin/corpus/anchor/extraction/repository/AnchorExtractionRepository.java#L17) | `TermStatRow` | `AnchorExtractionDtos` |
+
+### `admin.corpus.anchor.extraction.service`
+
+| Type | Named nested types | Backend type references |
+| --- | --- | --- |
+| [AnchorExtractionService](../../backend/src/main/java/io/queryforge/backend/admin/corpus/anchor/extraction/service/AnchorExtractionService.java#L32) | — | `AdminPipelineProperties`, `AnchorExtractionDtos`, `AnchorExtractionRepository`, `SourceCatalogService` |
+
+### `admin.corpus.anchor.normalization.controller`
+
+| Type | Named nested types | Backend type references |
+| --- | --- | --- |
+| [AnchorNormalizationController](../../backend/src/main/java/io/queryforge/backend/admin/corpus/anchor/normalization/controller/AnchorNormalizationController.java#L18) | — | `AnchorNormalizationDtos`, `AnchorNormalizationService` |
+
+### `admin.corpus.anchor.normalization.dto`
+
+| Type | Named nested types | Backend type references |
+| --- | --- | --- |
+| [AnchorNormalizationDtos](../../backend/src/main/java/io/queryforge/backend/admin/corpus/anchor/normalization/dto/AnchorNormalizationDtos.java#L10) | `AnchorNormalizationRunCreateRequest`, `AnchorNormalizationReviewRequest`, `AnchorNormalizationCandidateReviewRequest`, `AnchorNormalizationCandidateDecision`, `AnchorNormalizationCandidateReviewBatchRequest`, `AnchorNormalizationRunSummary`, `AnchorNormalizationCandidateDto`, `AnchorNormalizationRunDetail`, `TargetAnchor`, `CandidateDraft` | — |
+
+### `admin.corpus.anchor.normalization.repository`
+
+| Type | Named nested types | Backend type references |
+| --- | --- | --- |
+| [AnchorNormalizationRepository](../../backend/src/main/java/io/queryforge/backend/admin/corpus/anchor/normalization/repository/AnchorNormalizationRepository.java#L25) | — | `AnchorNormalizationDtos`, `AnchorSchemaVersions` |
+
+### `admin.corpus.anchor.normalization.service`
+
+| Type | Named nested types | Backend type references |
+| --- | --- | --- |
+| [AnchorNormalizationService](../../backend/src/main/java/io/queryforge/backend/admin/corpus/anchor/normalization/service/AnchorNormalizationService.java#L26) | — | `AnchorNormalizationDtos`, `AnchorNormalizationRepository`, `AnchorSchemaVersions` |
+
+### `admin.corpus.anchor.query.controller`
+
+| Type | Named nested types | Backend type references |
+| --- | --- | --- |
+| [CorpusAnchorController](../../backend/src/main/java/io/queryforge/backend/admin/corpus/anchor/query/controller/CorpusAnchorController.java#L13) | — | `CorpusAnchorDtos`, `CorpusAnchorService` |
+
+### `admin.corpus.anchor.query.dto`
+
+| Type | Named nested types | Backend type references |
+| --- | --- | --- |
+| [CorpusAnchorDtos](../../backend/src/main/java/io/queryforge/backend/admin/corpus/anchor/query/dto/CorpusAnchorDtos.java#L6) | `AnchorSummary` | — |
+
+### `admin.corpus.anchor.query.repository`
+
+| Type | Named nested types | Backend type references |
+| --- | --- | --- |
+| [CorpusAnchorRepository](../../backend/src/main/java/io/queryforge/backend/admin/corpus/anchor/query/repository/CorpusAnchorRepository.java#L19) | — | `CorpusAnchorDtos`, `CorpusJdbc` |
+
+### `admin.corpus.anchor.query.service`
+
+| Type | Named nested types | Backend type references |
+| --- | --- | --- |
+| [CorpusAnchorService](../../backend/src/main/java/io/queryforge/backend/admin/corpus/anchor/query/service/CorpusAnchorService.java#L11) | — | `CorpusAnchorDtos`, `CorpusAnchorRepository` |
+
+### `admin.corpus.anchor.relation.controller`
+
+| Type | Named nested types | Backend type references |
+| --- | --- | --- |
+| [MultiSourceAnchorController](../../backend/src/main/java/io/queryforge/backend/admin/corpus/anchor/relation/controller/MultiSourceAnchorController.java#L17) | — | `MultiSourceAnchorDtos`, `MultiSourceAnchorService` |
+
+### `admin.corpus.anchor.relation.dto`
+
+| Type | Named nested types | Backend type references |
+| --- | --- | --- |
+| [MultiSourceAnchorDtos](../../backend/src/main/java/io/queryforge/backend/admin/corpus/anchor/relation/dto/MultiSourceAnchorDtos.java#L10) | `MultiSourceAnchorBuildRequest`, `MultiSourceAnchorBuildRunSummary` | — |
+
+### `admin.corpus.anchor.relation.repository`
+
+| Type | Named nested types | Backend type references |
+| --- | --- | --- |
+| [MultiSourceAnchorRepository](../../backend/src/main/java/io/queryforge/backend/admin/corpus/anchor/relation/repository/MultiSourceAnchorRepository.java#L22) | — | `AnchorSchemaVersions`, `MultiSourceAnchorDtos` |
+
+### `admin.corpus.anchor.relation.service`
+
+| Type | Named nested types | Backend type references |
+| --- | --- | --- |
+| [MultiSourceAnchorService](../../backend/src/main/java/io/queryforge/backend/admin/corpus/anchor/relation/service/MultiSourceAnchorService.java#L20) | — | `MultiSourceAnchorDtos`, `MultiSourceAnchorRepository` |
+
+### `admin.corpus.anchor.support`
+
+| Type | Named nested types | Backend type references |
+| --- | --- | --- |
+| [AnchorSchemaVersions](../../backend/src/main/java/io/queryforge/backend/admin/corpus/anchor/support/AnchorSchemaVersions.java#L3) | — | — |
+
+### `admin.corpus.document.controller`
+
+| Type | Named nested types | Backend type references |
+| --- | --- | --- |
+| [CorpusDocumentController](../../backend/src/main/java/io/queryforge/backend/admin/corpus/document/controller/CorpusDocumentController.java#L15) | — | `CorpusDocumentDtos`, `CorpusDocumentService` |
+
+### `admin.corpus.document.dto`
+
+| Type | Named nested types | Backend type references |
+| --- | --- | --- |
+| [CorpusDocumentDtos](../../backend/src/main/java/io/queryforge/backend/admin/corpus/document/dto/CorpusDocumentDtos.java#L9) | `DocumentSummary`, `DocumentDetail`, `SectionDto`, `ChunkSummary`, `ChunkDetail`, `ChunkNeighborDto`, `RawVsCleanedPreview`, `ChunkBoundaryDto`, `ChunkBoundaryPreview` | — |
+
+### `admin.corpus.document.repository`
+
+| Type | Named nested types | Backend type references |
+| --- | --- | --- |
+| [CorpusDocumentRepository](../../backend/src/main/java/io/queryforge/backend/admin/corpus/document/repository/CorpusDocumentRepository.java#L23) | — | `CorpusDocumentDtos`, `CorpusJdbc` |
+
+### `admin.corpus.document.service`
+
+| Type | Named nested types | Backend type references |
+| --- | --- | --- |
+| [CorpusDocumentService](../../backend/src/main/java/io/queryforge/backend/admin/corpus/document/service/CorpusDocumentService.java#L14) | — | `CorpusDocumentDtos`, `CorpusDocumentRepository` |
+
+### `admin.corpus.glossary.controller`
+
+| Type | Named nested types | Backend type references |
+| --- | --- | --- |
+| [CorpusGlossaryController](../../backend/src/main/java/io/queryforge/backend/admin/corpus/glossary/controller/CorpusGlossaryController.java#L19) | — | `CorpusGlossaryDtos`, `CorpusGlossaryService` |
+
+### `admin.corpus.glossary.dto`
+
+| Type | Named nested types | Backend type references |
+| --- | --- | --- |
+| [CorpusGlossaryDtos](../../backend/src/main/java/io/queryforge/backend/admin/corpus/glossary/dto/CorpusGlossaryDtos.java#L10) | `GlossaryAliasDto`, `GlossaryTermSummary`, `GlossaryTermDetail`, `GlossaryEvidenceDto`, `TopTermPreview`, `GlossaryTermPatchRequest`, `GlossaryAliasCreateRequest` | — |
+
+### `admin.corpus.glossary.repository`
+
+| Type | Named nested types | Backend type references |
+| --- | --- | --- |
+| [CorpusGlossaryRepository](../../backend/src/main/java/io/queryforge/backend/admin/corpus/glossary/repository/CorpusGlossaryRepository.java#L23) | — | `CorpusGlossaryDtos`, `CorpusJdbc` |
+
+### `admin.corpus.glossary.service`
+
+| Type | Named nested types | Backend type references |
+| --- | --- | --- |
+| [CorpusGlossaryService](../../backend/src/main/java/io/queryforge/backend/admin/corpus/glossary/service/CorpusGlossaryService.java#L12) | — | `CorpusGlossaryDtos`, `CorpusGlossaryRepository` |
+
+### `admin.corpus.persistence.support`
+
+| Type | Named nested types | Backend type references |
+| --- | --- | --- |
+| [CorpusJdbc](../../backend/src/main/java/io/queryforge/backend/admin/corpus/persistence/support/CorpusJdbc.java#L12) | — | — |
+
+### `admin.corpus.run.controller`
+
+| Type | Named nested types | Backend type references |
+| --- | --- | --- |
+| [CorpusRunController](../../backend/src/main/java/io/queryforge/backend/admin/corpus/run/controller/CorpusRunController.java#L15) | — | `CorpusRunDtos`, `CorpusRunService` |
+
+### `admin.corpus.run.dto`
+
+| Type | Named nested types | Backend type references |
+| --- | --- | --- |
+| [CorpusRunDtos](../../backend/src/main/java/io/queryforge/backend/admin/corpus/run/dto/CorpusRunDtos.java#L9) | `RunSummary`, `RunStep`, `RunDetail` | — |
+
+### `admin.corpus.run.repository`
+
+| Type | Named nested types | Backend type references |
+| --- | --- | --- |
+| [CorpusRunRepository](../../backend/src/main/java/io/queryforge/backend/admin/corpus/run/repository/CorpusRunRepository.java#L22) | — | `CorpusJdbc`, `CorpusRunDtos` |
+
+### `admin.corpus.run.service`
+
+| Type | Named nested types | Backend type references |
+| --- | --- | --- |
+| [CorpusRunService](../../backend/src/main/java/io/queryforge/backend/admin/corpus/run/service/CorpusRunService.java#L12) | — | `CorpusRunDtos`, `CorpusRunRepository` |
+
+### `admin.corpus.source.controller`
+
+| Type | Named nested types | Backend type references |
+| --- | --- | --- |
+| [CorpusSourceController](../../backend/src/main/java/io/queryforge/backend/admin/corpus/source/controller/CorpusSourceController.java#L18) | — | `CorpusSourceDtos`, `CorpusSourceService` |
+
+### `admin.corpus.source.dto`
+
+| Type | Named nested types | Backend type references |
+| --- | --- | --- |
+| [CorpusSourceDtos](../../backend/src/main/java/io/queryforge/backend/admin/corpus/source/dto/CorpusSourceDtos.java#L10) | `SourceSummary`, `SourceUpdateRequest`, `SourceUpsertRequest`, `SourceAutoRegisterRequest` | — |
+
+### `admin.corpus.source.repository`
+
+| Type | Named nested types | Backend type references |
+| --- | --- | --- |
+| [CorpusSourceRepository](../../backend/src/main/java/io/queryforge/backend/admin/corpus/source/repository/CorpusSourceRepository.java#L18) | — | `CorpusJdbc`, `CorpusSourceDtos` |
+
+### `admin.corpus.source.service`
+
+| Type | Named nested types | Backend type references |
+| --- | --- | --- |
+| [CorpusSourceService](../../backend/src/main/java/io/queryforge/backend/admin/corpus/source/service/CorpusSourceService.java#L19) | — | `CorpusSourceDtos`, `CorpusSourceRepository`, `DomainSourceDtos`, `DomainSourceService`, `SourceCatalogService` |
+
+### `admin.domain.dashboard.controller`
+
+| Type | Named nested types | Backend type references |
+| --- | --- | --- |
+| [DomainDashboardController](../../backend/src/main/java/io/queryforge/backend/admin/domain/dashboard/controller/DomainDashboardController.java#L11) | — | `DomainDashboardDtos`, `DomainDashboardService` |
+
+### `admin.domain.dashboard.dto`
+
+| Type | Named nested types | Backend type references |
+| --- | --- | --- |
+| [DomainDashboardDtos](../../backend/src/main/java/io/queryforge/backend/admin/domain/dashboard/dto/DomainDashboardDtos.java#L6) | `DomainDashboardSummary` | — |
+
+### `admin.domain.dashboard.repository`
+
+| Type | Named nested types | Backend type references |
+| --- | --- | --- |
+| [DomainDashboardRepository](../../backend/src/main/java/io/queryforge/backend/admin/domain/dashboard/repository/DomainDashboardRepository.java#L18) | — | `DomainDashboardDtos` |
+
+### `admin.domain.dashboard.service`
+
+| Type | Named nested types | Backend type references |
+| --- | --- | --- |
+| [DomainDashboardService](../../backend/src/main/java/io/queryforge/backend/admin/domain/dashboard/service/DomainDashboardService.java#L8) | — | `DomainDashboardDtos`, `DomainDashboardRepository` |
+
+### `admin.domain.identity.dto`
+
+| Type | Named nested types | Backend type references |
+| --- | --- | --- |
+| [DomainIdentityDtos](../../backend/src/main/java/io/queryforge/backend/admin/domain/identity/dto/DomainIdentityDtos.java#L8) | `DomainSummary`, `DomainCreateRequest`, `DomainUpdateRequest` | — |
+
+### `admin.domain.identity.repository`
+
+| Type | Named nested types | Backend type references |
+| --- | --- | --- |
+| [DomainIdentityRepository](../../backend/src/main/java/io/queryforge/backend/admin/domain/identity/repository/DomainIdentityRepository.java#L22) | — | `DomainIdentityDtos` |
+
+### `admin.domain.identity.service`
+
+| Type | Named nested types | Backend type references |
+| --- | --- | --- |
+| [DomainIdentityService](../../backend/src/main/java/io/queryforge/backend/admin/domain/identity/service/DomainIdentityService.java#L14) | — | `DomainIdentityDtos`, `DomainIdentityRepository` |
+
+### `admin.domain.policy.dto`
+
+| Type | Named nested types | Backend type references |
+| --- | --- | --- |
+| [DomainMethodPolicy](../../backend/src/main/java/io/queryforge/backend/admin/domain/policy/dto/DomainMethodPolicy.java#L7) | — | — |
+
+### `admin.domain.policy.repository`
+
+| Type | Named nested types | Backend type references |
+| --- | --- | --- |
+| [DomainMethodPolicyRepository](../../backend/src/main/java/io/queryforge/backend/admin/domain/policy/repository/DomainMethodPolicyRepository.java#L18) | — | `DomainMethodPolicy` |
+
+### `admin.domain.source.dto`
+
+| Type | Named nested types | Backend type references |
+| --- | --- | --- |
+| [DomainSourceDtos](../../backend/src/main/java/io/queryforge/backend/admin/domain/source/dto/DomainSourceDtos.java#L5) | `DomainSource`, `DomainSourceAttachRequest` | — |
+
+### `admin.domain.source.repository`
+
+| Type | Named nested types | Backend type references |
+| --- | --- | --- |
+| [DomainSourceRepository](../../backend/src/main/java/io/queryforge/backend/admin/domain/source/repository/DomainSourceRepository.java#L18) | — | `DomainSourceDtos` |
+
+### `admin.domain.source.service`
+
+| Type | Named nested types | Backend type references |
+| --- | --- | --- |
+| [DomainSourceService](../../backend/src/main/java/io/queryforge/backend/admin/domain/source/service/DomainSourceService.java#L13) | — | `DomainIdentityService`, `DomainSourceDtos`, `DomainSourceRepository` |
+
+### `admin.domain.workspace.controller`
+
+| Type | Named nested types | Backend type references |
+| --- | --- | --- |
+| [DomainWorkspaceController](../../backend/src/main/java/io/queryforge/backend/admin/domain/workspace/controller/DomainWorkspaceController.java#L19) | — | `DomainDetail`, `DomainIdentityDtos`, `DomainSourceDtos`, `DomainWorkspaceService` |
+
+### `admin.domain.workspace.dto`
+
+| Type | Named nested types | Backend type references |
+| --- | --- | --- |
+| [DomainDetail](../../backend/src/main/java/io/queryforge/backend/admin/domain/workspace/dto/DomainDetail.java#L9) | — | `DomainIdentityDtos`, `DomainMethodPolicy`, `DomainSourceDtos` |
+
+### `admin.domain.workspace.service`
+
+| Type | Named nested types | Backend type references |
+| --- | --- | --- |
+| [DomainWorkspaceService](../../backend/src/main/java/io/queryforge/backend/admin/domain/workspace/service/DomainWorkspaceService.java#L15) | — | `DomainDetail`, `DomainIdentityDtos`, `DomainIdentityService`, `DomainMethodPolicyRepository`, `DomainSourceDtos`, `DomainSourceService` |
+
+### `admin.pipeline.artifact.dto`
+
+| Type | Named nested types | Backend type references |
+| --- | --- | --- |
+| [DocumentArtifactDtos](../../backend/src/main/java/io/queryforge/backend/admin/pipeline/artifact/dto/DocumentArtifactDtos.java#L5) | `PersistResult` | — |
+
+### `admin.pipeline.artifact.service`
+
+| Type | Named nested types | Backend type references |
+| --- | --- | --- |
+| [DocumentArtifactStoreService](../../backend/src/main/java/io/queryforge/backend/admin/pipeline/artifact/service/DocumentArtifactStoreService.java#L32) | `Stage`, `StageMetadata`, `DocumentManifest`, `AggregatedGlossaryRow` | `AdminPipelineProperties`, `DocumentArtifactDtos`, `SourceCatalogService` |
 
 ### `admin.pipeline.configuration`
 
@@ -297,64 +668,129 @@
 | [AdminPipelineConfiguration](../../backend/src/main/java/io/queryforge/backend/admin/pipeline/configuration/AdminPipelineConfiguration.java#L12) | — | — |
 | [AdminPipelineProperties](../../backend/src/main/java/io/queryforge/backend/admin/pipeline/configuration/AdminPipelineProperties.java#L5) | — | — |
 
-### `admin.pipeline.dashboard`
+### `admin.pipeline.dashboard.controller`
 
 | Type | Named nested types | Backend type references |
 | --- | --- | --- |
-| [PipelineDashboardController](../../backend/src/main/java/io/queryforge/backend/admin/pipeline/dashboard/PipelineDashboardController.java#L11) | — | `PipelineDashboardDtos`, `PipelineDashboardService` |
-| [PipelineDashboardDtos](../../backend/src/main/java/io/queryforge/backend/admin/pipeline/dashboard/PipelineDashboardDtos.java#L7) | `DashboardStats`, `ProductDocumentStat`, `RecentRunStat`, `FailedStepStat` | — |
-| [PipelineDashboardRepository](../../backend/src/main/java/io/queryforge/backend/admin/pipeline/dashboard/PipelineDashboardRepository.java#L16) | — | `PipelineDashboardDtos` |
-| [PipelineDashboardService](../../backend/src/main/java/io/queryforge/backend/admin/pipeline/dashboard/PipelineDashboardService.java#L10) | — | `PipelineDashboardDtos`, `PipelineDashboardRepository`, `SourceCatalogService` |
+| [PipelineDashboardController](../../backend/src/main/java/io/queryforge/backend/admin/pipeline/dashboard/controller/PipelineDashboardController.java#L13) | — | `PipelineDashboardDtos`, `PipelineDashboardService` |
 
-### `admin.pipeline.execution`
+### `admin.pipeline.dashboard.dto`
 
 | Type | Named nested types | Backend type references |
 | --- | --- | --- |
-| [PipelineAdminController](../../backend/src/main/java/io/queryforge/backend/admin/pipeline/execution/PipelineAdminController.java#L16) | — | `CorpusRunDtos`, `PipelineAdminService`, `PipelineExecutionDtos` |
-| [PipelineAdminRepository](../../backend/src/main/java/io/queryforge/backend/admin/pipeline/execution/PipelineAdminRepository.java#L19) | — | — |
-| [PipelineAdminService](../../backend/src/main/java/io/queryforge/backend/admin/pipeline/execution/PipelineAdminService.java#L36) | `StepWarningDecision`, `Scope`, `ArtifactContext`, `StepPlan`, `ManagedRunContext` | `AdminPipelineProperties`, `CorpusRunDtos`, `CorpusRunService`, `CorpusSourceDtos`, `CorpusSourceService`, `DocumentArtifactStoreService`, `PipelineAdminRepository`, `PipelineCommandRunner`, `PipelineExecutionDtos`, `PipelineStepPlanFactory`, `SourceCatalogService` |
-| [PipelineCommandRunner](../../backend/src/main/java/io/queryforge/backend/admin/pipeline/execution/PipelineCommandRunner.java#L8) | `CommandRequest`, `CommandResult`, `ProcessObserver` | — |
-| [PipelineExecutionDtos](../../backend/src/main/java/io/queryforge/backend/admin/pipeline/execution/PipelineExecutionDtos.java#L10) | `PipelineRunRequest`, `PipelineRunActionResponse`, `StepLogDto`, `PipelineRunLogsResponse` | — |
-| [PipelineStepPlanFactory](../../backend/src/main/java/io/queryforge/backend/admin/pipeline/execution/PipelineStepPlanFactory.java#L18) | `DatabaseTarget` | `AdminPipelineProperties`, `PipelineAdminService`, `SourceCatalogService` |
-| [SubprocessPipelineCommandRunner](../../backend/src/main/java/io/queryforge/backend/admin/pipeline/execution/SubprocessPipelineCommandRunner.java#L17) | — | `PipelineCommandRunner` |
+| [PipelineDashboardDtos](../../backend/src/main/java/io/queryforge/backend/admin/pipeline/dashboard/dto/PipelineDashboardDtos.java#L7) | `DashboardStats`, `ProductDocumentStat`, `RecentRunStat`, `FailedStepStat` | — |
 
-### `admin.pipeline.source`
+### `admin.pipeline.dashboard.repository`
 
 | Type | Named nested types | Backend type references |
 | --- | --- | --- |
-| [PipelineSourceRepository](../../backend/src/main/java/io/queryforge/backend/admin/pipeline/source/PipelineSourceRepository.java#L15) | — | — |
-| [ProjectPathResolver](../../backend/src/main/java/io/queryforge/backend/admin/pipeline/source/ProjectPathResolver.java#L11) | — | — |
-| [SourceCatalogService](../../backend/src/main/java/io/queryforge/backend/admin/pipeline/source/SourceCatalogService.java#L18) | — | `AdminPipelineProperties`, `PipelineSourceRepository`, `ProjectPathResolver` |
+| [PipelineDashboardRepository](../../backend/src/main/java/io/queryforge/backend/admin/pipeline/dashboard/repository/PipelineDashboardRepository.java#L17) | — | `PipelineDashboardDtos` |
 
-### `admin.prompt.asset`
+### `admin.pipeline.dashboard.service`
 
 | Type | Named nested types | Backend type references |
 | --- | --- | --- |
-| [PromptAssetController](../../backend/src/main/java/io/queryforge/backend/admin/prompt/asset/PromptAssetController.java#L16) | — | `PromptAssetDtos`, `PromptAssetService` |
-| [PromptAssetDtos](../../backend/src/main/java/io/queryforge/backend/admin/prompt/asset/PromptAssetDtos.java#L8) | `PromptAssetRow`, `PromptAssetDetail`, `PromptRevisionRequest`, `PromptAssetUpdateRequest` | — |
-| [PromptAssetRepository](../../backend/src/main/java/io/queryforge/backend/admin/prompt/asset/PromptAssetRepository.java#L21) | — | `PromptAssetDtos` |
-| [PromptAssetService](../../backend/src/main/java/io/queryforge/backend/admin/prompt/asset/PromptAssetService.java#L12) | — | `PromptAssetDtos`, `PromptAssetRepository` |
+| [PipelineDashboardService](../../backend/src/main/java/io/queryforge/backend/admin/pipeline/dashboard/service/PipelineDashboardService.java#L12) | — | `PipelineDashboardDtos`, `PipelineDashboardRepository`, `SourceCatalogService` |
 
-### `admin.prompt.binding`
+### `admin.pipeline.execution.controller`
 
 | Type | Named nested types | Backend type references |
 | --- | --- | --- |
-| [PromptBindingController](../../backend/src/main/java/io/queryforge/backend/admin/prompt/binding/PromptBindingController.java#L15) | — | `PromptBindingDtos`, `PromptBindingService` |
-| [PromptBindingDtos](../../backend/src/main/java/io/queryforge/backend/admin/prompt/binding/PromptBindingDtos.java#L9) | `PromptBindingRow`, `PromptBindingUpdateRequest`, `PromptValidationRequest`, `PromptValidationResponse` | — |
-| [PromptBindingRepository](../../backend/src/main/java/io/queryforge/backend/admin/prompt/binding/PromptBindingRepository.java#L21) | — | `PromptBindingDtos` |
-| [PromptBindingService](../../backend/src/main/java/io/queryforge/backend/admin/prompt/binding/PromptBindingService.java#L10) | — | `PromptBindingDtos`, `PromptBindingRepository` |
+| [PipelineAdminController](../../backend/src/main/java/io/queryforge/backend/admin/pipeline/execution/controller/PipelineAdminController.java#L18) | — | `CorpusRunDtos`, `PipelineAdminService`, `PipelineExecutionDtos` |
 
-### `admin.web`
+### `admin.pipeline.execution.dto`
 
 | Type | Named nested types | Backend type references |
 | --- | --- | --- |
-| [AdminApiExceptionHandler](../../backend/src/main/java/io/queryforge/backend/admin/web/AdminApiExceptionHandler.java#L8) | — | — |
+| [PipelineExecutionDtos](../../backend/src/main/java/io/queryforge/backend/admin/pipeline/execution/dto/PipelineExecutionDtos.java#L11) | `PipelineRunRequest`, `PipelineRunActionResponse`, `StepLogDto`, `PipelineRunLogsResponse`, `CommandRequest`, `CommandResult` | — |
 
-### `common.logging`
+### `admin.pipeline.execution.repository`
 
 | Type | Named nested types | Backend type references |
 | --- | --- | --- |
-| [ApplicationLayerLoggingAspect](../../backend/src/main/java/io/queryforge/backend/common/logging/ApplicationLayerLoggingAspect.java#L30) | — | — |
+| [PipelineAdminRepository](../../backend/src/main/java/io/queryforge/backend/admin/pipeline/execution/repository/PipelineAdminRepository.java#L19) | — | — |
+
+### `admin.pipeline.execution.service`
+
+| Type | Named nested types | Backend type references |
+| --- | --- | --- |
+| [PipelineAdminService](../../backend/src/main/java/io/queryforge/backend/admin/pipeline/execution/service/PipelineAdminService.java#L39) | `StepWarningDecision`, `Scope`, `ArtifactContext`, `StepPlan`, `ManagedRunContext` | `AdminPipelineProperties`, `CorpusRunDtos`, `CorpusRunService`, `CorpusSourceDtos`, `CorpusSourceService`, `DocumentArtifactDtos`, `DocumentArtifactStoreService`, `PipelineAdminRepository`, `PipelineCommandRunner`, `PipelineExecutionDtos`, `PipelineStepPlanFactory`, `SourceCatalogService` |
+| [PipelineCommandRunner](../../backend/src/main/java/io/queryforge/backend/admin/pipeline/execution/service/PipelineCommandRunner.java#L8) | `ProcessObserver` | `PipelineExecutionDtos` |
+| [PipelineStepPlanFactory](../../backend/src/main/java/io/queryforge/backend/admin/pipeline/execution/service/PipelineStepPlanFactory.java#L18) | `DatabaseTarget` | `AdminPipelineProperties`, `PipelineAdminService`, `SourceCatalogService` |
+| [SubprocessPipelineCommandRunner](../../backend/src/main/java/io/queryforge/backend/admin/pipeline/execution/service/SubprocessPipelineCommandRunner.java#L19) | — | `PipelineCommandRunner`, `PipelineExecutionDtos` |
+
+### `admin.pipeline.source.repository`
+
+| Type | Named nested types | Backend type references |
+| --- | --- | --- |
+| [PipelineSourceRepository](../../backend/src/main/java/io/queryforge/backend/admin/pipeline/source/repository/PipelineSourceRepository.java#L15) | — | — |
+
+### `admin.pipeline.source.service`
+
+| Type | Named nested types | Backend type references |
+| --- | --- | --- |
+| [ProjectPathResolver](../../backend/src/main/java/io/queryforge/backend/admin/pipeline/source/service/ProjectPathResolver.java#L11) | — | — |
+| [SourceCatalogService](../../backend/src/main/java/io/queryforge/backend/admin/pipeline/source/service/SourceCatalogService.java#L19) | — | `AdminPipelineProperties`, `PipelineSourceRepository`, `ProjectPathResolver` |
+
+### `admin.prompt.asset.controller`
+
+| Type | Named nested types | Backend type references |
+| --- | --- | --- |
+| [PromptAssetController](../../backend/src/main/java/io/queryforge/backend/admin/prompt/asset/controller/PromptAssetController.java#L18) | — | `PromptAssetDtos`, `PromptAssetService` |
+
+### `admin.prompt.asset.dto`
+
+| Type | Named nested types | Backend type references |
+| --- | --- | --- |
+| [PromptAssetDtos](../../backend/src/main/java/io/queryforge/backend/admin/prompt/asset/dto/PromptAssetDtos.java#L8) | `PromptAssetRow`, `PromptAssetDetail`, `PromptRevisionRequest`, `PromptAssetUpdateRequest` | — |
+
+### `admin.prompt.asset.repository`
+
+| Type | Named nested types | Backend type references |
+| --- | --- | --- |
+| [PromptAssetRepository](../../backend/src/main/java/io/queryforge/backend/admin/prompt/asset/repository/PromptAssetRepository.java#L22) | — | `PromptAssetDtos` |
+
+### `admin.prompt.asset.service`
+
+| Type | Named nested types | Backend type references |
+| --- | --- | --- |
+| [PromptAssetService](../../backend/src/main/java/io/queryforge/backend/admin/prompt/asset/service/PromptAssetService.java#L14) | — | `PromptAssetDtos`, `PromptAssetRepository` |
+
+### `admin.prompt.binding.controller`
+
+| Type | Named nested types | Backend type references |
+| --- | --- | --- |
+| [PromptBindingController](../../backend/src/main/java/io/queryforge/backend/admin/prompt/binding/controller/PromptBindingController.java#L17) | — | `PromptBindingDtos`, `PromptBindingService` |
+
+### `admin.prompt.binding.dto`
+
+| Type | Named nested types | Backend type references |
+| --- | --- | --- |
+| [PromptBindingDtos](../../backend/src/main/java/io/queryforge/backend/admin/prompt/binding/dto/PromptBindingDtos.java#L9) | `PromptBindingRow`, `PromptBindingUpdateRequest`, `PromptValidationRequest`, `PromptValidationResponse` | — |
+
+### `admin.prompt.binding.repository`
+
+| Type | Named nested types | Backend type references |
+| --- | --- | --- |
+| [PromptBindingRepository](../../backend/src/main/java/io/queryforge/backend/admin/prompt/binding/repository/PromptBindingRepository.java#L22) | — | `PromptBindingDtos` |
+
+### `admin.prompt.binding.service`
+
+| Type | Named nested types | Backend type references |
+| --- | --- | --- |
+| [PromptBindingService](../../backend/src/main/java/io/queryforge/backend/admin/prompt/binding/service/PromptBindingService.java#L12) | — | `PromptBindingDtos`, `PromptBindingRepository` |
+
+### `admin.web.advice`
+
+| Type | Named nested types | Backend type references |
+| --- | --- | --- |
+| [AdminApiExceptionHandler](../../backend/src/main/java/io/queryforge/backend/admin/web/advice/AdminApiExceptionHandler.java#L8) | — | — |
+
+### `common.logging.aspect`
+
+| Type | Named nested types | Backend type references |
+| --- | --- | --- |
+| [ApplicationLayerLoggingAspect](../../backend/src/main/java/io/queryforge/backend/common/logging/aspect/ApplicationLayerLoggingAspect.java#L30) | — | — |
 
 ### `io.queryforge.backend`
 
@@ -362,297 +798,534 @@
 | --- | --- | --- |
 | [QueryForgeApplication](../../backend/src/main/java/io/queryforge/backend/QueryForgeApplication.java#L7) | — | — |
 
-### `rag.chat`
+### `rag.chat.answer.dto`
 
 | Type | Named nested types | Backend type references |
 | --- | --- | --- |
-| [AgenticChatService](../../backend/src/main/java/io/queryforge/backend/rag/chat/AgenticChatService.java#L32) | — | `AgenticRetrievalDtos`, `AgenticRetrievalService`, `AgenticTracePersistenceService`, `ChatConfigDtos`, `ChatDtos`, `ChatReadinessDtos`, `ChatResponseAssembler`, `DomainScopedRetrievalService`, `MemoryCandidate`, `QueryRouteDecision`, `RagPersistPolicy`, `RagTraceRepository`, `RetrievalDoc`, `RewriteScoring`, `TraceWriteResults` |
-| [ChatDtos](../../backend/src/main/java/io/queryforge/backend/rag/chat/ChatDtos.java#L13) | `AskRequest`, `AskResponse` | `AgenticRetrievalDtos`, `ChatConfigDtos`, `RetrievalDtos`, `RewriteDtos` |
-| [ChatResponseAssembler](../../backend/src/main/java/io/queryforge/backend/rag/chat/ChatResponseAssembler.java#L26) | `AgenticSettings`, `AnswerDraft` | `AgenticRetrievalDtos`, `AgenticRetrievalService`, `ChatAnswerService`, `ChatConfigDtos`, `DomainScopedRetrievalService`, `MemoryCandidate`, `QueryRouteDecision`, `RetrievalDoc`, `RetrievalDtos`, `RewriteDtos` |
-| [RagController](../../backend/src/main/java/io/queryforge/backend/rag/chat/RagController.java#L9) | — | `ChatDtos`, `RagService` |
-| [RagService](../../backend/src/main/java/io/queryforge/backend/rag/chat/RagService.java#L43) | `GeneratedCandidate`, `Decision` | `AgenticChatService`, `ChatConfigDtos`, `ChatDtos`, `ChatReadinessDtos`, `ChatReadinessService`, `ChatRequestRouting`, `ChatResponseAssembler`, `ChatRuntimeConfigService`, `CohereRerankService`, `DomainScopedRetrievalService`, `MemoryCandidate`, `QueryRouteDecision`, `QueryStrategy`, `QueryStrategyRouter`, `RagPersistPolicy`, `RagRetrievalExecutionService`, `RagTracePersistenceService`, `RagTraceRepository`, `RetrievalDoc`, `RewriteCandidateService`, `RewriteDtos`, `RewriteScoring`, `TraceWriteResults` |
+| [ChatAnswerDtos](../../backend/src/main/java/io/queryforge/backend/rag/chat/answer/dto/ChatAnswerDtos.java#L5) | `GeneratedAnswer` | — |
 
-### `rag.chat.answer`
+### `rag.chat.answer.exception`
 
 | Type | Named nested types | Backend type references |
 | --- | --- | --- |
-| [ChatAnswerService](../../backend/src/main/java/io/queryforge/backend/rag/chat/answer/ChatAnswerService.java#L28) | `GeneratedAnswer` | `GeminiServiceUnavailableException`, `RetrievalDoc`, `RuntimeEnvService`, `SpringAiChatGateway` |
-| [GeminiServiceUnavailableException](../../backend/src/main/java/io/queryforge/backend/rag/chat/answer/GeminiServiceUnavailableException.java#L3) | — | — |
+| [GeminiServiceUnavailableException](../../backend/src/main/java/io/queryforge/backend/rag/chat/answer/exception/GeminiServiceUnavailableException.java#L3) | — | — |
 
-### `rag.chat.routing`
-
-| Type | Named nested types | Backend type references |
-| --- | --- | --- |
-| [ChatRequestRouting](../../backend/src/main/java/io/queryforge/backend/rag/chat/routing/ChatRequestRouting.java#L10) | — | `ChatConfigDtos`, `ChatReadinessDtos`, `QueryRouteContext` |
-
-### `rag.embedding`
+### `rag.chat.answer.service`
 
 | Type | Named nested types | Backend type references |
 | --- | --- | --- |
-| [DenseEmbeddingService](../../backend/src/main/java/io/queryforge/backend/rag/embedding/DenseEmbeddingService.java#L24) | — | `AdminPipelineProperties`, `SpringAiEmbeddingGateway` |
-| [HashEmbeddingService](../../backend/src/main/java/io/queryforge/backend/rag/embedding/HashEmbeddingService.java#L13) | — | — |
+| [ChatAnswerService](../../backend/src/main/java/io/queryforge/backend/rag/chat/answer/service/ChatAnswerService.java#L30) | — | `ChatAnswerDtos`, `GeminiServiceUnavailableException`, `RetrievalDoc`, `RuntimeEnvService`, `SpringAiChatGateway` |
 
-### `rag.embedding.reindex`
-
-| Type | Named nested types | Backend type references |
-| --- | --- | --- |
-| [RagEmbeddingRepository](../../backend/src/main/java/io/queryforge/backend/rag/embedding/reindex/RagEmbeddingRepository.java#L15) | `ChunkSource`, `MemorySource` | `RagJdbc` |
-| [RagReindexController](../../backend/src/main/java/io/queryforge/backend/rag/embedding/reindex/RagReindexController.java#L9) | — | `RagReindexDtos`, `RagReindexService` |
-| [RagReindexDtos](../../backend/src/main/java/io/queryforge/backend/rag/embedding/reindex/RagReindexDtos.java#L3) | `ReindexRequest`, `ReindexResponse` | — |
-| [RagReindexService](../../backend/src/main/java/io/queryforge/backend/rag/embedding/reindex/RagReindexService.java#L9) | — | `HashEmbeddingService`, `RagEmbeddingRepository`, `RagReindexDtos` |
-
-### `rag.eval.report`
+### `rag.chat.controller`
 
 | Type | Named nested types | Backend type references |
 | --- | --- | --- |
-| [EvalReportController](../../backend/src/main/java/io/queryforge/backend/rag/eval/report/EvalReportController.java#L8) | — | `EvalReportDtos`, `EvalReportService` |
-| [EvalReportDtos](../../backend/src/main/java/io/queryforge/backend/rag/eval/report/EvalReportDtos.java#L5) | `EvalReportResponse` | — |
-| [EvalReportService](../../backend/src/main/java/io/queryforge/backend/rag/eval/report/EvalReportService.java#L18) | — | `EvalReportDtos` |
+| [RagController](../../backend/src/main/java/io/queryforge/backend/rag/chat/controller/RagController.java#L11) | — | `ChatDtos`, `RagService` |
 
-### `rag.eval.retrieval`
+### `rag.chat.dto`
 
 | Type | Named nested types | Backend type references |
 | --- | --- | --- |
-| [EvalRuntimeConfigService](../../backend/src/main/java/io/queryforge/backend/rag/eval/retrieval/EvalRuntimeConfigService.java#L15) | `RuntimeEvalContext`, `AgenticEvalSettings` | `ChatConfigDtos`, `ChatReadinessDtos`, `RagRetrievalEvalDtos` |
-| [RagRetrievalEvalController](../../backend/src/main/java/io/queryforge/backend/rag/eval/retrieval/RagRetrievalEvalController.java#L9) | — | `RagRetrievalEvalDtos`, `RagRetrievalEvalService` |
-| [RagRetrievalEvalDtos](../../backend/src/main/java/io/queryforge/backend/rag/eval/retrieval/RagRetrievalEvalDtos.java#L11) | `RagRetrievalEvalRequest`, `RagRetrievalEvalResponse`, `RagRetrievalEvalDoc`, `RagEvalTrace` | `RagLlmCallCount`, `RagPersistPolicy` |
-| [RagRetrievalEvalException](../../backend/src/main/java/io/queryforge/backend/rag/eval/retrieval/RagRetrievalEvalException.java#L3) | — | — |
-| [RagRetrievalEvalService](../../backend/src/main/java/io/queryforge/backend/rag/eval/retrieval/RagRetrievalEvalService.java#L39) | — | `AgenticRetrievalService`, `ChatConfigDtos`, `ChatReadinessDtos`, `ChatReadinessService`, `ChatRuntimeConfigService`, `DomainScopedRetrievalService`, `EvalRuntimeConfigService`, `MemoryCandidate`, `QueryRouteContext`, `QueryRouteDecision`, `QueryStrategyRouter`, `RagLlmCallCount`, `RagPersistPolicy`, `RagRetrievalEvalDtos`, `RagRetrievalEvalException`, `RagRetrievalExecutionService`, `RetrievalDoc` |
+| [ChatDtos](../../backend/src/main/java/io/queryforge/backend/rag/chat/dto/ChatDtos.java#L13) | `AskRequest`, `AskResponse` | `AgenticRetrievalDtos`, `ChatConfigDtos`, `RetrievalDtos`, `RewriteDtos` |
 
-### `rag.experiment.command`
+### `rag.chat.routing.service`
 
 | Type | Named nested types | Backend type references |
 | --- | --- | --- |
-| [ExperimentCommandController](../../backend/src/main/java/io/queryforge/backend/rag/experiment/command/ExperimentCommandController.java#L9) | — | `ExperimentCommandDtos`, `ExperimentPipelineService` |
-| [ExperimentCommandDtos](../../backend/src/main/java/io/queryforge/backend/rag/experiment/command/ExperimentCommandDtos.java#L5) | `ExperimentCommandRequest`, `ExperimentCommandResponse` | — |
-| [ExperimentPipelineService](../../backend/src/main/java/io/queryforge/backend/rag/experiment/command/ExperimentPipelineService.java#L27) | — | `AdminPipelineProperties`, `ExperimentCommandDtos` |
+| [ChatRequestRouting](../../backend/src/main/java/io/queryforge/backend/rag/chat/routing/service/ChatRequestRouting.java#L10) | — | `ChatConfigDtos`, `ChatReadinessDtos`, `QueryRouteContext` |
 
-### `rag.experiment.summary`
+### `rag.chat.service`
 
 | Type | Named nested types | Backend type references |
 | --- | --- | --- |
-| [ExperimentSummaryController](../../backend/src/main/java/io/queryforge/backend/rag/experiment/summary/ExperimentSummaryController.java#L11) | — | `ExperimentSummaryDtos`, `RagExperimentQueryService` |
-| [ExperimentSummaryDtos](../../backend/src/main/java/io/queryforge/backend/rag/experiment/summary/ExperimentSummaryDtos.java#L8) | `ExperimentSummaryResponse` | — |
-| [RagExperimentQueryService](../../backend/src/main/java/io/queryforge/backend/rag/experiment/summary/RagExperimentQueryService.java#L10) | — | `ExperimentSummaryDtos`, `RagExperimentRepository` |
-| [RagExperimentRepository](../../backend/src/main/java/io/queryforge/backend/rag/experiment/summary/RagExperimentRepository.java#L20) | `ExperimentRunSummary` | `RagJdbc` |
+| [AgenticChatService](../../backend/src/main/java/io/queryforge/backend/rag/chat/service/AgenticChatService.java#L35) | — | `AgenticExecutionDtos`, `AgenticRetrievalDtos`, `AgenticRetrievalService`, `AgenticTracePersistenceService`, `AgenticTraceWriteDtos`, `ChatConfigDtos`, `ChatDtos`, `ChatReadinessDtos`, `ChatResponseAssembler`, `MemoryCandidate`, `QueryRouteDecision`, `RagPersistPolicy`, `RagTraceRepository`, `RetrievalDoc`, `RetrievalDtos`, `RewriteScoring`, `TraceWriteResults` |
+| [ChatResponseAssembler](../../backend/src/main/java/io/queryforge/backend/rag/chat/service/ChatResponseAssembler.java#L26) | `AgenticSettings`, `AnswerDraft` | `AgenticExecutionDtos`, `AgenticRetrievalDtos`, `ChatAnswerDtos`, `ChatAnswerService`, `ChatConfigDtos`, `MemoryCandidate`, `QueryRouteDecision`, `RetrievalDoc`, `RetrievalDtos`, `RewriteDtos` |
+| [RagService](../../backend/src/main/java/io/queryforge/backend/rag/chat/service/RagService.java#L47) | `GeneratedCandidate`, `Decision` | `AgenticChatService`, `ChatConfigDtos`, `ChatDtos`, `ChatReadinessDtos`, `ChatReadinessService`, `ChatRequestRouting`, `ChatResponseAssembler`, `ChatRuntimeConfigService`, `CohereRerankService`, `DomainScopedRetrievalService`, `MemoryCandidate`, `QueryRouteDecision`, `QueryStrategy`, `QueryStrategyRouter`, `RagPersistPolicy`, `RagRetrievalExecutionService`, `RagTracePersistenceService`, `RagTraceRepository`, `RagTraceWriteDtos`, `RetrievalDoc`, `RetrievalDtos`, `RetrievalExecutionDtos`, `RewriteCandidateService`, `RewriteDtos`, `RewriteScoring`, `TraceWriteResults` |
 
-### `rag.persistence`
-
-| Type | Named nested types | Backend type references |
-| --- | --- | --- |
-| [RagJdbc](../../backend/src/main/java/io/queryforge/backend/rag/persistence/RagJdbc.java#L13) | — | — |
-
-### `rag.provider.environment`
+### `rag.embedding.reindex.controller`
 
 | Type | Named nested types | Backend type references |
 | --- | --- | --- |
-| [RuntimeEnvService](../../backend/src/main/java/io/queryforge/backend/rag/provider/environment/RuntimeEnvService.java#L14) | — | `AdminPipelineProperties` |
+| [RagReindexController](../../backend/src/main/java/io/queryforge/backend/rag/embedding/reindex/controller/RagReindexController.java#L11) | — | `RagReindexDtos`, `RagReindexService` |
 
-### `rag.provider.springai`
-
-| Type | Named nested types | Backend type references |
-| --- | --- | --- |
-| [SpringAiChatGateway](../../backend/src/main/java/io/queryforge/backend/rag/provider/springai/SpringAiChatGateway.java#L12) | — | `RuntimeEnvService` |
-| [SpringAiEmbeddingGateway](../../backend/src/main/java/io/queryforge/backend/rag/provider/springai/SpringAiEmbeddingGateway.java#L15) | — | `RuntimeEnvService` |
-| [SpringAiVectorStoreGateway](../../backend/src/main/java/io/queryforge/backend/rag/provider/springai/SpringAiVectorStoreGateway.java#L8) | — | — |
-
-### `rag.retrieval.agentic`
+### `rag.embedding.reindex.dto`
 
 | Type | Named nested types | Backend type references |
 | --- | --- | --- |
-| [AgenticRetrievalDtos](../../backend/src/main/java/io/queryforge/backend/rag/retrieval/agentic/AgenticRetrievalDtos.java#L10) | `SubqueryRetrievalTrace`, `AgenticRetrievalMetadata` | `AgenticPlanningDtos`, `RetrievalDtos`, `RewriteDtos` |
-| [AgenticRetrievalService](../../backend/src/main/java/io/queryforge/backend/rag/retrieval/agentic/AgenticRetrievalService.java#L37) | `AgenticExecutionRequest`, `AgenticExecutionResult`, `PersistedRewriteCandidate`, `SubqueryExecution`, `GeneratedCandidate`, `Decision` | `AgenticPlanningDtos`, `AgenticQueryPlannerService`, `AgenticRetrievalDtos`, `AgenticTracePersistenceService`, `ChatConfigDtos`, `ChatReadinessDtos`, `CohereRerankService`, `DomainScopedRetrievalService`, `MemoryCandidate`, `QueryRouteContext`, `QueryRouteDecision`, `QueryStrategy`, `QueryStrategyRouter`, `RagPersistPolicy`, `RetrievalDoc`, `RetrievalDtos`, `RewriteCandidateService`, `RewriteDtos`, `SearchResultMerger` |
+| [RagReindexDtos](../../backend/src/main/java/io/queryforge/backend/rag/embedding/reindex/dto/RagReindexDtos.java#L5) | `ReindexRequest`, `ReindexResponse`, `ChunkSource`, `MemorySource` | — |
 
-### `rag.retrieval.agentic.fusion`
-
-| Type | Named nested types | Backend type references |
-| --- | --- | --- |
-| [SearchResultMerger](../../backend/src/main/java/io/queryforge/backend/rag/retrieval/agentic/fusion/SearchResultMerger.java#L11) | `Accumulator` | `RetrievalDoc` |
-
-### `rag.retrieval.agentic.planning`
+### `rag.embedding.reindex.repository`
 
 | Type | Named nested types | Backend type references |
 | --- | --- | --- |
-| [AgenticPlanningDtos](../../backend/src/main/java/io/queryforge/backend/rag/retrieval/agentic/planning/AgenticPlanningDtos.java#L8) | `AgenticSubquery`, `AgenticQueryPlan` | — |
-| [AgenticQueryPlannerService](../../backend/src/main/java/io/queryforge/backend/rag/retrieval/agentic/planning/AgenticQueryPlannerService.java#L27) | `PlannerPayload` | `AgenticPlanningDtos`, `ChatConfigDtos`, `MemoryCandidate`, `RuntimeEnvService`, `SpringAiChatGateway` |
+| [RagEmbeddingRepository](../../backend/src/main/java/io/queryforge/backend/rag/embedding/reindex/repository/RagEmbeddingRepository.java#L17) | — | `RagJdbc`, `RagReindexDtos` |
 
-### `rag.retrieval.candidate`
-
-| Type | Named nested types | Backend type references |
-| --- | --- | --- |
-| [ChunkRetrievalRepository](../../backend/src/main/java/io/queryforge/backend/rag/retrieval/candidate/ChunkRetrievalRepository.java#L14) | — | `RetrievalDoc` |
-| [DomainScopedRetrievalService](../../backend/src/main/java/io/queryforge/backend/rag/retrieval/candidate/DomainScopedRetrievalService.java#L22) | `RetrievalRuntime` | `ChatConfigDtos`, `ChunkRetrievalRepository`, `DenseEmbeddingService`, `HashEmbeddingService`, `MemoryCandidate`, `RagMemoryRepository`, `RetrievalDoc` |
-| [RetrievalDoc](../../backend/src/main/java/io/queryforge/backend/rag/retrieval/candidate/RetrievalDoc.java#L3) | — | — |
-| [RetrievalDtos](../../backend/src/main/java/io/queryforge/backend/rag/retrieval/candidate/RetrievalDtos.java#L3) | `ScoredDocumentDto` | — |
-
-### `rag.retrieval.execution`
+### `rag.embedding.reindex.service`
 
 | Type | Named nested types | Backend type references |
 | --- | --- | --- |
-| [ForcedRetrievalMode](../../backend/src/main/java/io/queryforge/backend/rag/retrieval/execution/ForcedRetrievalMode.java#L3) | — | — |
-| [RagExecutionTrace](../../backend/src/main/java/io/queryforge/backend/rag/retrieval/execution/RagExecutionTrace.java#L5) | — | `ForcedRetrievalMode` |
-| [RagLlmCallCount](../../backend/src/main/java/io/queryforge/backend/rag/retrieval/execution/RagLlmCallCount.java#L3) | — | — |
-| [RagPersistPolicy](../../backend/src/main/java/io/queryforge/backend/rag/retrieval/execution/RagPersistPolicy.java#L3) | — | — |
-| [RagRetrievalExecutionRequest](../../backend/src/main/java/io/queryforge/backend/rag/retrieval/execution/RagRetrievalExecutionRequest.java#L7) | — | `ForcedRetrievalMode`, `RagPersistPolicy` |
-| [RagRetrievalExecutionResult](../../backend/src/main/java/io/queryforge/backend/rag/retrieval/execution/RagRetrievalExecutionResult.java#L5) | — | `ForcedRetrievalMode`, `RagExecutionTrace`, `RagLlmCallCount`, `RagRetrievedDoc` |
-| [RagRetrievalExecutionService](../../backend/src/main/java/io/queryforge/backend/rag/retrieval/execution/RagRetrievalExecutionService.java#L18) | `RawOnlyExecutionRequest`, `NonAgenticExecutionResult`, `NonAgenticExecutionKind`, `RetrievalMaterial`, `RawOnlyExecutionResult`, `SelectiveRewriteExecutionRequest`, `SelectiveRewriteExecutionResult`, `AnchorAwareRewriteExecutionRequest`, `AnchorAwareRewriteExecutionResult`, `ExecutedRewriteCandidate` | `CohereRerankService`, `DomainScopedRetrievalService`, `MemoryCandidate`, `RetrievalDoc`, `RewriteCandidateService` |
-| [RagRetrievedDoc](../../backend/src/main/java/io/queryforge/backend/rag/retrieval/execution/RagRetrievedDoc.java#L7) | — | — |
+| [RagReindexService](../../backend/src/main/java/io/queryforge/backend/rag/embedding/reindex/service/RagReindexService.java#L11) | — | `HashEmbeddingService`, `RagEmbeddingRepository`, `RagReindexDtos` |
 
-### `rag.retrieval.memory`
+### `rag.embedding.service`
 
 | Type | Named nested types | Backend type references |
 | --- | --- | --- |
-| [MemoryCandidate](../../backend/src/main/java/io/queryforge/backend/rag/retrieval/memory/MemoryCandidate.java#L7) | — | — |
-| [RagMemoryRepository](../../backend/src/main/java/io/queryforge/backend/rag/retrieval/memory/RagMemoryRepository.java#L19) | — | `MemoryCandidate`, `RagJdbc` |
+| [DenseEmbeddingService](../../backend/src/main/java/io/queryforge/backend/rag/embedding/service/DenseEmbeddingService.java#L24) | — | `AdminPipelineProperties`, `SpringAiEmbeddingGateway` |
+| [HashEmbeddingService](../../backend/src/main/java/io/queryforge/backend/rag/embedding/service/HashEmbeddingService.java#L13) | — | — |
 
-### `rag.retrieval.rerank`
-
-| Type | Named nested types | Backend type references |
-| --- | --- | --- |
-| [CohereRerankService](../../backend/src/main/java/io/queryforge/backend/rag/retrieval/rerank/CohereRerankService.java#L19) | — | `RetrievalDoc` |
-
-### `rag.retrieval.rewrite`
+### `rag.eval.report.controller`
 
 | Type | Named nested types | Backend type references |
 | --- | --- | --- |
-| [RewriteCandidateService](../../backend/src/main/java/io/queryforge/backend/rag/retrieval/rewrite/RewriteCandidateService.java#L28) | `CandidateTemplate`, `PromptAsset` | `MemoryCandidate`, `RuntimeEnvService`, `SpringAiChatGateway` |
-| [RewriteDtos](../../backend/src/main/java/io/queryforge/backend/rag/retrieval/rewrite/RewriteDtos.java#L8) | `RewritePreviewRequest`, `RewriteCandidateDto`, `RewritePreviewResponse` | — |
-| [RewriteScoring](../../backend/src/main/java/io/queryforge/backend/rag/retrieval/rewrite/RewriteScoring.java#L11) | — | `MemoryCandidate`, `RetrievalDoc` |
+| [EvalReportController](../../backend/src/main/java/io/queryforge/backend/rag/eval/report/controller/EvalReportController.java#L10) | — | `EvalReportDtos`, `EvalReportService` |
 
-### `rag.retrieval.rewrite.preview`
+### `rag.eval.report.dto`
 
 | Type | Named nested types | Backend type references |
 | --- | --- | --- |
-| [RewritePreviewController](../../backend/src/main/java/io/queryforge/backend/rag/retrieval/rewrite/preview/RewritePreviewController.java#L10) | — | `RewriteDtos`, `RewritePreviewService` |
-| [RewritePreviewService](../../backend/src/main/java/io/queryforge/backend/rag/retrieval/rewrite/preview/RewritePreviewService.java#L23) | — | `ChunkRetrievalRepository`, `CohereRerankService`, `HashEmbeddingService`, `MemoryCandidate`, `RagMemoryRepository`, `RetrievalDoc`, `RewriteCandidateService`, `RewriteDtos`, `RewriteScoring` |
+| [EvalReportDtos](../../backend/src/main/java/io/queryforge/backend/rag/eval/report/dto/EvalReportDtos.java#L5) | `EvalReportResponse` | — |
 
-### `rag.retrieval.routing`
-
-| Type | Named nested types | Backend type references |
-| --- | --- | --- |
-| [QueryRouteContext](../../backend/src/main/java/io/queryforge/backend/rag/retrieval/routing/QueryRouteContext.java#L8) | — | `ChatConfigDtos`, `ChatReadinessDtos` |
-| [QueryRouteDecision](../../backend/src/main/java/io/queryforge/backend/rag/retrieval/routing/QueryRouteDecision.java#L6) | — | `QueryStrategy` |
-| [QueryStrategy](../../backend/src/main/java/io/queryforge/backend/rag/retrieval/routing/QueryStrategy.java#L3) | — | — |
-| [QueryStrategyRouter](../../backend/src/main/java/io/queryforge/backend/rag/retrieval/routing/QueryStrategyRouter.java#L14) | — | `ChatConfigDtos`, `ChatReadinessDtos`, `QueryRouteContext`, `QueryRouteDecision`, `QueryStrategy` |
-
-### `rag.runtime.configuration`
+### `rag.eval.report.service`
 
 | Type | Named nested types | Backend type references |
 | --- | --- | --- |
-| [ChatConfigDtos](../../backend/src/main/java/io/queryforge/backend/rag/runtime/configuration/ChatConfigDtos.java#L9) | `ChatDomainOption`, `ChatRuntimeConfigResponse`, `ChatRuntimeConfigRequest`, `ChatRuntimeConfigProvenanceRow` | — |
-| [ChatRuntimeConfigController](../../backend/src/main/java/io/queryforge/backend/rag/runtime/configuration/ChatRuntimeConfigController.java#L13) | — | `ChatConfigDtos`, `ChatRuntimeConfigService` |
-| [ChatRuntimeConfigRepository](../../backend/src/main/java/io/queryforge/backend/rag/runtime/configuration/ChatRuntimeConfigRepository.java#L21) | — | `ChatConfigDtos` |
-| [ChatRuntimeConfigService](../../backend/src/main/java/io/queryforge/backend/rag/runtime/configuration/ChatRuntimeConfigService.java#L23) | — | `AdminRuntimeOptionsDtos`, `AdminRuntimeOptionsService`, `ChatConfigDtos`, `ChatRuntimeConfigRepository`, `ChunkEmbeddingAdminDtos`, `ChunkEmbeddingAdminService`, `GatingSnapshotRepository` |
+| [EvalReportService](../../backend/src/main/java/io/queryforge/backend/rag/eval/report/service/EvalReportService.java#L19) | — | `EvalReportDtos` |
 
-### `rag.runtime.promotion`
+### `rag.eval.retrieval.controller`
 
 | Type | Named nested types | Backend type references |
 | --- | --- | --- |
-| [ChatConfigPromotionController](../../backend/src/main/java/io/queryforge/backend/rag/runtime/promotion/ChatConfigPromotionController.java#L9) | — | `ChatConfigDtos`, `ChatConfigPromotionDtos`, `ChatConfigPromotionService` |
-| [ChatConfigPromotionDtos](../../backend/src/main/java/io/queryforge/backend/rag/runtime/promotion/ChatConfigPromotionDtos.java#L5) | `ApplyChatConfigFromRagRunRequest` | — |
-| [ChatConfigPromotionRepository](../../backend/src/main/java/io/queryforge/backend/rag/runtime/promotion/ChatConfigPromotionRepository.java#L16) | `RagRunApplySnapshot` | — |
-| [ChatConfigPromotionService](../../backend/src/main/java/io/queryforge/backend/rag/runtime/promotion/ChatConfigPromotionService.java#L16) | — | `ChatConfigDtos`, `ChatConfigPromotionDtos`, `ChatConfigPromotionRepository`, `ChatRuntimeConfigService` |
+| [RagRetrievalEvalController](../../backend/src/main/java/io/queryforge/backend/rag/eval/retrieval/controller/RagRetrievalEvalController.java#L11) | — | `RagRetrievalEvalDtos`, `RagRetrievalEvalService` |
 
-### `rag.runtime.readiness`
+### `rag.eval.retrieval.dto`
 
 | Type | Named nested types | Backend type references |
 | --- | --- | --- |
-| [ChatReadinessController](../../backend/src/main/java/io/queryforge/backend/rag/runtime/readiness/ChatReadinessController.java#L10) | — | `ChatReadinessDtos`, `ChatReadinessService` |
-| [ChatReadinessDtos](../../backend/src/main/java/io/queryforge/backend/rag/runtime/readiness/ChatReadinessDtos.java#L7) | `ChatDomainReadinessResponse`, `SnapshotReadiness`, `ChunkEmbeddingReadiness`, `PromptBindingReadiness`, `RetrievalReadiness` | — |
-| [ChatReadinessRepository](../../backend/src/main/java/io/queryforge/backend/rag/runtime/readiness/ChatReadinessRepository.java#L18) | `DomainChunkEmbeddingStatus`, `PromptBindingSummary` | — |
-| [ChatReadinessService](../../backend/src/main/java/io/queryforge/backend/rag/runtime/readiness/ChatReadinessService.java#L16) | — | `ChatConfigDtos`, `ChatReadinessDtos`, `ChatReadinessRepository`, `ChatRuntimeConfigService`, `GatingSnapshotRepository` |
+| [RagRetrievalEvalDtos](../../backend/src/main/java/io/queryforge/backend/rag/eval/retrieval/dto/RagRetrievalEvalDtos.java#L11) | `RagRetrievalEvalRequest`, `RagRetrievalEvalResponse`, `RagRetrievalEvalDoc`, `RagEvalTrace` | `RagLlmCallCount`, `RagPersistPolicy` |
 
-### `rag.runtime.snapshot`
+### `rag.eval.retrieval.exception`
 
 | Type | Named nested types | Backend type references |
 | --- | --- | --- |
-| [GatingSnapshotRepository](../../backend/src/main/java/io/queryforge/backend/rag/runtime/snapshot/GatingSnapshotRepository.java#L14) | `GatingSnapshot` | — |
+| [RagRetrievalEvalException](../../backend/src/main/java/io/queryforge/backend/rag/eval/retrieval/exception/RagRetrievalEvalException.java#L3) | — | — |
 
-### `rag.trace.query`
-
-| Type | Named nested types | Backend type references |
-| --- | --- | --- |
-| [RagTraceDtos](../../backend/src/main/java/io/queryforge/backend/rag/trace/query/RagTraceDtos.java#L9) | `QueryTraceResponse` | `RewriteDtos` |
-| [RagTraceQueryController](../../backend/src/main/java/io/queryforge/backend/rag/trace/query/RagTraceQueryController.java#L11) | — | `RagTraceDtos`, `RagTraceQueryService` |
-| [RagTraceQueryService](../../backend/src/main/java/io/queryforge/backend/rag/trace/query/RagTraceQueryService.java#L10) | — | `RagTraceDtos`, `RagTraceReadRepository`, `RewriteDtos` |
-| [RagTraceReadRepository](../../backend/src/main/java/io/queryforge/backend/rag/trace/query/RagTraceReadRepository.java#L18) | `RewriteCandidateRow`, `OnlineQueryRow` | `RagJdbc` |
-
-### `rag.trace.write`
+### `rag.eval.retrieval.service`
 
 | Type | Named nested types | Backend type references |
 | --- | --- | --- |
-| [RagTracePersistenceService](../../backend/src/main/java/io/queryforge/backend/rag/trace/write/RagTracePersistenceService.java#L21) | `RagTracePersistenceRequest`, `OnlineQueryDecisionPersistenceRequest`, `OnlineQueryMetadataMergePersistenceRequest`, `RawOnlyTracePersistenceRequest`, `RewriteCandidateTracePersistenceRequest`, `CreateRewriteCandidateTracePersistenceRequest`, `RewriteCandidateAdoptionPersistenceRequest`, `OnlineRewriteLogPersistenceRequest`, `MemoryRetrievalLogPersistenceRequest`, `RewriteCandidateLogPersistenceRequest`, `RawOnlyTraceWriteScope`, `RewriteCandidateTraceWriteScope` | `ForcedRetrievalMode`, `MemoryCandidate`, `RagPersistPolicy`, `RagRetrievalExecutionResult`, `RagRetrievalExecutionService`, `RagTraceRepository`, `RetrievalDoc`, `TraceWriteResults` |
-| [RagTraceRepository](../../backend/src/main/java/io/queryforge/backend/rag/trace/write/RagTraceRepository.java#L18) | — | `MemoryCandidate`, `RetrievalDoc` |
-| [TraceWriteResults](../../backend/src/main/java/io/queryforge/backend/rag/trace/write/TraceWriteResults.java#L7) | `RagTracePersistenceResult`, `RewriteCandidatePersistenceResult`, `OnlineRewriteLogPersistenceResult` | `RagPersistPolicy` |
+| [EvalRuntimeConfigService](../../backend/src/main/java/io/queryforge/backend/rag/eval/retrieval/service/EvalRuntimeConfigService.java#L16) | `RuntimeEvalContext`, `AgenticEvalSettings` | `ChatConfigDtos`, `ChatReadinessDtos`, `RagRetrievalEvalDtos` |
+| [RagRetrievalEvalService](../../backend/src/main/java/io/queryforge/backend/rag/eval/retrieval/service/RagRetrievalEvalService.java#L44) | — | `AgenticExecutionDtos`, `AgenticRetrievalService`, `ChatConfigDtos`, `ChatReadinessDtos`, `ChatReadinessService`, `ChatRuntimeConfigService`, `DomainScopedRetrievalService`, `EvalRuntimeConfigService`, `MemoryCandidate`, `QueryRouteContext`, `QueryRouteDecision`, `QueryStrategyRouter`, `RagLlmCallCount`, `RagPersistPolicy`, `RagRetrievalEvalDtos`, `RagRetrievalEvalException`, `RagRetrievalExecutionService`, `RetrievalDoc`, `RetrievalDtos`, `RetrievalExecutionDtos` |
 
-### `rag.trace.write.agentic`
-
-| Type | Named nested types | Backend type references |
-| --- | --- | --- |
-| [AgenticTracePersistenceService](../../backend/src/main/java/io/queryforge/backend/rag/trace/write/agentic/AgenticTracePersistenceService.java#L19) | `AgenticSubqueryRetrievalTracePersistenceRequest`, `AgenticRewriteCandidateTracePersistenceRequest`, `AgenticRewriteCandidateAdoptionPersistenceRequest`, `AgenticFinalRerankTracePersistenceRequest`, `AgenticOnlineRewriteLogPersistenceRequest`, `AgenticMemoryRetrievalLogPersistenceRequest`, `AgenticRewriteCandidateLogPersistenceRequest`, `AgenticOnlineQueryDecisionPersistenceRequest`, `AgenticOnlineQueryMetadataMergePersistenceRequest`, `AgenticRetrievalExecutionKind`, `AgenticSubqueryRetrievalTraceWriteScope` | `MemoryCandidate`, `RagPersistPolicy`, `RagTraceRepository`, `RetrievalDoc`, `TraceWriteResults` |
-
-### `rag.web`
+### `rag.experiment.command.controller`
 
 | Type | Named nested types | Backend type references |
 | --- | --- | --- |
-| [RagApiExceptionHandler](../../backend/src/main/java/io/queryforge/backend/rag/web/RagApiExceptionHandler.java#L10) | — | `GeminiServiceUnavailableException`, `RagRetrievalEvalException` |
+| [ExperimentCommandController](../../backend/src/main/java/io/queryforge/backend/rag/experiment/command/controller/ExperimentCommandController.java#L11) | — | `ExperimentCommandDtos`, `ExperimentPipelineService` |
 
-### `ui`
+### `rag.experiment.command.dto`
 
 | Type | Named nested types | Backend type references |
 | --- | --- | --- |
-| [ReactUiController](../../backend/src/main/java/io/queryforge/backend/ui/ReactUiController.java#L6) | — | — |
+| [ExperimentCommandDtos](../../backend/src/main/java/io/queryforge/backend/rag/experiment/command/dto/ExperimentCommandDtos.java#L5) | `ExperimentCommandRequest`, `ExperimentCommandResponse` | — |
+
+### `rag.experiment.command.service`
+
+| Type | Named nested types | Backend type references |
+| --- | --- | --- |
+| [ExperimentPipelineService](../../backend/src/main/java/io/queryforge/backend/rag/experiment/command/service/ExperimentPipelineService.java#L28) | — | `AdminPipelineProperties`, `ExperimentCommandDtos` |
+
+### `rag.experiment.summary.controller`
+
+| Type | Named nested types | Backend type references |
+| --- | --- | --- |
+| [ExperimentSummaryController](../../backend/src/main/java/io/queryforge/backend/rag/experiment/summary/controller/ExperimentSummaryController.java#L13) | — | `ExperimentSummaryDtos`, `RagExperimentQueryService` |
+
+### `rag.experiment.summary.dto`
+
+| Type | Named nested types | Backend type references |
+| --- | --- | --- |
+| [ExperimentSummaryDtos](../../backend/src/main/java/io/queryforge/backend/rag/experiment/summary/dto/ExperimentSummaryDtos.java#L8) | `ExperimentSummaryResponse`, `ExperimentRunSummary` | — |
+
+### `rag.experiment.summary.repository`
+
+| Type | Named nested types | Backend type references |
+| --- | --- | --- |
+| [RagExperimentRepository](../../backend/src/main/java/io/queryforge/backend/rag/experiment/summary/repository/RagExperimentRepository.java#L19) | — | `ExperimentSummaryDtos`, `RagJdbc` |
+
+### `rag.experiment.summary.service`
+
+| Type | Named nested types | Backend type references |
+| --- | --- | --- |
+| [RagExperimentQueryService](../../backend/src/main/java/io/queryforge/backend/rag/experiment/summary/service/RagExperimentQueryService.java#L12) | — | `ExperimentSummaryDtos`, `RagExperimentRepository` |
+
+### `rag.persistence.support`
+
+| Type | Named nested types | Backend type references |
+| --- | --- | --- |
+| [RagJdbc](../../backend/src/main/java/io/queryforge/backend/rag/persistence/support/RagJdbc.java#L13) | — | — |
+
+### `rag.provider.environment.service`
+
+| Type | Named nested types | Backend type references |
+| --- | --- | --- |
+| [RuntimeEnvService](../../backend/src/main/java/io/queryforge/backend/rag/provider/environment/service/RuntimeEnvService.java#L14) | — | `AdminPipelineProperties` |
+
+### `rag.provider.springai.gateway`
+
+| Type | Named nested types | Backend type references |
+| --- | --- | --- |
+| [SpringAiChatGateway](../../backend/src/main/java/io/queryforge/backend/rag/provider/springai/gateway/SpringAiChatGateway.java#L12) | — | `RuntimeEnvService` |
+| [SpringAiEmbeddingGateway](../../backend/src/main/java/io/queryforge/backend/rag/provider/springai/gateway/SpringAiEmbeddingGateway.java#L15) | — | `RuntimeEnvService` |
+| [SpringAiVectorStoreGateway](../../backend/src/main/java/io/queryforge/backend/rag/provider/springai/gateway/SpringAiVectorStoreGateway.java#L8) | — | — |
+
+### `rag.retrieval.agentic.dto`
+
+| Type | Named nested types | Backend type references |
+| --- | --- | --- |
+| [AgenticExecutionDtos](../../backend/src/main/java/io/queryforge/backend/rag/retrieval/agentic/dto/AgenticExecutionDtos.java#L14) | `AgenticExecutionRequest`, `AgenticExecutionResult`, `PersistedRewriteCandidate` | `AgenticPlanningDtos`, `AgenticRetrievalDtos`, `ChatConfigDtos`, `ChatReadinessDtos`, `MemoryCandidate`, `RagPersistPolicy`, `RetrievalDoc` |
+| [AgenticRetrievalDtos](../../backend/src/main/java/io/queryforge/backend/rag/retrieval/agentic/dto/AgenticRetrievalDtos.java#L10) | `SubqueryRetrievalTrace`, `AgenticRetrievalMetadata` | `AgenticPlanningDtos`, `RetrievalDtos`, `RewriteDtos` |
+
+### `rag.retrieval.agentic.fusion.service`
+
+| Type | Named nested types | Backend type references |
+| --- | --- | --- |
+| [SearchResultMerger](../../backend/src/main/java/io/queryforge/backend/rag/retrieval/agentic/fusion/service/SearchResultMerger.java#L11) | `Accumulator` | `RetrievalDoc` |
+
+### `rag.retrieval.agentic.planning.dto`
+
+| Type | Named nested types | Backend type references |
+| --- | --- | --- |
+| [AgenticPlanningDtos](../../backend/src/main/java/io/queryforge/backend/rag/retrieval/agentic/planning/dto/AgenticPlanningDtos.java#L8) | `AgenticSubquery`, `AgenticQueryPlan` | — |
+
+### `rag.retrieval.agentic.planning.service`
+
+| Type | Named nested types | Backend type references |
+| --- | --- | --- |
+| [AgenticQueryPlannerService](../../backend/src/main/java/io/queryforge/backend/rag/retrieval/agentic/planning/service/AgenticQueryPlannerService.java#L28) | `PlannerPayload` | `AgenticPlanningDtos`, `ChatConfigDtos`, `MemoryCandidate`, `RuntimeEnvService`, `SpringAiChatGateway` |
+
+### `rag.retrieval.agentic.service`
+
+| Type | Named nested types | Backend type references |
+| --- | --- | --- |
+| [AgenticRetrievalService](../../backend/src/main/java/io/queryforge/backend/rag/retrieval/agentic/service/AgenticRetrievalService.java#L42) | `SubqueryExecution`, `GeneratedCandidate`, `Decision` | `AgenticExecutionDtos`, `AgenticPlanningDtos`, `AgenticQueryPlannerService`, `AgenticRetrievalDtos`, `AgenticTracePersistenceService`, `AgenticTraceWriteDtos`, `ChatConfigDtos`, `ChatReadinessDtos`, `CohereRerankService`, `DomainScopedRetrievalService`, `MemoryCandidate`, `QueryRouteContext`, `QueryRouteDecision`, `QueryStrategy`, `QueryStrategyRouter`, `RagPersistPolicy`, `RetrievalDoc`, `RetrievalDtos`, `RewriteCandidateService`, `RewriteDtos`, `SearchResultMerger` |
+
+### `rag.retrieval.candidate.dto`
+
+| Type | Named nested types | Backend type references |
+| --- | --- | --- |
+| [RetrievalDtos](../../backend/src/main/java/io/queryforge/backend/rag/retrieval/candidate/dto/RetrievalDtos.java#L3) | `ScoredDocumentDto`, `RetrievalRuntime` | — |
+
+### `rag.retrieval.candidate.model`
+
+| Type | Named nested types | Backend type references |
+| --- | --- | --- |
+| [RetrievalDoc](../../backend/src/main/java/io/queryforge/backend/rag/retrieval/candidate/model/RetrievalDoc.java#L3) | — | — |
+
+### `rag.retrieval.candidate.repository`
+
+| Type | Named nested types | Backend type references |
+| --- | --- | --- |
+| [ChunkRetrievalRepository](../../backend/src/main/java/io/queryforge/backend/rag/retrieval/candidate/repository/ChunkRetrievalRepository.java#L15) | — | `RetrievalDoc` |
+
+### `rag.retrieval.candidate.service`
+
+| Type | Named nested types | Backend type references |
+| --- | --- | --- |
+| [DomainScopedRetrievalService](../../backend/src/main/java/io/queryforge/backend/rag/retrieval/candidate/service/DomainScopedRetrievalService.java#L25) | — | `ChatConfigDtos`, `ChunkRetrievalRepository`, `DenseEmbeddingService`, `HashEmbeddingService`, `MemoryCandidate`, `RagMemoryRepository`, `RetrievalDoc`, `RetrievalDtos` |
+
+### `rag.retrieval.execution.dto`
+
+| Type | Named nested types | Backend type references |
+| --- | --- | --- |
+| [RagExecutionTrace](../../backend/src/main/java/io/queryforge/backend/rag/retrieval/execution/dto/RagExecutionTrace.java#L6) | — | `ForcedRetrievalMode` |
+| [RagLlmCallCount](../../backend/src/main/java/io/queryforge/backend/rag/retrieval/execution/dto/RagLlmCallCount.java#L3) | — | — |
+| [RagRetrievalExecutionRequest](../../backend/src/main/java/io/queryforge/backend/rag/retrieval/execution/dto/RagRetrievalExecutionRequest.java#L9) | — | `ForcedRetrievalMode`, `RagPersistPolicy` |
+| [RagRetrievalExecutionResult](../../backend/src/main/java/io/queryforge/backend/rag/retrieval/execution/dto/RagRetrievalExecutionResult.java#L7) | — | `ForcedRetrievalMode`, `RagExecutionTrace`, `RagLlmCallCount`, `RagRetrievedDoc` |
+| [RagRetrievedDoc](../../backend/src/main/java/io/queryforge/backend/rag/retrieval/execution/dto/RagRetrievedDoc.java#L7) | — | — |
+| [RetrievalExecutionDtos](../../backend/src/main/java/io/queryforge/backend/rag/retrieval/execution/dto/RetrievalExecutionDtos.java#L13) | `RawOnlyExecutionRequest`, `NonAgenticExecutionResult`, `NonAgenticExecutionKind`, `RetrievalMaterial`, `RawOnlyExecutionResult`, `SelectiveRewriteExecutionRequest`, `SelectiveRewriteExecutionResult`, `AnchorAwareRewriteExecutionRequest`, `AnchorAwareRewriteExecutionResult`, `ExecutedRewriteCandidate` | `MemoryCandidate`, `RetrievalDoc`, `RetrievalDtos` |
+
+### `rag.retrieval.execution.model`
+
+| Type | Named nested types | Backend type references |
+| --- | --- | --- |
+| [ForcedRetrievalMode](../../backend/src/main/java/io/queryforge/backend/rag/retrieval/execution/model/ForcedRetrievalMode.java#L3) | — | — |
+| [RagPersistPolicy](../../backend/src/main/java/io/queryforge/backend/rag/retrieval/execution/model/RagPersistPolicy.java#L3) | — | — |
+
+### `rag.retrieval.execution.service`
+
+| Type | Named nested types | Backend type references |
+| --- | --- | --- |
+| [RagRetrievalExecutionService](../../backend/src/main/java/io/queryforge/backend/rag/retrieval/execution/service/RagRetrievalExecutionService.java#L27) | — | `CohereRerankService`, `DomainScopedRetrievalService`, `MemoryCandidate`, `RetrievalDoc`, `RetrievalDtos`, `RetrievalExecutionDtos`, `RewriteCandidateService`, `RewriteDtos` |
+
+### `rag.retrieval.memory.model`
+
+| Type | Named nested types | Backend type references |
+| --- | --- | --- |
+| [MemoryCandidate](../../backend/src/main/java/io/queryforge/backend/rag/retrieval/memory/model/MemoryCandidate.java#L7) | — | — |
+
+### `rag.retrieval.memory.repository`
+
+| Type | Named nested types | Backend type references |
+| --- | --- | --- |
+| [RagMemoryRepository](../../backend/src/main/java/io/queryforge/backend/rag/retrieval/memory/repository/RagMemoryRepository.java#L20) | — | `MemoryCandidate`, `RagJdbc` |
+
+### `rag.retrieval.rerank.service`
+
+| Type | Named nested types | Backend type references |
+| --- | --- | --- |
+| [CohereRerankService](../../backend/src/main/java/io/queryforge/backend/rag/retrieval/rerank/service/CohereRerankService.java#L19) | — | `RetrievalDoc` |
+
+### `rag.retrieval.rewrite.dto`
+
+| Type | Named nested types | Backend type references |
+| --- | --- | --- |
+| [RewriteDtos](../../backend/src/main/java/io/queryforge/backend/rag/retrieval/rewrite/dto/RewriteDtos.java#L7) | `RewriteCandidateDto`, `CandidateTemplate` | — |
+
+### `rag.retrieval.rewrite.preview.controller`
+
+| Type | Named nested types | Backend type references |
+| --- | --- | --- |
+| [RewritePreviewController](../../backend/src/main/java/io/queryforge/backend/rag/retrieval/rewrite/preview/controller/RewritePreviewController.java#L11) | — | `RewritePreviewDtos`, `RewritePreviewService` |
+
+### `rag.retrieval.rewrite.preview.dto`
+
+| Type | Named nested types | Backend type references |
+| --- | --- | --- |
+| [RewritePreviewDtos](../../backend/src/main/java/io/queryforge/backend/rag/retrieval/rewrite/preview/dto/RewritePreviewDtos.java#L8) | `RewritePreviewRequest`, `RewritePreviewResponse` | `RewriteDtos` |
+
+### `rag.retrieval.rewrite.preview.service`
+
+| Type | Named nested types | Backend type references |
+| --- | --- | --- |
+| [RewritePreviewService](../../backend/src/main/java/io/queryforge/backend/rag/retrieval/rewrite/preview/service/RewritePreviewService.java#L24) | — | `ChunkRetrievalRepository`, `CohereRerankService`, `HashEmbeddingService`, `MemoryCandidate`, `RagMemoryRepository`, `RetrievalDoc`, `RewriteCandidateService`, `RewriteDtos`, `RewritePreviewDtos`, `RewriteScoring` |
+
+### `rag.retrieval.rewrite.service`
+
+| Type | Named nested types | Backend type references |
+| --- | --- | --- |
+| [RewriteCandidateService](../../backend/src/main/java/io/queryforge/backend/rag/retrieval/rewrite/service/RewriteCandidateService.java#L29) | `PromptAsset` | `MemoryCandidate`, `RewriteDtos`, `RuntimeEnvService`, `SpringAiChatGateway` |
+| [RewriteScoring](../../backend/src/main/java/io/queryforge/backend/rag/retrieval/rewrite/service/RewriteScoring.java#L11) | — | `MemoryCandidate`, `RetrievalDoc` |
+
+### `rag.retrieval.routing.dto`
+
+| Type | Named nested types | Backend type references |
+| --- | --- | --- |
+| [QueryRouteContext](../../backend/src/main/java/io/queryforge/backend/rag/retrieval/routing/dto/QueryRouteContext.java#L8) | — | `ChatConfigDtos`, `ChatReadinessDtos` |
+| [QueryRouteDecision](../../backend/src/main/java/io/queryforge/backend/rag/retrieval/routing/dto/QueryRouteDecision.java#L8) | — | `QueryStrategy` |
+
+### `rag.retrieval.routing.model`
+
+| Type | Named nested types | Backend type references |
+| --- | --- | --- |
+| [QueryStrategy](../../backend/src/main/java/io/queryforge/backend/rag/retrieval/routing/model/QueryStrategy.java#L3) | — | — |
+
+### `rag.retrieval.routing.service`
+
+| Type | Named nested types | Backend type references |
+| --- | --- | --- |
+| [QueryStrategyRouter](../../backend/src/main/java/io/queryforge/backend/rag/retrieval/routing/service/QueryStrategyRouter.java#L17) | — | `ChatConfigDtos`, `ChatReadinessDtos`, `QueryRouteContext`, `QueryRouteDecision`, `QueryStrategy` |
+
+### `rag.runtime.configuration.controller`
+
+| Type | Named nested types | Backend type references |
+| --- | --- | --- |
+| [ChatRuntimeConfigController](../../backend/src/main/java/io/queryforge/backend/rag/runtime/configuration/controller/ChatRuntimeConfigController.java#L15) | — | `ChatConfigDtos`, `ChatRuntimeConfigService` |
+
+### `rag.runtime.configuration.dto`
+
+| Type | Named nested types | Backend type references |
+| --- | --- | --- |
+| [ChatConfigDtos](../../backend/src/main/java/io/queryforge/backend/rag/runtime/configuration/dto/ChatConfigDtos.java#L9) | `ChatDomainOption`, `ChatRuntimeConfigResponse`, `ChatRuntimeConfigRequest`, `ChatRuntimeConfigProvenanceRow` | — |
+
+### `rag.runtime.configuration.repository`
+
+| Type | Named nested types | Backend type references |
+| --- | --- | --- |
+| [ChatRuntimeConfigRepository](../../backend/src/main/java/io/queryforge/backend/rag/runtime/configuration/repository/ChatRuntimeConfigRepository.java#L22) | — | `ChatConfigDtos` |
+
+### `rag.runtime.configuration.service`
+
+| Type | Named nested types | Backend type references |
+| --- | --- | --- |
+| [ChatRuntimeConfigService](../../backend/src/main/java/io/queryforge/backend/rag/runtime/configuration/service/ChatRuntimeConfigService.java#L26) | — | `AdminRuntimeOptionsDtos`, `AdminRuntimeOptionsService`, `ChatConfigDtos`, `ChatRuntimeConfigRepository`, `ChunkEmbeddingAdminDtos`, `ChunkEmbeddingAdminService`, `GatingSnapshotDtos`, `GatingSnapshotRepository` |
+
+### `rag.runtime.promotion.controller`
+
+| Type | Named nested types | Backend type references |
+| --- | --- | --- |
+| [ChatConfigPromotionController](../../backend/src/main/java/io/queryforge/backend/rag/runtime/promotion/controller/ChatConfigPromotionController.java#L11) | — | `ChatConfigDtos`, `ChatConfigPromotionDtos`, `ChatConfigPromotionService` |
+
+### `rag.runtime.promotion.dto`
+
+| Type | Named nested types | Backend type references |
+| --- | --- | --- |
+| [ChatConfigPromotionDtos](../../backend/src/main/java/io/queryforge/backend/rag/runtime/promotion/dto/ChatConfigPromotionDtos.java#L7) | `ApplyChatConfigFromRagRunRequest`, `RagRunApplySnapshot` | — |
+
+### `rag.runtime.promotion.repository`
+
+| Type | Named nested types | Backend type references |
+| --- | --- | --- |
+| [ChatConfigPromotionRepository](../../backend/src/main/java/io/queryforge/backend/rag/runtime/promotion/repository/ChatConfigPromotionRepository.java#L17) | — | `ChatConfigPromotionDtos` |
+
+### `rag.runtime.promotion.service`
+
+| Type | Named nested types | Backend type references |
+| --- | --- | --- |
+| [ChatConfigPromotionService](../../backend/src/main/java/io/queryforge/backend/rag/runtime/promotion/service/ChatConfigPromotionService.java#L18) | — | `ChatConfigDtos`, `ChatConfigPromotionDtos`, `ChatConfigPromotionRepository`, `ChatRuntimeConfigService` |
+
+### `rag.runtime.readiness.controller`
+
+| Type | Named nested types | Backend type references |
+| --- | --- | --- |
+| [ChatReadinessController](../../backend/src/main/java/io/queryforge/backend/rag/runtime/readiness/controller/ChatReadinessController.java#L12) | — | `ChatReadinessDtos`, `ChatReadinessService` |
+
+### `rag.runtime.readiness.dto`
+
+| Type | Named nested types | Backend type references |
+| --- | --- | --- |
+| [ChatReadinessDtos](../../backend/src/main/java/io/queryforge/backend/rag/runtime/readiness/dto/ChatReadinessDtos.java#L7) | `ChatDomainReadinessResponse`, `SnapshotReadiness`, `ChunkEmbeddingReadiness`, `PromptBindingReadiness`, `RetrievalReadiness`, `DomainChunkEmbeddingStatus`, `PromptBindingSummary` | — |
+
+### `rag.runtime.readiness.repository`
+
+| Type | Named nested types | Backend type references |
+| --- | --- | --- |
+| [ChatReadinessRepository](../../backend/src/main/java/io/queryforge/backend/rag/runtime/readiness/repository/ChatReadinessRepository.java#L20) | — | `ChatReadinessDtos` |
+
+### `rag.runtime.readiness.service`
+
+| Type | Named nested types | Backend type references |
+| --- | --- | --- |
+| [ChatReadinessService](../../backend/src/main/java/io/queryforge/backend/rag/runtime/readiness/service/ChatReadinessService.java#L19) | — | `ChatConfigDtos`, `ChatReadinessDtos`, `ChatReadinessRepository`, `ChatRuntimeConfigService`, `GatingSnapshotDtos`, `GatingSnapshotRepository` |
+
+### `rag.runtime.snapshot.dto`
+
+| Type | Named nested types | Backend type references |
+| --- | --- | --- |
+| [GatingSnapshotDtos](../../backend/src/main/java/io/queryforge/backend/rag/runtime/snapshot/dto/GatingSnapshotDtos.java#L5) | `GatingSnapshot` | — |
+
+### `rag.runtime.snapshot.repository`
+
+| Type | Named nested types | Backend type references |
+| --- | --- | --- |
+| [GatingSnapshotRepository](../../backend/src/main/java/io/queryforge/backend/rag/runtime/snapshot/repository/GatingSnapshotRepository.java#L15) | — | `GatingSnapshotDtos` |
+
+### `rag.trace.query.controller`
+
+| Type | Named nested types | Backend type references |
+| --- | --- | --- |
+| [RagTraceQueryController](../../backend/src/main/java/io/queryforge/backend/rag/trace/query/controller/RagTraceQueryController.java#L13) | — | `RagTraceDtos`, `RagTraceQueryService` |
+
+### `rag.trace.query.dto`
+
+| Type | Named nested types | Backend type references |
+| --- | --- | --- |
+| [RagTraceDtos](../../backend/src/main/java/io/queryforge/backend/rag/trace/query/dto/RagTraceDtos.java#L9) | `QueryTraceResponse`, `RewriteCandidateRow`, `OnlineQueryRow` | `RewriteDtos` |
+
+### `rag.trace.query.repository`
+
+| Type | Named nested types | Backend type references |
+| --- | --- | --- |
+| [RagTraceReadRepository](../../backend/src/main/java/io/queryforge/backend/rag/trace/query/repository/RagTraceReadRepository.java#L20) | — | `RagJdbc`, `RagTraceDtos` |
+
+### `rag.trace.query.service`
+
+| Type | Named nested types | Backend type references |
+| --- | --- | --- |
+| [RagTraceQueryService](../../backend/src/main/java/io/queryforge/backend/rag/trace/query/service/RagTraceQueryService.java#L12) | — | `RagTraceDtos`, `RagTraceReadRepository`, `RewriteDtos` |
+
+### `rag.trace.write.agentic.dto`
+
+| Type | Named nested types | Backend type references |
+| --- | --- | --- |
+| [AgenticTraceWriteDtos](../../backend/src/main/java/io/queryforge/backend/rag/trace/write/agentic/dto/AgenticTraceWriteDtos.java#L12) | `AgenticSubqueryRetrievalTracePersistenceRequest`, `AgenticRewriteCandidateTracePersistenceRequest`, `AgenticRewriteCandidateAdoptionPersistenceRequest`, `AgenticFinalRerankTracePersistenceRequest`, `AgenticOnlineRewriteLogPersistenceRequest`, `AgenticMemoryRetrievalLogPersistenceRequest`, `AgenticRewriteCandidateLogPersistenceRequest`, `AgenticOnlineQueryDecisionPersistenceRequest`, `AgenticOnlineQueryMetadataMergePersistenceRequest`, `AgenticRetrievalExecutionKind`, `AgenticSubqueryRetrievalTraceWriteScope` | `MemoryCandidate`, `RagPersistPolicy`, `RetrievalDoc` |
+
+### `rag.trace.write.agentic.service`
+
+| Type | Named nested types | Backend type references |
+| --- | --- | --- |
+| [AgenticTracePersistenceService](../../backend/src/main/java/io/queryforge/backend/rag/trace/write/agentic/service/AgenticTracePersistenceService.java#L24) | — | `AgenticTraceWriteDtos`, `RagPersistPolicy`, `RagTraceRepository`, `TraceWriteResults` |
+
+### `rag.trace.write.dto`
+
+| Type | Named nested types | Backend type references |
+| --- | --- | --- |
+| [RagTraceWriteDtos](../../backend/src/main/java/io/queryforge/backend/rag/trace/write/dto/RagTraceWriteDtos.java#L15) | `RagTracePersistenceRequest`, `OnlineQueryDecisionPersistenceRequest`, `OnlineQueryMetadataMergePersistenceRequest`, `RawOnlyTracePersistenceRequest`, `RewriteCandidateTracePersistenceRequest`, `CreateRewriteCandidateTracePersistenceRequest`, `RewriteCandidateAdoptionPersistenceRequest`, `OnlineRewriteLogPersistenceRequest`, `MemoryRetrievalLogPersistenceRequest`, `RewriteCandidateLogPersistenceRequest`, `RawOnlyTraceWriteScope`, `RewriteCandidateTraceWriteScope` | `ForcedRetrievalMode`, `MemoryCandidate`, `RagPersistPolicy`, `RagRetrievalExecutionResult`, `RetrievalDoc`, `RetrievalExecutionDtos` |
+| [TraceWriteResults](../../backend/src/main/java/io/queryforge/backend/rag/trace/write/dto/TraceWriteResults.java#L7) | `RagTracePersistenceResult`, `RewriteCandidatePersistenceResult`, `OnlineRewriteLogPersistenceResult` | `RagPersistPolicy` |
+
+### `rag.trace.write.repository`
+
+| Type | Named nested types | Backend type references |
+| --- | --- | --- |
+| [RagTraceRepository](../../backend/src/main/java/io/queryforge/backend/rag/trace/write/repository/RagTraceRepository.java#L18) | — | `MemoryCandidate`, `RetrievalDoc` |
+
+### `rag.trace.write.service`
+
+| Type | Named nested types | Backend type references |
+| --- | --- | --- |
+| [RagTracePersistenceService](../../backend/src/main/java/io/queryforge/backend/rag/trace/write/service/RagTracePersistenceService.java#L25) | — | `RagPersistPolicy`, `RagTraceRepository`, `RagTraceWriteDtos`, `RetrievalExecutionDtos`, `TraceWriteResults` |
+
+### `rag.web.advice`
+
+| Type | Named nested types | Backend type references |
+| --- | --- | --- |
+| [RagApiExceptionHandler](../../backend/src/main/java/io/queryforge/backend/rag/web/advice/RagApiExceptionHandler.java#L10) | — | `GeminiServiceUnavailableException`, `RagRetrievalEvalException` |
+
+### `ui.controller`
+
+| Type | Named nested types | Backend type references |
+| --- | --- | --- |
+| [ReactUiController](../../backend/src/main/java/io/queryforge/backend/ui/controller/ReactUiController.java#L6) | — | — |
 
 ## Test source
 
-### `admin.console`
+### `admin.console.evaluation.integration`
 
 | Type | Named nested types | Backend type references |
 | --- | --- | --- |
-| [AdminConsoleGatingIntegrationTest](../../backend/src/test/java/io/queryforge/backend/admin/console/AdminConsoleGatingIntegrationTest.java#L43) | — | `AdminSyntheticMethodRepository`, `GatingRepository`, `LlmJobDtos`, `LlmJobRepository`, `SyntheticGenerationDtos` |
+| [AdminConsoleRagIntegrationTest](../../backend/src/test/java/io/queryforge/backend/admin/console/evaluation/integration/AdminConsoleRagIntegrationTest.java#L28) | — | — |
 
-### `admin.console.evaluation`
-
-| Type | Named nested types | Backend type references |
-| --- | --- | --- |
-| [AdminConsoleRagIntegrationTest](../../backend/src/test/java/io/queryforge/backend/admin/console/evaluation/AdminConsoleRagIntegrationTest.java#L28) | — | — |
-
-### `admin.console.jobs`
+### `admin.console.integration`
 
 | Type | Named nested types | Backend type references |
 | --- | --- | --- |
-| [LlmJobTypeConstraintSyncTest](../../backend/src/test/java/io/queryforge/backend/admin/console/jobs/LlmJobTypeConstraintSyncTest.java#L16) | — | `LlmJobType` |
+| [AdminConsoleGatingIntegrationTest](../../backend/src/test/java/io/queryforge/backend/admin/console/integration/AdminConsoleGatingIntegrationTest.java#L43) | — | `AdminSyntheticMethodRepository`, `GatingRepository`, `LlmJobDtos`, `LlmJobRepository`, `SyntheticGenerationDtos` |
 
-### `admin.corpus`
-
-| Type | Named nested types | Backend type references |
-| --- | --- | --- |
-| [CorpusAdminApiIntegrationTest](../../backend/src/test/java/io/queryforge/backend/admin/corpus/CorpusAdminApiIntegrationTest.java#L20) | — | — |
-| [CorpusAdminMutationIntegrationTest](../../backend/src/test/java/io/queryforge/backend/admin/corpus/CorpusAdminMutationIntegrationTest.java#L29) | — | — |
-
-### `admin.domain.workspace`
+### `admin.console.jobs.model`
 
 | Type | Named nested types | Backend type references |
 | --- | --- | --- |
-| [DomainWorkspaceIntegrationTest](../../backend/src/test/java/io/queryforge/backend/admin/domain/workspace/DomainWorkspaceIntegrationTest.java#L30) | — | — |
+| [LlmJobTypeConstraintSyncTest](../../backend/src/test/java/io/queryforge/backend/admin/console/jobs/model/LlmJobTypeConstraintSyncTest.java#L16) | — | `LlmJobType` |
 
-### `admin.pipeline`
-
-| Type | Named nested types | Backend type references |
-| --- | --- | --- |
-| [PipelineAdminIntegrationTest](../../backend/src/test/java/io/queryforge/backend/admin/pipeline/PipelineAdminIntegrationTest.java#L37) | `StubPipelineRunnerConfiguration` | `PipelineCommandRunner` |
-
-### `admin.pipeline.artifact`
+### `admin.corpus.integration`
 
 | Type | Named nested types | Backend type references |
 | --- | --- | --- |
-| [DocumentArtifactStoreServiceTest](../../backend/src/test/java/io/queryforge/backend/admin/pipeline/artifact/DocumentArtifactStoreServiceTest.java#L21) | — | `AdminPipelineProperties`, `DocumentArtifactStoreService`, `PipelineSourceRepository`, `SourceCatalogService` |
+| [CorpusAdminApiIntegrationTest](../../backend/src/test/java/io/queryforge/backend/admin/corpus/integration/CorpusAdminApiIntegrationTest.java#L20) | — | — |
+| [CorpusAdminMutationIntegrationTest](../../backend/src/test/java/io/queryforge/backend/admin/corpus/integration/CorpusAdminMutationIntegrationTest.java#L29) | — | — |
 
-### `admin.pipeline.source`
+### `admin.domain.workspace.integration`
 
 | Type | Named nested types | Backend type references |
 | --- | --- | --- |
-| [ProjectPathResolverTest](../../backend/src/test/java/io/queryforge/backend/admin/pipeline/source/ProjectPathResolverTest.java#L13) | — | `ProjectPathResolver` |
+| [DomainWorkspaceIntegrationTest](../../backend/src/test/java/io/queryforge/backend/admin/domain/workspace/integration/DomainWorkspaceIntegrationTest.java#L30) | — | — |
+
+### `admin.pipeline.artifact.service`
+
+| Type | Named nested types | Backend type references |
+| --- | --- | --- |
+| [DocumentArtifactStoreServiceTest](../../backend/src/test/java/io/queryforge/backend/admin/pipeline/artifact/service/DocumentArtifactStoreServiceTest.java#L22) | — | `AdminPipelineProperties`, `DocumentArtifactDtos`, `DocumentArtifactStoreService`, `PipelineSourceRepository`, `SourceCatalogService` |
+
+### `admin.pipeline.integration`
+
+| Type | Named nested types | Backend type references |
+| --- | --- | --- |
+| [PipelineAdminIntegrationTest](../../backend/src/test/java/io/queryforge/backend/admin/pipeline/integration/PipelineAdminIntegrationTest.java#L39) | `StubPipelineRunnerConfiguration` | `PipelineCommandRunner`, `PipelineExecutionDtos` |
+
+### `admin.pipeline.source.service`
+
+| Type | Named nested types | Backend type references |
+| --- | --- | --- |
+| [ProjectPathResolverTest](../../backend/src/test/java/io/queryforge/backend/admin/pipeline/source/service/ProjectPathResolverTest.java#L13) | — | `ProjectPathResolver` |
 
 ### `io.queryforge.backend`
 
@@ -660,79 +1333,94 @@
 | --- | --- | --- |
 | [QueryForgeApplicationTests](../../backend/src/test/java/io/queryforge/backend/QueryForgeApplicationTests.java#L12) | — | — |
 
-### `rag.chat`
+### `rag.chat.answer.service`
 
 | Type | Named nested types | Backend type references |
 | --- | --- | --- |
-| [RagControllerWebTest](../../backend/src/test/java/io/queryforge/backend/rag/chat/RagControllerWebTest.java#L26) | — | `ChatDtos`, `EvalReportController`, `EvalReportDtos`, `EvalReportService`, `GeminiServiceUnavailableException`, `RagController`, `RagService` |
-| [RagServiceTest](../../backend/src/test/java/io/queryforge/backend/rag/chat/RagServiceTest.java#L58) | — | `AgenticChatService`, `AgenticPlanningDtos`, `AgenticRetrievalDtos`, `AgenticRetrievalService`, `AgenticTracePersistenceService`, `ChatAnswerService`, `ChatConfigDtos`, `ChatDtos`, `ChatReadinessDtos`, `ChatReadinessService`, `ChatResponseAssembler`, `ChatRuntimeConfigService`, `ChunkRetrievalRepository`, `CohereRerankService`, `DenseEmbeddingService`, `DomainScopedRetrievalService`, `HashEmbeddingService`, `MemoryCandidate`, `QueryStrategyRouter`, `RagMemoryRepository`, `RagPersistPolicy`, `RagRetrievalExecutionService`, `RagService`, `RagTracePersistenceService`, `RagTraceRepository`, `RetrievalDoc`, `RetrievalDtos`, `RewriteCandidateService` |
+| [ChatAnswerServiceTest](../../backend/src/test/java/io/queryforge/backend/rag/chat/answer/service/ChatAnswerServiceTest.java#L29) | `ExchangeHandler` | `ChatAnswerDtos`, `ChatAnswerService`, `GeminiServiceUnavailableException`, `RetrievalDoc`, `RuntimeEnvService`, `SpringAiChatGateway` |
 
-### `rag.chat.answer`
-
-| Type | Named nested types | Backend type references |
-| --- | --- | --- |
-| [ChatAnswerServiceTest](../../backend/src/test/java/io/queryforge/backend/rag/chat/answer/ChatAnswerServiceTest.java#L27) | `ExchangeHandler` | `ChatAnswerService`, `GeminiServiceUnavailableException`, `RetrievalDoc`, `RuntimeEnvService`, `SpringAiChatGateway` |
-
-### `rag.embedding`
+### `rag.chat.controller`
 
 | Type | Named nested types | Backend type references |
 | --- | --- | --- |
-| [DenseEmbeddingServiceTest](../../backend/src/test/java/io/queryforge/backend/rag/embedding/DenseEmbeddingServiceTest.java#L16) | — | `DenseEmbeddingService`, `SpringAiEmbeddingGateway` |
-| [HashEmbeddingServiceTest](../../backend/src/test/java/io/queryforge/backend/rag/embedding/HashEmbeddingServiceTest.java#L9) | — | `HashEmbeddingService` |
+| [RagControllerWebTest](../../backend/src/test/java/io/queryforge/backend/rag/chat/controller/RagControllerWebTest.java#L28) | — | `ChatDtos`, `EvalReportController`, `EvalReportDtos`, `EvalReportService`, `GeminiServiceUnavailableException`, `RagController`, `RagService` |
 
-### `rag.eval.retrieval`
-
-| Type | Named nested types | Backend type references |
-| --- | --- | --- |
-| [RagRetrievalEvalControllerTest](../../backend/src/test/java/io/queryforge/backend/rag/eval/retrieval/RagRetrievalEvalControllerTest.java#L33) | — | `ChatAnswerService`, `ChunkRetrievalRepository`, `RagApiExceptionHandler`, `RagLlmCallCount`, `RagMemoryRepository`, `RagPersistPolicy`, `RagRetrievalEvalController`, `RagRetrievalEvalDtos`, `RagRetrievalEvalException`, `RagRetrievalEvalService`, `RagService`, `RagTraceRepository` |
-| [RagRetrievalEvalServiceTest](../../backend/src/test/java/io/queryforge/backend/rag/eval/retrieval/RagRetrievalEvalServiceTest.java#L48) | — | `AgenticPlanningDtos`, `AgenticRetrievalService`, `ChatAnswerService`, `ChatConfigDtos`, `ChatReadinessDtos`, `ChatReadinessService`, `ChatRuntimeConfigService`, `ChunkRetrievalRepository`, `DomainScopedRetrievalService`, `EvalRuntimeConfigService`, `MemoryCandidate`, `QueryRouteDecision`, `QueryStrategy`, `QueryStrategyRouter`, `RagMemoryRepository`, `RagPersistPolicy`, `RagRetrievalEvalDtos`, `RagRetrievalEvalException`, `RagRetrievalEvalService`, `RagRetrievalExecutionService`, `RagService`, `RagTraceRepository`, `RetrievalDoc` |
-
-### `rag.retrieval.agentic`
+### `rag.chat.service`
 
 | Type | Named nested types | Backend type references |
 | --- | --- | --- |
-| [AgenticRetrievalServiceTest](../../backend/src/test/java/io/queryforge/backend/rag/retrieval/agentic/AgenticRetrievalServiceTest.java#L48) | — | `AgenticPlanningDtos`, `AgenticQueryPlannerService`, `AgenticRetrievalDtos`, `AgenticRetrievalService`, `AgenticTracePersistenceService`, `ChatConfigDtos`, `ChatReadinessDtos`, `ChunkRetrievalRepository`, `CohereRerankService`, `DenseEmbeddingService`, `DomainScopedRetrievalService`, `HashEmbeddingService`, `MemoryCandidate`, `QueryStrategyRouter`, `RagMemoryRepository`, `RagPersistPolicy`, `RagTraceRepository`, `RetrievalDoc`, `RewriteCandidateService`, `SearchResultMerger`, `TraceWriteResults` |
+| [RagServiceTest](../../backend/src/test/java/io/queryforge/backend/rag/chat/service/RagServiceTest.java#L65) | — | `AgenticChatService`, `AgenticExecutionDtos`, `AgenticPlanningDtos`, `AgenticRetrievalDtos`, `AgenticRetrievalService`, `AgenticTracePersistenceService`, `AgenticTraceWriteDtos`, `ChatAnswerDtos`, `ChatAnswerService`, `ChatConfigDtos`, `ChatDtos`, `ChatReadinessDtos`, `ChatReadinessService`, `ChatResponseAssembler`, `ChatRuntimeConfigService`, `ChunkRetrievalRepository`, `CohereRerankService`, `DenseEmbeddingService`, `DomainScopedRetrievalService`, `HashEmbeddingService`, `MemoryCandidate`, `QueryStrategyRouter`, `RagMemoryRepository`, `RagPersistPolicy`, `RagRetrievalExecutionService`, `RagService`, `RagTracePersistenceService`, `RagTraceRepository`, `RagTraceWriteDtos`, `RetrievalDoc`, `RetrievalDtos`, `RetrievalExecutionDtos`, `RewriteCandidateService`, `RewriteDtos` |
 
-### `rag.retrieval.agentic.fusion`
-
-| Type | Named nested types | Backend type references |
-| --- | --- | --- |
-| [SearchResultMergerTest](../../backend/src/test/java/io/queryforge/backend/rag/retrieval/agentic/fusion/SearchResultMergerTest.java#L10) | — | `RetrievalDoc`, `SearchResultMerger` |
-
-### `rag.retrieval.agentic.planning`
+### `rag.embedding.service`
 
 | Type | Named nested types | Backend type references |
 | --- | --- | --- |
-| [AgenticQueryPlannerServiceTest](../../backend/src/test/java/io/queryforge/backend/rag/retrieval/agentic/planning/AgenticQueryPlannerServiceTest.java#L24) | — | `AgenticPlanningDtos`, `AgenticQueryPlannerService`, `ChatConfigDtos`, `RuntimeEnvService`, `SpringAiChatGateway` |
+| [DenseEmbeddingServiceTest](../../backend/src/test/java/io/queryforge/backend/rag/embedding/service/DenseEmbeddingServiceTest.java#L16) | — | `DenseEmbeddingService`, `SpringAiEmbeddingGateway` |
+| [HashEmbeddingServiceTest](../../backend/src/test/java/io/queryforge/backend/rag/embedding/service/HashEmbeddingServiceTest.java#L9) | — | `HashEmbeddingService` |
 
-### `rag.retrieval.candidate`
-
-| Type | Named nested types | Backend type references |
-| --- | --- | --- |
-| [DomainScopedRetrievalServiceTest](../../backend/src/test/java/io/queryforge/backend/rag/retrieval/candidate/DomainScopedRetrievalServiceTest.java#L27) | — | `ChunkRetrievalRepository`, `DenseEmbeddingService`, `DomainScopedRetrievalService`, `HashEmbeddingService`, `MemoryCandidate`, `RagMemoryRepository`, `RetrievalDoc` |
-
-### `rag.retrieval.execution`
+### `rag.eval.retrieval.controller`
 
 | Type | Named nested types | Backend type references |
 | --- | --- | --- |
-| [RagRetrievalExecutionModelTest](../../backend/src/test/java/io/queryforge/backend/rag/retrieval/execution/RagRetrievalExecutionModelTest.java#L13) | — | `ForcedRetrievalMode`, `QueryStrategy`, `RagExecutionTrace`, `RagLlmCallCount`, `RagPersistPolicy`, `RagRetrievalExecutionRequest`, `RagRetrievalExecutionResult`, `RagRetrievedDoc` |
-| [RagRetrievalExecutionServiceTest](../../backend/src/test/java/io/queryforge/backend/rag/retrieval/execution/RagRetrievalExecutionServiceTest.java#L35) | — | `ChunkRetrievalRepository`, `CohereRerankService`, `DenseEmbeddingService`, `DomainScopedRetrievalService`, `HashEmbeddingService`, `MemoryCandidate`, `RagMemoryRepository`, `RagRetrievalExecutionService`, `RagTracePersistenceService`, `RagTraceRepository`, `RetrievalDoc`, `RewriteCandidateService` |
+| [RagRetrievalEvalControllerTest](../../backend/src/test/java/io/queryforge/backend/rag/eval/retrieval/controller/RagRetrievalEvalControllerTest.java#L36) | — | `ChatAnswerService`, `ChunkRetrievalRepository`, `RagApiExceptionHandler`, `RagLlmCallCount`, `RagMemoryRepository`, `RagPersistPolicy`, `RagRetrievalEvalController`, `RagRetrievalEvalDtos`, `RagRetrievalEvalException`, `RagRetrievalEvalService`, `RagService`, `RagTraceRepository` |
 
-### `rag.retrieval.routing`
-
-| Type | Named nested types | Backend type references |
-| --- | --- | --- |
-| [QueryStrategyRouterTest](../../backend/src/test/java/io/queryforge/backend/rag/retrieval/routing/QueryStrategyRouterTest.java#L15) | — | `ChatConfigDtos`, `ChatReadinessDtos`, `QueryRouteContext`, `QueryRouteDecision`, `QueryStrategy`, `QueryStrategyRouter` |
-
-### `rag.trace.write`
+### `rag.eval.retrieval.service`
 
 | Type | Named nested types | Backend type references |
 | --- | --- | --- |
-| [RagTracePersistenceServiceTest](../../backend/src/test/java/io/queryforge/backend/rag/trace/write/RagTracePersistenceServiceTest.java#L40) | — | `AgenticTracePersistenceService`, `ChatAnswerService`, `ForcedRetrievalMode`, `MemoryCandidate`, `RagPersistPolicy`, `RagRetrievalExecutionResult`, `RagRetrievalExecutionService`, `RagTracePersistenceService`, `RagTraceRepository`, `RetrievalDoc`, `TraceWriteResults` |
+| [RagRetrievalEvalServiceTest](../../backend/src/test/java/io/queryforge/backend/rag/eval/retrieval/service/RagRetrievalEvalServiceTest.java#L53) | — | `AgenticExecutionDtos`, `AgenticPlanningDtos`, `AgenticRetrievalService`, `ChatAnswerService`, `ChatConfigDtos`, `ChatReadinessDtos`, `ChatReadinessService`, `ChatRuntimeConfigService`, `ChunkRetrievalRepository`, `DomainScopedRetrievalService`, `EvalRuntimeConfigService`, `MemoryCandidate`, `QueryRouteDecision`, `QueryStrategy`, `QueryStrategyRouter`, `RagMemoryRepository`, `RagPersistPolicy`, `RagRetrievalEvalDtos`, `RagRetrievalEvalException`, `RagRetrievalEvalService`, `RagRetrievalExecutionService`, `RagService`, `RagTraceRepository`, `RetrievalDoc`, `RetrievalDtos`, `RetrievalExecutionDtos` |
 
-### `ui`
+### `rag.retrieval.agentic.fusion.service`
 
 | Type | Named nested types | Backend type references |
 | --- | --- | --- |
-| [AdminIngestWizardRenderTest](../../backend/src/test/java/io/queryforge/backend/ui/AdminIngestWizardRenderTest.java#L12) | — | `ReactUiController` |
-| [AdminUiSmokeTest](../../backend/src/test/java/io/queryforge/backend/ui/AdminUiSmokeTest.java#L23) | — | — |
+| [SearchResultMergerTest](../../backend/src/test/java/io/queryforge/backend/rag/retrieval/agentic/fusion/service/SearchResultMergerTest.java#L10) | — | `RetrievalDoc`, `SearchResultMerger` |
+
+### `rag.retrieval.agentic.planning.service`
+
+| Type | Named nested types | Backend type references |
+| --- | --- | --- |
+| [AgenticQueryPlannerServiceTest](../../backend/src/test/java/io/queryforge/backend/rag/retrieval/agentic/planning/service/AgenticQueryPlannerServiceTest.java#L25) | — | `AgenticPlanningDtos`, `AgenticQueryPlannerService`, `ChatConfigDtos`, `RuntimeEnvService`, `SpringAiChatGateway` |
+
+### `rag.retrieval.agentic.service`
+
+| Type | Named nested types | Backend type references |
+| --- | --- | --- |
+| [AgenticRetrievalServiceTest](../../backend/src/test/java/io/queryforge/backend/rag/retrieval/agentic/service/AgenticRetrievalServiceTest.java#L52) | — | `AgenticExecutionDtos`, `AgenticPlanningDtos`, `AgenticQueryPlannerService`, `AgenticRetrievalDtos`, `AgenticRetrievalService`, `AgenticTracePersistenceService`, `AgenticTraceWriteDtos`, `ChatConfigDtos`, `ChatReadinessDtos`, `ChunkRetrievalRepository`, `CohereRerankService`, `DenseEmbeddingService`, `DomainScopedRetrievalService`, `HashEmbeddingService`, `MemoryCandidate`, `QueryStrategyRouter`, `RagMemoryRepository`, `RagPersistPolicy`, `RagTraceRepository`, `RetrievalDoc`, `RewriteCandidateService`, `RewriteDtos`, `SearchResultMerger`, `TraceWriteResults` |
+
+### `rag.retrieval.candidate.service`
+
+| Type | Named nested types | Backend type references |
+| --- | --- | --- |
+| [DomainScopedRetrievalServiceTest](../../backend/src/test/java/io/queryforge/backend/rag/retrieval/candidate/service/DomainScopedRetrievalServiceTest.java#L30) | — | `ChunkRetrievalRepository`, `DenseEmbeddingService`, `DomainScopedRetrievalService`, `HashEmbeddingService`, `MemoryCandidate`, `RagMemoryRepository`, `RetrievalDoc`, `RetrievalDtos` |
+
+### `rag.retrieval.execution.model`
+
+| Type | Named nested types | Backend type references |
+| --- | --- | --- |
+| [RagRetrievalExecutionModelTest](../../backend/src/test/java/io/queryforge/backend/rag/retrieval/execution/model/RagRetrievalExecutionModelTest.java#L18) | — | `ForcedRetrievalMode`, `QueryStrategy`, `RagExecutionTrace`, `RagLlmCallCount`, `RagPersistPolicy`, `RagRetrievalExecutionRequest`, `RagRetrievalExecutionResult`, `RagRetrievedDoc` |
+
+### `rag.retrieval.execution.service`
+
+| Type | Named nested types | Backend type references |
+| --- | --- | --- |
+| [RagRetrievalExecutionServiceTest](../../backend/src/test/java/io/queryforge/backend/rag/retrieval/execution/service/RagRetrievalExecutionServiceTest.java#L38) | — | `ChunkRetrievalRepository`, `CohereRerankService`, `DenseEmbeddingService`, `DomainScopedRetrievalService`, `HashEmbeddingService`, `MemoryCandidate`, `RagMemoryRepository`, `RagRetrievalExecutionService`, `RagTracePersistenceService`, `RagTraceRepository`, `RetrievalDoc`, `RetrievalDtos`, `RetrievalExecutionDtos`, `RewriteCandidateService`, `RewriteDtos` |
+
+### `rag.retrieval.routing.service`
+
+| Type | Named nested types | Backend type references |
+| --- | --- | --- |
+| [QueryStrategyRouterTest](../../backend/src/test/java/io/queryforge/backend/rag/retrieval/routing/service/QueryStrategyRouterTest.java#L18) | — | `ChatConfigDtos`, `ChatReadinessDtos`, `QueryRouteContext`, `QueryRouteDecision`, `QueryStrategy`, `QueryStrategyRouter` |
+
+### `rag.trace.write.service`
+
+| Type | Named nested types | Backend type references |
+| --- | --- | --- |
+| [RagTracePersistenceServiceTest](../../backend/src/test/java/io/queryforge/backend/rag/trace/write/service/RagTracePersistenceServiceTest.java#L44) | — | `AgenticTracePersistenceService`, `AgenticTraceWriteDtos`, `ChatAnswerService`, `ForcedRetrievalMode`, `MemoryCandidate`, `RagPersistPolicy`, `RagRetrievalExecutionResult`, `RagTracePersistenceService`, `RagTraceRepository`, `RagTraceWriteDtos`, `RetrievalDoc`, `RetrievalExecutionDtos`, `TraceWriteResults` |
+
+### `ui.controller`
+
+| Type | Named nested types | Backend type references |
+| --- | --- | --- |
+| [AdminIngestWizardRenderTest](../../backend/src/test/java/io/queryforge/backend/ui/controller/AdminIngestWizardRenderTest.java#L12) | — | `ReactUiController` |
+| [AdminUiSmokeTest](../../backend/src/test/java/io/queryforge/backend/ui/controller/AdminUiSmokeTest.java#L23) | — | — |

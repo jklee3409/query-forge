@@ -817,6 +817,8 @@ Agents must:
 
 For an explicitly requested backend-wide structural refactor, inventory backend source and test types and move implementations as well as declarations to their feature packages. Preserve HTTP and JSON contracts, transaction and job boundaries, migration scripts, and Java/Python execution ownership. Validate the affected backend features together when they share Spring wiring or persistence.
 
+Organize backend Java by feature first, then by role within each feature. Put HTTP entry points in `controller`, use-case logic in `service`, JDBC access in `repository`, and contracts shared across classes in `dto`. Use role packages such as `model`, `configuration`, `gateway`, and `advice` when applicable. Create packages for implemented roles. Unit and MVC tests follow the package of the role they exercise. Cross-role integration tests belong to the appropriate feature's `integration` package.
+
 Agents must not replace working code with entirely new implementations unless the existing structure clearly cannot satisfy the requirement.
 
 ### 4.5 Session Start Checklist (MANDATORY)
@@ -838,10 +840,10 @@ Use targeted validation rather than broad builds/tests unless the user requests 
 
 ```powershell
 # Backend live chat regression
-.\gradlew.bat test --tests io.queryforge.backend.rag.chat.RagServiceTest --tests io.queryforge.backend.rag.chat.RagControllerWebTest
+.\gradlew.bat test --tests io.queryforge.backend.rag.chat.service.RagServiceTest --tests io.queryforge.backend.rag.chat.controller.RagControllerWebTest
 
 # Router / retrieval eval endpoint
-.\gradlew.bat test --tests io.queryforge.backend.rag.retrieval.routing.QueryStrategyRouterTest --tests io.queryforge.backend.rag.eval.retrieval.RagRetrievalEvalServiceTest --tests io.queryforge.backend.rag.eval.retrieval.RagRetrievalEvalControllerTest
+.\gradlew.bat test --tests io.queryforge.backend.rag.retrieval.routing.service.QueryStrategyRouterTest --tests io.queryforge.backend.rag.eval.retrieval.service.RagRetrievalEvalServiceTest --tests io.queryforge.backend.rag.eval.retrieval.controller.RagRetrievalEvalControllerTest
 
 # Python Java-backed eval policy
 python -m unittest pipeline.tests.test_java_retrieval_client pipeline.tests.test_retrieval_eval_compare -q
