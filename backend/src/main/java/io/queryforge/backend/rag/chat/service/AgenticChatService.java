@@ -7,6 +7,7 @@ import io.queryforge.backend.rag.chat.dto.ChatDtos;
 import io.queryforge.backend.rag.chat.service.ChatResponseAssembler.AgenticSettings;
 import io.queryforge.backend.rag.chat.service.ChatResponseAssembler.AnswerDraft;
 import io.queryforge.backend.rag.retrieval.agentic.dto.AgenticExecutionDtos;
+import io.queryforge.backend.rag.retrieval.agentic.dto.AgenticExecutionDtos.AgenticExecutionRequest;
 import io.queryforge.backend.rag.retrieval.agentic.dto.AgenticRetrievalDtos;
 import io.queryforge.backend.rag.retrieval.agentic.service.AgenticRetrievalService;
 import io.queryforge.backend.rag.retrieval.candidate.dto.RetrievalDtos;
@@ -15,7 +16,6 @@ import io.queryforge.backend.rag.retrieval.execution.model.RagPersistPolicy;
 import io.queryforge.backend.rag.retrieval.memory.model.MemoryCandidate;
 import io.queryforge.backend.rag.retrieval.routing.dto.QueryRouteDecision;
 import io.queryforge.backend.rag.runtime.configuration.dto.ChatConfigDtos;
-import io.queryforge.backend.rag.runtime.readiness.dto.ChatReadinessDtos;
 import io.queryforge.backend.rag.trace.write.agentic.dto.AgenticTraceWriteDtos;
 import io.queryforge.backend.rag.trace.write.agentic.service.AgenticTracePersistenceService;
 import io.queryforge.backend.rag.trace.write.dto.TraceWriteResults;
@@ -30,7 +30,6 @@ import java.util.Map;
 import java.util.UUID;
 
 import static io.queryforge.backend.rag.retrieval.rewrite.service.RewriteScoring.confidence;
-import static io.queryforge.backend.rag.retrieval.rewrite.service.RewriteScoring.scoreBreakdown;
 
 @Service
 @RequiredArgsConstructor
@@ -43,56 +42,25 @@ class AgenticChatService {
     private final ObjectMapper objectMapper;
 
     ChatDtos.AskResponse askAgentic(
-            ChatDtos.AskRequest request,
-            String rawQuery,
-            ChatConfigDtos.ChatRuntimeConfigResponse config,
-            String mode,
-            String rewriteQueryProfile,
+            AgenticExecutionRequest request,
             QueryRouteDecision routeDecision,
-            int retrievalTopK,
-            int rerankTopN,
-            int memoryTopN,
-            int candidateCount,
-            double threshold,
             String gatingPreset,
             boolean useSessionContext,
-            JsonNode sessionContextSnapshot,
             RetrievalDtos.RetrievalRuntime retrievalRuntime,
-            UUID onlineQueryId,
-            List<MemoryCandidate> plannerMemoryCandidates,
-            JsonNode memoryTopNJson,
             long createQueryLatency,
             long memoryLatency,
             Instant started,
-            AgenticSettings agenticSettings,
-            ChatReadinessDtos.ChatDomainReadinessResponse readiness
+            AgenticSettings agenticSettings
     ) {
+        String rawQuery = request.rawQuery();
+        UUID onlineQueryId = request.onlineQueryId();
+        ChatConfigDtos.ChatRuntimeConfigResponse config = request.config();
+        String mode = request.mode();
+        int retrievalTopK = request.settings().retrievalTopK();
+        List<MemoryCandidate> plannerMemoryCandidates = request.plannerMemoryHints();
+        JsonNode memoryTopNJson = objectMapper.valueToTree(plannerMemoryCandidates);
         long stageStart = System.nanoTime();
-        AgenticExecutionDtos.AgenticExecutionResult agenticResult = agenticRetrievalService.execute(
-                new AgenticExecutionDtos.AgenticExecutionRequest(
-                        rawQuery,
-                        onlineQueryId,
-                        config,
-                        readiness,
-                        sessionContextSnapshot,
-                        plannerMemoryCandidates,
-                        mode,
-                        rewriteQueryProfile,
-                        switch (mode) {
-                            case "memory_only_ungated" -> "ungated";
-                            case "memory_only_gated" -> gatingPreset;
-                            default -> gatingPreset;
-                        },
-                        retrievalTopK,
-                        rerankTopN,
-                        memoryTopN,
-                        candidateCount,
-                        threshold,
-                        agenticSettings.maxSubqueries(),
-                        agenticSettings.rrfK(),
-                        retrievalTopK
-                )
-        );
+        AgenticExecutionDtos.AgenticExecutionResult agenticResult = agenticRetrievalService.execute(request);
         long agenticRetrievalLatency = responses.elapsedMs(stageStart);
 
         stageStart = System.nanoTime();
@@ -175,12 +143,8 @@ class AgenticChatService {
         boolean selectiveRewrite = mode.startsWith("selective_rewrite");
         ObjectNode rewriteMetadata = responses.rewriteLogMetadata(
                 config,
-                rewriteQueryProfile,
-                retrievalTopK,
-                rerankTopN,
-                memoryTopN,
-                candidateCount,
-                threshold,
+                request.rewriteQueryProfile(),
+                request.settings(),
                 latencyBreakdown,
                 retrievalRuntime,
                 routeDecision

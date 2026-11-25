@@ -4,9 +4,11 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import io.queryforge.backend.rag.chat.dto.ChatDtos;
+import io.queryforge.backend.rag.chat.routing.service.ChatRequestRouting;
 import io.queryforge.backend.rag.chat.service.ChatResponseAssembler.AgenticSettings;
 import io.queryforge.backend.rag.chat.service.ChatResponseAssembler.AnswerDraft;
 import io.queryforge.backend.rag.chat.service.RewriteDecisionPolicy.Decision;
+import io.queryforge.backend.rag.retrieval.agentic.dto.AgenticExecutionDtos.AgenticExecutionRequest;
 import io.queryforge.backend.rag.retrieval.candidate.dto.RetrievalDtos;
 import io.queryforge.backend.rag.retrieval.candidate.model.RetrievalDoc;
 import io.queryforge.backend.rag.retrieval.candidate.service.DomainScopedRetrievalService;
@@ -20,6 +22,7 @@ import io.queryforge.backend.rag.retrieval.execution.model.RagPersistPolicy;
 import io.queryforge.backend.rag.retrieval.execution.service.RagRetrievalExecutionService;
 import io.queryforge.backend.rag.retrieval.memory.model.MemoryCandidate;
 import io.queryforge.backend.rag.retrieval.rewrite.dto.RewriteDtos;
+import io.queryforge.backend.rag.retrieval.routing.dto.QueryRouteContext;
 import io.queryforge.backend.rag.retrieval.routing.dto.QueryRouteDecision;
 import io.queryforge.backend.rag.retrieval.routing.model.QueryStrategy;
 import io.queryforge.backend.rag.retrieval.routing.service.QueryStrategyRouter;
@@ -45,7 +48,6 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
 
-import static io.queryforge.backend.rag.chat.routing.service.ChatRequestRouting.routeContext;
 import static io.queryforge.backend.rag.retrieval.rewrite.service.RewriteScoring.confidence;
 import static io.queryforge.backend.rag.retrieval.rewrite.service.RewriteScoring.scoreBreakdown;
 
@@ -75,7 +77,7 @@ public class RagService {
             throw new IllegalArgumentException("domainId is required for chat");
         }
         ChatConfigDtos.ChatRuntimeConfigResponse config = chatRuntimeConfigService.getConfig(request.domainId());
-        ChatReadinessDtos.ChatDomainReadinessResponse readiness = chatReadinessService.getReadiness(request.domainId());
+        ChatReadinessDtos.ChatDomainReadinessResponse readiness = chatReadinessService.evaluateReadiness(config);
         if (!readiness.activeConfigPresent()) {
             throw new IllegalArgumentException("active chat_runtime_config is missing for domain: " + config.displayName());
         }
@@ -85,17 +87,10 @@ public class RagService {
         String mode = normalizedMode(config.mode());
         String rewriteQueryProfile = normalizedRewriteProfile(config.rewriteQueryProfile());
         long routeStarted = System.nanoTime();
-        QueryRouteDecision routeDecision = queryStrategyRouter.route(routeContext(
-                rawQuery,
-                config,
-                readiness,
-                mode,
-                rewriteQueryProfile,
-                config.rewriteAnchorInjectionEnabled(),
-                false,
-                false,
-                null
-        ));
+        QueryRouteContext routingContext = ChatRequestRouting.initialRouteContext(
+                rawQuery, config, readiness, mode, rewriteQueryProfile
+        );
+        QueryRouteDecision routeDecision = queryStrategyRouter.route(routingContext);
         long routeLatency = responses.elapsedMs(routeStarted);
         routeDecision = routeDecision.withLatency(routeLatency);
         if (!routeDecision.routerEnabled() && !"raw_only".equals(mode) && !readiness.readyForRewrite()) {
@@ -104,8 +99,6 @@ public class RagService {
         RagExecutionSettings settings = config.executionSettings();
         int retrievalTopK = settings.retrievalTopK();
         int rerankTopN = settings.rerankTopN();
-        int memoryTopN = settings.memoryTopN();
-        int candidateCount = settings.rewriteCandidateCount();
         double threshold = settings.rewriteThreshold();
         String gatingPreset = normalizedPreset(config.gatingPreset());
         boolean useSessionContext = config.useSessionContext() || "selective_rewrite_with_session".equals(mode);
@@ -135,11 +128,7 @@ public class RagService {
 
         stageStart = System.nanoTime();
         String rawEmbeddingLiteral = domainScopedRetrievalService.embeddingLiteral(rawQuery, retrievalRuntime);
-        String memoryPreset = switch (mode) {
-            case "memory_only_ungated" -> "ungated";
-            case "memory_only_gated" -> gatingPreset;
-            default -> gatingPreset;
-        };
+        String memoryPreset = "memory_only_ungated".equals(mode) ? "ungated" : gatingPreset;
         List<MemoryCandidate> memoryCandidates;
         if (rawOnlyRoute) {
             memoryCandidates = List.of();
@@ -147,7 +136,7 @@ public class RagService {
             memoryCandidates = domainScopedRetrievalService.findMemoryCandidates(
                     rawQuery,
                     rawEmbeddingLiteral,
-                    memoryTopN,
+                    settings.memoryTopN(),
                     memoryPreset,
                     config.domainId(),
                     config.generationStrategies(),
@@ -156,22 +145,13 @@ public class RagService {
                     retrievalRuntime
             );
         }
-        JsonNode memoryTopNJson = objectMapper.valueToTree(memoryCandidates);
         long memoryLatency = responses.elapsedMs(stageStart);
+        boolean memoryAvailable = !memoryCandidates.isEmpty();
 
         if (routeDecision.routerEnabled() && routeDecision.strategy() == QueryStrategy.AGENTIC_MULTI_QUERY) {
             routeStarted = System.nanoTime();
-            QueryRouteDecision memoryAwareAgenticDecision = queryStrategyRouter.route(routeContext(
-                    rawQuery,
-                    config,
-                    readiness,
-                    mode,
-                    rewriteQueryProfile,
-                    config.rewriteAnchorInjectionEnabled(),
-                    true,
-                    !memoryCandidates.isEmpty(),
-                    null
-            ));
+            QueryRouteDecision memoryAwareAgenticDecision =
+                    queryStrategyRouter.route(routingContext.withRetrievalEvidence(memoryAvailable, null));
             routeLatency += responses.elapsedMs(routeStarted);
             routeDecision = memoryAwareAgenticDecision.withLatency(routeLatency);
             rawOnlyRoute = routeDecision.routerEnabled() && routeDecision.strategy() == QueryStrategy.RAW_ONLY;
@@ -187,34 +167,37 @@ public class RagService {
                     configuredAgenticSettings.mergeStrategy(),
                     configuredAgenticSettings.rrfK()
             );
-            return agenticChatService.askAgentic(
-                    request,
+            AgenticExecutionRequest agenticRequest = new AgenticExecutionRequest(
                     rawQuery,
+                    onlineQueryId,
                     config,
+                    readiness,
+                    sessionContextSnapshot,
+                    memoryCandidates,
                     mode,
                     rewriteQueryProfile,
-                    routeDecision,
+                    memoryPreset,
+                    settings,
+                    agenticSettings.maxSubqueries(),
+                    agenticSettings.rrfK(),
                     retrievalTopK,
-                    rerankTopN,
-                    memoryTopN,
-                    candidateCount,
-                    threshold,
+                    RagPersistPolicy.ONLINE_QUERY
+            );
+            return agenticChatService.askAgentic(
+                    agenticRequest,
+                    routeDecision,
                     gatingPreset,
                     useSessionContext,
-                    sessionContextSnapshot,
                     retrievalRuntime,
-                    onlineQueryId,
-                    memoryCandidates,
-                    memoryTopNJson,
                     createQueryLatency,
                     memoryLatency,
                     started,
-                    agenticSettings,
-                    readiness
+                    agenticSettings
             );
         }
 
-        double rawDense = memoryCandidates.isEmpty() ? 0.0 : memoryCandidates.getFirst().similarity();
+        JsonNode memoryTopNJson = objectMapper.valueToTree(memoryCandidates);
+        double rawDense = memoryAvailable ? memoryCandidates.getFirst().similarity() : 0.0d;
         RetrievalMaterial rawRetrieval = ragRetrievalExecutionService.executeRawRetrieval(
                 new RawRetrievalRequest(rawQuery, rawEmbeddingLiteral, retrievalTopK, rerankTopN,
                         config.domainId(), retrievalRuntime),
@@ -252,17 +235,8 @@ public class RagService {
 
         if (routeDecision.routerEnabled() && !rawOnlyRoute) {
             routeStarted = System.nanoTime();
-            QueryRouteDecision refinedRouteDecision = queryStrategyRouter.route(routeContext(
-                    rawQuery,
-                    config,
-                    readiness,
-                    mode,
-                    rewriteQueryProfile,
-                    config.rewriteAnchorInjectionEnabled(),
-                    true,
-                    !memoryCandidates.isEmpty(),
-                    rawConfidence
-            ));
+            QueryRouteDecision refinedRouteDecision =
+                    queryStrategyRouter.route(routingContext.withRetrievalEvidence(memoryAvailable, rawConfidence));
             routeLatency += responses.elapsedMs(routeStarted);
             routeDecision = refinedRouteDecision.withLatency(routeLatency);
             rawOnlyRoute = routeDecision.strategy() == QueryStrategy.RAW_ONLY;
@@ -279,7 +253,7 @@ public class RagService {
                     rawQuery,
                     sessionContextSnapshot,
                     memoryCandidates,
-                    candidateCount,
+                    settings.rewriteCandidateCount(),
                     routeDecision.rewriteQueryProfile(),
                     responses.domainContext(config),
                     retrievalTopK,
@@ -315,7 +289,7 @@ public class RagService {
 
         stageStart = System.nanoTime();
         RetrievalMaterial memoryRetrieval = null;
-        if (!rawOnlyRoute && RewriteDecisionPolicy.usesMemoryQuery(mode) && !memoryCandidates.isEmpty()) {
+        if (!rawOnlyRoute && memoryAvailable && RewriteDecisionPolicy.usesMemoryQuery(mode)) {
             memoryRetrieval = ragRetrievalExecutionService.executeMemoryRetrieval(
                     memoryCandidates.getFirst(), rawRetrieval.rerankedDocs().size(), config.domainId(), retrievalRuntime
             );
@@ -451,11 +425,7 @@ public class RagService {
         JsonNode rewriteMetadata = responses.rewriteLogMetadata(
                 config,
                 rewriteQueryProfile,
-                retrievalTopK,
-                rerankTopN,
-                memoryTopN,
-                candidateCount,
-                threshold,
+                settings,
                 latencyBreakdown,
                 retrievalRuntime,
                 routeDecision

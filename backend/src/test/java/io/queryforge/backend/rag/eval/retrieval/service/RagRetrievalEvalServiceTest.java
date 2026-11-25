@@ -245,11 +245,11 @@ class RagRetrievalEvalServiceTest {
         var captor = ArgumentCaptor.forClass(AgenticExecutionDtos.AgenticExecutionRequest.class);
         verify(agenticRetrievalService).execute(captor.capture());
         var execution = captor.getValue();
-        assertThat(execution.retrievalTopK()).isEqualTo(12);
-        assertThat(execution.rerankTopN()).isEqualTo(4);
-        assertThat(execution.memoryTopN()).isEqualTo(2);
-        assertThat(execution.candidateCount()).isEqualTo(1);
-        assertThat(execution.threshold()).isEqualTo(0.25d);
+        assertThat(execution.settings().retrievalTopK()).isEqualTo(12);
+        assertThat(execution.settings().rerankTopN()).isEqualTo(4);
+        assertThat(execution.settings().memoryTopN()).isEqualTo(2);
+        assertThat(execution.settings().rewriteCandidateCount()).isEqualTo(1);
+        assertThat(execution.settings().rewriteThreshold()).isEqualTo(0.25d);
         assertThat(execution.persistPolicy()).isEqualTo(RagPersistPolicy.NONE);
         verify(domainScopedRetrievalService).findMemoryCandidates(
                 eq(QUERY), eq("embedding"), eq(2), anyString(), eq(DOMAIN_ID),
@@ -259,8 +259,9 @@ class RagRetrievalEvalServiceTest {
 
     @Test
     void rejectsOutOfRangeExecutionSettingsBeforeRetrieval() {
-        when(chatRuntimeConfigService.getConfig(DOMAIN_ID)).thenReturn(config());
-        when(chatReadinessService.getReadiness(DOMAIN_ID)).thenReturn(readiness());
+        ChatConfigDtos.ChatRuntimeConfigResponse config = config();
+        when(chatRuntimeConfigService.getConfig(DOMAIN_ID)).thenReturn(config);
+        when(chatReadinessService.evaluateReadiness(config)).thenReturn(readiness());
         var experimentConfig = objectMapper.createObjectNode().put("rewrite_candidate_count", 3);
 
         assertThatThrownBy(() -> service.execute(new RagRetrievalEvalDtos.RagRetrievalEvalRequest(
@@ -522,7 +523,7 @@ class RagRetrievalEvalServiceTest {
     private void givenRuntime() {
         ChatConfigDtos.ChatRuntimeConfigResponse config = config();
         when(chatRuntimeConfigService.getConfig(DOMAIN_ID)).thenReturn(config);
-        when(chatReadinessService.getReadiness(DOMAIN_ID)).thenReturn(readiness());
+        when(chatReadinessService.evaluateReadiness(config)).thenReturn(readiness());
         when(domainScopedRetrievalService.retrievalRuntime(any())).thenReturn(retrievalRuntime);
     }
 

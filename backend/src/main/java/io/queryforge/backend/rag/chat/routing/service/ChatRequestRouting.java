@@ -15,16 +15,12 @@ public final class ChatRequestRouting {
     private ChatRequestRouting() {
     }
 
-    public static QueryRouteContext routeContext(
+    public static QueryRouteContext initialRouteContext(
             String rawQuery,
             ChatConfigDtos.ChatRuntimeConfigResponse config,
             ChatReadinessDtos.ChatDomainReadinessResponse readiness,
             String mode,
-            String rewriteQueryProfile,
-            boolean anchorInjectionEnabled,
-            boolean memoryCandidatesKnown,
-            boolean memoryCandidatesAvailable,
-            Double rawRetrievalConfidence
+            String rewriteQueryProfile
     ) {
         return new QueryRouteContext(
                 rawQuery,
@@ -33,15 +29,15 @@ public final class ChatRequestRouting {
                 readiness,
                 mode,
                 rewriteQueryProfile,
-                anchorInjectionEnabled,
+                config.rewriteAnchorInjectionEnabled(),
                 rawQuery == null ? 0 : rawQuery.length(),
                 queryTokenCount(rawQuery),
                 containsKorean(rawQuery),
                 containsEnglish(rawQuery),
                 containsTechnicalAnchor(rawQuery),
-                memoryCandidatesKnown,
-                memoryCandidatesAvailable,
-                rawRetrievalConfidence,
+                false,
+                false,
+                null,
                 false
         );
     }

@@ -1,5 +1,9 @@
 # progress.md
 
+## [2026-11-25] Session Summary (Chat Ask Orchestration)
+- Consolidated post-answer trace writes and original-query retrieval. Separated rewrite adoption from memory-query search and reused runtime settings for readiness and Agentic dispatch.
+- Reduced `RagService.ask()` from 572 to 409 lines and removed two internal trace records. Verified all 198 backend cases across the suite and a targeted rerun, plus 36 Python evaluation cases.
+
 ## [2026-11-25] Session Summary (Shared Rewrite Candidate Execution)
 - Shared rewrite candidate execution across chat and Java evaluation. Removed three internal records and separated candidate selection from persisted IDs.
 - Passed 119 targeted backend tests and 36 Python Java retrieval client and comparison tests.

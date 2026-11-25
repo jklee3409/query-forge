@@ -85,7 +85,7 @@ public class RagRetrievalEvalService {
         UUID domainId = request.domainId();
         String query = request.query().trim();
         ChatConfigDtos.ChatRuntimeConfigResponse config = chatRuntimeConfigService.getConfig(domainId);
-        ChatReadinessDtos.ChatDomainReadinessResponse readiness = chatReadinessService.getReadiness(domainId);
+        ChatReadinessDtos.ChatDomainReadinessResponse readiness = chatReadinessService.evaluateReadiness(config);
         RuntimeEvalContext runtimeContext = runtimeConfigService.resolve(request, config, readiness);
         config = runtimeContext.config();
         readiness = runtimeContext.readiness();
@@ -384,11 +384,7 @@ public class RagRetrievalEvalService {
                         "agentic_multi_query",
                         normalizedRewriteProfile(config.rewriteQueryProfile()),
                         normalizedPreset(config.gatingPreset()),
-                        executionSettings.retrievalTopK(),
-                        executionSettings.rerankTopN(),
-                        executionSettings.memoryTopN(),
-                        executionSettings.rewriteCandidateCount(),
-                        executionSettings.rewriteThreshold(),
+                        executionSettings,
                         settings.maxSubqueries(),
                         settings.rrfK(),
                         executionSettings.retrievalTopK(),

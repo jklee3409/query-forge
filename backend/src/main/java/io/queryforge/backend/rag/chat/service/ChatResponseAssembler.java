@@ -14,6 +14,7 @@ import io.queryforge.backend.rag.retrieval.memory.model.MemoryCandidate;
 import io.queryforge.backend.rag.retrieval.rewrite.dto.RewriteDtos;
 import io.queryforge.backend.rag.retrieval.routing.dto.QueryRouteDecision;
 import io.queryforge.backend.rag.runtime.configuration.dto.ChatConfigDtos;
+import io.queryforge.backend.rag.runtime.configuration.model.RagExecutionSettings;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
@@ -229,22 +230,18 @@ class ChatResponseAssembler {
     ObjectNode rewriteLogMetadata(
             ChatConfigDtos.ChatRuntimeConfigResponse config,
             String rewriteQueryProfile,
-            int retrievalTopK,
-            int rerankTopN,
-            int memoryTopN,
-            int candidateCount,
-            double threshold,
+            RagExecutionSettings settings,
             Map<String, Long> latencyBreakdown,
             RetrievalDtos.RetrievalRuntime retrievalRuntime,
             QueryRouteDecision routeDecision
     ) {
         ObjectNode node = runtimeMetadata(config);
         node.put("rewrite_query_profile", rewriteQueryProfile);
-        node.put("retrieval_top_k", retrievalTopK);
-        node.put("rerank_top_n", rerankTopN);
-        node.put("memory_top_n", memoryTopN);
-        node.put("rewrite_candidate_count", candidateCount);
-        node.put("rewrite_threshold", threshold);
+        node.put("retrieval_top_k", settings.retrievalTopK());
+        node.put("rerank_top_n", settings.rerankTopN());
+        node.put("memory_top_n", settings.memoryTopN());
+        node.put("rewrite_candidate_count", settings.rewriteCandidateCount());
+        node.put("rewrite_threshold", settings.rewriteThreshold());
         node.set("retrieval_runtime", retrievalMetadata(retrievalRuntime));
         node.set("latency_breakdown", objectMapper.valueToTree(latencyBreakdown));
         node.set("router", routerMetadata(routeDecision));

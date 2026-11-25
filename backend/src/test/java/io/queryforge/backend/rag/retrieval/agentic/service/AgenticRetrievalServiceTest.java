@@ -20,6 +20,7 @@ import io.queryforge.backend.rag.retrieval.rewrite.dto.RewriteDtos;
 import io.queryforge.backend.rag.retrieval.rewrite.service.RewriteCandidateService;
 import io.queryforge.backend.rag.retrieval.routing.service.QueryStrategyRouter;
 import io.queryforge.backend.rag.runtime.configuration.dto.ChatConfigDtos;
+import io.queryforge.backend.rag.runtime.configuration.model.RagExecutionSettings;
 import io.queryforge.backend.rag.runtime.readiness.dto.ChatReadinessDtos;
 import io.queryforge.backend.rag.trace.write.agentic.dto.AgenticTraceWriteDtos;
 import io.queryforge.backend.rag.trace.write.agentic.service.AgenticTracePersistenceService;
@@ -134,14 +135,11 @@ class AgenticRetrievalServiceTest {
                 "raw_only",
                 "compact_anchor",
                 "full_gating",
-                3,
-                3,
-                5,
-                2,
-                0.05d,
+                new RagExecutionSettings(3, 3, 5, 2, 0.05d),
                 3,
                 60,
-                3
+                3,
+                RagPersistPolicy.ONLINE_QUERY
         ));
 
         assertThat(result.plan().domainId()).isEqualTo(domainId);
@@ -242,14 +240,11 @@ class AgenticRetrievalServiceTest {
                 "selective_rewrite",
                 "compact_anchor",
                 "full_gating",
-                3,
-                3,
-                5,
-                1,
-                0.05d,
+                new RagExecutionSettings(3, 3, 5, 1, 0.05d),
                 3,
                 60,
-                3
+                3,
+                RagPersistPolicy.ONLINE_QUERY
         ));
 
         assertThat(result.persistedCandidates()).hasSize(1);
@@ -375,14 +370,11 @@ class AgenticRetrievalServiceTest {
                 "selective_rewrite",
                 "compact_anchor",
                 "full_gating",
-                3,
-                3,
-                5,
-                1,
-                0.05d,
+                new RagExecutionSettings(3, 3, 5, 1, 0.05d),
                 3,
                 60,
-                3
+                3,
+                RagPersistPolicy.ONLINE_QUERY
         ));
 
         AgenticRetrievalDtos.SubqueryRetrievalTrace trace = result.traces().getFirst();

@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-11-25] Session Summary (Chat Ask Orchestration)
+- Grouped rewrite, memory, and candidate logs after the answer. Preserved the earlier retrieval and rerank writes so they remain available when answer generation fails.
+- Shared original-query search and reranking with Java evaluation. Separated memory-query retrieval from the rewrite decision and covered threshold equality, tied candidates, and empty memory.
+- Reused the loaded runtime config for readiness and the route context across live routing phases. Passed `RagExecutionSettings` through the existing Agentic request for chat and retrieval-only evaluation.
+- Verified all 198 backend cases across the suite and a targeted rerun. The two corpus extraction cases passed with `QUERY_FORGE_PYTHON` set to a virtual environment containing `psycopg`. All 36 Python Java retrieval client and comparison cases passed.
+
 ## [2026-11-25] Session Summary (Shared Rewrite Candidate Execution)
 - Unified selective and anchor-aware requests and results. Use `ExecutedRewriteCandidate` through chat selection and map candidate indexes to persisted IDs for trace writes and responses.
 - Covered threshold adoption, stored candidate IDs, and the first candidate trace writes when a later candidate fails. Passed 119 targeted backend tests and 36 Python Java retrieval client and comparison tests.

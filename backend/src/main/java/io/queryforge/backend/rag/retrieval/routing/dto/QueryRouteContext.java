@@ -23,4 +23,11 @@ public record QueryRouteContext(
         Double rawRetrievalConfidence,
         boolean agenticSubquery
 ) {
+    public QueryRouteContext withRetrievalEvidence(boolean memoryAvailable, Double rawConfidence) {
+        return new QueryRouteContext(
+                rawQuery, domainId, config, readiness, runtimeMode, rewriteQueryProfile, anchorInjectionEnabled,
+                queryLength, queryTokenCount, containsKorean, containsEnglish, containsTechnicalAnchor,
+                true, memoryAvailable, rawConfidence, agenticSubquery
+        );
+    }
 }

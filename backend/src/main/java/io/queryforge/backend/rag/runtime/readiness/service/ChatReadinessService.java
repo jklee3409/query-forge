@@ -26,8 +26,13 @@ public class ChatReadinessService {
     private static final String DEFAULT_DENSE_EMBEDDING_MODEL = "intfloat/multilingual-e5-small";
 
     public ChatReadinessDtos.ChatDomainReadinessResponse getReadiness(UUID domainId) {
-        ChatConfigDtos.ChatRuntimeConfigResponse config = configService.getConfig(domainId);
-        boolean activeConfigPresent = repository.existsConfig(domainId);
+        return evaluateReadiness(configService.getConfig(domainId));
+    }
+
+    public ChatReadinessDtos.ChatDomainReadinessResponse evaluateReadiness(
+            ChatConfigDtos.ChatRuntimeConfigResponse config
+    ) {
+        boolean activeConfigPresent = repository.existsConfig(config.domainId());
         String mode = normalizeText(config.mode(), "selective_rewrite");
         boolean rewriteBackedMode = !"raw_only".equals(mode);
         List<String> generationStrategies = config.generationStrategies() == null

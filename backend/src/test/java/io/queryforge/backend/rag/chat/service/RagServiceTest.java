@@ -61,6 +61,7 @@ import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.ArgumentMatchers.nullable;
+import static org.mockito.ArgumentMatchers.same;
 import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.spy;
@@ -140,7 +141,7 @@ class RagServiceTest {
         UUID onlineQueryId = UUID.randomUUID();
         ChatConfigDtos.ChatRuntimeConfigResponse config = config("selective_rewrite", true, false);
         when(chatRuntimeConfigService.getConfig(domainId)).thenReturn(config);
-        when(chatReadinessService.getReadiness(domainId)).thenReturn(readiness(false, "selected snapshot has no built synthetic memory"));
+        when(chatReadinessService.evaluateReadiness(config)).thenReturn(readiness(false, "selected snapshot has no built synthetic memory"));
         when(traceRepository.createOnlineQuery(eq(domainId), any(), anyString(), any(), anyString(), anyDouble(), any()))
                 .thenReturn(onlineQueryId);
         when(embeddingService.embed(anyString())).thenReturn(List.of(1.0d, 0.0d));
@@ -196,7 +197,7 @@ class RagServiceTest {
     void routerDisabledKeepsExistingStrictReadinessFailure() {
         ChatConfigDtos.ChatRuntimeConfigResponse config = config("selective_rewrite", false, false);
         when(chatRuntimeConfigService.getConfig(domainId)).thenReturn(config);
-        when(chatReadinessService.getReadiness(domainId)).thenReturn(readiness(false, "selected snapshot has no built synthetic memory"));
+        when(chatReadinessService.evaluateReadiness(config)).thenReturn(readiness(false, "selected snapshot has no built synthetic memory"));
 
         assertThatThrownBy(() -> ragService.ask(new ChatDtos.AskRequest(
                 "스프링 시큐리티 필터 순서",
@@ -761,8 +762,11 @@ class RagServiceTest {
         AgenticExecutionDtos.AgenticExecutionRequest executionRequest = requestCaptor.getValue();
         assertThat(executionRequest.onlineQueryId()).isEqualTo(onlineQueryId);
         assertThat(executionRequest.config().domainId()).isEqualTo(domainId);
+        assertThat(executionRequest.settings()).isEqualTo(config.executionSettings());
         assertThat(executionRequest.plannerMemoryHints()).isEqualTo(memories);
         assertThat(executionRequest.memoryPreset()).isEqualTo("full_gating");
+        verify(chatRuntimeConfigService).getConfig(domainId);
+        verify(chatReadinessService).evaluateReadiness(same(config));
 
         verify(traceRepository).createOnlineQuery(eq(domainId), eq("session-1"), eq(query), any(), eq("agentic_multi_query"), eq(0.05d), any());
         verify(memoryRepository).findMemoryTopN(anyString(), anyInt(), eq("full_gating"), eq(domainId), eq(List.of("C")), eq(List.of(sourceGatingRunId)), eq(List.of(sourceGatingBatchId)));
@@ -956,6 +960,8 @@ class RagServiceTest {
         assertThat(router.path("reason").asText()).isEqualTo("agentic_multi_query_candidate");
         assertThat(router.path("metadata").path("agenticMultiQueryEnabled").asBoolean()).isTrue();
         assertThat(router.path("metadata").path("agenticSubquery").asBoolean()).isFalse();
+        assertThat(router.path("metadata").path("memoryCandidatesKnown").asBoolean()).isTrue();
+        assertThat(router.path("metadata").path("memoryCandidatesAvailable").asBoolean()).isTrue();
 
         verify(chunkRepository, never()).findTopChunksByEmbedding(anyString(), anyInt(), any());
         verify(rewriteCandidateService, never()).buildCandidates(anyString(), any(), anyList(), anyInt(), anyString(), anyBoolean(), any());
@@ -1177,7 +1183,7 @@ class RagServiceTest {
 
     private void stubCommonAskDependencies(ChatConfigDtos.ChatRuntimeConfigResponse config, UUID onlineQueryId) {
         when(chatRuntimeConfigService.getConfig(domainId)).thenReturn(config);
-        when(chatReadinessService.getReadiness(domainId)).thenReturn(readiness(true));
+        when(chatReadinessService.evaluateReadiness(config)).thenReturn(readiness(true));
         when(traceRepository.createOnlineQuery(eq(domainId), any(), anyString(), any(), anyString(), anyDouble(), any()))
                 .thenReturn(onlineQueryId);
         when(embeddingService.embed(anyString())).thenReturn(List.of(1.0d, 0.0d));

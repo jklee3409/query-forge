@@ -25,6 +25,7 @@ import io.queryforge.backend.rag.retrieval.routing.dto.QueryRouteDecision;
 import io.queryforge.backend.rag.retrieval.routing.model.QueryStrategy;
 import io.queryforge.backend.rag.retrieval.routing.service.QueryStrategyRouter;
 import io.queryforge.backend.rag.runtime.configuration.dto.ChatConfigDtos;
+import io.queryforge.backend.rag.runtime.configuration.model.RagExecutionSettings;
 import io.queryforge.backend.rag.runtime.readiness.dto.ChatReadinessDtos;
 import io.queryforge.backend.rag.trace.write.agentic.dto.AgenticTraceWriteDtos;
 import io.queryforge.backend.rag.trace.write.agentic.service.AgenticTracePersistenceService;
@@ -109,6 +110,7 @@ public class AgenticRetrievalService {
     ) {
         long started = System.nanoTime();
         RagPersistPolicy persistPolicy = request.persistPolicy();
+        RagExecutionSettings settings = request.settings();
         String query = normalizeWhitespace(subquery.query());
         long routeStarted = System.nanoTime();
         QueryRouteDecision routeDecision = queryStrategyRouter.route(routeContext(
@@ -132,7 +134,7 @@ public class AgenticRetrievalService {
                 : domainScopedRetrievalService.findMemoryCandidates(
                 query,
                 queryEmbedding,
-                request.memoryTopN(),
+                settings.memoryTopN(),
                 request.memoryPreset(),
                 request.config().domainId(),
                 request.config().generationStrategies(),
@@ -145,7 +147,7 @@ public class AgenticRetrievalService {
         List<RetrievalDoc> rawRetrievedLocal = domainScopedRetrievalService.retrieveChunks(
                 query,
                 queryEmbedding,
-                request.retrievalTopK(),
+                settings.retrievalTopK(),
                 request.config().domainId(),
                 retrievalRuntime
         );
@@ -164,7 +166,7 @@ public class AgenticRetrievalService {
         List<RetrievalDoc> rawRetrieved = cohereRerankService.rerank(
                 query,
                 rawRetrievedLocal,
-                request.rerankTopN()
+                settings.rerankTopN()
         );
         double rawDense = memories.isEmpty() ? 0.0d : memories.getFirst().similarity();
         double rawConfidence = confidence(rawRetrieved, rawDense);
@@ -194,7 +196,7 @@ public class AgenticRetrievalService {
                     query,
                     request.sessionContext(),
                     memories,
-                    request.candidateCount(),
+                    settings.rewriteCandidateCount(),
                     routeDecision.rewriteQueryProfile(),
                     routeDecision.anchorInjectionEnabled(),
                     domainContext(request.config())
@@ -206,7 +208,7 @@ public class AgenticRetrievalService {
                 List<RetrievalDoc> candidateRetrievedLocal = domainScopedRetrievalService.retrieveChunks(
                         template.query(),
                         candidateEmbedding,
-                        request.retrievalTopK(),
+                        settings.retrievalTopK(),
                         request.config().domainId(),
                         retrievalRuntime
                 );
@@ -214,7 +216,7 @@ public class AgenticRetrievalService {
                 List<RetrievalDoc> candidateRetrieved = cohereRerankService.rerank(
                         template.query(),
                         candidateRetrievedLocal,
-                        request.rerankTopN()
+                        settings.rerankTopN()
                 );
                 double candidateConfidence = confidence(candidateRetrieved, rawDense);
                 int candidateRank = subquery.index() * 10 + index + 1;
@@ -270,7 +272,7 @@ public class AgenticRetrievalService {
                 rawRetrieved,
                 memories,
                 generatedCandidates,
-                request.threshold(),
+                settings.rewriteThreshold(),
                 request.config().domainId(),
                 retrievalRuntime
         );
