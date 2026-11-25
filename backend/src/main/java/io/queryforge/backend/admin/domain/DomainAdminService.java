@@ -1,5 +1,6 @@
 package io.queryforge.backend.admin.domain;
 
+import io.queryforge.backend.admin.domain.source.DomainSourceRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -13,32 +14,27 @@ import java.util.regex.Pattern;
 @RequiredArgsConstructor
 public class DomainAdminService {
 
+    private final DomainSourceRepository sourceRepository;
     private static final Pattern DOMAIN_KEY_PATTERN = Pattern.compile("^[a-z0-9][a-z0-9-]{1,62}$");
-
     private final DomainAdminRepository repository;
 
-    public List<DomainAdminDtos.DomainSummary> listDomains() {
+    public List<DomainIdentityDtos.DomainSummary> listDomains() {
         return repository.findDomains();
     }
 
-    public DomainAdminDtos.DomainDetail getDomain(String domainRef) {
-        DomainAdminDtos.DomainSummary domain = resolveDomain(domainRef);
-        return new DomainAdminDtos.DomainDetail(
+    public DomainIdentityDtos.DomainDetail getDomain(String domainRef) {
+        DomainIdentityDtos.DomainSummary domain = resolveDomain(domainRef);
+        return new DomainIdentityDtos.DomainDetail(
                 domain,
-                repository.findSources(domain.domainId()),
-                repository.findMethodPolicies(domain.domainId())
+                sourceRepository.findSources(domain.domainId()),
+                sourceRepository.findMethodPolicies(domain.domainId())
         );
     }
 
-    public DomainAdminDtos.DomainDashboardSummary getSummary(String domainRef) {
-        return repository.findDashboardSummary(domainRef)
-                .orElseThrow(() -> new IllegalArgumentException("domain not found: " + domainRef));
-    }
-
     @Transactional
-    public DomainAdminDtos.DomainDetail createDomain(DomainAdminDtos.DomainCreateRequest request) {
+    public DomainIdentityDtos.DomainDetail createDomain(DomainIdentityDtos.DomainCreateRequest request) {
         validateCreateRequest(request);
-        UUID domainId = repository.createDomain(new DomainAdminDtos.DomainCreateRequest(
+        UUID domainId = repository.createDomain(new DomainIdentityDtos.DomainCreateRequest(
                 normalizeDomainKey(request.domainKey()),
                 request.displayName().trim(),
                 request.description(),
@@ -51,34 +47,14 @@ public class DomainAdminService {
     }
 
     @Transactional
-    public DomainAdminDtos.DomainDetail updateDomain(String domainRef, DomainAdminDtos.DomainUpdateRequest request) {
-        DomainAdminDtos.DomainSummary domain = resolveDomain(domainRef);
+    public DomainIdentityDtos.DomainDetail updateDomain(String domainRef, DomainIdentityDtos.DomainUpdateRequest request) {
+        DomainIdentityDtos.DomainSummary domain = resolveDomain(domainRef);
         validateStatus(request.status());
         repository.updateDomain(domain.domainId(), request);
         return getDomain(domain.domainId().toString());
     }
 
-    @Transactional
-    public DomainAdminDtos.DomainDetail attachSource(
-            String domainRef,
-            DomainAdminDtos.DomainSourceAttachRequest request
-    ) {
-        DomainAdminDtos.DomainSummary domain = resolveDomain(domainRef);
-        if (request.sourceId() == null || request.sourceId().isBlank()) {
-            throw new IllegalArgumentException("sourceId is required");
-        }
-        repository.attachSource(domain.domainId(), request);
-        return getDomain(domain.domainId().toString());
-    }
-
-    @Transactional
-    public DomainAdminDtos.DomainDetail detachSource(String domainRef, String sourceId) {
-        DomainAdminDtos.DomainSummary domain = resolveDomain(domainRef);
-        repository.detachSource(domain.domainId(), sourceId);
-        return getDomain(domain.domainId().toString());
-    }
-
-    public DomainAdminDtos.DomainSummary resolveDomain(String domainRef) {
+    public DomainIdentityDtos.DomainSummary resolveDomain(String domainRef) {
         if (domainRef == null || domainRef.isBlank()) {
             throw new IllegalArgumentException("domain reference is required");
         }
@@ -86,7 +62,7 @@ public class DomainAdminService {
                 .orElseThrow(() -> new IllegalArgumentException("domain not found: " + domainRef));
     }
 
-    private void validateCreateRequest(DomainAdminDtos.DomainCreateRequest request) {
+    private void validateCreateRequest(DomainIdentityDtos.DomainCreateRequest request) {
         if (request == null) {
             throw new IllegalArgumentException("request body is required");
         }

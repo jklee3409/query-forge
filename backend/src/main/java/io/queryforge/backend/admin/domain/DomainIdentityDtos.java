@@ -1,14 +1,16 @@
 package io.queryforge.backend.admin.domain;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import io.queryforge.backend.admin.domain.source.DomainSourceDtos.DomainMethodPolicy;
+import io.queryforge.backend.admin.domain.source.DomainSourceDtos.DomainSource;
 
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 
-public final class DomainAdminDtos {
+public final class DomainIdentityDtos {
 
-    private DomainAdminDtos() {
+    private DomainIdentityDtos() {
     }
 
     public record DomainSummary(
@@ -38,31 +40,6 @@ public final class DomainAdminDtos {
     ) {
     }
 
-    public record DomainSource(
-            String sourceId,
-            String sourceType,
-            String productName,
-            String sourceName,
-            boolean enabled,
-            String sourceRole,
-            boolean active,
-            long activeDocumentCount,
-            long activeChunkCount,
-            Instant createdAt
-    ) {
-    }
-
-    public record DomainMethodPolicy(
-            String methodCode,
-            String methodName,
-            boolean methodActive,
-            boolean enabled,
-            String defaultQueryLanguage,
-            JsonNode metadata,
-            Instant createdAt
-    ) {
-    }
-
     public record DomainCreateRequest(
             String domainKey,
             String displayName,
@@ -81,31 +58,6 @@ public final class DomainAdminDtos {
             String sourceLanguage,
             String status,
             JsonNode metadata
-    ) {
-    }
-
-    public record DomainSourceAttachRequest(
-            String sourceId,
-            String sourceRole,
-            Boolean active
-    ) {
-    }
-
-    public record DomainDashboardSummary(
-            UUID domainId,
-            String domainKey,
-            String displayName,
-            long sourceCount,
-            long activeDocumentCount,
-            long activeChunkCount,
-            long glossaryTermCount,
-            long syntheticRawCount,
-            long gatedQueryCount,
-            long memoryEntryCount,
-            long evalDatasetCount,
-            long ragTestRunCount,
-            String latestRagStatus,
-            Instant latestRagCreatedAt
     ) {
     }
 }

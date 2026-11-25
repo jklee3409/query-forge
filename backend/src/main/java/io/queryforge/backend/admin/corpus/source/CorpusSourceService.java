@@ -1,7 +1,7 @@
 package io.queryforge.backend.admin.corpus.source;
 
-import io.queryforge.backend.admin.domain.DomainAdminDtos;
-import io.queryforge.backend.admin.domain.DomainAdminService;
+import io.queryforge.backend.admin.domain.source.DomainSourceDtos;
+import io.queryforge.backend.admin.domain.source.DomainSourceService;
 import io.queryforge.backend.admin.pipeline.source.SourceCatalogService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -20,10 +20,8 @@ import java.util.UUID;
 public class CorpusSourceService {
 
     private final CorpusSourceRepository repository;
-
     private final SourceCatalogService sourceCatalogService;
-
-    private final DomainAdminService domainAdminService;
+    private final DomainSourceService domainSourceService;
 
     @Transactional
     public List<CorpusSourceDtos.SourceSummary> listSources() {
@@ -117,9 +115,9 @@ public class CorpusSourceService {
         if (domainId == null) {
             return;
         }
-        domainAdminService.attachSource(
+        domainSourceService.attachSource(
                 domainId.toString(),
-                new DomainAdminDtos.DomainSourceAttachRequest(sourceId, "primary", true)
+                new DomainSourceDtos.DomainSourceAttachRequest(sourceId, "primary", true)
         );
     }
 

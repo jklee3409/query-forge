@@ -1,7 +1,6 @@
 package io.queryforge.backend.admin.domain;
 
 import lombok.RequiredArgsConstructor;
-import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -20,46 +19,25 @@ public class DomainAdminController {
     private final DomainAdminService service;
 
     @GetMapping
-    public List<DomainAdminDtos.DomainSummary> listDomains() {
+    public List<DomainIdentityDtos.DomainSummary> listDomains() {
         return service.listDomains();
     }
 
     @PostMapping
-    public DomainAdminDtos.DomainDetail createDomain(@RequestBody DomainAdminDtos.DomainCreateRequest request) {
+    public DomainIdentityDtos.DomainDetail createDomain(@RequestBody DomainIdentityDtos.DomainCreateRequest request) {
         return service.createDomain(request);
     }
 
     @GetMapping("/{domainRef}")
-    public DomainAdminDtos.DomainDetail getDomain(@PathVariable String domainRef) {
+    public DomainIdentityDtos.DomainDetail getDomain(@PathVariable String domainRef) {
         return service.getDomain(domainRef);
     }
 
     @PatchMapping("/{domainRef}")
-    public DomainAdminDtos.DomainDetail updateDomain(
+    public DomainIdentityDtos.DomainDetail updateDomain(
             @PathVariable String domainRef,
-            @RequestBody DomainAdminDtos.DomainUpdateRequest request
+            @RequestBody DomainIdentityDtos.DomainUpdateRequest request
     ) {
         return service.updateDomain(domainRef, request);
-    }
-
-    @GetMapping("/{domainRef}/summary")
-    public DomainAdminDtos.DomainDashboardSummary getSummary(@PathVariable String domainRef) {
-        return service.getSummary(domainRef);
-    }
-
-    @PostMapping("/{domainRef}/sources")
-    public DomainAdminDtos.DomainDetail attachSource(
-            @PathVariable String domainRef,
-            @RequestBody DomainAdminDtos.DomainSourceAttachRequest request
-    ) {
-        return service.attachSource(domainRef, request);
-    }
-
-    @DeleteMapping("/{domainRef}/sources/{sourceId}")
-    public DomainAdminDtos.DomainDetail detachSource(
-            @PathVariable String domainRef,
-            @PathVariable String sourceId
-    ) {
-        return service.detachSource(domainRef, sourceId);
     }
 }
