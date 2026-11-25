@@ -4,14 +4,9 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.queryforge.backend.admin.console.evaluation.anchor.dto.RagRewriteAnchorDtos;
 import io.queryforge.backend.admin.console.evaluation.anchor.repository.RagRewriteAnchorRepository;
-import io.queryforge.backend.admin.pipeline.configuration.AdminPipelineProperties;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
-import java.io.IOException;
-import java.nio.charset.StandardCharsets;
-import java.nio.file.Files;
-import java.nio.file.Path;
 import java.text.Normalizer;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -22,7 +17,6 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
-import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.regex.Pattern;
@@ -43,19 +37,14 @@ public class RagRewriteAnchorEvalService {
             "memory"
     );
     private final RagRewriteAnchorRepository anchorRepository;
-    private final AdminPipelineProperties pipelineProperties;
     private final ObjectMapper objectMapper;
 
     public List<RagRewriteAnchorDtos.RagRewriteAnchorEvalRow> buildRowsForRun(
             UUID runId,
-            String experimentName,
+            JsonNode caseRows,
             List<RagRewriteAnchorDtos.AnchorEvaluationCase> details
     ) {
-        if (runId == null || experimentName == null || experimentName.isBlank() || details == null || details.isEmpty()) {
-            return List.of();
-        }
-        JsonNode caseRoot = readRewriteCases(experimentName).orElse(null);
-        if (caseRoot == null || !caseRoot.isArray() || caseRoot.isEmpty()) {
+        if (details.isEmpty()) {
             return List.of();
         }
 
@@ -64,7 +53,7 @@ public class RagRewriteAnchorEvalService {
         Set<String> allChunkIds = new LinkedHashSet<>();
         Set<String> allDocIds = new LinkedHashSet<>();
         Set<UUID> allMemoryIds = new LinkedHashSet<>();
-        for (JsonNode row : caseRoot) {
+        for (JsonNode row : caseRows) {
             String sampleId = text(row.path("sample_id"));
             String mode = text(row.path("mode"));
             if (sampleId.isBlank() || mode.isBlank() || !row.path("rewrite_applied").asBoolean(false)) {
@@ -840,33 +829,6 @@ public class RagRewriteAnchorEvalService {
         } catch (IllegalArgumentException exception) {
             return null;
         }
-    }
-
-    private Optional<JsonNode> readRewriteCases(String experimentName) {
-        Path path = resolveRepoRoot()
-                .resolve("data/reports")
-                .resolve("rewrite_cases_" + experimentName + ".json")
-                .normalize();
-        if (!Files.exists(path)) {
-            return Optional.empty();
-        }
-        try {
-            return Optional.of(objectMapper.readTree(Files.readString(path, StandardCharsets.UTF_8)));
-        } catch (IOException exception) {
-            return Optional.empty();
-        }
-    }
-
-    private Path resolveRepoRoot() {
-        Path configured = Path.of(pipelineProperties.repoRoot()).toAbsolutePath().normalize();
-        if (Files.exists(configured.resolve("pipeline/cli.py"))) {
-            return configured;
-        }
-        Path parent = configured.getParent();
-        if (parent != null && Files.exists(parent.resolve("pipeline/cli.py"))) {
-            return parent;
-        }
-        throw new IllegalStateException("failed to resolve repository root for rag rewrite anchor eval");
     }
 
     private static final class AnchorDraft {

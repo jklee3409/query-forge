@@ -18,11 +18,12 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.transaction.support.TransactionSynchronization;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
+import org.springframework.transaction.support.TransactionTemplate;
 
-import java.time.Duration;
 import java.time.Instant;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -60,6 +61,7 @@ public class LlmJobService {
     private final SyntheticGenerationRepository generationRepository;
     private final ExperimentPipelineService experimentPipelineService;
     private final ObjectMapper objectMapper;
+    private final PlatformTransactionManager transactionManager;
 
     @Autowired
     @Qualifier("llmJobExecutor")
@@ -323,7 +325,9 @@ public class LlmJobService {
     }
 
     private void executeJob(LlmJobDtos.LlmJobRow job) {
-        llmJobRepository.markJobRunning(job.jobId());
+        if (!llmJobRepository.tryMarkJobRunning(job.jobId())) {
+            return;
+        }
         if (job.generationBatchId() != null) {
             generationRepository.markGenerationBatchRunning(job.generationBatchId());
         }
@@ -335,8 +339,6 @@ public class LlmJobService {
         }
 
         List<LlmJobDtos.LlmJobItemRow> items = llmJobRepository.findJobItems(job.jobId());
-        long jobStartedAtNano = System.nanoTime();
-        Map<String, Long> commandDurationMs = new LinkedHashMap<>();
         int totalItems = Math.max(1, items.size());
         int processed = 0;
         Map<String, JsonNode> resultByCommand = new LinkedHashMap<>();
@@ -344,10 +346,6 @@ public class LlmJobService {
             String command = item.payloadJson().path("command").asText(item.itemType());
             if ("completed".equalsIgnoreCase(item.itemStatus())) {
                 resultByCommand.putIfAbsent(command, item.resultJson());
-                if (item.startedAt() != null && item.finishedAt() != null) {
-                    long durationMs = Math.max(0L, Duration.between(item.startedAt(), item.finishedAt()).toMillis());
-                    commandDurationMs.putIfAbsent(command, durationMs);
-                }
                 processed += 1;
             }
         }
@@ -361,6 +359,8 @@ public class LlmJobService {
             );
         }
 
+        boolean finalizing = false;
+        String finalStatus;
         try {
             for (LlmJobDtos.LlmJobItemRow item : items) {
                 String command = item.payloadJson().path("command").asText(item.itemType());
@@ -370,24 +370,14 @@ public class LlmJobService {
                 }
                 LlmJobDtos.LlmJobRow current = llmJobRepository.findJob(job.jobId())
                         .orElseThrow(() -> new IllegalStateException("llm job missing while running: " + job.jobId()));
-                if ("pause_requested".equalsIgnoreCase(current.jobStatus())) {
-                    llmJobRepository.markRemainingItemsCancelled(job.jobId());
-                    llmJobRepository.markPaused(job.jobId(), objectMapper.valueToTree(Map.of("reason", "pause_requested")));
-                    return;
-                }
-                if ("cancel_requested".equalsIgnoreCase(current.jobStatus())) {
-                    llmJobRepository.markRemainingItemsCancelled(job.jobId());
-                    llmJobRepository.markCancelled(job.jobId(), objectMapper.valueToTree(Map.of("reason", "cancel_requested")));
-                    markRelatedCancelled(current);
+                if (finishStopRequest(current, current.jobStatus())) {
                     return;
                 }
                 llmJobRepository.markItemRunning(item.jobItemId());
-                long commandStartedAtNano = System.nanoTime();
                 ExperimentCommandDtos.ExperimentCommandResponse response = experimentPipelineService.run(
                         new ExperimentCommandDtos.ExperimentCommandRequest(command, experiment),
                         job.jobId().toString()
                 );
-                commandDurationMs.put(command, elapsedMillis(commandStartedAtNano));
                 resultByCommand.put(command, response.summary());
                 LlmJobDtos.LlmJobRow afterRun = llmJobRepository.findJob(job.jobId())
                         .orElseThrow(() -> new IllegalStateException("llm job missing after command run: " + job.jobId()));
@@ -442,17 +432,58 @@ public class LlmJobService {
                 );
             }
 
-            resultService.finalizeRelatedRows(job, resultByCommand, commandDurationMs, elapsedMillis(jobStartedAtNano));
-            llmJobRepository.markJobCompleted(job.jobId(), objectMapper.valueToTree(resultByCommand));
+            finalizing = true;
+            finalStatus = resultService.finalizeJob(job, resultByCommand);
         } catch (RuntimeException exception) {
-            handleJobFailure(job, resultByCommand, exception);
+            handleJobFailure(job, resultByCommand, exception, finalizing);
+            return;
         }
+        finishStopRequest(job, finalStatus);
+    }
+
+    private boolean finishStopRequest(LlmJobDtos.LlmJobRow job, String status) {
+        if ("pause_requested".equals(status)) {
+            llmJobRepository.markRemainingItemsCancelled(job.jobId());
+            llmJobRepository.markPaused(job.jobId(), objectMapper.valueToTree(Map.of("reason", status)));
+            return true;
+        }
+        if ("cancel_requested".equals(status)) {
+            llmJobRepository.markRemainingItemsCancelled(job.jobId());
+            llmJobRepository.markCancelled(job.jobId(), objectMapper.valueToTree(Map.of("reason", status)));
+            markRelatedCancelled(job);
+            return true;
+        }
+        return false;
     }
 
     private void handleJobFailure(
             LlmJobDtos.LlmJobRow job,
             Map<String, JsonNode> resultByCommand,
-            RuntimeException exception
+            RuntimeException exception,
+            boolean finalizing
+    ) {
+        Long retryDelaySeconds;
+        if (finalizing) {
+            FinalizationFailure failure = new TransactionTemplate(transactionManager).execute(transaction -> {
+                String status = llmJobRepository.lockJobStatus(job.jobId()).orElse(null);
+                Long delay = "running".equals(status) ? recordJobFailure(job, resultByCommand, exception, true) : null;
+                return new FinalizationFailure(status, delay);
+            });
+            finishStopRequest(job, failure.jobStatus());
+            retryDelaySeconds = failure.retryDelaySeconds();
+        } else {
+            retryDelaySeconds = recordJobFailure(job, resultByCommand, exception, false);
+        }
+        if (retryDelaySeconds != null) {
+            scheduleEnqueue(job.jobId(), retryDelaySeconds);
+        }
+    }
+
+    private Long recordJobFailure(
+            LlmJobDtos.LlmJobRow job,
+            Map<String, JsonNode> resultByCommand,
+            RuntimeException exception,
+            boolean finalizing
     ) {
         int nextRetry = (job.retryCount() == null ? 0 : job.retryCount()) + 1;
         int maxRetries = job.maxRetries() == null ? 0 : job.maxRetries();
@@ -471,13 +502,13 @@ public class LlmJobService {
             Instant nextRunAt = Instant.now().plusSeconds(backoffSeconds);
             llmJobRepository.prepareItemsForRetry(job.jobId());
             llmJobRepository.queueJobWithBackoff(job.jobId(), nextRetry, nextRunAt, errorMessage);
-            scheduleEnqueue(job.jobId(), backoffSeconds);
-            return;
+            return backoffSeconds;
         }
 
         Integer purgedSyntheticQueries = null;
         String cleanupError = null;
-        if (job.generationBatchId() != null) {
+        // Finalization retries reuse the raw queries written by the completed Python command.
+        if (job.generationBatchId() != null && !finalizing) {
             try {
                 purgedSyntheticQueries = generationRepository.deleteSyntheticQueriesByGenerationBatch(job.generationBatchId());
             } catch (RuntimeException cleanupException) {
@@ -529,6 +560,10 @@ public class LlmJobService {
         if (job.ragTestRunId() != null) {
             ragTestRunRepository.failRagTestRun(job.ragTestRunId(), errorMessage);
         }
+        return null;
+    }
+
+    private record FinalizationFailure(String jobStatus, Long retryDelaySeconds) {
     }
 
     private void markRelatedCancelled(LlmJobDtos.LlmJobRow job) {
@@ -567,14 +602,6 @@ public class LlmJobService {
                 () -> enqueue(jobId),
                 CompletableFuture.delayedExecutor(safeDelaySeconds, TimeUnit.SECONDS)
         );
-    }
-
-    private long elapsedMillis(long startedAtNano) {
-        long elapsedNs = System.nanoTime() - startedAtNano;
-        if (elapsedNs <= 0L) {
-            return 0L;
-        }
-        return TimeUnit.NANOSECONDS.toMillis(elapsedNs);
     }
 
     private boolean isSyntheticGenerationJob(LlmJobDtos.LlmJobRow job) {

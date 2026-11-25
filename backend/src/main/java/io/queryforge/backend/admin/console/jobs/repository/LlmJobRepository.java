@@ -7,6 +7,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Repository;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.sql.ResultSet;
@@ -573,19 +574,28 @@ public class LlmJobRepository {
     }
 
     @Transactional
-    public void markJobRunning(UUID jobId) {
+    public boolean tryMarkJobRunning(UUID jobId) {
         String sql = """
                 UPDATE llm_job
                 SET job_status = 'running',
                     started_at = COALESCE(started_at, NOW()),
                     updated_at = NOW(),
                     error_message = NULL
-                WHERE job_id = :jobId
+                WHERE job_id = :jobId AND job_status = 'queued'
                 """;
-        jdbcTemplate.update(sql, new MapSqlParameterSource("jobId", jobId));
+        return jdbcTemplate.update(sql, new MapSqlParameterSource("jobId", jobId)) == 1;
     }
 
-    @Transactional
+    @Transactional(propagation = Propagation.MANDATORY)
+    public Optional<String> lockJobStatus(UUID jobId) {
+        return jdbcTemplate.query(
+                "SELECT job_status FROM llm_job WHERE job_id = :jobId FOR UPDATE",
+                new MapSqlParameterSource("jobId", jobId),
+                (rs, rowNum) -> rs.getString("job_status")
+        ).stream().findFirst();
+    }
+
+    @Transactional(propagation = Propagation.MANDATORY)
     public void markJobCompleted(UUID jobId, JsonNode resultJson) {
         String sql = """
                 UPDATE llm_job
@@ -596,14 +606,17 @@ public class LlmJobRepository {
                     error_message = NULL,
                     finished_at = NOW(),
                     updated_at = NOW()
-                WHERE job_id = :jobId
+                WHERE job_id = :jobId AND job_status = 'running'
                 """;
-        jdbcTemplate.update(
+        int updated = jdbcTemplate.update(
                 sql,
                 new MapSqlParameterSource()
                         .addValue("jobId", jobId)
                         .addValue("resultJson", resultJson.toString())
         );
+        if (updated != 1) {
+            throw new IllegalStateException("could not complete running LLM job: " + jobId);
+        }
     }
 
     @Transactional
