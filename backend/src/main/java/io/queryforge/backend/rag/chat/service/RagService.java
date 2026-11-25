@@ -495,131 +495,34 @@ public class RagService {
                 retrievalRuntime,
                 routeDecision
         );
-        UUID rewriteLogId;
-        if (rewriteTraceKind != null) {
-            TraceWriteResults.OnlineRewriteLogPersistenceResult rewriteLogPersistence =
-                    ragTracePersistenceService.createOnlineRewriteLogTrace(
-                            new RagTraceWriteDtos.OnlineRewriteLogPersistenceRequest(
-                                    RagPersistPolicy.ONLINE_QUERY,
-                                    onlineQueryId,
-                                    null,
-                                    rewriteTraceKind,
-                                    rawQuery,
-                                    decision.finalQuery(),
-                                    mode,
-                                    responses.generationMethodCodes(memoryCandidates),
-                                    responses.generationBatchIds(memoryCandidates),
-                                    gatingApplied,
-                                    gatingPreset,
-                                    decision.rewriteApplied(),
-                                    selectiveRewrite,
-                                    useSessionContext,
-                                    rawConfidence,
-                                    selectedConfidence,
-                                    selectedConfidence - rawConfidence,
-                                    decision.selectedReason(),
-                                    decision.rejectedReason(),
-                                    rewriteMetadata
-                            )
-                    );
-            rewriteLogId = rewriteLogPersistence.rewriteLogId();
-        } else {
-            rewriteLogId = traceRepository.createOnlineRewriteLog(
-                    onlineQueryId,
-                    null,
-                    rawQuery,
-                    decision.finalQuery(),
-                    mode,
-                    responses.generationMethodCodes(memoryCandidates),
-                    responses.generationBatchIds(memoryCandidates),
-                    gatingApplied,
-                    gatingPreset,
-                    decision.rewriteApplied(),
-                    selectiveRewrite,
-                    useSessionContext,
-                    rawConfidence,
-                    selectedConfidence,
-                    selectedConfidence - rawConfidence,
-                    decision.selectedReason(),
-                    decision.rejectedReason(),
-                    rewriteMetadata
-            );
-        }
-
-        for (int index = 0; index < memoryCandidates.size(); index++) {
-            MemoryCandidate memoryCandidate = memoryCandidates.get(index);
-            JsonNode memoryMetadata = objectMapper.valueToTree(Map.of(
-                    "gating_preset", gatingPreset,
-                    "generation_batch_id", memoryCandidate.generationBatchId() == null ? "" : memoryCandidate.generationBatchId().toString(),
-                    "source_gate_run_id", memoryCandidate.sourceGateRunId() == null ? "" : memoryCandidate.sourceGateRunId(),
-                    "source_gating_batch_id", memoryCandidate.sourceGatingBatchId() == null ? "" : memoryCandidate.sourceGatingBatchId()
-            ));
-            if (rewriteTraceKind != null) {
-                ragTracePersistenceService.insertMemoryRetrievalTrace(
-                        new RagTraceWriteDtos.MemoryRetrievalLogPersistenceRequest(
-                                RagPersistPolicy.ONLINE_QUERY,
-                                onlineQueryId,
-                                rewriteLogId,
-                                rewriteTraceKind,
-                                index + 1,
-                                memoryCandidate,
-                                memoryMetadata
-                        )
-                );
-            } else {
-                traceRepository.insertMemoryRetrievalLog(
-                        rewriteLogId,
+        ragTracePersistenceService.persistOnlineRewriteLogs(
+                new RagTraceWriteDtos.OnlineRewriteLogPersistenceRequest(
+                        RagPersistPolicy.ONLINE_QUERY,
                         onlineQueryId,
-                        index + 1,
-                        memoryCandidate,
-                        memoryMetadata
-                );
-            }
-        }
-
-        for (ExecutedRewriteCandidate candidate : scoredCandidates) {
-            UUID candidateId = candidateIds.get(candidate.index());
-            boolean selected = selectedCandidate != null && selectedCandidate.index() == candidate.index();
-            JsonNode candidateMetadata = objectMapper.valueToTree(Map.of(
-                    "mode", mode,
-                    "selected_reason", decision.selectedReason()
-            ));
-            if (rewriteTraceKind != null) {
-                ragTracePersistenceService.insertRewriteCandidateTrace(
-                        new RagTraceWriteDtos.RewriteCandidateLogPersistenceRequest(
-                                RagPersistPolicy.ONLINE_QUERY,
-                                onlineQueryId,
-                                rewriteLogId,
-                                candidateId,
-                                rewriteTraceKind,
-                                candidate.index(),
-                                candidate.label(),
-                                candidate.query(),
-                                candidate.confidence(),
-                                selected,
-                                selected ? null : decision.rejectedReason(),
-                                objectMapper.valueToTree(candidate.rerankedDocs()),
-                                scoreBreakdown(objectMapper, candidate.rerankedDocs(), memoryCandidates),
-                                candidateMetadata
-                        )
-                );
-            } else {
-                traceRepository.insertRewriteCandidateLog(
-                        rewriteLogId,
-                        onlineQueryId,
-                        candidateId,
-                        candidate.index(),
-                        candidate.label(),
-                        candidate.query(),
-                        candidate.confidence(),
-                        selected,
-                        selected ? null : decision.rejectedReason(),
-                        objectMapper.valueToTree(candidate.rerankedDocs()),
-                        scoreBreakdown(objectMapper, candidate.rerankedDocs(), memoryCandidates),
-                        candidateMetadata
-                );
-            }
-        }
+                        null,
+                        decisionPersistenceKind,
+                        rawQuery,
+                        decision.finalQuery(),
+                        mode,
+                        responses.generationMethodCodes(memoryCandidates),
+                        responses.generationBatchIds(memoryCandidates),
+                        gatingApplied,
+                        gatingPreset,
+                        decision.rewriteApplied(),
+                        selectiveRewrite,
+                        useSessionContext,
+                        rawConfidence,
+                        selectedConfidence,
+                        selectedConfidence - rawConfidence,
+                        decision.selectedReason(),
+                        decision.rejectedReason(),
+                        rewriteMetadata
+                ),
+                memoryCandidates,
+                scoredCandidates,
+                candidateIds,
+                selectedCandidate == null ? null : selectedCandidate.index()
+        );
 
         return new ChatDtos.AskResponse(
                 onlineQueryId,

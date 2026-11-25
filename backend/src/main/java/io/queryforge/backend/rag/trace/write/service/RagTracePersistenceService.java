@@ -1,32 +1,38 @@
 package io.queryforge.backend.rag.trace.write.service;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import io.queryforge.backend.rag.retrieval.execution.dto.RetrievalExecutionDtos;
 import io.queryforge.backend.rag.retrieval.execution.model.RagPersistPolicy;
+import io.queryforge.backend.rag.retrieval.memory.model.MemoryCandidate;
 import io.queryforge.backend.rag.trace.write.dto.RagTraceWriteDtos.CreateRewriteCandidateTracePersistenceRequest;
-import io.queryforge.backend.rag.trace.write.dto.RagTraceWriteDtos.MemoryRetrievalLogPersistenceRequest;
 import io.queryforge.backend.rag.trace.write.dto.RagTraceWriteDtos.OnlineQueryDecisionPersistenceRequest;
 import io.queryforge.backend.rag.trace.write.dto.RagTraceWriteDtos.OnlineQueryMetadataMergePersistenceRequest;
 import io.queryforge.backend.rag.trace.write.dto.RagTraceWriteDtos.OnlineRewriteLogPersistenceRequest;
 import io.queryforge.backend.rag.trace.write.dto.RagTraceWriteDtos.RagTracePersistenceRequest;
 import io.queryforge.backend.rag.trace.write.dto.RagTraceWriteDtos.RawOnlyTracePersistenceRequest;
 import io.queryforge.backend.rag.trace.write.dto.RagTraceWriteDtos.RewriteCandidateAdoptionPersistenceRequest;
-import io.queryforge.backend.rag.trace.write.dto.RagTraceWriteDtos.RewriteCandidateLogPersistenceRequest;
 import io.queryforge.backend.rag.trace.write.dto.RagTraceWriteDtos.RewriteCandidateTracePersistenceRequest;
-import io.queryforge.backend.rag.trace.write.dto.TraceWriteResults.OnlineRewriteLogPersistenceResult;
 import io.queryforge.backend.rag.trace.write.dto.TraceWriteResults.RagTracePersistenceResult;
 import io.queryforge.backend.rag.trace.write.dto.TraceWriteResults.RewriteCandidatePersistenceResult;
 import io.queryforge.backend.rag.trace.write.repository.RagTraceRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
+import java.util.List;
 import java.util.Locale;
+import java.util.Map;
+import java.util.Objects;
 import java.util.UUID;
+
+import static io.queryforge.backend.rag.retrieval.rewrite.service.RewriteScoring.scoreBreakdown;
 
 @Service
 @RequiredArgsConstructor
 public class RagTracePersistenceService {
 
     private final RagTraceRepository traceRepository;
+    private final ObjectMapper objectMapper;
 
     public RagTracePersistenceResult persist(RagTracePersistenceRequest request) {
         if (request == null) {
@@ -126,65 +132,23 @@ public class RagTracePersistenceService {
         };
     }
 
-    public OnlineRewriteLogPersistenceResult createOnlineRewriteLogTrace(
-            OnlineRewriteLogPersistenceRequest request
+    public void persistOnlineRewriteLogs(
+            OnlineRewriteLogPersistenceRequest request,
+            List<MemoryCandidate> memories,
+            List<RetrievalExecutionDtos.ExecutedRewriteCandidate> candidates,
+            Map<Integer, UUID> candidateIds,
+            Integer selectedCandidateIndex
     ) {
         if (request == null) {
             throw new IllegalArgumentException("request is required");
         }
-        return switch (request.persistPolicy()) {
-            case NONE -> new OnlineRewriteLogPersistenceResult(
-                    RagPersistPolicy.NONE,
-                    request.onlineQueryId(),
-                    null,
-                    false,
-                    "skipped_none"
-            );
-            case TRACE_ONLY -> throw new UnsupportedOperationException(
-                    "TRACE_ONLY persistence is not implemented in Phase 5F"
-            );
-            case ONLINE_QUERY -> createOnlineRewriteLogOnlineQueryTrace(request);
-        };
-    }
-
-    public RagTracePersistenceResult insertMemoryRetrievalTrace(
-            MemoryRetrievalLogPersistenceRequest request
-    ) {
-        if (request == null) {
-            throw new IllegalArgumentException("request is required");
+        switch (request.persistPolicy()) {
+            case NONE -> {
+                return;
+            }
+            case TRACE_ONLY -> throw new UnsupportedOperationException("TRACE_ONLY persistence is not implemented");
+            case ONLINE_QUERY -> writeOnlineRewriteLogs(request, memories, candidates, candidateIds, selectedCandidateIndex);
         }
-        return switch (request.persistPolicy()) {
-            case NONE -> new RagTracePersistenceResult(
-                    RagPersistPolicy.NONE,
-                    request.onlineQueryId(),
-                    false,
-                    "skipped_none"
-            );
-            case TRACE_ONLY -> throw new UnsupportedOperationException(
-                    "TRACE_ONLY persistence is not implemented in Phase 5F"
-            );
-            case ONLINE_QUERY -> insertMemoryRetrievalOnlineQueryTrace(request);
-        };
-    }
-
-    public RagTracePersistenceResult insertRewriteCandidateTrace(
-            RewriteCandidateLogPersistenceRequest request
-    ) {
-        if (request == null) {
-            throw new IllegalArgumentException("request is required");
-        }
-        return switch (request.persistPolicy()) {
-            case NONE -> new RagTracePersistenceResult(
-                    RagPersistPolicy.NONE,
-                    request.onlineQueryId(),
-                    false,
-                    "skipped_none"
-            );
-            case TRACE_ONLY -> throw new UnsupportedOperationException(
-                    "TRACE_ONLY persistence is not implemented in Phase 5F"
-            );
-            case ONLINE_QUERY -> insertRewriteCandidateOnlineQueryTrace(request);
-        };
     }
 
     public RagTracePersistenceResult persistOnlineQueryDecision(
@@ -347,13 +311,18 @@ public class RagTracePersistenceService {
         );
     }
 
-    private OnlineRewriteLogPersistenceResult createOnlineRewriteLogOnlineQueryTrace(
-            OnlineRewriteLogPersistenceRequest request
+    private void writeOnlineRewriteLogs(
+            OnlineRewriteLogPersistenceRequest request,
+            List<MemoryCandidate> memories,
+            List<RetrievalExecutionDtos.ExecutedRewriteCandidate> candidates,
+            Map<Integer, UUID> candidateIds,
+            Integer selectedCandidateIndex
     ) {
-        if (request.onlineQueryId() == null) {
+        UUID onlineQueryId = request.onlineQueryId();
+        if (onlineQueryId == null) {
             throw new IllegalArgumentException("onlineQueryId is required for ONLINE_QUERY rewrite log persistence");
         }
-        validateRewriteCandidateExecutionKind(request.executionKind(), "rewrite log persistence");
+        validateNonAgenticExecutionKind(request.executionKind(), "rewrite log persistence");
         UUID rewriteLogId = traceRepository.createOnlineRewriteLog(
                 request.onlineQueryId(),
                 request.runId(),
@@ -374,76 +343,45 @@ public class RagTracePersistenceService {
                 request.rejectionReason(),
                 request.metadata()
         );
-        return new OnlineRewriteLogPersistenceResult(
-                RagPersistPolicy.ONLINE_QUERY,
-                request.onlineQueryId(),
-                rewriteLogId,
-                true,
-                "persisted_" + request.executionKind().name().toLowerCase(Locale.ROOT) + "_rewrite_log"
-        );
-    }
-
-    private RagTracePersistenceResult insertMemoryRetrievalOnlineQueryTrace(
-            MemoryRetrievalLogPersistenceRequest request
-    ) {
-        if (request.onlineQueryId() == null) {
-            throw new IllegalArgumentException("onlineQueryId is required for ONLINE_QUERY memory retrieval log persistence");
+        for (int index = 0; index < memories.size(); index++) {
+            MemoryCandidate memory = memories.get(index);
+            traceRepository.insertMemoryRetrievalLog(
+                    rewriteLogId,
+                    onlineQueryId,
+                    index + 1,
+                    memory,
+                    objectMapper.valueToTree(Map.of(
+                            "gating_preset", request.gatingPreset(),
+                            "generation_batch_id", Objects.toString(memory.generationBatchId(), ""),
+                            "source_gate_run_id", Objects.toString(memory.sourceGateRunId(), ""),
+                            "source_gating_batch_id", Objects.toString(memory.sourceGatingBatchId(), "")
+                    ))
+            );
         }
-        if (request.rewriteLogId() == null) {
-            throw new IllegalArgumentException("rewriteLogId is required for ONLINE_QUERY memory retrieval log persistence");
+        if (candidates.isEmpty()) {
+            return;
         }
-        if (request.candidate() == null) {
-            throw new IllegalArgumentException("candidate is required for ONLINE_QUERY memory retrieval log persistence");
+        JsonNode candidateMetadata = objectMapper.valueToTree(Map.of(
+                "mode", request.rewriteStrategy(),
+                "selected_reason", request.decisionReason()
+        ));
+        for (RetrievalExecutionDtos.ExecutedRewriteCandidate candidate : candidates) {
+            boolean selected = Objects.equals(selectedCandidateIndex, candidate.index());
+            traceRepository.insertRewriteCandidateLog(
+                    rewriteLogId,
+                    onlineQueryId,
+                    candidateIds.get(candidate.index()),
+                    candidate.index(),
+                    candidate.label(),
+                    candidate.query(),
+                    candidate.confidence(),
+                    selected,
+                    selected ? null : request.rejectionReason(),
+                    objectMapper.valueToTree(candidate.rerankedDocs()),
+                    scoreBreakdown(objectMapper, candidate.rerankedDocs(), memories),
+                    candidateMetadata
+            );
         }
-        validateRewriteCandidateExecutionKind(request.executionKind(), "memory retrieval log persistence");
-        traceRepository.insertMemoryRetrievalLog(
-                request.rewriteLogId(),
-                request.onlineQueryId(),
-                request.retrievalRank(),
-                request.candidate(),
-                request.metadata()
-        );
-        return new RagTracePersistenceResult(
-                RagPersistPolicy.ONLINE_QUERY,
-                request.onlineQueryId(),
-                true,
-                "persisted_" + request.executionKind().name().toLowerCase(Locale.ROOT) + "_memory_retrieval_log"
-        );
-    }
-
-    private RagTracePersistenceResult insertRewriteCandidateOnlineQueryTrace(
-            RewriteCandidateLogPersistenceRequest request
-    ) {
-        if (request.onlineQueryId() == null) {
-            throw new IllegalArgumentException("onlineQueryId is required for ONLINE_QUERY rewrite candidate log persistence");
-        }
-        if (request.rewriteLogId() == null) {
-            throw new IllegalArgumentException("rewriteLogId is required for ONLINE_QUERY rewrite candidate log persistence");
-        }
-        if (request.rewriteCandidateId() == null) {
-            throw new IllegalArgumentException("rewriteCandidateId is required for ONLINE_QUERY rewrite candidate log persistence");
-        }
-        validateRewriteCandidateExecutionKind(request.executionKind(), "rewrite candidate log persistence");
-        traceRepository.insertRewriteCandidateLog(
-                request.rewriteLogId(),
-                request.onlineQueryId(),
-                request.rewriteCandidateId(),
-                request.candidateRank(),
-                request.candidateLabel(),
-                request.candidateQuery(),
-                request.confidenceScore(),
-                request.selected(),
-                request.rejectionReason(),
-                request.retrievalTopKDocs(),
-                request.scoreBreakdown(),
-                request.metadata()
-        );
-        return new RagTracePersistenceResult(
-                RagPersistPolicy.ONLINE_QUERY,
-                request.onlineQueryId(),
-                true,
-                "persisted_" + request.executionKind().name().toLowerCase(Locale.ROOT) + "_rewrite_candidate_log"
-        );
     }
 
     private RagTracePersistenceResult persistOnlineQueryDecisionTrace(

@@ -204,49 +204,6 @@ public final class RagTraceWriteDtos {
         }
     }
 
-    public record MemoryRetrievalLogPersistenceRequest(
-            RagPersistPolicy persistPolicy,
-            UUID onlineQueryId,
-            UUID rewriteLogId,
-            RetrievalExecutionDtos.NonAgenticExecutionKind executionKind,
-            int retrievalRank,
-            MemoryCandidate candidate,
-            JsonNode metadata
-    ) {
-        public MemoryRetrievalLogPersistenceRequest {
-            persistPolicy = persistPolicy == null ? RagPersistPolicy.NONE : persistPolicy;
-            retrievalRank = Math.max(0, retrievalRank);
-            metadata = metadata == null ? JsonNodeFactory.instance.objectNode() : metadata;
-        }
-    }
-
-    public record RewriteCandidateLogPersistenceRequest(
-            RagPersistPolicy persistPolicy,
-            UUID onlineQueryId,
-            UUID rewriteLogId,
-            UUID rewriteCandidateId,
-            RetrievalExecutionDtos.NonAgenticExecutionKind executionKind,
-            int candidateRank,
-            String candidateLabel,
-            String candidateQuery,
-            Double confidenceScore,
-            boolean selected,
-            String rejectionReason,
-            JsonNode retrievalTopKDocs,
-            JsonNode scoreBreakdown,
-            JsonNode metadata
-    ) {
-        public RewriteCandidateLogPersistenceRequest {
-            persistPolicy = persistPolicy == null ? RagPersistPolicy.NONE : persistPolicy;
-            candidateRank = Math.max(0, candidateRank);
-            candidateLabel = candidateLabel == null ? "" : candidateLabel;
-            candidateQuery = candidateQuery == null ? "" : candidateQuery;
-            retrievalTopKDocs = retrievalTopKDocs == null ? JsonNodeFactory.instance.arrayNode() : retrievalTopKDocs;
-            scoreBreakdown = scoreBreakdown == null ? JsonNodeFactory.instance.objectNode() : scoreBreakdown;
-            metadata = metadata == null ? JsonNodeFactory.instance.objectNode() : metadata;
-        }
-    }
-
     public enum RawOnlyTraceWriteScope {
         RETRIEVAL("retrieval"),
         RERANK("rerank");
