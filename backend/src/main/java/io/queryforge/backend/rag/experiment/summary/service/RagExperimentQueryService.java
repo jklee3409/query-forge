@@ -1,0 +1,37 @@
+package io.queryforge.backend.rag.experiment.summary.service;
+
+import io.queryforge.backend.rag.experiment.summary.dto.ExperimentSummaryDtos;
+import io.queryforge.backend.rag.experiment.summary.repository.RagExperimentRepository;
+import lombok.RequiredArgsConstructor;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.util.List;
+import java.util.UUID;
+
+@Service
+@RequiredArgsConstructor
+@Transactional(readOnly = true)
+public class RagExperimentQueryService {
+
+    private final RagExperimentRepository experimentRepository;
+
+    public ExperimentSummaryDtos.ExperimentSummaryResponse getExperimentSummary(UUID experimentRunId) {
+        ExperimentSummaryDtos.ExperimentRunSummary summary = experimentRepository.findExperimentRunSummary(experimentRunId)
+                .orElseThrow(() -> new IllegalArgumentException("experiment run was not found: " + experimentRunId));
+        return new ExperimentSummaryDtos.ExperimentSummaryResponse(
+                summary.experimentRunId(),
+                summary.experimentKey(),
+                summary.status(),
+                summary.startedAt(),
+                summary.finishedAt(),
+                summary.parameters(),
+                summary.metrics(),
+                summary.notes()
+        );
+    }
+
+    public List<ExperimentSummaryDtos.ExperimentRunSummary> listRecentExperimentRuns(int limit) {
+        return experimentRepository.listRecentExperimentRuns(limit);
+    }
+}

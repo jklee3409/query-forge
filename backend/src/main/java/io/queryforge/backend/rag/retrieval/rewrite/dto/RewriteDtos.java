@@ -1,0 +1,26 @@
+package io.queryforge.backend.rag.retrieval.rewrite.dto;
+
+import com.fasterxml.jackson.databind.JsonNode;
+
+import java.util.UUID;
+
+public final class RewriteDtos {
+
+    private RewriteDtos() {
+    }
+
+    public record RewriteCandidateDto(
+            UUID rewriteCandidateId,
+            String label,
+            String candidateQuery,
+            double confidenceScore,
+            boolean adopted,
+            String rejectedReason,
+            JsonNode retrievalTopKDocs,
+            JsonNode scoreBreakdown
+    ) {
+    }
+
+    public record CandidateTemplate(String label, String query) {
+    }
+}
