@@ -1,5 +1,10 @@
 # progress.md
 
+## [2026-11-25] Session Summary (Atomic LLM Worker Results)
+- Prepare RAG report details and anchor rows once, then persist related results and batch, run, and job completion together. Keep subprocess execution and progress updates outside the result transaction.
+- Lock the job row during finalization and during failure recording. Retain completed items and synthetic raw output for retry.
+- Passed 53 targeted tests. PostgreSQL cases cover rollback on anchor insert or job completion failure, successful retry without running Python again, report validation, and pause or cancel requests.
+
 ## [2026-11-25] Session Summary (Package Roles Within Features)
 - Added feature-local controller, service, repository, DTO, and other applicable role packages, and aligned unit, MVC, and integration test packages.
 - Preserved the 133 existing HTTP mappings and 227 record declarations. Docker PostgreSQL-backed Gradle clean tests passed all 181 cases. The Java-backed Python checks passed 36 cases.

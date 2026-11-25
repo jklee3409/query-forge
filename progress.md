@@ -1,5 +1,15 @@
 # progress.md
 
+## [2026-11-25] Session Summary (LLM Worker Result Finalization)
+- Commit worker results and job completion in one PostgreSQL transaction after report preparation. Check the locked job status before applying results.
+- Preserve completed Python items and generated queries on finalization failure. Treat missing or invalid RAG reports as failures while accepting a valid empty report.
+- Passed 53 targeted backend tests, including PostgreSQL rollback, retry, and stop-request cases.
+
+## [2026-11-25] Session Summary (Transaction Boundary Review)
+- Verified the Java/Python execution boundary and reviewed administrator RAG run registration, default dataset synchronization, and LLM worker result persistence against the current source.
+- Prioritized atomic worker result persistence, then atomic RAG run registration and default dataset synchronization. Defined failure and retry cases for targeted PostgreSQL verification.
+- Reviewed source and documentation only. No application code changes or database tests.
+
 ## [2026-11-25] Session Summary (IDE Build Output)
 - Added `/backend/bin/` to the root Git ignore rules for local IDE build output.
 
