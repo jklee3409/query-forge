@@ -5,6 +5,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import io.queryforge.backend.rag.eval.retrieval.dto.RagRetrievalEvalDtos;
 import io.queryforge.backend.rag.runtime.configuration.dto.ChatConfigDtos;
+import io.queryforge.backend.rag.runtime.configuration.model.RagExecutionSettings;
+import io.queryforge.backend.rag.runtime.configuration.model.RagExecutionSettings.Parameter;
 import io.queryforge.backend.rag.runtime.readiness.dto.ChatReadinessDtos;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -12,6 +14,12 @@ import org.springframework.stereotype.Service;
 import java.util.List;
 import java.util.Locale;
 import java.util.UUID;
+
+import static io.queryforge.backend.rag.runtime.configuration.model.RagExecutionSettings.MEMORY_TOP_N;
+import static io.queryforge.backend.rag.runtime.configuration.model.RagExecutionSettings.RERANK_TOP_N;
+import static io.queryforge.backend.rag.runtime.configuration.model.RagExecutionSettings.RETRIEVAL_TOP_K;
+import static io.queryforge.backend.rag.runtime.configuration.model.RagExecutionSettings.REWRITE_CANDIDATE_COUNT;
+import static io.queryforge.backend.rag.runtime.configuration.model.RagExecutionSettings.REWRITE_THRESHOLD;
 
 @Service
 @RequiredArgsConstructor
@@ -25,8 +33,9 @@ class EvalRuntimeConfigService {
             ChatReadinessDtos.ChatDomainReadinessResponse baseReadiness
     ) {
         JsonNode runtime = request.runtimeConfig();
+        RagExecutionSettings settings = resolveExecutionSettings(request, baseConfig.executionSettings());
         if (runtime == null || runtime.isNull() || runtime.isMissingNode() || !runtime.isObject()) {
-            return new RuntimeEvalContext(baseConfig, baseReadiness);
+            return new RuntimeEvalContext(baseConfig, baseReadiness, settings);
         }
         ObjectNode metadata = objectMapper.createObjectNode();
         if (baseConfig.metadata() != null && baseConfig.metadata().isObject()) {
@@ -139,11 +148,11 @@ class EvalRuntimeConfigService {
                 doubleValue(fusionWeights, baseConfig.retrieverDenseWeight(), "dense", "denseWeight", "dense_weight"),
                 doubleValue(fusionWeights, baseConfig.retrieverBm25Weight(), "bm25", "bm25Weight", "bm25_weight"),
                 doubleValue(fusionWeights, baseConfig.retrieverTechnicalWeight(), "technical", "technicalWeight", "technical_weight"),
-                intValue(runtime, baseConfig.retrievalTopK(), "retrievalTopK", "retrieval_top_k", "topK", "top_k"),
-                intValue(runtime, baseConfig.rerankTopN(), "rerankTopN", "rerank_top_n"),
-                intValue(runtime, baseConfig.memoryTopN(), "memoryTopN", "memory_top_n"),
-                intValue(runtime, baseConfig.rewriteCandidateCount(), "rewriteCandidateCount", "rewrite_candidate_count"),
-                doubleValue(runtime, baseConfig.rewriteThreshold(), "rewriteThreshold", "rewrite_threshold", "threshold"),
+                settings.retrievalTopK(),
+                settings.rerankTopN(),
+                settings.memoryTopN(),
+                settings.rewriteCandidateCount(),
+                settings.rewriteThreshold(),
                 textValue(runtime, baseConfig.rewriteFailurePolicy(), "rewriteFailurePolicy", "rewrite_failure_policy"),
                 routerEnabled,
                 metadata,
@@ -156,7 +165,65 @@ class EvalRuntimeConfigService {
                 baseReadiness,
                 config
         );
-        return new RuntimeEvalContext(config, readiness);
+        return new RuntimeEvalContext(config, readiness, settings);
+    }
+
+    private RagExecutionSettings resolveExecutionSettings(
+            RagRetrievalEvalDtos.RagRetrievalEvalRequest request,
+            RagExecutionSettings base
+    ) {
+        JsonNode runtime = request.runtimeConfig();
+        Integer retrievalTopK = request.topK();
+        if (retrievalTopK == null) {
+            retrievalTopK = integerSetting(runtime, RETRIEVAL_TOP_K, "topK", "top_k");
+        }
+        Integer rerankTopN = integerSetting(runtime, RERANK_TOP_N);
+        if (rerankTopN == null) {
+            // A topK-only request historically sets both limits. An experiment can supply its own rerank limit.
+            rerankTopN = request.topK();
+        }
+        JsonNode threshold = executionValue(runtime, REWRITE_THRESHOLD, "threshold");
+        if (threshold != null && !threshold.isNumber()) {
+            throw new IllegalArgumentException("rewriteThreshold must be a number");
+        }
+        return base.withOverrides(new RagExecutionSettings.Overrides(
+                retrievalTopK,
+                rerankTopN,
+                integerSetting(runtime, MEMORY_TOP_N),
+                integerSetting(runtime, REWRITE_CANDIDATE_COUNT),
+                threshold == null ? null : threshold.doubleValue()
+        ));
+    }
+
+    private Integer integerSetting(JsonNode runtime, Parameter parameter, String... legacyKeys) {
+        JsonNode value = executionValue(runtime, parameter, legacyKeys);
+        if (value == null) {
+            return null;
+        }
+        if (!value.canConvertToInt() || !value.canConvertToExactIntegral()) {
+            throw new IllegalArgumentException(parameter.fieldName() + " must be an integer");
+        }
+        return value.intValue();
+    }
+
+    private JsonNode executionValue(JsonNode runtime, Parameter parameter, String... legacyKeys) {
+        if (runtime == null || !runtime.isObject()) {
+            return null;
+        }
+        JsonNode value = runtime.get(parameter.fieldName());
+        if (value == null || value.isNull()) {
+            value = runtime.get(parameter.key());
+        }
+        if (value != null && !value.isNull()) {
+            return value;
+        }
+        for (String key : legacyKeys) {
+            value = runtime.get(key);
+            if (value != null && !value.isNull()) {
+                return value;
+            }
+        }
+        return null;
     }
 
     private ChatReadinessDtos.ChatDomainReadinessResponse readinessForRuntimeOverride(
@@ -323,7 +390,8 @@ class EvalRuntimeConfigService {
 
     record RuntimeEvalContext(
             ChatConfigDtos.ChatRuntimeConfigResponse config,
-            ChatReadinessDtos.ChatDomainReadinessResponse readiness
+            ChatReadinessDtos.ChatDomainReadinessResponse readiness,
+            RagExecutionSettings settings
     ) {
     }
 

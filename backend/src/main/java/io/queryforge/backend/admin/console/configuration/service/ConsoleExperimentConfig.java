@@ -3,6 +3,7 @@ package io.queryforge.backend.admin.console.configuration.service;
 import io.queryforge.backend.admin.console.runtime.dto.AdminRuntimeOptionsDtos.RuntimeCatalog;
 import io.queryforge.backend.admin.console.runtime.service.AdminRuntimeOptionsService;
 import io.queryforge.backend.admin.console.runtime.service.ConsoleEnvironment;
+import io.queryforge.backend.rag.runtime.configuration.model.RagExecutionSettings;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.yaml.snakeyaml.Yaml;
@@ -30,8 +31,6 @@ public class ConsoleExperimentConfig {
     private static final String QUERY_LANGUAGE_EN = "en";
     private static final String DEFAULT_LLM_MODEL = "gemini-2.5-flash-lite";
     private static final String DEFAULT_LLM_FALLBACK_MODEL = "gemini-2.5-flash-lite";
-    private static final int DEFAULT_RAG_RETRIEVAL_TOP_K = 10;
-    private static final double DEFAULT_REWRITE_THRESHOLD = 0.05d;
     private static final int DEFAULT_REWRITE_MEMORY_CANDIDATE_POOL_N = 20;
 
     private final Yaml yaml = new Yaml();
@@ -54,12 +53,6 @@ public class ConsoleExperimentConfig {
             return;
         }
         config.put("llm_rewrite_model", rewriteLlmModel);
-    }
-
-    private Map<String, Object> relaxedShortUserRewriteAdoptionPolicy() {
-        RuntimeCatalog runtimeCatalog = runtimeOptionsService.loadRuntimeCatalog();
-        double rewriteDefault = runtimeOptionsService.runtimeDefaultDouble(runtimeCatalog, "rewrite_threshold", DEFAULT_REWRITE_THRESHOLD);
-        return relaxedShortUserRewriteAdoptionPolicy(rewriteDefault);
     }
 
     private Map<String, Object> relaxedShortUserRewriteAdoptionPolicy(double minImprovement) {
@@ -96,9 +89,7 @@ public class ConsoleExperimentConfig {
         return policy;
     }
 
-    private Map<String, Object> detailedIntentRewriteAdoptionPolicy() {
-        RuntimeCatalog runtimeCatalog = runtimeOptionsService.loadRuntimeCatalog();
-        double rewriteDefault = runtimeOptionsService.runtimeDefaultDouble(runtimeCatalog, "rewrite_threshold", DEFAULT_REWRITE_THRESHOLD);
+    private Map<String, Object> detailedIntentRewriteAdoptionPolicy(double rewriteDefault) {
         Map<String, Object> thresholds = new LinkedHashMap<>();
         thresholds.put("min_improvement", rewriteDefault);
         thresholds.put("preservation_floor", 0.62d);
@@ -132,16 +123,26 @@ public class ConsoleExperimentConfig {
         return policy;
     }
 
-    public Map<String, Object> rewriteAdoptionPolicyForProfile(String rewriteQueryProfile, double minImprovement) {
+    public Map<String, Object> rewriteAdoptionPolicyForProfile(
+            String rewriteQueryProfile, double minImprovement, double defaultThreshold
+    ) {
         if (REWRITE_QUERY_PROFILE_DETAILED_INTENT.equals(rewriteQueryProfile)) {
-            return detailedIntentRewriteAdoptionPolicy();
+            return detailedIntentRewriteAdoptionPolicy(defaultThreshold);
         }
         return relaxedShortUserRewriteAdoptionPolicy(minImprovement);
     }
 
     public Map<String, Object> baseExperimentConfig(String experimentKey, String methodCode) {
-        boolean englishOnly = isEnglishOnlyMethod(methodCode);
         RuntimeCatalog runtimeCatalog = runtimeOptionsService.loadRuntimeCatalog();
+        return baseExperimentConfig(
+                experimentKey, methodCode, runtimeCatalog, runtimeOptionsService.defaultRagExecutionSettings(runtimeCatalog)
+        );
+    }
+
+    public Map<String, Object> baseExperimentConfig(
+            String experimentKey, String methodCode, RuntimeCatalog runtimeCatalog, RagExecutionSettings settings
+    ) {
+        boolean englishOnly = isEnglishOnlyMethod(methodCode);
         Map<String, Object> config = new LinkedHashMap<>();
         config.put("experiment_key", experimentKey);
         config.put("category", "admin");
@@ -167,22 +168,22 @@ public class ConsoleExperimentConfig {
         config.put("llm_tpm", 1_000_000);
         config.put("llm_rpd", 10_000);
         config.put("llm_batch_size", 20);
-        config.put("memory_top_n", 5);
-        config.put("rewrite_candidate_count", 2);
-        config.put("rewrite_threshold", runtimeOptionsService.runtimeDefaultDouble(runtimeCatalog, "rewrite_threshold", DEFAULT_REWRITE_THRESHOLD));
+        config.put("memory_top_n", settings.memoryTopN());
+        config.put("rewrite_candidate_count", settings.rewriteCandidateCount());
+        config.put("rewrite_threshold", settings.rewriteThreshold());
         config.put(
                 "rewrite_memory_candidate_pool_n",
                 runtimeOptionsService.runtimeDefaultInt(runtimeCatalog, "rewrite_memory_candidate_pool_n", DEFAULT_REWRITE_MEMORY_CANDIDATE_POOL_N)
         );
         config.put("rewrite_failure_policy", REWRITE_FAILURE_POLICY_FAIL_RUN);
         config.put("rewrite_query_profile", REWRITE_QUERY_PROFILE_COMPACT_ANCHOR);
-        config.put("rewrite_adoption_policy", relaxedShortUserRewriteAdoptionPolicy());
+        config.put("rewrite_adoption_policy", relaxedShortUserRewriteAdoptionPolicy(settings.rewriteThreshold()));
         config.put("memory_lookup_intent_preserving_enabled", true);
         config.put("memory_lookup_hint_token_max", 3);
         config.put("memory_lookup_retrieval_strategy", "max_score");
         config.put("rewrite_memory_hint_retrieval_enabled", false);
-        config.put("retrieval_top_k", runtimeOptionsService.runtimeDefaultInt(runtimeCatalog, "retrieval_top_k", DEFAULT_RAG_RETRIEVAL_TOP_K));
-        config.put("rerank_top_n", runtimeOptionsService.runtimeDefaultInt(runtimeCatalog, "rerank_top_n", 5));
+        config.put("retrieval_top_k", settings.retrievalTopK());
+        config.put("rerank_top_n", settings.rerankTopN());
         config.put("use_session_context", false);
         config.put("avg_queries_per_chunk", 2.0);
         config.put("max_total_queries", 40);

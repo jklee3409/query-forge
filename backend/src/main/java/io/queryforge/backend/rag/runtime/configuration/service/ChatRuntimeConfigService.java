@@ -9,6 +9,7 @@ import io.queryforge.backend.admin.console.embedding.service.ChunkEmbeddingAdmin
 import io.queryforge.backend.admin.console.runtime.dto.AdminRuntimeOptionsDtos;
 import io.queryforge.backend.admin.console.runtime.service.AdminRuntimeOptionsService;
 import io.queryforge.backend.rag.runtime.configuration.dto.ChatConfigDtos;
+import io.queryforge.backend.rag.runtime.configuration.model.RagExecutionSettings;
 import io.queryforge.backend.rag.runtime.configuration.repository.ChatRuntimeConfigRepository;
 import io.queryforge.backend.rag.runtime.snapshot.dto.GatingSnapshotDtos;
 import io.queryforge.backend.rag.runtime.snapshot.repository.GatingSnapshotRepository;
@@ -60,7 +61,8 @@ public class ChatRuntimeConfigService {
         if (domainId == null) {
             throw new IllegalArgumentException("domainId is required");
         }
-        return repository.findConfig(domainId)
+        return repository.findConfig(domainId,
+                        () -> runtimeOptionsService.defaultRagExecutionSettings(runtimeOptionsService.loadRuntimeCatalog()))
                 .orElseThrow(() -> new IllegalArgumentException("active domain not found: " + domainId));
     }
 
@@ -181,22 +183,8 @@ public class ChatRuntimeConfigService {
         boolean useSessionContext = request.useSessionContext() == null
                 ? current.useSessionContext()
                 : request.useSessionContext();
-        int retrievalTopK = bounded(request.retrievalTopK(), current.retrievalTopK(), 1, 100, "retrievalTopK");
-        int rerankTopN = bounded(request.rerankTopN(), current.rerankTopN(), 1, 100, "rerankTopN");
-        int memoryTopN = bounded(request.memoryTopN(), current.memoryTopN(), 1, 50, "memoryTopN");
-        int rewriteCandidateCount = bounded(
-                request.rewriteCandidateCount(),
-                current.rewriteCandidateCount(),
-                1,
-                2,
-                "rewriteCandidateCount"
-        );
-        double rewriteThreshold = boundedDouble(
-                request.rewriteThreshold(),
-                current.rewriteThreshold(),
-                0.0,
-                1.0,
-                "rewriteThreshold"
+        RagExecutionSettings settings = runtimeOptionsService.resolveRagExecutionSettings(
+                runtimeOptions.defaultParameterRanges(), current.executionSettings(), request.executionOverrides()
         );
         List<UUID> sourceGatingBatchIds = requestedSourceGatingBatchIds(request, current);
         UUID sourceGatingBatchId = sourceGatingBatchIds.isEmpty() ? null : sourceGatingBatchIds.getFirst();
@@ -251,11 +239,11 @@ public class ChatRuntimeConfigService {
                 retrieverDenseWeight,
                 retrieverBm25Weight,
                 retrieverTechnicalWeight,
-                retrievalTopK,
-                rerankTopN,
-                memoryTopN,
-                rewriteCandidateCount,
-                rewriteThreshold,
+                settings.retrievalTopK(),
+                settings.rerankTopN(),
+                settings.memoryTopN(),
+                settings.rewriteCandidateCount(),
+                settings.rewriteThreshold(),
                 rewriteFailurePolicy,
                 metadata,
                 blankToNull(request.updatedBy())

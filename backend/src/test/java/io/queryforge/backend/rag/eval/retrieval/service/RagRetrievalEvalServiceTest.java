@@ -214,6 +214,8 @@ class RagRetrievalEvalServiceTest {
         assertThat(captor.getValue().originalQuery()).isEqualTo(QUERY);
         assertThat(captor.getValue().queryEmbeddingLiteral()).isEqualTo("embedding");
         assertThat(captor.getValue().domainId()).isEqualTo(DOMAIN_ID);
+        assertThat(captor.getValue().retrievalTopK()).isEqualTo(3);
+        assertThat(captor.getValue().rerankTopN()).isEqualTo(3);
         assertThat(response.selectedMode()).isEqualTo("raw_only");
         assertThat(response.retrievedChunkIds()).containsExactly("chunk-1", "chunk-2");
         assertThat(response.retrievedDocs()).extracting(RagRetrievalEvalDtos.RagRetrievalEvalDoc::rank)
@@ -223,6 +225,51 @@ class RagRetrievalEvalServiceTest {
         assertThat(response.persistPolicy()).isEqualTo(RagPersistPolicy.NONE);
         verify(ragRetrievalExecutionService, never()).executeSelectiveRewrite(any());
         verify(ragRetrievalExecutionService, never()).executeAnchorAwareRewrite(any());
+    }
+
+    @Test
+    void agenticExecutesWithRecordedRerankLimitAndRewriteSettingsWhenTopKIsPresent() {
+        givenRuntime();
+        givenMemoryCandidates(List.of());
+        when(agenticRetrievalService.execute(any())).thenReturn(agenticResult(List.of(doc("chunk", 0.91d))));
+        var experimentConfig = objectMapper.createObjectNode()
+                .put("retrieval_top_k", 12)
+                .put("rerank_top_n", 4)
+                .put("memory_top_n", 2)
+                .put("rewrite_candidate_count", 1)
+                .put("rewrite_threshold", 0.25d);
+
+        service.execute(new RagRetrievalEvalDtos.RagRetrievalEvalRequest(
+                DOMAIN_ID, QUERY, "agentic_multi_query", 12, null, null, null, null, null, experimentConfig
+        ));
+
+        var captor = ArgumentCaptor.forClass(AgenticExecutionDtos.AgenticExecutionRequest.class);
+        verify(agenticRetrievalService).execute(captor.capture());
+        var execution = captor.getValue();
+        assertThat(execution.retrievalTopK()).isEqualTo(12);
+        assertThat(execution.rerankTopN()).isEqualTo(4);
+        assertThat(execution.memoryTopN()).isEqualTo(2);
+        assertThat(execution.candidateCount()).isEqualTo(1);
+        assertThat(execution.threshold()).isEqualTo(0.25d);
+        assertThat(execution.persistPolicy()).isEqualTo(RagPersistPolicy.NONE);
+        verify(domainScopedRetrievalService).findMemoryCandidates(
+                eq(QUERY), eq("embedding"), eq(2), anyString(), eq(DOMAIN_ID),
+                anyList(), anyList(), anyList(), eq(retrievalRuntime)
+        );
+    }
+
+    @Test
+    void rejectsOutOfRangeExecutionSettingsBeforeRetrieval() {
+        when(chatRuntimeConfigService.getConfig(DOMAIN_ID)).thenReturn(config());
+        when(chatReadinessService.getReadiness(DOMAIN_ID)).thenReturn(readiness());
+        var experimentConfig = objectMapper.createObjectNode().put("rewrite_candidate_count", 3);
+
+        assertThatThrownBy(() -> service.execute(new RagRetrievalEvalDtos.RagRetrievalEvalRequest(
+                DOMAIN_ID, QUERY, "selective_rewrite", null, null, null, null, null, null, experimentConfig
+        )))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("rewriteCandidateCount must be between 1 and 2");
+        verify(ragRetrievalExecutionService, never()).executeSelectiveRewrite(any());
     }
 
     @Test
@@ -474,7 +521,7 @@ class RagRetrievalEvalServiceTest {
         ChatConfigDtos.ChatRuntimeConfigResponse config = config();
         when(chatRuntimeConfigService.getConfig(DOMAIN_ID)).thenReturn(config);
         when(chatReadinessService.getReadiness(DOMAIN_ID)).thenReturn(readiness());
-        when(domainScopedRetrievalService.retrievalRuntime(config)).thenReturn(retrievalRuntime);
+        when(domainScopedRetrievalService.retrievalRuntime(any())).thenReturn(retrievalRuntime);
     }
 
     private void givenMemoryCandidates(List<MemoryCandidate> memories) {

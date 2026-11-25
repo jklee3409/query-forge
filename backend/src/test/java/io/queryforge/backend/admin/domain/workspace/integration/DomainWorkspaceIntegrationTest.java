@@ -24,6 +24,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -52,6 +53,52 @@ class DomainWorkspaceIntegrationTest {
 
     @Autowired
     private ObjectMapper objectMapper;
+
+    @Test
+    void chatUsesCatalogDefaultsUntilDomainSettingsAreSaved() throws Exception {
+        var domain = mockMvc.perform(post("/api/admin/domains")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "domainKey": "chat-execution-settings-test",
+                                  "displayName": "Chat Settings Contract",
+                                  "primaryLanguage": "ko",
+                                  "sourceLanguage": "en"
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andReturn();
+        String domainId = objectMapper.readTree(domain.getResponse().getContentAsString())
+                .at("/domain/domainId").asText();
+        jdbcTemplate.update("""
+                INSERT INTO tech_doc_domain_method_policy (domain_id, method_code, default_query_language)
+                VALUES (?, 'A', 'ko')
+                """, UUID.fromString(domainId));
+        var catalog = mockMvc.perform(get("/api/admin/console/runtime/options"))
+                .andExpect(status().isOk())
+                .andReturn();
+        int defaultTopK = objectMapper.readTree(catalog.getResponse().getContentAsString())
+                .at("/defaultParameterRanges/retrieval_top_k/defaultValue").asInt();
+
+        mockMvc.perform(get("/api/chat/config").param("domain_id", domainId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.retrievalTopK").value(defaultTopK))
+                .andExpect(jsonPath("$.executionSettings").doesNotExist());
+
+        mockMvc.perform(put("/api/admin/chat/config")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"domainId":"%s", "mode":"raw_only", "retrievalTopK":12, "rewriteThreshold":0}
+                                """.formatted(domainId)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.retrievalTopK").value(12))
+                .andExpect(jsonPath("$.rewriteThreshold").value(0.0));
+
+        mockMvc.perform(get("/api/chat/config").param("domain_id", domainId))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.retrievalTopK").value(12))
+                .andExpect(jsonPath("$.rewriteThreshold").value(0.0));
+    }
 
     @Test
     void workspaceRoutesReturnIdentityMembershipAndPolicyAfterMutations() throws Exception {

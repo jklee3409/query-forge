@@ -20,6 +20,7 @@ import io.queryforge.backend.rag.retrieval.routing.dto.QueryRouteDecision;
 import io.queryforge.backend.rag.retrieval.routing.model.QueryStrategy;
 import io.queryforge.backend.rag.retrieval.routing.service.QueryStrategyRouter;
 import io.queryforge.backend.rag.runtime.configuration.dto.ChatConfigDtos;
+import io.queryforge.backend.rag.runtime.configuration.model.RagExecutionSettings;
 import io.queryforge.backend.rag.runtime.configuration.service.ChatRuntimeConfigService;
 import io.queryforge.backend.rag.runtime.readiness.dto.ChatReadinessDtos;
 import io.queryforge.backend.rag.runtime.readiness.service.ChatReadinessService;
@@ -98,11 +99,12 @@ public class RagService {
         if (!routeDecision.routerEnabled() && !"raw_only".equals(mode) && !readiness.readyForRewrite()) {
             throw new IllegalArgumentException(String.join("; ", readiness.blockingReasons()));
         }
-        int retrievalTopK = normalizedPositive(config.retrievalTopK(), 10);
-        int rerankTopN = normalizedPositive(config.rerankTopN(), 5);
-        int memoryTopN = normalizedPositive(config.memoryTopN(), 5);
-        int candidateCount = Math.min(normalizedPositive(config.rewriteCandidateCount(), 2), 2);
-        double threshold = config.rewriteThreshold();
+        RagExecutionSettings settings = config.executionSettings();
+        int retrievalTopK = settings.retrievalTopK();
+        int rerankTopN = settings.rerankTopN();
+        int memoryTopN = settings.memoryTopN();
+        int candidateCount = settings.rewriteCandidateCount();
+        double threshold = settings.rewriteThreshold();
         String gatingPreset = normalizedPreset(config.gatingPreset());
         boolean useSessionContext = config.useSessionContext() || "selective_rewrite_with_session".equals(mode);
         JsonNode sessionContextSnapshot = useSessionContext ? responses.nullSafeJson(request.sessionContext()) : objectMapper.createObjectNode();
@@ -909,13 +911,6 @@ public class RagService {
         }
         String normalized = profile.trim().toLowerCase(Locale.ROOT);
         return "detailed_intent".equals(normalized) ? normalized : "compact_anchor";
-    }
-
-    private int normalizedPositive(Integer value, int fallback) {
-        if (value == null || value <= 0) {
-            return fallback;
-        }
-        return value;
     }
 
     private String normalizedText(String value) {

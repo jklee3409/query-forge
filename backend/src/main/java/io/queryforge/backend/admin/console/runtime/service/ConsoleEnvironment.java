@@ -27,7 +27,7 @@ public class ConsoleEnvironment {
     }
 
     private String readFromDotEnvFile(String key) {
-        Path envPath = resolveRepoRoot().resolve(".env").normalize();
+        Path envPath = findProjectRoot("pipeline/cli.py").resolve(".env").normalize();
         if (!Files.exists(envPath)) {
             return null;
         }
@@ -59,14 +59,26 @@ public class ConsoleEnvironment {
     }
 
     public Path resolveRepoRoot() {
+        Path root = findProjectRoot("pipeline/cli.py");
+        if (!Files.exists(root.resolve("pipeline/cli.py"))) {
+            throw new IllegalStateException("failed to resolve repository root for admin console");
+        }
+        return root;
+    }
+
+    public Path resolveProjectFile(String relativePath) {
+        return findProjectRoot(relativePath).resolve(relativePath).normalize();
+    }
+
+    private Path findProjectRoot(String marker) {
         Path configured = Path.of(pipelineProperties.repoRoot()).toAbsolutePath().normalize();
-        if (Files.exists(configured.resolve("pipeline/cli.py"))) {
+        if (Files.exists(configured.resolve(marker))) {
             return configured;
         }
         Path parent = configured.getParent();
-        if (parent != null && Files.exists(parent.resolve("pipeline/cli.py"))) {
+        if (parent != null && Files.exists(parent.resolve(marker))) {
             return parent;
         }
-        throw new IllegalStateException("failed to resolve repository root for admin console");
+        return configured;
     }
 }

@@ -16,6 +16,7 @@ import io.queryforge.backend.admin.console.runtime.dto.AdminRuntimeOptionsDtos.R
 import io.queryforge.backend.admin.console.runtime.service.AdminRetrieverConfiguration;
 import io.queryforge.backend.admin.console.runtime.service.AdminRuntimeOptionsService;
 import io.queryforge.backend.admin.console.scope.service.ConsoleScopeService;
+import io.queryforge.backend.rag.runtime.configuration.model.RagExecutionSettings;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Propagation;
@@ -71,8 +72,6 @@ public class RagTestService {
     private static final String RETRIEVAL_BACKEND_DB_ANN = "db_ann";
     private static final String RETRIEVER_MODE_BM25_ONLY = "bm25_only";
     private static final String RETRIEVER_MODE_HYBRID = "hybrid";
-    private static final int DEFAULT_RAG_RETRIEVAL_TOP_K = 10;
-    private static final double DEFAULT_REWRITE_THRESHOLD = 0.05d;
     private static final String VECTOR_STORE_POSTGRESQL_PGVECTOR = "postgresql-pgvector";
     private static final int MAX_RAG_RUN_LABEL_LENGTH = 120;
     private static final ZoneId KOREA_ZONE_ID = ZoneId.of("Asia/Seoul");
@@ -178,23 +177,17 @@ public class RagTestService {
         boolean rewriteAnchorInjectionEnabled = Boolean.TRUE.equals(request.rewriteAnchorInjectionEnabled());
         boolean multiSourceAnchorExpansionEnabled = Boolean.TRUE.equals(request.multiSourceAnchorExpansionEnabled());
         RuntimeCatalog runtimeCatalog = runtimeOptionsService.loadRuntimeCatalog();
-        int retrievalTopK = request.retrievalTopK() != null && request.retrievalTopK() > 0
-                ? request.retrievalTopK()
-                : runtimeOptionsService.runtimeDefaultInt(runtimeCatalog, "retrieval_top_k", DEFAULT_RAG_RETRIEVAL_TOP_K);
-        int rerankTopN = request.rerankTopN() != null && request.rerankTopN() > 0
-                ? request.rerankTopN()
-                : runtimeOptionsService.runtimeDefaultInt(runtimeCatalog, "rerank_top_n", 5);
-        int memoryTopN = boundedPositiveInt(
-                request.memoryTopN(),
-                runtimeOptionsService.runtimeDefaultInt(runtimeCatalog, "memory_top_n", 5),
-                1,
-                50
-        );
-        int rewriteCandidateCount = boundedPositiveInt(
-                request.rewriteCandidateCount(),
-                runtimeOptionsService.runtimeDefaultInt(runtimeCatalog, "rewrite_candidate_count", 2),
-                1,
-                2
+        RagExecutionSettings defaults = runtimeOptionsService.defaultRagExecutionSettings(runtimeCatalog);
+        RagExecutionSettings settings = runtimeOptionsService.resolveRagExecutionSettings(
+                runtimeCatalog.defaultParameterRanges(),
+                defaults,
+                new RagExecutionSettings.Overrides(
+                        request.retrievalTopK(),
+                        request.rerankTopN(),
+                        request.memoryTopN(),
+                        request.rewriteCandidateCount(),
+                        request.threshold()
+                )
         );
         int agenticMaxSubqueries = boundedPositiveInt(
                 request.agenticMaxSubqueries(),
@@ -223,9 +216,6 @@ public class RagTestService {
                 request.runName(),
                 retrievalBackend + ":" + String.valueOf(retrieverConfig.get("retriever_mode"))
         );
-        double threshold = request.threshold() != null
-                ? request.threshold()
-                : runtimeOptionsService.runtimeDefaultDouble(runtimeCatalog, "rewrite_threshold", DEFAULT_REWRITE_THRESHOLD);
         String rewriteFailurePolicy = normalizeRewriteFailurePolicy(request.rewriteFailurePolicy());
         runtimeOptionsService.validateRewriteFailurePolicySelection(rewriteFailurePolicy, runtimeCatalog);
         String requestedRewriteQueryProfile = normalizeRewriteQueryProfile(request.rewriteQueryProfile(), runtimeCatalog);
@@ -359,7 +349,9 @@ public class RagTestService {
         String experimentName = "admin_eval_" + UUID.randomUUID().toString().replace("-", "").substring(0, 12);
         Map<String, Object> config = experimentConfig.baseExperimentConfig(
                 experimentName,
-                syntheticFreeBaseline ? SYNTHETIC_FREE_BASELINE_METHOD : methodCodes.getFirst()
+                syntheticFreeBaseline ? SYNTHETIC_FREE_BASELINE_METHOD : methodCodes.getFirst(),
+                runtimeCatalog,
+                settings
         );
         CanonicalAnchorVersionMetadata.putDefaults(config);
         experimentConfig.applyLlmModelOverrides(config, request.llmModel());
@@ -392,7 +384,6 @@ public class RagTestService {
         config.put("agentic_rrf_k", agenticRrfK);
         config.put("agenticRrfK", agenticRrfK);
         config.put("rrfK", agenticRrfK);
-        config.put("rewrite_threshold", threshold);
         config.put("rewrite_query_profile", rewriteQueryProfile);
         config.put("rewrite_anchor_injection_enabled", rewriteAnchorInjectionEnabled);
         // memory_lookup_* is retained only for explicit memory_only_* ablation modes.
@@ -411,12 +402,10 @@ public class RagTestService {
         config.put("multi_source_anchor_max_total", 8);
         config.put("multi_source_anchor_max_per_seed", 2);
         config.put("rewrite_failure_policy", rewriteFailurePolicy);
-        config.put("rewrite_adoption_policy", experimentConfig.rewriteAdoptionPolicyForProfile(rewriteQueryProfile, threshold));
+        config.put("rewrite_adoption_policy", experimentConfig.rewriteAdoptionPolicyForProfile(
+                rewriteQueryProfile, settings.rewriteThreshold(), defaults.rewriteThreshold()
+        ));
         config.put("rewrite_prompt_profile", resolveRewritePromptProfile(evalQueryLanguage));
-        config.put("retrieval_top_k", retrievalTopK);
-        config.put("rerank_top_n", rerankTopN);
-        config.put("memory_top_n", memoryTopN);
-        config.put("rewrite_candidate_count", rewriteCandidateCount);
         retrieverConfiguration.attachRetrieverConfig(config, retrieverConfig);
         config.put("retrieval_backend", retrievalBackend);
         config.put("chunk_embedding_model", retrievalEmbeddingModel);
@@ -524,9 +513,9 @@ public class RagTestService {
                 rewriteAnchorInjectionEnabled,
                 multiSourceAnchorExpansionEnabled,
                 request.topK(),
-                threshold,
-                retrievalTopK,
-                rerankTopN,
+                settings.rewriteThreshold(),
+                settings.retrievalTopK(),
+                settings.rerankTopN(),
                 experimentName,
                 defaultCreatedBy(request.createdBy())
         );
@@ -553,9 +542,9 @@ public class RagTestService {
                 RETRIEVAL_BACKEND_DB_ANN.equals(retrievalBackend) ? VECTOR_STORE_POSTGRESQL_PGVECTOR : null
         );
         initialRetrievalConfig.put("fallback_used", false);
-        initialRetrievalConfig.put("retrieval_top_k", retrievalTopK);
-        initialRetrievalConfig.put("rerank_top_n", rerankTopN);
-        initialRetrievalConfig.put("memory_top_n", memoryTopN);
+        initialRetrievalConfig.put("retrieval_top_k", settings.retrievalTopK());
+        initialRetrievalConfig.put("rerank_top_n", settings.rerankTopN());
+        initialRetrievalConfig.put("memory_top_n", settings.memoryTopN());
         initialRetrievalConfig.put("retrieval_modes", config.get("retrieval_modes"));
         initialRetrievalConfig.put("retrieval_eval_backend", "java");
         initialRetrievalConfig.put("router_enabled", routerEnabled);
@@ -570,8 +559,8 @@ public class RagTestService {
         initialRewriteConfig.put("rewrite_enabled", rewriteEnabled);
         initialRewriteConfig.put("selective_rewrite", selectiveRewrite);
         initialRewriteConfig.put("use_session_context", useSessionContext);
-        initialRewriteConfig.put("rewrite_threshold", threshold);
-        initialRewriteConfig.put("rewrite_candidate_count", rewriteCandidateCount);
+        initialRewriteConfig.put("rewrite_threshold", settings.rewriteThreshold());
+        initialRewriteConfig.put("rewrite_candidate_count", settings.rewriteCandidateCount());
         initialRewriteConfig.put("rewrite_query_profile", rewriteQueryProfile);
         initialRewriteConfig.put("llm_rewrite_model", config.get("llm_rewrite_model"));
         initialRewriteConfig.put("rewrite_anchor_injection_enabled", rewriteAnchorInjectionEnabled);

@@ -22,6 +22,7 @@ import io.queryforge.backend.rag.retrieval.routing.dto.QueryRouteContext;
 import io.queryforge.backend.rag.retrieval.routing.dto.QueryRouteDecision;
 import io.queryforge.backend.rag.retrieval.routing.service.QueryStrategyRouter;
 import io.queryforge.backend.rag.runtime.configuration.dto.ChatConfigDtos;
+import io.queryforge.backend.rag.runtime.configuration.model.RagExecutionSettings;
 import io.queryforge.backend.rag.runtime.configuration.service.ChatRuntimeConfigService;
 import io.queryforge.backend.rag.runtime.readiness.dto.ChatReadinessDtos;
 import io.queryforge.backend.rag.runtime.readiness.service.ChatReadinessService;
@@ -45,10 +46,6 @@ import static io.queryforge.backend.rag.eval.retrieval.service.EvalRuntimeConfig
 @RequiredArgsConstructor
 public class RagRetrievalEvalService {
 
-    private static final int DEFAULT_RETRIEVAL_TOP_K = 10;
-    private static final int DEFAULT_RERANK_TOP_N = 5;
-    private static final int DEFAULT_MEMORY_TOP_N = 5;
-    private static final int DEFAULT_CANDIDATE_COUNT = 2;
     private static final int CONTENT_PREVIEW_MAX_LENGTH = 240;
     private static final Pattern TOKEN_PATTERN = Pattern.compile("[A-Za-z0-9_./:$#-]+|\\p{InHangulSyllables}+");
     private static final Set<String> SUPPORTED_FORCED_MODES = Set.of(
@@ -96,10 +93,7 @@ public class RagRetrievalEvalService {
 
         RetrievalDtos.RetrievalRuntime retrievalRuntime =
                 domainScopedRetrievalService.retrievalRuntime(config);
-        int retrievalTopK = normalizedPositive(request.topK(), normalizedPositive(config.retrievalTopK(), DEFAULT_RETRIEVAL_TOP_K));
-        int rerankTopN = request.topK() == null
-                ? normalizedPositive(config.rerankTopN(), DEFAULT_RERANK_TOP_N)
-                : retrievalTopK;
+        RagExecutionSettings settings = runtimeContext.settings();
 
         return switch (request.forcedMode()) {
             case "raw_only" -> executeRawOnly(
@@ -107,8 +101,7 @@ public class RagRetrievalEvalService {
                     query,
                     config,
                     retrievalRuntime,
-                    retrievalTopK,
-                    rerankTopN,
+                    settings,
                     started,
                     null
             );
@@ -117,8 +110,7 @@ public class RagRetrievalEvalService {
                     query,
                     config,
                     retrievalRuntime,
-                    retrievalTopK,
-                    rerankTopN,
+                    settings,
                     false,
                     "selective_rewrite",
                     started,
@@ -129,8 +121,7 @@ public class RagRetrievalEvalService {
                     query,
                     config,
                     retrievalRuntime,
-                    retrievalTopK,
-                    rerankTopN,
+                    settings,
                     true,
                     "anchor_aware_rewrite",
                     started,
@@ -141,8 +132,7 @@ public class RagRetrievalEvalService {
                     query,
                     config,
                     readiness,
-                    retrievalTopK,
-                    rerankTopN,
+                    settings,
                     started,
                     null,
                     null
@@ -153,8 +143,7 @@ public class RagRetrievalEvalService {
                     config,
                     readiness,
                     retrievalRuntime,
-                    retrievalTopK,
-                    rerankTopN,
+                    settings,
                     started
             );
             default -> throw evalError(
@@ -170,14 +159,14 @@ public class RagRetrievalEvalService {
             ChatConfigDtos.ChatRuntimeConfigResponse config,
             ChatReadinessDtos.ChatDomainReadinessResponse readiness,
             RetrievalDtos.RetrievalRuntime retrievalRuntime,
-            int retrievalTopK,
-            int rerankTopN,
+            RagExecutionSettings settings,
             long started
     ) {
         List<MemoryCandidate> memoryCandidates = findMemoryCandidates(
                 query,
                 config,
-                retrievalRuntime
+                retrievalRuntime,
+                settings.memoryTopN()
         );
         QueryRouteDecision routeDecision = queryStrategyRouter.route(routeContext(
                 query,
@@ -197,8 +186,7 @@ public class RagRetrievalEvalService {
                     query,
                     config,
                     retrievalRuntime,
-                    retrievalTopK,
-                    rerankTopN,
+                    settings,
                     started,
                     routed
             );
@@ -207,8 +195,7 @@ public class RagRetrievalEvalService {
                     query,
                     config,
                     retrievalRuntime,
-                    retrievalTopK,
-                    rerankTopN,
+                    settings,
                     false,
                     "selective_rewrite",
                     started,
@@ -220,8 +207,7 @@ public class RagRetrievalEvalService {
                     query,
                     config,
                     retrievalRuntime,
-                    retrievalTopK,
-                    rerankTopN,
+                    settings,
                     true,
                     "anchor_aware_rewrite",
                     started,
@@ -233,8 +219,7 @@ public class RagRetrievalEvalService {
                     query,
                     config,
                     readiness,
-                    retrievalTopK,
-                    rerankTopN,
+                    settings,
                     started,
                     routed,
                     memoryCandidates
@@ -247,8 +232,7 @@ public class RagRetrievalEvalService {
             String query,
             ChatConfigDtos.ChatRuntimeConfigResponse config,
             RetrievalDtos.RetrievalRuntime retrievalRuntime,
-            int retrievalTopK,
-            int rerankTopN,
+            RagExecutionSettings settings,
             long started,
             QueryRouteDecision routeDecision
     ) {
@@ -257,8 +241,8 @@ public class RagRetrievalEvalService {
                 ragRetrievalExecutionService.executeRawOnly(new RetrievalExecutionDtos.RawOnlyExecutionRequest(
                         query,
                         embeddingLiteral,
-                        retrievalTopK,
-                        rerankTopN,
+                        settings.retrievalTopK(),
+                        settings.rerankTopN(),
                         config.domainId(),
                         retrievalRuntime
                 ));
@@ -282,8 +266,7 @@ public class RagRetrievalEvalService {
             String query,
             ChatConfigDtos.ChatRuntimeConfigResponse config,
             RetrievalDtos.RetrievalRuntime retrievalRuntime,
-            int retrievalTopK,
-            int rerankTopN,
+            RagExecutionSettings settings,
             boolean anchorAware,
             String selectedMode,
             long started,
@@ -294,13 +277,12 @@ public class RagRetrievalEvalService {
                 query,
                 config,
                 retrievalRuntime,
-                retrievalTopK,
-                rerankTopN,
+                settings,
                 anchorAware,
                 selectedMode,
                 started,
                 routeDecision,
-                findMemoryCandidates(query, config, retrievalRuntime)
+                findMemoryCandidates(query, config, retrievalRuntime, settings.memoryTopN())
         );
     }
 
@@ -309,8 +291,7 @@ public class RagRetrievalEvalService {
             String query,
             ChatConfigDtos.ChatRuntimeConfigResponse config,
             RetrievalDtos.RetrievalRuntime retrievalRuntime,
-            int retrievalTopK,
-            int rerankTopN,
+            RagExecutionSettings settings,
             boolean anchorAware,
             String selectedMode,
             long started,
@@ -318,10 +299,6 @@ public class RagRetrievalEvalService {
             List<MemoryCandidate> memoryCandidates
     ) {
         double rawDenseScore = memoryCandidates.isEmpty() ? 0.0d : memoryCandidates.getFirst().similarity();
-        int candidateCount = Math.min(
-                normalizedPositive(config.rewriteCandidateCount(), DEFAULT_CANDIDATE_COUNT),
-                DEFAULT_CANDIDATE_COUNT
-        );
         String rewriteProfile = normalizedRewriteProfile(config.rewriteQueryProfile());
         RetrievalExecutionDtos.NonAgenticExecutionResult result = anchorAware
                 ? ragRetrievalExecutionService.executeAnchorAwareRewrite(
@@ -329,11 +306,11 @@ public class RagRetrievalEvalService {
                         query,
                         objectMapper.createObjectNode(),
                         memoryCandidates,
-                        candidateCount,
+                        settings.rewriteCandidateCount(),
                         rewriteProfile,
                         domainContext(config),
-                        retrievalTopK,
-                        rerankTopN,
+                        settings.retrievalTopK(),
+                        settings.rerankTopN(),
                         config.domainId(),
                         retrievalRuntime,
                         rawDenseScore
@@ -344,11 +321,11 @@ public class RagRetrievalEvalService {
                         query,
                         objectMapper.createObjectNode(),
                         memoryCandidates,
-                        candidateCount,
+                        settings.rewriteCandidateCount(),
                         rewriteProfile,
                         domainContext(config),
-                        retrievalTopK,
-                        rerankTopN,
+                        settings.retrievalTopK(),
+                        settings.rerankTopN(),
                         config.domainId(),
                         retrievalRuntime,
                         rawDenseScore
@@ -378,13 +355,14 @@ public class RagRetrievalEvalService {
     private List<MemoryCandidate> findMemoryCandidates(
             String query,
             ChatConfigDtos.ChatRuntimeConfigResponse config,
-            RetrievalDtos.RetrievalRuntime retrievalRuntime
+            RetrievalDtos.RetrievalRuntime retrievalRuntime,
+            int memoryTopN
     ) {
         String embeddingLiteral = domainScopedRetrievalService.embeddingLiteral(query, retrievalRuntime);
         return domainScopedRetrievalService.findMemoryCandidates(
                 query,
                 embeddingLiteral,
-                normalizedPositive(config.memoryTopN(), DEFAULT_MEMORY_TOP_N),
+                memoryTopN,
                 normalizedPreset(config.gatingPreset()),
                 config.domainId(),
                 nonNullList(config.generationStrategies()),
@@ -399,8 +377,7 @@ public class RagRetrievalEvalService {
             String query,
             ChatConfigDtos.ChatRuntimeConfigResponse config,
             ChatReadinessDtos.ChatDomainReadinessResponse readiness,
-            int retrievalTopK,
-            int rerankTopN,
+            RagExecutionSettings executionSettings,
             long started,
             QueryRouteDecision routeDecision,
             List<MemoryCandidate> plannerMemoryCandidates
@@ -408,7 +385,7 @@ public class RagRetrievalEvalService {
         RetrievalDtos.RetrievalRuntime retrievalRuntime =
                 domainScopedRetrievalService.retrievalRuntime(config);
         List<MemoryCandidate> memoryCandidates = plannerMemoryCandidates == null
-                ? findMemoryCandidates(query, config, retrievalRuntime)
+                ? findMemoryCandidates(query, config, retrievalRuntime, executionSettings.memoryTopN())
                 : plannerMemoryCandidates;
         AgenticEvalSettings settings = agenticSettings(config.metadata());
         AgenticExecutionDtos.AgenticExecutionResult result = agenticRetrievalService.execute(
@@ -422,17 +399,14 @@ public class RagRetrievalEvalService {
                         "agentic_multi_query",
                         normalizedRewriteProfile(config.rewriteQueryProfile()),
                         normalizedPreset(config.gatingPreset()),
-                        retrievalTopK,
-                        rerankTopN,
-                        normalizedPositive(config.memoryTopN(), DEFAULT_MEMORY_TOP_N),
-                        Math.min(
-                                normalizedPositive(config.rewriteCandidateCount(), DEFAULT_CANDIDATE_COUNT),
-                                DEFAULT_CANDIDATE_COUNT
-                        ),
-                        config.rewriteThreshold(),
+                        executionSettings.retrievalTopK(),
+                        executionSettings.rerankTopN(),
+                        executionSettings.memoryTopN(),
+                        executionSettings.rewriteCandidateCount(),
+                        executionSettings.rewriteThreshold(),
                         settings.maxSubqueries(),
                         settings.rrfK(),
-                        retrievalTopK,
+                        executionSettings.retrievalTopK(),
                         RagPersistPolicy.NONE
                 )
         );
@@ -447,7 +421,7 @@ public class RagRetrievalEvalService {
                 result.totalLatencyMs(),
                 started,
                 routeDecision,
-                agenticTrace(result, settings, retrievalTopK),
+                agenticTrace(result, settings, executionSettings.retrievalTopK()),
                 List.of(),
                 llmCallCount
         );
@@ -716,11 +690,6 @@ public class RagRetrievalEvalService {
 
     private String normalizedPreset(String preset) {
         return normalizeText(preset, "full_gating");
-    }
-
-    private int normalizedPositive(Integer value, int fallback) {
-        int normalized = value == null ? fallback : value;
-        return Math.max(1, normalized);
     }
 
     private int queryTokenCount(String query) {

@@ -3,6 +3,7 @@ package io.queryforge.backend.rag.runtime.configuration.repository;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.queryforge.backend.rag.runtime.configuration.dto.ChatConfigDtos;
+import io.queryforge.backend.rag.runtime.configuration.model.RagExecutionSettings;
 import lombok.RequiredArgsConstructor;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
@@ -18,6 +19,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.function.Supplier;
 
 @Repository
 @RequiredArgsConstructor
@@ -48,7 +50,10 @@ public class ChatRuntimeConfigRepository {
         ));
     }
 
-    public Optional<ChatConfigDtos.ChatRuntimeConfigResponse> findConfig(UUID domainId) {
+    public Optional<ChatConfigDtos.ChatRuntimeConfigResponse> findConfig(
+            UUID domainId,
+            Supplier<RagExecutionSettings> defaultSettings
+    ) {
         String sql = """
                 SELECT d.domain_id,
                        d.domain_key,
@@ -84,11 +89,11 @@ public class ChatRuntimeConfigRepository {
                        COALESCE(c.retriever_dense_weight, 0.60) AS retriever_dense_weight,
                        COALESCE(c.retriever_bm25_weight, 0.32) AS retriever_bm25_weight,
                        COALESCE(c.retriever_technical_weight, 0.08) AS retriever_technical_weight,
-                       COALESCE(c.retrieval_top_k, 10) AS retrieval_top_k,
-                       COALESCE(c.rerank_top_n, 5) AS rerank_top_n,
-                       COALESCE(c.memory_top_n, 5) AS memory_top_n,
-                       COALESCE(c.rewrite_candidate_count, 2) AS rewrite_candidate_count,
-                       COALESCE(c.rewrite_threshold, 0.05) AS rewrite_threshold,
+                       c.retrieval_top_k,
+                       c.rerank_top_n,
+                       c.memory_top_n,
+                       c.rewrite_candidate_count,
+                       c.rewrite_threshold,
                        COALESCE(c.rewrite_failure_policy, 'heuristic_fallback') AS rewrite_failure_policy,
                        COALESCE(c.metadata_json, '{}'::jsonb)::text AS metadata_json,
                        COALESCE(c.updated_at, d.updated_at) AS updated_at
@@ -103,7 +108,8 @@ public class ChatRuntimeConfigRepository {
                 WHERE d.domain_id = :domainId
                   AND d.status = 'active'
                 """;
-        return jdbcTemplate.query(sql, new MapSqlParameterSource("domainId", domainId), this::mapConfig)
+        return jdbcTemplate.query(sql, new MapSqlParameterSource("domainId", domainId),
+                        (rs, rowNum) -> mapConfig(rs, defaultSettings))
                 .stream()
                 .findFirst();
     }
@@ -366,7 +372,10 @@ public class ChatRuntimeConfigRepository {
         );
     }
 
-    private ChatConfigDtos.ChatRuntimeConfigResponse mapConfig(ResultSet rs, int rowNum) throws SQLException {
+    private ChatConfigDtos.ChatRuntimeConfigResponse mapConfig(
+            ResultSet rs,
+            Supplier<RagExecutionSettings> defaultSettings
+    ) throws SQLException {
         List<String> methods = readStringArray(rs.getString("generation_strategies"));
         UUID sourceGatingBatchId = readUuid(rs, "source_gating_batch_id");
         UUID sourceGatingRunId = readUuid(rs, "source_gating_run_id");
@@ -384,6 +393,16 @@ public class ChatRuntimeConfigRepository {
                 ? "ready"
                 : "select a completed gating snapshot before enabling rewrite-backed chat";
         JsonNode metadata = readJson(rs.getString("metadata_json"));
+        Integer retrievalTopK = rs.getObject("retrieval_top_k", Integer.class);
+        RagExecutionSettings settings = retrievalTopK == null
+                ? defaultSettings.get()
+                : new RagExecutionSettings(
+                        retrievalTopK,
+                        rs.getInt("rerank_top_n"),
+                        rs.getInt("memory_top_n"),
+                        rs.getInt("rewrite_candidate_count"),
+                        rs.getDouble("rewrite_threshold")
+                );
         return new ChatConfigDtos.ChatRuntimeConfigResponse(
                 readUuid(rs, "domain_id"),
                 rs.getString("domain_key"),
@@ -407,11 +426,11 @@ public class ChatRuntimeConfigRepository {
                 rs.getDouble("retriever_dense_weight"),
                 rs.getDouble("retriever_bm25_weight"),
                 rs.getDouble("retriever_technical_weight"),
-                rs.getInt("retrieval_top_k"),
-                rs.getInt("rerank_top_n"),
-                rs.getInt("memory_top_n"),
-                rs.getInt("rewrite_candidate_count"),
-                rs.getDouble("rewrite_threshold"),
+                settings.retrievalTopK(),
+                settings.rerankTopN(),
+                settings.memoryTopN(),
+                settings.rewriteCandidateCount(),
+                settings.rewriteThreshold(),
                 rs.getString("rewrite_failure_policy"),
                 routerEnabled(metadata),
                 metadata,

@@ -757,6 +757,24 @@ class AdminConsoleRagIntegrationTest {
     }
 
     @Test
+    void runRagRejectsOutOfRangeExecutionSettingsBeforeRegisteringRun() throws Exception {
+        UUID datasetId = insertEvalDataset("spring-rag-invalid-execution-settings");
+        mockMvc.perform(post("/api/admin/console/rag/tests/run")
+                        .contentType(APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "datasetId": "%s",
+                                  "methodCodes": ["A"],
+                                  "rewriteCandidateCount": 3
+                                }
+                                """.formatted(datasetId)))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.detail").value("rewriteCandidateCount must be between 1 and 2"));
+        assertThat(countRows("SELECT COUNT(*) FROM rag_test_run WHERE dataset_id = :datasetId", "datasetId", datasetId))
+                .isZero();
+    }
+
+    @Test
     void runRagRejectsCatalogOutOfAllowlistDenseModel() throws Exception {
         UUID datasetId = insertEvalDataset("spring-rag-invalid-dense-model");
         mockMvc.perform(post("/api/admin/console/rag/tests/run")

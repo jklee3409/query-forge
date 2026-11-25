@@ -1,6 +1,7 @@
 package io.queryforge.backend.rag.runtime.configuration.dto;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import io.queryforge.backend.rag.runtime.configuration.model.RagExecutionSettings;
 
 import java.time.Instant;
 import java.util.List;
@@ -55,6 +56,11 @@ public final class ChatConfigDtos {
             boolean readyForRewrite,
             String readinessMessage
     ) {
+        public RagExecutionSettings executionSettings() {
+            return new RagExecutionSettings(
+                    retrievalTopK, rerankTopN, memoryTopN, rewriteCandidateCount, rewriteThreshold
+            );
+        }
     }
 
     public record ChatRuntimeConfigRequest(
@@ -85,6 +91,11 @@ public final class ChatConfigDtos {
             JsonNode metadata,
             String updatedBy
     ) {
+        public RagExecutionSettings.Overrides executionOverrides() {
+            return new RagExecutionSettings.Overrides(
+                    retrievalTopK, rerankTopN, memoryTopN, rewriteCandidateCount, rewriteThreshold
+            );
+        }
     }
 
     public record ChatRuntimeConfigProvenanceRow(

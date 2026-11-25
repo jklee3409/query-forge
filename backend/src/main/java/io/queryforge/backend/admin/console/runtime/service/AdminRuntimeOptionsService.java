@@ -4,6 +4,8 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import io.queryforge.backend.admin.console.runtime.dto.AdminRuntimeOptionsDtos.RuntimeCatalog;
 import io.queryforge.backend.admin.console.runtime.dto.AdminRuntimeOptionsDtos.RuntimeOptionMetadata;
 import io.queryforge.backend.admin.console.runtime.dto.AdminRuntimeOptionsDtos;
+import io.queryforge.backend.rag.runtime.configuration.model.RagExecutionSettings;
+import io.queryforge.backend.rag.runtime.configuration.model.RagExecutionSettings.Parameter;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.yaml.snakeyaml.Yaml;
@@ -23,6 +25,11 @@ import static io.queryforge.backend.admin.console.configuration.support.ConsoleP
 import static io.queryforge.backend.admin.console.configuration.support.ConsoleParameters.blankToNull;
 import static io.queryforge.backend.admin.console.configuration.support.ConsoleParameters.clampRange;
 import static io.queryforge.backend.admin.console.configuration.support.ConsoleParameters.firstNonBlank;
+import static io.queryforge.backend.rag.runtime.configuration.model.RagExecutionSettings.MEMORY_TOP_N;
+import static io.queryforge.backend.rag.runtime.configuration.model.RagExecutionSettings.RERANK_TOP_N;
+import static io.queryforge.backend.rag.runtime.configuration.model.RagExecutionSettings.RETRIEVAL_TOP_K;
+import static io.queryforge.backend.rag.runtime.configuration.model.RagExecutionSettings.REWRITE_CANDIDATE_COUNT;
+import static io.queryforge.backend.rag.runtime.configuration.model.RagExecutionSettings.REWRITE_THRESHOLD;
 
 @Service
 @RequiredArgsConstructor
@@ -43,8 +50,6 @@ public class AdminRuntimeOptionsService {
     private static final String DEFAULT_LLM_FALLBACK_MODEL = "gemini-2.5-flash-lite";
     private static final String DEFAULT_DENSE_EMBEDDING_MODEL = "intfloat/multilingual-e5-small";
     private static final String MODEL_CATALOG_RELATIVE_PATH = "configs/app/model_catalog.yml";
-    private static final int DEFAULT_RAG_RETRIEVAL_TOP_K = 10;
-    private static final double DEFAULT_REWRITE_THRESHOLD = 0.05d;
     private static final int DEFAULT_REWRITE_MEMORY_CANDIDATE_POOL_N = 20;
     private static final int DEFAULT_RETRIEVER_CANDIDATE_POOL_K = 50;
     private static final double DEFAULT_RAG_HYBRID_DENSE_WEIGHT = 0.60d;
@@ -158,7 +163,7 @@ public class AdminRuntimeOptionsService {
 
     @SuppressWarnings("unchecked")
     public RuntimeCatalog loadRuntimeCatalog() {
-        Path catalogPath = environment.resolveRepoRoot().resolve(MODEL_CATALOG_RELATIVE_PATH).normalize();
+        Path catalogPath = environment.resolveProjectFile(MODEL_CATALOG_RELATIVE_PATH);
         if (!Files.exists(catalogPath)) {
             return buildFallbackRuntimeCatalog();
         }
@@ -331,6 +336,20 @@ public class AdminRuntimeOptionsService {
             }
             ranges.put(key, new AdminRuntimeOptionsDtos.RuntimeParameterRange(min, max, defaultValue));
         }
+        for (Parameter parameter : RagExecutionSettings.PARAMETERS) {
+            var range = ranges.get(parameter.key());
+            double min = range.min() == null ? parameter.min() : range.min();
+            double max = range.max() == null ? parameter.max() : range.max();
+            double defaultValue = range.defaultValue() == null ? parameter.defaultValue() : range.defaultValue();
+            parameter.validate(min);
+            parameter.validate(max);
+            parameter.validate(defaultValue, min, max);
+            if (parameter != REWRITE_THRESHOLD
+                    && (min != Math.rint(min) || max != Math.rint(max) || defaultValue != Math.rint(defaultValue))) {
+                throw new IllegalArgumentException(parameter.key() + " requires integer bounds and default");
+            }
+            ranges.put(parameter.key(), new AdminRuntimeOptionsDtos.RuntimeParameterRange(min, max, defaultValue));
+        }
         return Map.copyOf(ranges);
     }
 
@@ -428,13 +447,13 @@ public class AdminRuntimeOptionsService {
 
     private Map<String, AdminRuntimeOptionsDtos.RuntimeParameterRange> defaultRuntimeParameterRanges() {
         LinkedHashMap<String, AdminRuntimeOptionsDtos.RuntimeParameterRange> ranges = new LinkedHashMap<>();
-        ranges.put("retrieval_top_k", new AdminRuntimeOptionsDtos.RuntimeParameterRange(1.0d, 100.0d, (double) DEFAULT_RAG_RETRIEVAL_TOP_K));
-        ranges.put("rerank_top_n", new AdminRuntimeOptionsDtos.RuntimeParameterRange(1.0d, 100.0d, 5.0d));
-        ranges.put("memory_top_n", new AdminRuntimeOptionsDtos.RuntimeParameterRange(1.0d, 50.0d, 5.0d));
-        ranges.put("rewrite_candidate_count", new AdminRuntimeOptionsDtos.RuntimeParameterRange(1.0d, 2.0d, 2.0d));
+        for (Parameter parameter : RagExecutionSettings.PARAMETERS) {
+            ranges.put(parameter.key(), new AdminRuntimeOptionsDtos.RuntimeParameterRange(
+                    parameter.min(), parameter.max(), parameter.defaultValue()
+            ));
+        }
         ranges.put("agentic_max_subqueries", new AdminRuntimeOptionsDtos.RuntimeParameterRange(1.0d, 4.0d, 4.0d));
         ranges.put("agentic_rrf_k", new AdminRuntimeOptionsDtos.RuntimeParameterRange(1.0d, 500.0d, 60.0d));
-        ranges.put("rewrite_threshold", new AdminRuntimeOptionsDtos.RuntimeParameterRange(0.0d, 1.0d, DEFAULT_REWRITE_THRESHOLD));
         ranges.put("rewrite_memory_candidate_pool_n", new AdminRuntimeOptionsDtos.RuntimeParameterRange(1.0d, 100.0d, (double) DEFAULT_REWRITE_MEMORY_CANDIDATE_POOL_N));
         ranges.put("retriever_candidate_pool_k", new AdminRuntimeOptionsDtos.RuntimeParameterRange(1.0d, 500.0d, (double) DEFAULT_RETRIEVER_CANDIDATE_POOL_K));
         return Map.copyOf(ranges);
@@ -498,6 +517,44 @@ public class AdminRuntimeOptionsService {
 
     public int runtimeDefaultInt(RuntimeCatalog catalog, String key, int fallback) {
         return (int) Math.round(runtimeDefaultDouble(catalog, key, fallback));
+    }
+
+    public RagExecutionSettings defaultRagExecutionSettings(RuntimeCatalog catalog) {
+        return new RagExecutionSettings(
+                (int) executionDefault(catalog, RETRIEVAL_TOP_K),
+                (int) executionDefault(catalog, RERANK_TOP_N),
+                (int) executionDefault(catalog, MEMORY_TOP_N),
+                (int) executionDefault(catalog, REWRITE_CANDIDATE_COUNT),
+                executionDefault(catalog, REWRITE_THRESHOLD)
+        );
+    }
+
+    public RagExecutionSettings resolveRagExecutionSettings(
+            Map<String, AdminRuntimeOptionsDtos.RuntimeParameterRange> ranges,
+            RagExecutionSettings base,
+            RagExecutionSettings.Overrides overrides
+    ) {
+        validateExecutionOverride(ranges, RETRIEVAL_TOP_K, overrides.retrievalTopK());
+        validateExecutionOverride(ranges, RERANK_TOP_N, overrides.rerankTopN());
+        validateExecutionOverride(ranges, MEMORY_TOP_N, overrides.memoryTopN());
+        validateExecutionOverride(ranges, REWRITE_CANDIDATE_COUNT, overrides.rewriteCandidateCount());
+        validateExecutionOverride(ranges, REWRITE_THRESHOLD, overrides.rewriteThreshold());
+        return base.withOverrides(overrides);
+    }
+
+    private double executionDefault(RuntimeCatalog catalog, Parameter parameter) {
+        return runtimeDefaultDouble(catalog, parameter.key(), parameter.defaultValue());
+    }
+
+    private void validateExecutionOverride(
+            Map<String, AdminRuntimeOptionsDtos.RuntimeParameterRange> ranges,
+            Parameter parameter,
+            Number value
+    ) {
+        var range = ranges.get(parameter.key());
+        if (value != null && range != null) {
+            parameter.validate(value.doubleValue(), range.min(), range.max());
+        }
     }
 
     private AdminRuntimeOptionsDtos.RuntimeOption toRuntimeOptionDto(RuntimeOptionMetadata option) {
