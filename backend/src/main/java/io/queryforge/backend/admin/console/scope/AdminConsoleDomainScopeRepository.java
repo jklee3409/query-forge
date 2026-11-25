@@ -1,6 +1,5 @@
 package io.queryforge.backend.admin.console.scope;
 
-import io.queryforge.backend.admin.console.AdminConsoleRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
@@ -80,7 +79,7 @@ public class AdminConsoleDomainScopeRepository {
         return count != null && count > 0;
     }
 
-    public Optional<AdminConsoleRepository.DomainLanguageContext> findDomainLanguageContext(UUID domainId) {
+    public Optional<DomainLanguageContext> findDomainLanguageContext(UUID domainId) {
         if (domainId == null) {
             return Optional.empty();
         }
@@ -92,10 +91,10 @@ public class AdminConsoleDomainScopeRepository {
                 WHERE domain_id = :domainId
                 LIMIT 1
                 """;
-        List<AdminConsoleRepository.DomainLanguageContext> rows = jdbcTemplate.query(
+        List<DomainLanguageContext> rows = jdbcTemplate.query(
                 sql,
                 new MapSqlParameterSource("domainId", domainId),
-                (rs, rowNum) -> new AdminConsoleRepository.DomainLanguageContext(
+                (rs, rowNum) -> new DomainLanguageContext(
                         readUuid(rs, "domain_id"),
                         rs.getString("primary_language"),
                         rs.getString("source_language")
@@ -146,7 +145,7 @@ public class AdminConsoleDomainScopeRepository {
         return rows.stream().findFirst();
     }
 
-    public Optional<AdminConsoleRepository.SourceStrategyContext> findSourceStrategyContext(String sourceId) {
+    public Optional<SourceStrategyContext> findSourceStrategyContext(String sourceId) {
         String sql = """
                 SELECT s.source_id,
                        s.source_type,
@@ -165,10 +164,10 @@ public class AdminConsoleDomainScopeRepository {
                 WHERE s.source_id = :sourceId
                 LIMIT 1
                 """;
-        List<AdminConsoleRepository.SourceStrategyContext> rows = jdbcTemplate.query(
+        List<SourceStrategyContext> rows = jdbcTemplate.query(
                 sql,
                 new MapSqlParameterSource("sourceId", sourceId),
-                (rs, rowNum) -> new AdminConsoleRepository.SourceStrategyContext(
+                (rs, rowNum) -> new SourceStrategyContext(
                         rs.getString("source_id"),
                         rs.getString("source_type"),
                         rs.getString("product_name"),
@@ -180,7 +179,7 @@ public class AdminConsoleDomainScopeRepository {
         return rows.stream().findFirst();
     }
 
-    public Optional<AdminConsoleRepository.DatasetStrategyContext> findDatasetStrategyContext(UUID datasetId) {
+    public Optional<DatasetStrategyContext> findDatasetStrategyContext(UUID datasetId) {
         String sql = """
                 SELECT d.dataset_id,
                        d.dataset_key,
@@ -215,10 +214,10 @@ public class AdminConsoleDomainScopeRepository {
                 WHERE d.dataset_id = :datasetId
                 LIMIT 1
                 """;
-        List<AdminConsoleRepository.DatasetStrategyContext> rows = jdbcTemplate.query(
+        List<DatasetStrategyContext> rows = jdbcTemplate.query(
                 sql,
                 new MapSqlParameterSource("datasetId", datasetId),
-                (rs, rowNum) -> new AdminConsoleRepository.DatasetStrategyContext(
+                (rs, rowNum) -> new DatasetStrategyContext(
                         readUuid(rs, "dataset_id"),
                         rs.getString("dataset_key"),
                         rs.getString("metadata_strategy_profile"),
@@ -261,5 +260,34 @@ public class AdminConsoleDomainScopeRepository {
             return uuid;
         }
         return UUID.fromString(String.valueOf(value));
+    }
+
+    public record SourceStrategyContext(
+            String sourceId,
+            String sourceType,
+            String productName,
+            String sourceName,
+            boolean hasKoDocuments,
+            boolean hasEnDocuments
+    ) {
+    }
+
+    public record DatasetStrategyContext(
+            UUID datasetId,
+            String datasetKey,
+            String metadataStrategyProfile,
+            String metadataQueryLanguage,
+            boolean hasSpringSamples,
+            boolean hasPythonSamples,
+            boolean hasKoQueries,
+            boolean hasEnQueries
+    ) {
+    }
+
+    public record DomainLanguageContext(
+            UUID domainId,
+            String primaryLanguage,
+            String sourceLanguage
+    ) {
     }
 }

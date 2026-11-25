@@ -2,7 +2,6 @@ package io.queryforge.backend.admin.console.jobs;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import io.queryforge.backend.admin.console.AdminConsoleDtos;
 import lombok.RequiredArgsConstructor;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
@@ -121,7 +120,7 @@ public class LlmJobRepository {
         return jobItemId;
     }
 
-    public Optional<AdminConsoleDtos.LlmJobRow> findJob(UUID jobId) {
+    public Optional<LlmJobDtos.LlmJobRow> findJob(UUID jobId) {
         String sql = """
                 WITH target_job AS (
                     SELECT job_id,
@@ -276,7 +275,7 @@ public class LlmJobRepository {
                            END AS estimated_seconds_per_unit
                 ) rate ON TRUE
                 """;
-        List<AdminConsoleDtos.LlmJobRow> rows = jdbcTemplate.query(
+        List<LlmJobDtos.LlmJobRow> rows = jdbcTemplate.query(
                 sql,
                 new MapSqlParameterSource("jobId", jobId),
                 (rs, rowNum) -> mapJobRow(rs)
@@ -284,7 +283,7 @@ public class LlmJobRepository {
         return rows.stream().findFirst();
     }
 
-    public List<AdminConsoleDtos.LlmJobRow> findJobs(Integer limit) {
+    public List<LlmJobDtos.LlmJobRow> findJobs(Integer limit) {
         String sql = """
                 WITH limited_job AS (
                     SELECT job_id,
@@ -461,7 +460,7 @@ public class LlmJobRepository {
         );
     }
 
-    public List<AdminConsoleDtos.LlmJobItemRow> findJobItems(UUID jobId) {
+    public List<LlmJobDtos.LlmJobItemRow> findJobItems(UUID jobId) {
         String sql = """
                 SELECT job_item_id,
                        job_id,
@@ -484,7 +483,7 @@ public class LlmJobRepository {
         return jdbcTemplate.query(
                 sql,
                 new MapSqlParameterSource("jobId", jobId),
-                (rs, rowNum) -> new AdminConsoleDtos.LlmJobItemRow(
+                (rs, rowNum) -> new LlmJobDtos.LlmJobItemRow(
                         readUuid(rs, "job_item_id"),
                         readUuid(rs, "job_id"),
                         rs.getInt("item_order"),
@@ -956,8 +955,8 @@ public class LlmJobRepository {
         jdbcTemplate.update(sql, new MapSqlParameterSource("jobId", jobId));
     }
 
-    private AdminConsoleDtos.LlmJobRow mapJobRow(ResultSet rs) throws SQLException {
-        return new AdminConsoleDtos.LlmJobRow(
+    private LlmJobDtos.LlmJobRow mapJobRow(ResultSet rs) throws SQLException {
+        return new LlmJobDtos.LlmJobRow(
                 readUuid(rs, "job_id"),
                 rs.getString("job_type"),
                 rs.getString("job_status"),

@@ -1,4 +1,4 @@
-package io.queryforge.backend.admin.console;
+package io.queryforge.backend.admin.console.synthetic;
 
 import java.util.List;
 

@@ -3,10 +3,14 @@ package io.queryforge.backend.admin.console.jobs;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import io.queryforge.backend.admin.console.AdminConsoleDtos;
-import io.queryforge.backend.admin.console.AdminConsoleRepository;
+import io.queryforge.backend.admin.console.evaluation.AdminEvalDatasetRepository;
 import io.queryforge.backend.admin.console.evaluation.CanonicalAnchorVersionMetadata;
 import io.queryforge.backend.admin.console.evaluation.RagRewriteAnchorEvalService;
+import io.queryforge.backend.admin.console.evaluation.RagRewriteAnchorRepository;
+import io.queryforge.backend.admin.console.evaluation.RagTestDtos;
+import io.queryforge.backend.admin.console.evaluation.RagTestRunRepository;
+import io.queryforge.backend.admin.console.gating.GatingRepository;
+import io.queryforge.backend.admin.console.synthetic.SyntheticGenerationRepository;
 import io.queryforge.backend.admin.pipeline.AdminPipelineProperties;
 import io.queryforge.backend.rag.chat.RagDtos;
 import io.queryforge.backend.rag.experiment.ExperimentPipelineService;
@@ -56,8 +60,11 @@ public class LlmJobService {
             Pattern.CASE_INSENSITIVE
     );
 
-    private final LlmJobRepository llmJobRepository;
-    private final AdminConsoleRepository adminConsoleRepository;
+    private final LlmJobRepository llmJobRepository;    private final RagRewriteAnchorRepository anchorRepository;
+    private final AdminEvalDatasetRepository evalDatasetRepository;
+    private final RagTestRunRepository ragTestRunRepository;
+    private final GatingRepository gatingRepository;
+    private final SyntheticGenerationRepository generationRepository;
     private final ExperimentPipelineService experimentPipelineService;
     private final AdminPipelineProperties pipelineProperties;
     private final ObjectMapper objectMapper;
@@ -99,18 +106,18 @@ public class LlmJobService {
     }
 
     @Transactional(readOnly = true)
-    public List<AdminConsoleDtos.LlmJobRow> listJobs(Integer limit) {
+    public List<LlmJobDtos.LlmJobRow> listJobs(Integer limit) {
         return llmJobRepository.findJobs(limit);
     }
 
     @Transactional(readOnly = true)
-    public AdminConsoleDtos.LlmJobRow getJob(UUID jobId) {
+    public LlmJobDtos.LlmJobRow getJob(UUID jobId) {
         return llmJobRepository.findJob(jobId)
                 .orElseThrow(() -> new IllegalArgumentException("llm job not found: " + jobId));
     }
 
     @Transactional(readOnly = true)
-    public List<AdminConsoleDtos.LlmJobItemRow> listJobItems(UUID jobId) {
+    public List<LlmJobDtos.LlmJobItemRow> listJobItems(UUID jobId) {
         return llmJobRepository.findJobItems(jobId);
     }
 
@@ -298,11 +305,11 @@ public class LlmJobService {
                     break;
                 }
                 queuedIds.remove(jobId);
-                Optional<AdminConsoleDtos.LlmJobRow> jobOptional = llmJobRepository.findJob(jobId);
+                Optional<LlmJobDtos.LlmJobRow> jobOptional = llmJobRepository.findJob(jobId);
                 if (jobOptional.isEmpty()) {
                     continue;
                 }
-                AdminConsoleDtos.LlmJobRow job = jobOptional.get();
+                LlmJobDtos.LlmJobRow job = jobOptional.get();
                 if (!"queued".equalsIgnoreCase(job.jobStatus())) {
                     continue;
                 }
@@ -321,25 +328,25 @@ public class LlmJobService {
         }
     }
 
-    private void executeJob(AdminConsoleDtos.LlmJobRow job) {
+    private void executeJob(LlmJobDtos.LlmJobRow job) {
         llmJobRepository.markJobRunning(job.jobId());
         if (job.generationBatchId() != null) {
-            adminConsoleRepository.markGenerationBatchRunning(job.generationBatchId());
+            generationRepository.markGenerationBatchRunning(job.generationBatchId());
         }
         if (job.gatingBatchId() != null) {
-            adminConsoleRepository.markGatingBatchRunning(job.gatingBatchId());
+            gatingRepository.markGatingBatchRunning(job.gatingBatchId());
         }
         if (job.ragTestRunId() != null) {
-            adminConsoleRepository.markRagTestRunRunning(job.ragTestRunId());
+            ragTestRunRepository.markRagTestRunRunning(job.ragTestRunId());
         }
 
-        List<AdminConsoleDtos.LlmJobItemRow> items = llmJobRepository.findJobItems(job.jobId());
+        List<LlmJobDtos.LlmJobItemRow> items = llmJobRepository.findJobItems(job.jobId());
         long jobStartedAtNano = System.nanoTime();
         Map<String, Long> commandDurationMs = new LinkedHashMap<>();
         int totalItems = Math.max(1, items.size());
         int processed = 0;
         Map<String, JsonNode> resultByCommand = new LinkedHashMap<>();
-        for (AdminConsoleDtos.LlmJobItemRow item : items) {
+        for (LlmJobDtos.LlmJobItemRow item : items) {
             String command = item.payloadJson().path("command").asText(item.itemType());
             if ("completed".equalsIgnoreCase(item.itemStatus())) {
                 resultByCommand.putIfAbsent(command, item.resultJson());
@@ -361,13 +368,13 @@ public class LlmJobService {
         }
 
         try {
-            for (AdminConsoleDtos.LlmJobItemRow item : items) {
+            for (LlmJobDtos.LlmJobItemRow item : items) {
                 String command = item.payloadJson().path("command").asText(item.itemType());
                 String experiment = item.payloadJson().path("experiment").asText(job.experimentName());
                 if ("completed".equalsIgnoreCase(item.itemStatus())) {
                     continue;
                 }
-                AdminConsoleDtos.LlmJobRow current = llmJobRepository.findJob(job.jobId())
+                LlmJobDtos.LlmJobRow current = llmJobRepository.findJob(job.jobId())
                         .orElseThrow(() -> new IllegalStateException("llm job missing while running: " + job.jobId()));
                 if ("pause_requested".equalsIgnoreCase(current.jobStatus())) {
                     llmJobRepository.markRemainingItemsCancelled(job.jobId());
@@ -388,7 +395,7 @@ public class LlmJobService {
                 );
                 commandDurationMs.put(command, elapsedMillis(commandStartedAtNano));
                 resultByCommand.put(command, response.summary());
-                AdminConsoleDtos.LlmJobRow afterRun = llmJobRepository.findJob(job.jobId())
+                LlmJobDtos.LlmJobRow afterRun = llmJobRepository.findJob(job.jobId())
                         .orElseThrow(() -> new IllegalStateException("llm job missing after command run: " + job.jobId()));
                 if ("cancel_requested".equalsIgnoreCase(afterRun.jobStatus())) {
                     JsonNode cancellationSnapshot = buildCommandObservation(
@@ -449,7 +456,7 @@ public class LlmJobService {
     }
 
     private void finalizeRelatedRows(
-            AdminConsoleDtos.LlmJobRow job,
+            LlmJobDtos.LlmJobRow job,
             Map<String, JsonNode> resultByCommand,
             Map<String, Long> commandDurationMs,
             long totalJobDurationMs
@@ -458,9 +465,9 @@ public class LlmJobService {
             JsonNode summary = resultByCommand.getOrDefault("generate-queries", objectMapper.createObjectNode());
             UUID sourceRunId = asUuid(summary.path("experiment_run_id").asText(null));
             int generatedCount = summary.path("generated_queries").asInt(0);
-            adminConsoleRepository.completeGenerationBatch(job.generationBatchId(), sourceRunId, generatedCount, summary);
+            generationRepository.completeGenerationBatch(job.generationBatchId(), sourceRunId, generatedCount, summary);
             if (sourceRunId != null) {
-                adminConsoleRepository.syncSyntheticQueryBatchProvenance(job.generationBatchId(), sourceRunId);
+                generationRepository.syncSyntheticQueryBatchProvenance(job.generationBatchId(), sourceRunId);
             }
             return;
         }
@@ -471,7 +478,7 @@ public class LlmJobService {
             int accepted = summary.path("accepted_queries").asInt(0);
             int rejected = summary.path("rejected_queries").asInt(0);
             JsonNode rejectionReasons = summary.path("rejection_reasons");
-            adminConsoleRepository.completeGatingBatch(
+            gatingRepository.completeGatingBatch(
                     job.gatingBatchId(),
                     sourceRunId,
                     processed,
@@ -480,7 +487,7 @@ public class LlmJobService {
                     rejectionReasons.isMissingNode() ? objectMapper.createObjectNode() : rejectionReasons
             );
             if (sourceRunId != null) {
-                adminConsoleRepository.syncGatingBatchResults(job.gatingBatchId(), sourceRunId);
+                gatingRepository.syncGatingBatchResults(job.gatingBatchId(), sourceRunId);
             }
             return;
         }
@@ -503,7 +510,7 @@ public class LlmJobService {
             Double rejectionRate = null;
             Double avgConfidenceDelta = null;
             Map<String, Object> performance = buildRagPerformanceMetrics(answerSummary);
-            JsonNode runConfig = adminConsoleRepository.findRagTestRunConfig(job.ragTestRunId())
+            JsonNode runConfig = ragTestRunRepository.findRagTestRunConfig(job.ragTestRunId())
                     .orElseGet(objectMapper::createObjectNode);
             Map<String, Object> canonicalAnchorVersions = CanonicalAnchorVersionMetadata.fromConfig(runConfig);
 
@@ -520,7 +527,7 @@ public class LlmJobService {
             metrics.put("performance", objectMapper.valueToTree(performance));
             JsonNode metricsJson = objectMapper.valueToTree(metrics);
             UUID sourceExperimentRunId = asUuid(retrievalSummary.path("experiment_run_id").asText(null));
-            adminConsoleRepository.upsertRagSummary(
+            ragTestRunRepository.upsertRagSummary(
                     job.ragTestRunId(),
                     recall,
                     hit,
@@ -604,8 +611,8 @@ public class LlmJobService {
             Integer memorySize = memorySummary.path("memory_entries_built").isNumber()
                     ? memorySummary.path("memory_entries_built").asInt()
                     : null;
-            String datasetVersion = adminConsoleRepository.findRagDatasetVersion(job.ragTestRunId());
-            adminConsoleRepository.upsertRagExperimentRecord(
+            String datasetVersion = ragTestRunRepository.findRagDatasetVersion(job.ragTestRunId());
+            ragTestRunRepository.upsertRagExperimentRecord(
                     job.ragTestRunId(),
                     snapshotId,
                     generationStrategies,
@@ -617,17 +624,17 @@ public class LlmJobService {
                     Instant.now(),
                     metricsJson
             );
-            List<AdminConsoleDtos.RagTestResultDetailRow> details = loadRewriteCasesForRun(job.ragTestRunId(), job.experimentName());
-            adminConsoleRepository.replaceRagDetailRows(job.ragTestRunId(), details);
-            List<AdminConsoleDtos.RagRewriteAnchorEvalRow> anchorEvalRows =
+            List<RagTestDtos.RagTestResultDetailRow> details = loadRewriteCasesForRun(job.ragTestRunId(), job.experimentName());
+            ragTestRunRepository.replaceRagDetailRows(job.ragTestRunId(), details);
+            List<RagTestDtos.RagRewriteAnchorEvalRow> anchorEvalRows =
                     ragRewriteAnchorEvalService.buildRowsForRun(job.ragTestRunId(), job.experimentName(), details);
-            adminConsoleRepository.replaceRagRewriteAnchorEvalRows(job.ragTestRunId(), anchorEvalRows);
-            adminConsoleRepository.completeRagTestRun(job.ragTestRunId(), metricsJson, sourceExperimentRunId);
+            anchorRepository.replaceRagRewriteAnchorEvalRows(job.ragTestRunId(), anchorEvalRows);
+            ragTestRunRepository.completeRagTestRun(job.ragTestRunId(), metricsJson, sourceExperimentRunId);
         }
     }
 
     private void handleJobFailure(
-            AdminConsoleDtos.LlmJobRow job,
+            LlmJobDtos.LlmJobRow job,
             Map<String, JsonNode> resultByCommand,
             RuntimeException exception
     ) {
@@ -656,7 +663,7 @@ public class LlmJobService {
         String cleanupError = null;
         if (job.generationBatchId() != null) {
             try {
-                purgedSyntheticQueries = adminConsoleRepository.deleteSyntheticQueriesByGenerationBatch(job.generationBatchId());
+                purgedSyntheticQueries = generationRepository.deleteSyntheticQueriesByGenerationBatch(job.generationBatchId());
             } catch (RuntimeException cleanupException) {
                 cleanupError = cleanupException.getMessage();
                 log.error(
@@ -698,20 +705,20 @@ public class LlmJobService {
         JsonNode resultJson = objectMapper.valueToTree(payload);
         llmJobRepository.markJobFailed(job.jobId(), errorMessage, resultJson);
         if (job.generationBatchId() != null) {
-            adminConsoleRepository.failGenerationBatch(job.generationBatchId(), errorMessage, resultJson);
+            generationRepository.failGenerationBatch(job.generationBatchId(), errorMessage, resultJson);
         }
         if (job.gatingBatchId() != null) {
-            adminConsoleRepository.failGatingBatch(job.gatingBatchId(), errorMessage);
+            gatingRepository.failGatingBatch(job.gatingBatchId(), errorMessage);
         }
         if (job.ragTestRunId() != null) {
-            adminConsoleRepository.failRagTestRun(job.ragTestRunId(), errorMessage);
+            ragTestRunRepository.failRagTestRun(job.ragTestRunId(), errorMessage);
         }
     }
 
-    private void markRelatedCancelled(AdminConsoleDtos.LlmJobRow job) {
+    private void markRelatedCancelled(LlmJobDtos.LlmJobRow job) {
         if (job.generationBatchId() != null) {
             try {
-                int purged = adminConsoleRepository.deleteSyntheticQueriesByGenerationBatch(job.generationBatchId());
+                int purged = generationRepository.deleteSyntheticQueriesByGenerationBatch(job.generationBatchId());
                 if (purged > 0) {
                     log.info(
                             "Purged {} synthetic queries after generation job cancellation. batchId={}, jobId={}",
@@ -728,13 +735,13 @@ public class LlmJobService {
                         cleanupException
                 );
             }
-            adminConsoleRepository.cancelGenerationBatch(job.generationBatchId(), "cancel requested by user");
+            generationRepository.cancelGenerationBatch(job.generationBatchId(), "cancel requested by user");
         }
         if (job.gatingBatchId() != null) {
-            adminConsoleRepository.cancelGatingBatch(job.gatingBatchId(), "cancel requested by user");
+            gatingRepository.cancelGatingBatch(job.gatingBatchId(), "cancel requested by user");
         }
         if (job.ragTestRunId() != null) {
-            adminConsoleRepository.cancelRagTestRun(job.ragTestRunId(), "cancel requested by user");
+            ragTestRunRepository.cancelRagTestRun(job.ragTestRunId(), "cancel requested by user");
         }
     }
 
@@ -746,7 +753,7 @@ public class LlmJobService {
         );
     }
 
-    private List<AdminConsoleDtos.RagTestResultDetailRow> loadRewriteCasesForRun(UUID runId, String experimentName) {
+    private List<RagTestDtos.RagTestResultDetailRow> loadRewriteCasesForRun(UUID runId, String experimentName) {
         if (experimentName == null || experimentName.isBlank()) {
             return List.of();
         }
@@ -769,18 +776,18 @@ public class LlmJobService {
                     sampleIds.add(sampleId);
                 }
             }
-            Map<String, AdminConsoleRepository.EvalSampleMeta> sampleMetaMap = new LinkedHashMap<>();
-            for (AdminConsoleRepository.EvalSampleMeta meta : adminConsoleRepository.findEvalSampleMeta(sampleIds)) {
+            Map<String, AdminEvalDatasetRepository.EvalSampleMeta> sampleMetaMap = new LinkedHashMap<>();
+            for (AdminEvalDatasetRepository.EvalSampleMeta meta : evalDatasetRepository.findEvalSampleMeta(sampleIds)) {
                 sampleMetaMap.put(meta.sampleId(), meta);
             }
 
-            List<AdminConsoleDtos.RagTestResultDetailRow> details = new ArrayList<>();
+            List<RagTestDtos.RagTestResultDetailRow> details = new ArrayList<>();
             for (JsonNode row : root) {
                 String sampleId = row.path("sample_id").asText("");
                 if (sampleId.isBlank()) {
                     continue;
                 }
-                AdminConsoleRepository.EvalSampleMeta meta = sampleMetaMap.get(sampleId);
+                AdminEvalDatasetRepository.EvalSampleMeta meta = sampleMetaMap.get(sampleId);
                 Map<String, Object> metricContributionPayload = new LinkedHashMap<>();
                 metricContributionPayload.put("mode", row.path("mode").asText(""));
                 metricContributionPayload.put("raw_mrr", row.path("raw_mrr").asDouble(0.0));
@@ -817,7 +824,7 @@ public class LlmJobService {
                 );
                 JsonNode metricContribution = objectMapper.valueToTree(metricContributionPayload);
                 boolean hitTarget = row.path("mode_mrr").asDouble(0.0) > 0.0 || row.path("mode_ndcg").asDouble(0.0) > 0.0;
-                details.add(new AdminConsoleDtos.RagTestResultDetailRow(
+                details.add(new RagTestDtos.RagTestResultDetailRow(
                         UUID.randomUUID(),
                         runId,
                         sampleId,
@@ -851,7 +858,7 @@ public class LlmJobService {
         throw new IllegalStateException("failed to resolve repository root for llm jobs");
     }
 
-    private String resolveEvalSampleQueryText(AdminConsoleRepository.EvalSampleMeta meta) {
+    private String resolveEvalSampleQueryText(AdminEvalDatasetRepository.EvalSampleMeta meta) {
         if (meta == null) {
             return "";
         }
@@ -899,13 +906,13 @@ public class LlmJobService {
         return TimeUnit.NANOSECONDS.toMillis(elapsedNs);
     }
 
-    private boolean isSyntheticGenerationJob(AdminConsoleDtos.LlmJobRow job) {
+    private boolean isSyntheticGenerationJob(LlmJobDtos.LlmJobRow job) {
         return job != null && LlmJobType.GENERATE_SYNTHETIC_QUERY.name().equals(job.jobType());
     }
 
     private JsonNode buildCommandObservation(
-            AdminConsoleDtos.LlmJobRow job,
-            AdminConsoleDtos.LlmJobItemRow item,
+            LlmJobDtos.LlmJobRow job,
+            LlmJobDtos.LlmJobItemRow item,
             String command,
             String experiment,
             RagDtos.ExperimentCommandResponse response,
@@ -945,7 +952,7 @@ public class LlmJobService {
     }
 
     private JsonNode buildJobFailureAttempt(
-            AdminConsoleDtos.LlmJobRow job,
+            LlmJobDtos.LlmJobRow job,
             Map<String, JsonNode> resultByCommand,
             String errorMessage,
             int nextRetry,
@@ -974,7 +981,7 @@ public class LlmJobService {
     }
 
     private boolean shouldRetryFailure(
-            AdminConsoleDtos.LlmJobRow job,
+            LlmJobDtos.LlmJobRow job,
             int nextRetry,
             int maxRetries,
             String failureCategory

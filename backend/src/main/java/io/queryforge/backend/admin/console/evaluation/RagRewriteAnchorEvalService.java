@@ -2,8 +2,6 @@ package io.queryforge.backend.admin.console.evaluation;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import io.queryforge.backend.admin.console.AdminConsoleDtos;
-import io.queryforge.backend.admin.console.AdminConsoleRepository;
 import io.queryforge.backend.admin.pipeline.AdminPipelineProperties;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -42,15 +40,14 @@ public class RagRewriteAnchorEvalService {
             "glossary",
             "memory"
     );
-
-    private final AdminConsoleRepository repository;
+    private final RagRewriteAnchorRepository anchorRepository;
     private final AdminPipelineProperties pipelineProperties;
     private final ObjectMapper objectMapper;
 
-    public List<AdminConsoleDtos.RagRewriteAnchorEvalRow> buildRowsForRun(
+    public List<RagTestDtos.RagRewriteAnchorEvalRow> buildRowsForRun(
             UUID runId,
             String experimentName,
-            List<AdminConsoleDtos.RagTestResultDetailRow> details
+            List<RagTestDtos.RagTestResultDetailRow> details
     ) {
         if (runId == null || experimentName == null || experimentName.isBlank() || details == null || details.isEmpty()) {
             return List.of();
@@ -81,19 +78,19 @@ public class RagRewriteAnchorEvalService {
             return List.of();
         }
 
-        Map<String, AdminConsoleRepository.EvalDatasetAnchorMeta> sampleMeta = new LinkedHashMap<>();
-        for (AdminConsoleRepository.EvalDatasetAnchorMeta meta : repository.findEvalDatasetAnchorMeta(runId, new ArrayList<>(sampleIds))) {
+        Map<String, RagRewriteAnchorRepository.EvalDatasetAnchorMeta> sampleMeta = new LinkedHashMap<>();
+        for (RagRewriteAnchorRepository.EvalDatasetAnchorMeta meta : anchorRepository.findEvalDatasetAnchorMeta(runId, new ArrayList<>(sampleIds))) {
             sampleMeta.put(meta.sampleId(), meta);
             allChunkIds.addAll(jsonStringList(meta.expectedChunkIds()));
             allDocIds.addAll(jsonStringList(meta.expectedDocIds()));
         }
-        Map<String, String> chunkTexts = repository.findChunkTexts(new ArrayList<>(allChunkIds));
-        Map<String, String> docTexts = repository.findDocumentTexts(new ArrayList<>(allDocIds));
-        Map<UUID, AdminConsoleRepository.MemoryAnchorSource> memorySources =
-                repository.findMemoryAnchorSources(new ArrayList<>(allMemoryIds));
+        Map<String, String> chunkTexts = anchorRepository.findChunkTexts(new ArrayList<>(allChunkIds));
+        Map<String, String> docTexts = anchorRepository.findDocumentTexts(new ArrayList<>(allDocIds));
+        Map<UUID, RagRewriteAnchorRepository.MemoryAnchorSource> memorySources =
+                anchorRepository.findMemoryAnchorSources(new ArrayList<>(allMemoryIds));
 
-        List<AdminConsoleDtos.RagRewriteAnchorEvalRow> rows = new ArrayList<>();
-        for (AdminConsoleDtos.RagTestResultDetailRow detail : details) {
+        List<RagTestDtos.RagRewriteAnchorEvalRow> rows = new ArrayList<>();
+        for (RagTestDtos.RagTestResultDetailRow detail : details) {
             if (detail == null || detail.detailId() == null || !Boolean.TRUE.equals(detail.rewriteApplied())) {
                 continue;
             }
@@ -107,13 +104,13 @@ public class RagRewriteAnchorEvalService {
         return rows;
     }
 
-    private List<AdminConsoleDtos.RagRewriteAnchorEvalRow> buildRowsForDetail(
-            AdminConsoleDtos.RagTestResultDetailRow detail,
+    private List<RagTestDtos.RagRewriteAnchorEvalRow> buildRowsForDetail(
+            RagTestDtos.RagTestResultDetailRow detail,
             JsonNode caseRow,
-            AdminConsoleRepository.EvalDatasetAnchorMeta meta,
+            RagRewriteAnchorRepository.EvalDatasetAnchorMeta meta,
             Map<String, String> chunkTexts,
             Map<String, String> docTexts,
-            Map<UUID, AdminConsoleRepository.MemoryAnchorSource> memorySources
+            Map<UUID, RagRewriteAnchorRepository.MemoryAnchorSource> memorySources
     ) {
         String rawQuery = firstNonBlank(detail.rawQuery(), text(caseRow.path("raw_query")));
         String finalQuery = firstNonBlank(detail.rewriteQuery(), text(caseRow.path("final_query")), rawQuery);
@@ -138,7 +135,7 @@ public class RagRewriteAnchorEvalService {
         List<String> retrievedChunkTexts = textsForIds(retrievedChunkIds, chunkTexts);
         String selectedMemoryText = memoryEvidenceText(selectedMemory, memorySources);
         UUID selectedMemoryId = parseUuid(text(firstNode(selectedMemory, "memory_id", "id")));
-        AdminConsoleRepository.MemoryAnchorSource selectedMemorySource = selectedMemoryId == null
+        RagRewriteAnchorRepository.MemoryAnchorSource selectedMemorySource = selectedMemoryId == null
                 ? null
                 : memorySources.get(selectedMemoryId);
 
@@ -164,9 +161,9 @@ public class RagRewriteAnchorEvalService {
                 .toList();
     }
 
-    private AdminConsoleDtos.RagRewriteAnchorEvalRow evaluateAnchor(
-            AdminConsoleDtos.RagTestResultDetailRow detail,
-            AdminConsoleRepository.EvalDatasetAnchorMeta meta,
+    private RagTestDtos.RagRewriteAnchorEvalRow evaluateAnchor(
+            RagTestDtos.RagTestResultDetailRow detail,
+            RagRewriteAnchorRepository.EvalDatasetAnchorMeta meta,
             AnchorDraft anchor,
             String rawQuery,
             String finalQuery,
@@ -177,8 +174,8 @@ public class RagRewriteAnchorEvalService {
             List<String> expectedDocTexts,
             List<String> retrievedChunkTexts,
             String memoryEvidenceText,
-            Map<UUID, AdminConsoleRepository.MemoryAnchorSource> memorySources,
-            AdminConsoleRepository.MemoryAnchorSource selectedMemorySource
+            Map<UUID, RagRewriteAnchorRepository.MemoryAnchorSource> memorySources,
+            RagRewriteAnchorRepository.MemoryAnchorSource selectedMemorySource
     ) {
         boolean appearsInRawQuery = containsAnchor(rawQuery, anchor.text) || containsAnchor(rawQuery, anchor.canonicalText);
         boolean appearsInFinalRewrite = containsAnchor(finalQuery, anchor.text) || containsAnchor(finalQuery, anchor.canonicalText);
@@ -242,7 +239,7 @@ public class RagRewriteAnchorEvalService {
                 groundedByGlossary
         );
         UUID sourceMemoryId = anchor.sourceMemoryId != null ? anchor.sourceMemoryId : parseUuid(text(firstNode(memoryAtIndex(detail.memoryCandidates(), anchor.sourceMemoryIndex), "memory_id", "id")));
-        AdminConsoleRepository.MemoryAnchorSource anchorMemorySource = sourceMemoryId == null
+        RagRewriteAnchorRepository.MemoryAnchorSource anchorMemorySource = sourceMemoryId == null
                 ? selectedMemorySource
                 : memorySources.getOrDefault(sourceMemoryId, selectedMemorySource);
         String sourceMemoryQueryId = firstNonBlank(
@@ -250,7 +247,7 @@ public class RagRewriteAnchorEvalService {
                 anchorMemorySource == null ? null : anchorMemorySource.sourceGatedQueryId()
         );
 
-        return new AdminConsoleDtos.RagRewriteAnchorEvalRow(
+        return new RagTestDtos.RagRewriteAnchorEvalRow(
                 UUID.randomUUID(),
                 detail.ragTestRunId(),
                 detail.detailId(),
@@ -650,13 +647,13 @@ public class RagRewriteAnchorEvalService {
         return compactAnchor.length() >= 2 && compactHaystack.contains(compactAnchor);
     }
 
-    private String memoryEvidenceText(JsonNode memory, Map<UUID, AdminConsoleRepository.MemoryAnchorSource> memorySources) {
+    private String memoryEvidenceText(JsonNode memory, Map<UUID, RagRewriteAnchorRepository.MemoryAnchorSource> memorySources) {
         List<String> parts = new ArrayList<>();
         addIfPresent(parts, text(memory.path("query_text")));
         addJsonText(parts, memory.path("glossary_terms"));
         addJsonText(parts, memory.path("canonical_anchors"));
         UUID memoryId = parseUuid(text(firstNode(memory, "memory_id", "id")));
-        AdminConsoleRepository.MemoryAnchorSource source = memoryId == null ? null : memorySources.get(memoryId);
+        RagRewriteAnchorRepository.MemoryAnchorSource source = memoryId == null ? null : memorySources.get(memoryId);
         if (source != null) {
             addIfPresent(parts, source.queryText());
             addJsonText(parts, source.glossaryTerms());

@@ -2,7 +2,6 @@ package io.queryforge.backend.admin.console.evaluation;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import io.queryforge.backend.admin.console.AdminConsoleDtos;
 import lombok.RequiredArgsConstructor;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
@@ -171,11 +170,11 @@ public class AdminEvalDatasetRepository {
         );
     }
 
-    public List<AdminConsoleDtos.EvalDatasetRow> findEvalDatasets() {
+    public List<EvalDatasetDtos.EvalDatasetRow> findEvalDatasets() {
         return findEvalDatasets(null);
     }
 
-    public List<AdminConsoleDtos.EvalDatasetRow> findEvalDatasets(UUID domainId) {
+    public List<EvalDatasetDtos.EvalDatasetRow> findEvalDatasets(UUID domainId) {
         String domainWhereClause = domainId == null ? "" : "WHERE d.domain_id = :domainId";
         String sql = """
                 SELECT d.dataset_id,
@@ -216,7 +215,7 @@ public class AdminEvalDatasetRepository {
         return jdbcTemplate.query(
                 sql,
                 params,
-                (rs, rowNum) -> new AdminConsoleDtos.EvalDatasetRow(
+                (rs, rowNum) -> new EvalDatasetDtos.EvalDatasetRow(
                         readUuid(rs, "dataset_id"),
                         rs.getString("dataset_key"),
                         rs.getString("dataset_name"),
@@ -251,7 +250,7 @@ public class AdminEvalDatasetRepository {
         );
     }
 
-    public List<AdminConsoleDtos.EvalDatasetItemRow> findEvalDatasetItems(UUID datasetId, Integer limit, Integer offset) {
+    public List<EvalDatasetDtos.EvalDatasetItemRow> findEvalDatasetItems(UUID datasetId, Integer limit, Integer offset) {
         boolean bounded = limit != null && limit > 0;
         String pagingClause = bounded ? "LIMIT :limit OFFSET :offset" : "";
         String sql = """
@@ -285,7 +284,7 @@ public class AdminEvalDatasetRepository {
         return jdbcTemplate.query(
                 sql,
                 params,
-                (rs, rowNum) -> new AdminConsoleDtos.EvalDatasetItemRow(
+                (rs, rowNum) -> new EvalDatasetDtos.EvalDatasetItemRow(
                         readUuid(rs, "dataset_id"),
                         rs.getString("sample_id"),
                         rs.getString("split"),
@@ -376,5 +375,106 @@ public class AdminEvalDatasetRepository {
         } catch (Exception exception) {
             return objectMapper.valueToTree(Map.of("raw", raw));
         }
+    }
+
+    public record EvalSampleMeta(
+            String sampleId,
+            String userQueryKo,
+            String userQueryEn,
+            String queryLanguage,
+            String queryCategory
+    ) {
+    }
+
+    public List<EvalSampleMeta> findEvalSampleMeta(List<String> sampleIds) {
+        if (sampleIds == null || sampleIds.isEmpty()) {
+            return List.of();
+        }
+        String sql = """
+                SELECT sample_id,
+                       user_query_ko,
+                       user_query_en,
+                       COALESCE(NULLIF(query_language, ''), 'ko') AS query_language,
+                       query_category
+                FROM eval_samples
+                WHERE sample_id IN (:sampleIds)
+                """;
+        return jdbcTemplate.query(
+                sql,
+                new MapSqlParameterSource("sampleIds", sampleIds),
+                (rs, rowNum) -> new EvalSampleMeta(
+                        rs.getString("sample_id"),
+                        rs.getString("user_query_ko"),
+                        rs.getString("user_query_en"),
+                        rs.getString("query_language"),
+                        rs.getString("query_category")
+                )
+        );
+    }
+
+    public JsonNode aggregateCategoryDistributionFromSamples() {
+        String sql = """
+                SELECT COALESCE(
+                    jsonb_object_agg(x.query_category, x.cnt),
+                    '{}'::jsonb
+                )::text AS payload
+                FROM (
+                    SELECT query_category, COUNT(*) AS cnt
+                    FROM eval_samples
+                    GROUP BY query_category
+                ) x
+                """;
+        return readJson(jdbcTemplate.queryForObject(sql, new MapSqlParameterSource(), String.class));
+    }
+
+    public JsonNode aggregateCategoryDistributionFromDefaultSamples() {
+        String sql = """
+                SELECT COALESCE(
+                    jsonb_object_agg(x.query_category, x.cnt),
+                    '{}'::jsonb
+                )::text AS payload
+                FROM (
+                    SELECT s.query_category, COUNT(*) AS cnt
+                    FROM eval_samples s
+                    WHERE COALESCE(s.metadata ->> 'builder', '') = 'build-eval-dataset'
+                       OR s.sample_id LIKE 'dev-human-%%'
+                       OR s.sample_id LIKE 'test-human-%%'
+                    GROUP BY s.query_category
+                ) x
+                """;
+        return readJson(jdbcTemplate.queryForObject(sql, new MapSqlParameterSource(), String.class));
+    }
+
+    public JsonNode aggregateSingleMultiDistributionFromSamples() {
+        String sql = """
+                SELECT COALESCE(
+                    jsonb_object_agg(x.single_or_multi_chunk, x.cnt),
+                    '{}'::jsonb
+                )::text AS payload
+                FROM (
+                    SELECT single_or_multi_chunk, COUNT(*) AS cnt
+                    FROM eval_samples
+                    GROUP BY single_or_multi_chunk
+                ) x
+                """;
+        return readJson(jdbcTemplate.queryForObject(sql, new MapSqlParameterSource(), String.class));
+    }
+
+    public JsonNode aggregateSingleMultiDistributionFromDefaultSamples() {
+        String sql = """
+                SELECT COALESCE(
+                    jsonb_object_agg(x.single_or_multi_chunk, x.cnt),
+                    '{}'::jsonb
+                )::text AS payload
+                FROM (
+                    SELECT s.single_or_multi_chunk, COUNT(*) AS cnt
+                    FROM eval_samples s
+                    WHERE COALESCE(s.metadata ->> 'builder', '') = 'build-eval-dataset'
+                       OR s.sample_id LIKE 'dev-human-%%'
+                       OR s.sample_id LIKE 'test-human-%%'
+                    GROUP BY s.single_or_multi_chunk
+                ) x
+                """;
+        return readJson(jdbcTemplate.queryForObject(sql, new MapSqlParameterSource(), String.class));
     }
 }

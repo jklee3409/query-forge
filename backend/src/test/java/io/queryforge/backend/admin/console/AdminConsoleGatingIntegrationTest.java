@@ -1,11 +1,15 @@
 package io.queryforge.backend.admin.console;
 
 import com.fasterxml.jackson.databind.JsonNode;
+import io.queryforge.backend.admin.console.gating.GatingRepository;
+import io.queryforge.backend.admin.console.jobs.LlmJobDtos;
 import io.queryforge.backend.admin.console.jobs.LlmJobRepository;
+import io.queryforge.backend.admin.console.synthetic.AdminSyntheticMethodRepository;
+import io.queryforge.backend.admin.console.synthetic.SyntheticGenerationDtos;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
@@ -28,8 +32,8 @@ import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ExecutorService;
 
-import static org.hamcrest.Matchers.greaterThanOrEqualTo;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.hamcrest.Matchers.greaterThanOrEqualTo;
 import static org.springframework.http.MediaType.APPLICATION_JSON;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -89,8 +93,10 @@ class AdminConsoleGatingIntegrationTest {
     @Autowired
     private NamedParameterJdbcTemplate jdbcTemplate;
 
+    @Autowired    private GatingRepository gatingRepository;
+
     @Autowired
-    private AdminConsoleRepository adminConsoleRepository;
+    private AdminSyntheticMethodRepository syntheticMethodRepository;
 
     @Autowired
     private LlmJobRepository llmJobRepository;
@@ -170,10 +176,10 @@ class AdminConsoleGatingIntegrationTest {
                 new MapSqlParameterSource("domainId", domainId)
         );
 
-        var methods = adminConsoleRepository.findGenerationMethods(domainId);
+        var methods = syntheticMethodRepository.findGenerationMethods(domainId);
 
         assertThat(methods)
-                .extracting(AdminConsoleDtos.SyntheticGenerationMethod::methodCode)
+                .extracting(SyntheticGenerationDtos.SyntheticGenerationMethod::methodCode)
                 .containsExactly("A");
     }
 
@@ -712,7 +718,7 @@ class AdminConsoleGatingIntegrationTest {
         insertBatchArtifacts(completedBatchA2, "sq_a2_completed");
         insertBatchArtifacts(completedBatchB1, "sq_b1_completed");
 
-        int removed = adminConsoleRepository.clearCompletedGatingResults(methodA, generationBatchA1);
+        int removed = gatingRepository.clearCompletedGatingResults(methodA, generationBatchA1);
         assertThat(removed).isEqualTo(1);
 
         assertThat(countRows("SELECT COUNT(*) FROM quality_gating_batch WHERE gating_batch_id = :id", completedBatchA1)).isZero();
@@ -791,8 +797,8 @@ class AdminConsoleGatingIntegrationTest {
                 "generation failed category=max_tokens_truncated"
         );
 
-        AdminConsoleDtos.LlmJobRow job = llmJobRepository.findJob(jobId).orElseThrow();
-        AdminConsoleDtos.LlmJobItemRow item = llmJobRepository.findJobItems(jobId).getFirst();
+        LlmJobDtos.LlmJobRow job = llmJobRepository.findJob(jobId).orElseThrow();
+        LlmJobDtos.LlmJobItemRow item = llmJobRepository.findJobItems(jobId).getFirst();
         assertThat(job.jobStatus()).isEqualTo("queued");
         assertThat(job.resultJson().path("last_failure").path("failure_category").asText())
                 .isEqualTo("max_tokens_truncated");
@@ -843,8 +849,8 @@ class AdminConsoleGatingIntegrationTest {
                 ))
         );
 
-        AdminConsoleDtos.LlmJobRow job = llmJobRepository.findJob(jobId).orElseThrow();
-        AdminConsoleDtos.LlmJobItemRow item = llmJobRepository.findJobItems(jobId).getFirst();
+        LlmJobDtos.LlmJobRow job = llmJobRepository.findJob(jobId).orElseThrow();
+        LlmJobDtos.LlmJobItemRow item = llmJobRepository.findJobItems(jobId).getFirst();
         assertThat(job.jobStatus()).isEqualTo("cancelled");
         assertThat(job.resultJson().path("reason").asText()).isEqualTo("cancel_requested_during_command");
         assertThat(job.resultJson().path("previous_failures").size()).isEqualTo(1);

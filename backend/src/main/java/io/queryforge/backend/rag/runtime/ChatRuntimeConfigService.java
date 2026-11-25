@@ -4,8 +4,10 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import io.queryforge.backend.admin.console.AdminConsoleDtos;
-import io.queryforge.backend.admin.console.AdminConsoleService;
+import io.queryforge.backend.admin.console.embedding.ChunkEmbeddingAdminDtos;
+import io.queryforge.backend.admin.console.embedding.ChunkEmbeddingAdminService;
+import io.queryforge.backend.admin.console.runtime.AdminRuntimeOptionsDtos;
+import io.queryforge.backend.admin.console.runtime.AdminRuntimeOptionsService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -42,8 +44,8 @@ public class ChatRuntimeConfigService {
     private static final String DEFAULT_DENSE_EMBEDDING_MODEL = "intfloat/multilingual-e5-small";
     private static final int MAX_SELECTED_SOURCE_GATING_BATCHES = 20;
 
-    private final ChatRuntimeConfigRepository repository;
-    private final AdminConsoleService adminConsoleService;
+    private final ChatRuntimeConfigRepository repository;    private final ChunkEmbeddingAdminService chunkEmbeddingService;
+    private final AdminRuntimeOptionsService runtimeOptionsService;
     private final ObjectMapper objectMapper;
 
     public List<ChatRuntimeDtos.ChatDomainOption> listChatDomains() {
@@ -307,7 +309,7 @@ public class ChatRuntimeConfigService {
                 FAILURE_POLICIES,
                 "rewriteFailurePolicy"
         );
-        AdminConsoleDtos.RuntimeOptionsResponse runtimeOptions = adminConsoleService.getRuntimeOptions();
+        AdminRuntimeOptionsDtos.RuntimeOptionsResponse runtimeOptions = runtimeOptionsService.getRuntimeOptions();
         String retrievalBackend = normalizeAllowed(
                 request.retrievalBackend(),
                 current.retrievalBackend(),
@@ -922,8 +924,8 @@ public class ChatRuntimeConfigService {
         if (denseEmbeddingModel == null || denseEmbeddingModel.isBlank()) {
             throw new IllegalArgumentException("db_ann retrievalBackend requires denseEmbeddingModel");
         }
-        AdminConsoleDtos.ChunkEmbeddingMaterializationStatusResponse status =
-                adminConsoleService.getChunkEmbeddingMaterializationStatus(denseEmbeddingModel);
+        ChunkEmbeddingAdminDtos.ChunkEmbeddingMaterializationStatusResponse status =
+                chunkEmbeddingService.getChunkEmbeddingMaterializationStatus(denseEmbeddingModel);
         if (!status.ready()) {
             throw new IllegalArgumentException(
                     "chunk embeddings are not materialized for chat db_ann retrieval: embedding_model="

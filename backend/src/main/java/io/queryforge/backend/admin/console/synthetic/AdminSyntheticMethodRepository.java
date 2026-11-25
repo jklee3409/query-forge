@@ -2,7 +2,6 @@ package io.queryforge.backend.admin.console.synthetic;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import io.queryforge.backend.admin.console.AdminConsoleDtos;
 import lombok.RequiredArgsConstructor;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
@@ -23,7 +22,7 @@ public class AdminSyntheticMethodRepository {
     private final NamedParameterJdbcTemplate jdbcTemplate;
     private final ObjectMapper objectMapper;
 
-    public List<AdminConsoleDtos.SyntheticGenerationMethod> findGenerationMethods() {
+    public List<SyntheticGenerationDtos.SyntheticGenerationMethod> findGenerationMethods() {
         String sql = """
                 SELECT generation_method_id,
                        method_code,
@@ -42,7 +41,7 @@ public class AdminSyntheticMethodRepository {
         return jdbcTemplate.query(sql, this::mapGenerationMethod);
     }
 
-    public List<AdminConsoleDtos.SyntheticGenerationMethod> findGenerationMethods(UUID domainId) {
+    public List<SyntheticGenerationDtos.SyntheticGenerationMethod> findGenerationMethods(UUID domainId) {
         if (domainId == null) {
             return findGenerationMethods();
         }
@@ -71,7 +70,7 @@ public class AdminSyntheticMethodRepository {
         return jdbcTemplate.query(sql, new MapSqlParameterSource("domainId", domainId), this::mapGenerationMethod);
     }
 
-    public Optional<AdminConsoleDtos.SyntheticGenerationMethod> findGenerationMethodByCode(String methodCode) {
+    public Optional<SyntheticGenerationDtos.SyntheticGenerationMethod> findGenerationMethodByCode(String methodCode) {
         String sql = """
                 SELECT generation_method_id,
                        method_code,
@@ -87,7 +86,7 @@ public class AdminSyntheticMethodRepository {
                 FROM synthetic_query_generation_method
                 WHERE method_code = :methodCode
                 """;
-        List<AdminConsoleDtos.SyntheticGenerationMethod> rows = jdbcTemplate.query(
+        List<SyntheticGenerationDtos.SyntheticGenerationMethod> rows = jdbcTemplate.query(
                 sql,
                 new MapSqlParameterSource("methodCode", methodCode),
                 this::mapGenerationMethod
@@ -95,8 +94,8 @@ public class AdminSyntheticMethodRepository {
         return rows.stream().findFirst();
     }
 
-    private AdminConsoleDtos.SyntheticGenerationMethod mapGenerationMethod(ResultSet rs, int rowNum) throws SQLException {
-        return new AdminConsoleDtos.SyntheticGenerationMethod(
+    private SyntheticGenerationDtos.SyntheticGenerationMethod mapGenerationMethod(ResultSet rs, int rowNum) throws SQLException {
+        return new SyntheticGenerationDtos.SyntheticGenerationMethod(
                 readUuid(rs, "generation_method_id"),
                 rs.getString("method_code"),
                 rs.getString("method_name"),
