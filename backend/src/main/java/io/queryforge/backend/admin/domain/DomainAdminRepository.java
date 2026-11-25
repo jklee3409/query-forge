@@ -181,10 +181,7 @@ public class DomainAdminRepository {
                     primary_language = COALESCE(:primaryLanguage, primary_language),
                     source_language = COALESCE(:sourceLanguage, source_language),
                     status = COALESCE(:status, status),
-                    metadata_json = CASE
-                        WHEN :metadata IS NULL THEN metadata_json
-                        ELSE CAST(:metadata AS jsonb)
-                    END,
+                    metadata_json = COALESCE(CAST(:metadata AS jsonb), metadata_json),
                     updated_at = NOW()
                 WHERE domain_id = :domainId
                 """;
