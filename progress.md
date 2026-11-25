@@ -1,5 +1,10 @@
 # progress.md
 
+## [2026-11-25] Session Summary (Backend Source Audit and Package Boundaries)
+- Reviewed every RAG subdirectory and inventoried the full backend Java source tree before and after migrating implementations by feature. Removed 32 empty legacy Java directories locally.
+- Verified 133 HTTP method and path pairs, 226 existing record declarations, all 181 backend tests with Docker PostgreSQL, and 36 Python Java-backed retrieval tests.
+- [Backend source inventory](docs/architecture/backend_source_inventory.md)
+
 ## [2026-11-25] Session Summary (Admin Domain Packages)
 - Reorganized `admin/domain` into identity, source membership, method policy, workspace, and dashboard packages. The workspace coordinates detail responses with the original routes and JSON fields.
 - Fixed PostgreSQL domain updates when a PATCH omits metadata. The update preserves the stored metadata in that case.

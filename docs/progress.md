@@ -3,6 +3,11 @@
 ## Overview
 High-level progress tracking for the `docs` directory.
 
+## [2026-11-25] Session Summary (Backend Source Inventory)
+- Added a file-by-file inventory of current Java production and test types, named nested types, and direct references.
+- Updated the feature map, build validation commands, and package documentation to match the final RAG and admin package paths.
+- [Backend source inventory](architecture/backend_source_inventory.md)
+
 ## [2026-11-25] Session Summary (Backend Feature Boundaries)
 - Documented backend API, transaction, dependency, and execution paths. The class appendix lists 84 production and 26 test types from the baseline and the 47 production packages after the refactor.
 - Updated backend package guidance and the current status of Java agentic retrieval eval. Retained the migration and design notes as phase records.

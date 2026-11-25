@@ -1,5 +1,10 @@
 # progress.md
 
+## [2026-11-25] Session Summary (RAG and Admin Source Packages)
+- Separated RAG candidate selection, retrieval execution, agentic planning and fusion, runtime configuration and promotion, and trace queries and writes. Moved evaluation request overrides into the retrieval-only evaluation package.
+- Separated admin evaluation dataset lifecycle, run history, anchor evaluation, and rewrite diagnostics. Moved corpus anchor lookup, extraction, normalization, and relation builds to the corresponding feature packages.
+- Verified all 217 production and 27 test source types against their declared packages. All 181 Gradle clean tests and 36 Java-backed Python evaluation tests passed.
+
 ## [2026-11-25] Session Summary (Admin Domain Workspace)
 - Moved domain identity, source membership, and method-policy persistence into their feature packages. The workspace assembles responses in the same transaction as each mutation. Corpus registration calls the source membership operation directly.
 - Fixed JSONB type inference for a domain PATCH with omitted metadata. Added a PostgreSQL integration test for all seven domain routes and the persisted source association.

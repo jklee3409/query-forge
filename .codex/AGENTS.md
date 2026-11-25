@@ -841,7 +841,7 @@ Use targeted validation rather than broad builds/tests unless the user requests 
 .\gradlew.bat test --tests io.queryforge.backend.rag.chat.RagServiceTest --tests io.queryforge.backend.rag.chat.RagControllerWebTest
 
 # Router / retrieval eval endpoint
-.\gradlew.bat test --tests io.queryforge.backend.rag.retrieval.routing.QueryStrategyRouterTest --tests io.queryforge.backend.rag.eval.RagRetrievalEvalServiceTest --tests io.queryforge.backend.rag.eval.RagRetrievalEvalControllerTest
+.\gradlew.bat test --tests io.queryforge.backend.rag.retrieval.routing.QueryStrategyRouterTest --tests io.queryforge.backend.rag.eval.retrieval.RagRetrievalEvalServiceTest --tests io.queryforge.backend.rag.eval.retrieval.RagRetrievalEvalControllerTest
 
 # Python Java-backed eval policy
 python -m unittest pipeline.tests.test_java_retrieval_client pipeline.tests.test_retrieval_eval_compare -q
@@ -878,9 +878,9 @@ For each directory, it lists core features, key methods (or entry points), and r
 - Core features: Admin Console API, Pipeline Admin API, live `/api/chat/ask` serving, retrieval-only eval endpoint, runtime config, StrategyRouter / agentic routing, LLM job orchestration, DB migrations.
 - Key methods/entry points:
   - `RagController.ask`, `RagService.ask`, `AgenticChatService`, `ChatResponseAssembler`
-  - `RewritePreviewController`, `RagTraceQueryController`, `RagExperimentController`, `EvalReportController`, `RagReindexController`
+  - `RewritePreviewController`, `RagTraceQueryController`, `ExperimentCommandController`, `ExperimentSummaryController`, `EvalReportController`, `RagReindexController`
   - `RagRetrievalEvalController`, `RagRetrievalEvalService`
-  - `QueryStrategyRouter`, `AgenticRetrievalService`, `RagRetrievalExecutionService`, `RagTracePersistenceService`
+  - `QueryStrategyRouter`, `AgenticRetrievalService`, `RagRetrievalExecutionService`, `RagTracePersistenceService`, `AgenticTracePersistenceService`
   - `ChatRuntimeConfigService`, `ChatConfigPromotionService`, `ChatReadinessService`
   - `PipelineAdminService.startCollect`, `startNormalize`, `startChunk`, `startGlossary`, `startImport`, `startFullIngest`
   - `SyntheticGenerationService.runSyntheticGeneration`, `GatingService.runGating`, `RagTestService.runRagTest`
@@ -892,6 +892,7 @@ For each directory, it lists core features, key methods (or entry points), and r
   - `backend/index.md`
   - `backend/progress.md`
   - `docs/architecture/backend_feature_boundaries.md`
+  - `docs/architecture/backend_source_inventory.md`
 
 ### 5.4 `pipeline/` (Python)
 - Core features: Collection, preprocessing, chunking, glossary extraction, import, synthetic generation, gating, memory build, eval dataset build, metrics, reports, Java-backed eval client, legacy vs Java-backed comparison runner, retrieval eval, answer eval.

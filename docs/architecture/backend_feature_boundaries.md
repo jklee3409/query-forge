@@ -1,6 +1,6 @@
 # 백엔드 기능 경계와 클래스 의존 관계
 
-2026-11-25 기준. 리팩토링 전 기준 커밋은 `0e6c270`이다. `backend/src/main/java`에 있던 Java 최상위 타입 84개와 `backend/src/test/java`의 테스트 타입을 조사했다. 아래 의존 관계는 Java 소스의 타입 참조와 생성자 주입을 기준으로 읽는다. 실제 동작에 영향을 주는 SQL, 트랜잭션, subprocess, 정적 파일 경로는 기능별 실행 흐름에 기록했다.
+2026-11-25 기준. 최초 전수 조사 기준 커밋은 `0e6c270`이다. 아래 의존 관계는 Java 소스의 타입 참조와 생성자 주입을 기준으로 읽는다. SQL, 트랜잭션, subprocess, 정적 파일 경로는 기능별 실행 흐름에 기록했다. 후속 재분류 결과가 반영된 운영·테스트 패키지의 전체 선언 목록은 별도로 확인할 수 있다. [백엔드 소스 인벤토리](backend_source_inventory.md)
 
 ## 구조를 나눈 기준
 
@@ -14,13 +14,13 @@
 | --- | --- | --- |
 | 합성 질의 | `SyntheticGenerationController` → `SyntheticGenerationService` → `AdminSyntheticMethodRepository`, `SyntheticGenerationRepository`, `ConsoleScopeService`, `LlmJobService` | 전략별 A–G raw 테이블과 읽기용 union view를 사용한다. 실행은 메서드·소스 범위를 검증한 뒤 배치와 job을 만들고 Python에 넘긴다. |
 | 게이팅 | `GatingController` → `GatingService` → `GatingRepository`, 합성 질의 배치 조회, 런타임 카탈로그, 작업 서비스 | 명시적으로 선택된 generation batch·run을 기준으로 실행한다. 정리, 배치 생성, 작업 등록의 트랜잭션을 유지한다. |
-| 평가 데이터셋 | `EvalDatasetController` → `EvalDatasetService` → `AdminEvalDatasetRepository` 및 `RagTestHistoryService` | 기본 데이터셋 초기화와 아이템 관리를 소유한다. 사용자 데이터셋 삭제 시 연결된 평가 이력 삭제는 같은 트랜잭션에서 실행된다. |
-| 관리자 RAG 실험 | `RagTestController` → `RagTestService` 또는 `RagTestHistoryService` → `RagTestRunRepository`, `RagRewriteAnchorRepository` | 생성은 도메인·언어·명시적 게이팅 스냅샷과 runtime tuple을 검증한다. 조회는 요약과 앵커 평가를 조합하고, 이력 삭제는 연결된 DB 산출물을 정리한다. 평가 명령과 결과 수집은 작업 서비스가 담당한다. |
+| 평가 데이터셋 | `EvalDatasetController` → `EvalDatasetService` → `AdminEvalDatasetRepository`. 삭제는 `EvalDatasetDeletionController` → `EvalDatasetDeletionService` → 데이터셋 저장소와 `RagTestHistoryService` | 기본 데이터셋 초기화와 아이템 조회는 `dataset`에 있다. `dataset.lifecycle`은 사용자 데이터셋 삭제와 연결된 평가 이력 삭제를 같은 트랜잭션에서 수행한다. |
+| 관리자 RAG 실험 | `RagTestController` → `RagTestService` 또는 `RagTestHistoryService` → `RagTestRunRepository`, `RagRewriteAnchorRepository` | `run`은 도메인·언어·게이팅 스냅샷 검증과 실행 이력을 담당한다. `anchor`는 평가 상세와 요약을 제공하며 `debug`는 rewrite 진단 로그를 조회한다. 평가 명령과 결과 수집은 작업 서비스가 담당한다. |
 | 관리자 런타임 설정 | `AdminRuntimeOptionsController` → `AdminRuntimeOptionsService`, `AdminRetrieverConfiguration`, `ConsoleEnvironment` | 카탈로그 파싱과 허용값, retriever 설정 조합, 환경 조회를 분리했다. 응답 기본값과 범위는 기존 카탈로그와 fallback에 따른다. 평가의 키 확인은 `RewriteLlmPreflight`가 맡는다. |
 | 임베딩 운영 | `ChunkEmbeddingAdminController` → `ChunkEmbeddingAdminService` → `ChunkEmbeddingAdminRepository` 및 `LlmJobService` | DB ANN에 필요한 모델별 청크 임베딩 상태를 확인하고 기존 materialization 작업을 생성한다. 채팅 설정 검증과 실험 실행도 같은 상태를 사용한다. |
 | 비동기 LLM 작업 | `LlmJobController` → `LlmJobService` → `LlmJobRepository`, `ExperimentPipelineService`, `LlmJobResultService` | queue와 재시도·중단·복구는 작업 서비스에 있다. 결과 수집은 보고서 JSON을 읽어 생성·게이팅·평가의 각 저장소에 반영한다. 기존 커밋 후 enqueue와 작업 유형 코드는 유지한다. |
 | 코퍼스 | `CorpusSource*`, `CorpusDocument*`, `CorpusGlossary*`, `CorpusRun*` | 소스 등록과 도메인 연결, 문서·섹션·청크 조회 및 preview, 용어·별칭·근거, 실행 이력이 각 패키지에 있다. 파이프라인은 코퍼스 전체 서비스 대신 소스 및 실행 조회만 사용한다. |
-| 코퍼스 앵커 | `CorpusAnchor*`, `AnchorExtractionService`, `AnchorNormalization*`, `MultiSourceAnchor*`, `AnchorEval*` | 추출은 선택 문서·청크에서 Python의 기존 후보 추출을 호출한다. 정규화의 검토·승인, 복수 소스의 관계 빌드, 앵커 평가의 샘플·라벨·요약은 별개 흐름이다. |
+| 코퍼스 앵커 | `CorpusAnchor*`, `AnchorExtraction*`, `AnchorNormalization*`, `MultiSourceAnchor*`, `AnchorEval*` | 앵커 조회, 증거 재추출, 정규화 검토·승인, 다중 소스 관계 생성, 평가가 각각의 패키지에 있다. 추출은 선택 문서·청크로 기존 Python 후보 추출을 호출한다. |
 | 도메인 | `DomainWorkspaceController` → `DomainWorkspaceService` → `DomainIdentityService`, `DomainSourceService`, `DomainMethodPolicyRepository` | `identity`는 도메인 생성·수정과 키/UUID 조회, `source`는 멤버십 조회·변경, `policy`는 메서드 정책 조회를 맡는다. `workspace`는 변경과 상세 응답 조회를 한 트랜잭션에서 처리한다. 운영 집계는 `dashboard`에서 독립적으로 조회한다. |
 | 프롬프트 | `PromptAsset*`, `PromptBinding*` | 자산 내용과 DB revision·활성 상태는 `asset`에서 다룬다. 바인딩의 조회·변경과 입력 프롬프트 검증은 `binding`에서 처리한다. |
 | 수집 파이프라인 | `PipelineAdminController` → `PipelineAdminService` → `PipelineStepPlanFactory`, `PipelineCommandRunner`, `PipelineAdminRepository` | 실행 흐름과 상태·취소·재시도는 `execution`에 있다. 소스 카탈로그 SQL, Dashboard 집계 SQL, 문서별 파일 아티팩트는 각각 `source`, `dashboard`, `artifact`에서 처리한다. |
@@ -54,14 +54,14 @@ flowchart LR
 - `POST /api/chat/ask`의 일반 요청은 `RagService`에 남긴다. Agentic 채팅의 실행, RRF 결과의 온라인 이력 저장, 응답 생성은 `AgenticChatService`가 처리한다. 공통 응답 조립과 메타데이터와 답변 호출은 `ChatResponseAssembler`에 있다.
 - `POST /api/rag/eval/retrieval`은 기본 `persistPolicy=NONE`으로 raw, selective, anchor-aware, router, agentic 검색을 실행한다. Router의 Agentic 가드와 하위 질의 재귀 방지를 유지한다. 평가 요청의 runtime override는 요청 범위에서만 적용된다. 평가 진입점에서는 온라인 질의와 답변을 작성하지 않는다.
 - `DomainScopedRetrievalService`는 일반·agentic 경로에서 동일한 embedding literal, 검색 후보 풀, domain·strategy·snapshot 필터 및 dense/lexical/technical 점수를 적용한다. 구현이 같았던 Agentic 검색 보조 메서드를 공통 구현으로 연결했다. 하위 질의 계획, 개별 rewrite 판단과 RRF는 `rag.retrieval.agentic`에 남는다.
-- `rag.trace`는 온라인 질의·후보·검색 결과·답변의 저장 규칙과 조회를 담당한다. Trace 저장 어댑터가 `NONE` 요청을 처리할 때 작업하지 않는 정책을 유지한다. 평가와 라이브가 읽는 검색 및 메모리 저장소에는 trace 쓰기 메서드가 없다.
-- `rag.runtime`은 도메인별 설정 검증과 변경 이력을 기록하고, `ChatConfigPromotionService`가 완료된 관리자 실험의 설정을 기존 저장 검증에 넘긴다. `rag.runtime.readiness`는 배치·메모리·프롬프트·임베딩 상태를 읽어 준비 여부를 반환한다.
+- `rag.trace.query`가 온라인 기록을 조회한다. 일반 기록 정책은 `rag.trace.write`, Agentic 기록 정책은 `rag.trace.write.agentic`에서 적용한다. Agentic 평가에서 전달하는 `NONE`은 DB 쓰기를 건너뛴다.
+- `rag.runtime.configuration`의 도메인별 설정 검증과 `rag.runtime.readiness`는 `rag.runtime.snapshot`의 게이팅 스냅샷 조회를 공유한다. `rag.runtime.promotion`은 완료된 관리자 실험의 설정을 설정 저장 서비스에 전달한다.
 - Rewrite 미리보기, 실험 명령과 요약, 파일 기반 평가 리포트, 재색인은 각 기능의 컨트롤러·서비스를 통해 제공한다. `rag.retrieval`의 SQL 모델과 공개 응답 레코드를 해당 기능에 배치했다.
 - Provider, embedding, rerank 어댑터는 각각 기존 LLM·Spring AI 호출, dense/hash 임베딩, Cohere fallback을 책임진다. 메모리 준비, 평가 지표와 보고서 계산은 계속 Python의 책임이다.
 
 ## 검증 기준
 
-리팩토링 전후 컨트롤러 매핑과 공개 DTO 레코드 선언을 비교했다. 131개 HTTP 메서드·경로와 실제 사용되는 DTO 선언 132개가 일치했다. 호출이 없던 내부 콘솔 pipeline DTO 6개는 제거했다. Flyway 스키마와 frontend, Python 실행 코드는 기존 버전을 사용했다.
+후속 재분류의 비교 기준 커밋은 `285e3b9`이며, 인자 없는 Spring 매핑을 포함해 133개 HTTP 메서드·경로가 일치했다. 기존 레코드 선언 226개와 테스트 메서드 181개도 유지했다. Flyway 스키마와 frontend, Python 실행 코드는 기존 버전을 사용했다.
 
 ## 리팩토링 전 타입별 의존 관계
 
@@ -186,59 +186,3 @@ flowchart LR
 | `rag.trace` | `RagTracePersistenceServiceTest` | 2261 | 81 | `ChatAnswerService`, `RagRepository`, `ForcedRetrievalMode`, `RagPersistPolicy`, `RagRetrievalExecutionResult`, `RagRetrievalExecutionService`, `RagTracePersistenceService` |
 | `ui` | `AdminIngestWizardRenderTest` | 25 | 1 | — |
 | `ui` | `AdminUiSmokeTest` | 92 | 2 | — |
-
-## Current production packages
-
-The table lists the 201 top-level production types in the package that owns each implementation. DTO records nested in their feature contract types are omitted.
-
-| Package | Types |
-| --- | --- |
-| `admin` | `AdminApiExceptionHandler` |
-| `admin.console` | `ConsoleJdbc` |
-| `admin.console.configuration` | `ConsoleExperimentConfig`, `ConsoleParameters` |
-| `admin.console.dashboard` | `ConsoleDashboardController`, `ConsoleDashboardDtos`, `ConsoleDashboardRepository` |
-| `admin.console.embedding` | `ChunkEmbeddingAdminController`, `ChunkEmbeddingAdminDtos`, `ChunkEmbeddingAdminRepository`, `ChunkEmbeddingAdminService` |
-| `admin.console.evaluation` | `AdminEvalDatasetRepository`, `CanonicalAnchorVersionMetadata`, `EvalDatasetController`, `EvalDatasetDtos`, `EvalDatasetService`, `RagRewriteAnchorEvalService`, `RagRewriteAnchorRepository`, `RagTestController`, `RagTestDtos`, `RagTestHistoryService`, `RagTestRunRepository`, `RagTestService`, `RewriteDebugController`, `RewriteDebugDtos`, `RewriteDebugRepository`, `RewriteLlmPreflight` |
-| `admin.console.gating` | `GatingController`, `GatingDtos`, `GatingRepository`, `GatingService` |
-| `admin.console.jobs` | `LlmJobController`, `LlmJobDtos`, `LlmJobRepository`, `LlmJobService`, `LlmJobType` |
-| `admin.console.jobs.result` | `LlmJobResultService` |
-| `admin.console.runtime` | `AdminRetrieverConfiguration`, `AdminRuntimeOptionsController`, `AdminRuntimeOptionsDtos`, `AdminRuntimeOptionsService`, `ConsoleEnvironment` |
-| `admin.console.scope` | `AdminConsoleDomainScopeRepository`, `ConsoleScopeService` |
-| `admin.console.synthetic` | `AdminConsoleStrategyTables`, `AdminSyntheticMethodRepository`, `SyntheticGenerationController`, `SyntheticGenerationDtos`, `SyntheticGenerationRepository`, `SyntheticGenerationService` |
-| `admin.corpus` | `CorpusJdbc` |
-| `admin.corpus.anchor` | `AnchorExtractionService`, `AnchorNormalizationController`, `AnchorNormalizationDtos`, `AnchorNormalizationService`, `CorpusAnchorController`, `CorpusAnchorDtos`, `CorpusAnchorRepository`, `CorpusAnchorService`, `MultiSourceAnchorController`, `MultiSourceAnchorDtos`, `MultiSourceAnchorService` |
-| `admin.corpus.anchor.evaluation` | `AnchorEvalController`, `AnchorEvalDtos`, `AnchorEvalRepository`, `AnchorEvalService` |
-| `admin.corpus.document` | `CorpusDocumentController`, `CorpusDocumentDtos`, `CorpusDocumentRepository`, `CorpusDocumentService` |
-| `admin.corpus.glossary` | `CorpusGlossaryController`, `CorpusGlossaryDtos`, `CorpusGlossaryRepository`, `CorpusGlossaryService` |
-| `admin.corpus.run` | `CorpusRunController`, `CorpusRunDtos`, `CorpusRunRepository`, `CorpusRunService` |
-| `admin.corpus.source` | `CorpusSourceController`, `CorpusSourceDtos`, `CorpusSourceRepository`, `CorpusSourceService` |
-| `admin.domain.dashboard` | `DomainDashboardController`, `DomainDashboardDtos`, `DomainDashboardRepository`, `DomainDashboardService` |
-| `admin.domain.identity` | `DomainIdentityDtos`, `DomainIdentityRepository`, `DomainIdentityService` |
-| `admin.domain.policy` | `DomainMethodPolicy`, `DomainMethodPolicyRepository` |
-| `admin.domain.source` | `DomainSourceDtos`, `DomainSourceRepository`, `DomainSourceService` |
-| `admin.domain.workspace` | `DomainDetail`, `DomainWorkspaceController`, `DomainWorkspaceService` |
-| `admin.pipeline` | `AdminPipelineConfiguration`, `AdminPipelineProperties` |
-| `admin.pipeline.artifact` | `DocumentArtifactStoreService` |
-| `admin.pipeline.dashboard` | `PipelineDashboardController`, `PipelineDashboardDtos`, `PipelineDashboardRepository`, `PipelineDashboardService` |
-| `admin.pipeline.execution` | `PipelineAdminController`, `PipelineAdminRepository`, `PipelineAdminService`, `PipelineCommandRunner`, `PipelineExecutionDtos`, `PipelineStepPlanFactory`, `SubprocessPipelineCommandRunner` |
-| `admin.pipeline.source` | `PipelineSourceRepository`, `ProjectPathResolver`, `SourceCatalogService` |
-| `admin.prompt.asset` | `PromptAssetController`, `PromptAssetDtos`, `PromptAssetRepository`, `PromptAssetService` |
-| `admin.prompt.binding` | `PromptBindingController`, `PromptBindingDtos`, `PromptBindingRepository`, `PromptBindingService` |
-| `common.logging` | `ApplicationLayerLoggingAspect` |
-| `io.queryforge.backend` | `QueryForgeApplication` |
-| `rag` | `RagApiExceptionHandler` |
-| `rag.chat` | `AgenticChatService`, `ChatAnswerService`, `ChatDtos`, `ChatResponseAssembler`, `GeminiServiceUnavailableException`, `RagController`, `RagService` |
-| `rag.embedding` | `DenseEmbeddingService`, `HashEmbeddingService`, `RagEmbeddingRepository`, `RagReindexController`, `RagReindexDtos`, `RagReindexService` |
-| `rag.eval` | `EvalReportController`, `EvalReportDtos`, `EvalReportService`, `RagRetrievalEvalController`, `RagRetrievalEvalDtos`, `RagRetrievalEvalException`, `RagRetrievalEvalService` |
-| `rag.experiment` | `ExperimentPipelineService`, `RagExperimentController`, `RagExperimentDtos`, `RagExperimentQueryService`, `RagExperimentRepository` |
-| `rag.persistence` | `RagJdbc` |
-| `rag.provider` | `RuntimeEnvService`, `SpringAiChatGateway`, `SpringAiEmbeddingGateway`, `SpringAiVectorStoreGateway` |
-| `rag.retrieval` | `ChunkRetrievalRepository`, `CohereRerankService`, `DomainScopedRetrievalService`, `ForcedRetrievalMode`, `RagExecutionTrace`, `RagLlmCallCount`, `RagPersistPolicy`, `RagRetrievalExecutionRequest`, `RagRetrievalExecutionResult`, `RagRetrievalExecutionService`, `RagRetrievedDoc`, `RetrievalDoc`, `RetrievalDtos`, `RewriteScoring` |
-| `rag.retrieval.agentic` | `AgenticQueryPlannerService`, `AgenticRetrievalDtos`, `AgenticRetrievalService`, `SearchResultMerger` |
-| `rag.retrieval.memory` | `MemoryCandidate`, `RagMemoryRepository` |
-| `rag.retrieval.rewrite` | `RewriteCandidateService`, `RewriteDtos`, `RewritePreviewController`, `RewritePreviewService` |
-| `rag.retrieval.routing` | `QueryRouteContext`, `QueryRouteDecision`, `QueryStrategy`, `QueryStrategyRouter` |
-| `rag.runtime` | `ChatConfigDtos`, `ChatConfigPromotionController`, `ChatConfigPromotionDtos`, `ChatConfigPromotionRepository`, `ChatConfigPromotionService`, `ChatRuntimeConfigController`, `ChatRuntimeConfigRepository`, `ChatRuntimeConfigService` |
-| `rag.runtime.readiness` | `ChatReadinessController`, `ChatReadinessDtos`, `ChatReadinessRepository`, `ChatReadinessService` |
-| `rag.trace` | `RagTraceDtos`, `RagTracePersistenceService`, `RagTraceQueryController`, `RagTraceQueryService`, `RagTraceRepository` |
-| `ui` | `ReactUiController` |

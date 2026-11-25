@@ -25,6 +25,7 @@ Key experiment docs:
 
 Key architecture docs:
 - [Backend feature boundaries and type dependencies](architecture/backend_feature_boundaries.md)
+- [Backend source inventory](architecture/backend_source_inventory.md)
 - `architecture/domain_pipeline_integration_design.md`
 
 Key migration docs:
