@@ -1,6 +1,6 @@
 package io.queryforge.backend.admin.pipeline.source;
 
-import io.queryforge.backend.admin.pipeline.AdminPipelineProperties;
+import io.queryforge.backend.admin.pipeline.configuration.AdminPipelineProperties;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;

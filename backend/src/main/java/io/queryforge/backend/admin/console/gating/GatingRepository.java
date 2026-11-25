@@ -15,11 +15,11 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
-import static io.queryforge.backend.admin.console.ConsoleJdbc.normalizeLimit;
-import static io.queryforge.backend.admin.console.ConsoleJdbc.normalizeOffset;
-import static io.queryforge.backend.admin.console.ConsoleJdbc.readInstant;
-import static io.queryforge.backend.admin.console.ConsoleJdbc.readJson;
-import static io.queryforge.backend.admin.console.ConsoleJdbc.readUuid;
+import static io.queryforge.backend.admin.console.persistence.ConsoleJdbc.normalizeLimit;
+import static io.queryforge.backend.admin.console.persistence.ConsoleJdbc.normalizeOffset;
+import static io.queryforge.backend.admin.console.persistence.ConsoleJdbc.readInstant;
+import static io.queryforge.backend.admin.console.persistence.ConsoleJdbc.readJson;
+import static io.queryforge.backend.admin.console.persistence.ConsoleJdbc.readUuid;
 
 @Repository
 @RequiredArgsConstructor

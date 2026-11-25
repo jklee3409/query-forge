@@ -11,12 +11,12 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.List;
 import java.util.UUID;
 
-import static io.queryforge.backend.admin.corpus.CorpusJdbc.normalizeLimit;
-import static io.queryforge.backend.admin.corpus.CorpusJdbc.normalizeOffset;
-import static io.queryforge.backend.admin.corpus.CorpusJdbc.readInstant;
-import static io.queryforge.backend.admin.corpus.CorpusJdbc.readJson;
-import static io.queryforge.backend.admin.corpus.CorpusJdbc.readNullableLong;
-import static io.queryforge.backend.admin.corpus.CorpusJdbc.readUuid;
+import static io.queryforge.backend.admin.corpus.persistence.CorpusJdbc.normalizeLimit;
+import static io.queryforge.backend.admin.corpus.persistence.CorpusJdbc.normalizeOffset;
+import static io.queryforge.backend.admin.corpus.persistence.CorpusJdbc.readInstant;
+import static io.queryforge.backend.admin.corpus.persistence.CorpusJdbc.readJson;
+import static io.queryforge.backend.admin.corpus.persistence.CorpusJdbc.readNullableLong;
+import static io.queryforge.backend.admin.corpus.persistence.CorpusJdbc.readUuid;
 
 @Repository
 @RequiredArgsConstructor

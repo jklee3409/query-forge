@@ -3,7 +3,7 @@ package io.queryforge.backend.admin.console.jobs;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import io.queryforge.backend.admin.console.evaluation.RagTestRunRepository;
+import io.queryforge.backend.admin.console.evaluation.run.RagTestRunRepository;
 import io.queryforge.backend.admin.console.gating.GatingRepository;
 import io.queryforge.backend.admin.console.jobs.result.LlmJobResultService;
 import io.queryforge.backend.admin.console.synthetic.SyntheticGenerationRepository;

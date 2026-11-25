@@ -1,6 +1,6 @@
 package io.queryforge.backend.admin.pipeline.execution;
 
-import io.queryforge.backend.admin.pipeline.AdminPipelineProperties;
+import io.queryforge.backend.admin.pipeline.configuration.AdminPipelineProperties;
 import io.queryforge.backend.admin.pipeline.execution.PipelineAdminService.ArtifactContext;
 import io.queryforge.backend.admin.pipeline.execution.PipelineAdminService.Scope;
 import io.queryforge.backend.admin.pipeline.execution.PipelineAdminService.StepPlan;

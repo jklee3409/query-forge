@@ -3,7 +3,7 @@ package io.queryforge.backend.rag.experiment.command;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import io.queryforge.backend.admin.pipeline.AdminPipelineProperties;
+import io.queryforge.backend.admin.pipeline.configuration.AdminPipelineProperties;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;

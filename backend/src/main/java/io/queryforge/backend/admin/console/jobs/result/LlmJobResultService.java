@@ -3,17 +3,18 @@ package io.queryforge.backend.admin.console.jobs.result;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import io.queryforge.backend.admin.console.evaluation.AdminEvalDatasetRepository;
-import io.queryforge.backend.admin.console.evaluation.CanonicalAnchorVersionMetadata;
-import io.queryforge.backend.admin.console.evaluation.RagRewriteAnchorEvalService;
-import io.queryforge.backend.admin.console.evaluation.RagRewriteAnchorRepository;
-import io.queryforge.backend.admin.console.evaluation.RagTestDtos;
-import io.queryforge.backend.admin.console.evaluation.RagTestRunRepository;
+import io.queryforge.backend.admin.console.evaluation.anchor.CanonicalAnchorVersionMetadata;
+import io.queryforge.backend.admin.console.evaluation.anchor.RagRewriteAnchorDtos;
+import io.queryforge.backend.admin.console.evaluation.anchor.RagRewriteAnchorEvalService;
+import io.queryforge.backend.admin.console.evaluation.anchor.RagRewriteAnchorRepository;
+import io.queryforge.backend.admin.console.evaluation.dataset.AdminEvalDatasetRepository;
+import io.queryforge.backend.admin.console.evaluation.run.RagTestDtos;
+import io.queryforge.backend.admin.console.evaluation.run.RagTestRunRepository;
 import io.queryforge.backend.admin.console.gating.GatingRepository;
 import io.queryforge.backend.admin.console.jobs.LlmJobDtos;
 import io.queryforge.backend.admin.console.jobs.LlmJobType;
 import io.queryforge.backend.admin.console.synthetic.SyntheticGenerationRepository;
-import io.queryforge.backend.admin.pipeline.AdminPipelineProperties;
+import io.queryforge.backend.admin.pipeline.configuration.AdminPipelineProperties;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
@@ -212,8 +213,13 @@ public class LlmJobResultService {
             );
             List<RagTestDtos.RagTestResultDetailRow> details = loadRewriteCasesForRun(job.ragTestRunId(), job.experimentName());
             ragTestRunRepository.replaceRagDetailRows(job.ragTestRunId(), details);
-            List<RagTestDtos.RagRewriteAnchorEvalRow> anchorEvalRows =
-                    ragRewriteAnchorEvalService.buildRowsForRun(job.ragTestRunId(), job.experimentName(), details);
+            List<RagRewriteAnchorDtos.RagRewriteAnchorEvalRow> anchorEvalRows =
+                    ragRewriteAnchorEvalService.buildRowsForRun(job.ragTestRunId(), job.experimentName(), details.stream()
+                            .map(detail -> new RagRewriteAnchorDtos.AnchorEvaluationCase(
+                                    detail.detailId(), detail.ragTestRunId(), detail.sampleId(), detail.rawQuery(),
+                                    detail.rewriteQuery(), detail.rewriteApplied(), detail.memoryCandidates(),
+                                    detail.metricContribution()))
+                            .toList());
             anchorRepository.replaceRagRewriteAnchorEvalRows(job.ragTestRunId(), anchorEvalRows);
             ragTestRunRepository.completeRagTestRun(job.ragTestRunId(), metricsJson, sourceExperimentRunId);
         }

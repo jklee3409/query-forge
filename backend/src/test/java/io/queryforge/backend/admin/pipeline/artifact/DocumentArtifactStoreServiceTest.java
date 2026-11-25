@@ -2,7 +2,7 @@ package io.queryforge.backend.admin.pipeline.artifact;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import io.queryforge.backend.admin.pipeline.AdminPipelineProperties;
+import io.queryforge.backend.admin.pipeline.configuration.AdminPipelineProperties;
 import io.queryforge.backend.admin.pipeline.source.PipelineSourceRepository;
 import io.queryforge.backend.admin.pipeline.source.SourceCatalogService;
 import org.junit.jupiter.api.Test;

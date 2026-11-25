@@ -11,8 +11,8 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.List;
 import java.util.UUID;
 
-import static io.queryforge.backend.admin.corpus.CorpusJdbc.readInstant;
-import static io.queryforge.backend.admin.corpus.CorpusJdbc.readJson;
+import static io.queryforge.backend.admin.corpus.persistence.CorpusJdbc.readInstant;
+import static io.queryforge.backend.admin.corpus.persistence.CorpusJdbc.readJson;
 
 @Repository
 @RequiredArgsConstructor
