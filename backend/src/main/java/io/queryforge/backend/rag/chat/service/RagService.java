@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import io.queryforge.backend.rag.chat.dto.ChatDtos;
 import io.queryforge.backend.rag.chat.service.ChatResponseAssembler.AgenticSettings;
 import io.queryforge.backend.rag.chat.service.ChatResponseAssembler.AnswerDraft;
+import io.queryforge.backend.rag.chat.service.RewriteDecisionPolicy.Decision;
 import io.queryforge.backend.rag.retrieval.candidate.dto.RetrievalDtos;
 import io.queryforge.backend.rag.retrieval.candidate.model.RetrievalDoc;
 import io.queryforge.backend.rag.retrieval.candidate.service.DomainScopedRetrievalService;
@@ -18,7 +19,6 @@ import io.queryforge.backend.rag.retrieval.execution.dto.RetrievalExecutionDtos.
 import io.queryforge.backend.rag.retrieval.execution.model.RagPersistPolicy;
 import io.queryforge.backend.rag.retrieval.execution.service.RagRetrievalExecutionService;
 import io.queryforge.backend.rag.retrieval.memory.model.MemoryCandidate;
-import io.queryforge.backend.rag.retrieval.rerank.service.CohereRerankService;
 import io.queryforge.backend.rag.retrieval.rewrite.dto.RewriteDtos;
 import io.queryforge.backend.rag.retrieval.routing.dto.QueryRouteDecision;
 import io.queryforge.backend.rag.retrieval.routing.model.QueryStrategy;
@@ -39,7 +39,6 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
@@ -61,7 +60,6 @@ public class RagService {
     private final DomainScopedRetrievalService domainScopedRetrievalService;
     private final RagRetrievalExecutionService ragRetrievalExecutionService;
     private final RagTracePersistenceService ragTracePersistenceService;
-    private final CohereRerankService cohereRerankService;
     private final ChatRuntimeConfigService chatRuntimeConfigService;
     private final ChatReadinessService chatReadinessService;
     private final QueryStrategyRouter queryStrategyRouter;
@@ -222,12 +220,8 @@ public class RagService {
                         config.domainId(), retrievalRuntime),
                 rawDense
         );
-        List<RetrievalDoc> rawRetrievedLocal = rawRetrieval.retrievedDocs();
-        List<RetrievalDoc> rawRetrieved = rawRetrieval.rerankedDocs();
         double rawConfidence = rawRetrieval.confidence();
         long rawRetrievalLatency = rawRetrieval.latencyMs();
-        String rawRetrieverName = rawRetrieval.retrieverName();
-        JsonNode rawRetrievalMetadata = rawRetrieval.retrievalMetadata();
         boolean rawOnlyTracePersistence = useRawOnlyTracePersistence(mode, rawOnlyRoute);
         if (rawOnlyTracePersistence) {
             ragTracePersistenceService.persistRawOnlyTrace(new RagTraceWriteDtos.RawOnlyTracePersistenceRequest(
@@ -236,10 +230,10 @@ public class RagService {
                     rawQuery,
                     rawQuery,
                     mode,
-                    rawRetrievedLocal,
-                    rawRetrieved,
-                    rawRetrievalMetadata,
-                    rawRetrieverName,
+                    rawRetrieval.retrievedDocs(),
+                    rawRetrieval.rerankedDocs(),
+                    rawRetrieval.retrievalMetadata(),
+                    rawRetrieval.retrieverName(),
                     null,
                     rawRetrievalLatency,
                     RagTraceWriteDtos.RawOnlyTraceWriteScope.RETRIEVAL
@@ -249,10 +243,10 @@ public class RagService {
                     onlineQueryId,
                     null,
                     "raw",
-                    rawRetrievedLocal,
+                    rawRetrieval.retrievedDocs(),
                     mode,
-                    rawRetrieverName,
-                    rawRetrievalMetadata
+                    rawRetrieval.retrieverName(),
+                    rawRetrieval.retrievalMetadata()
             );
         }
 
@@ -320,19 +314,15 @@ public class RagService {
         long candidateLatency = responses.elapsedMs(stageStart);
 
         stageStart = System.nanoTime();
+        RetrievalMaterial memoryRetrieval = null;
+        if (!rawOnlyRoute && RewriteDecisionPolicy.usesMemoryQuery(mode) && !memoryCandidates.isEmpty()) {
+            memoryRetrieval = ragRetrievalExecutionService.executeMemoryRetrieval(
+                    memoryCandidates.getFirst(), rawRetrieval.rerankedDocs().size(), config.domainId(), retrievalRuntime
+            );
+        }
         Decision decision = rawOnlyRoute
-                ? routerRawOnlyDecision(rawQuery, rawRetrieved, routeDecision)
-                : decide(
-                mode,
-                rawQuery,
-                rawConfidence,
-                rawRetrieved,
-                memoryCandidates,
-                scoredCandidates,
-                threshold,
-                config.domainId(),
-                retrievalRuntime
-        );
+                ? RewriteDecisionPolicy.routerRawOnly(rawRetrieval, routeDecision)
+                : RewriteDecisionPolicy.decide(mode, rawRetrieval, scoredCandidates, threshold, memoryRetrieval);
         ExecutedRewriteCandidate selectedCandidate = decision.selectedCandidate();
         UUID selectedCandidateId = selectedCandidate == null ? null : candidateIds.get(selectedCandidate.index());
         for (ExecutedRewriteCandidate candidate : scoredCandidates) {
@@ -365,11 +355,11 @@ public class RagService {
                     rawQuery,
                     decision.finalQuery(),
                     mode,
-                    rawRetrievedLocal,
+                    rawRetrieval.retrievedDocs(),
                     reranked,
-                    rawRetrievalMetadata,
-                    rawRetrieverName,
-                    cohereRerankService.modelName(),
+                    rawRetrieval.retrievalMetadata(),
+                    rawRetrieval.retrieverName(),
+                    rawRetrieval.rerankerModel(),
                     rawRetrievalLatency,
                     RagTraceWriteDtos.RawOnlyTraceWriteScope.RERANK
             ));
@@ -388,13 +378,13 @@ public class RagService {
                             reranked,
                             objectMapper.createObjectNode(),
                             null,
-                            cohereRerankService.modelName(),
+                            rawRetrieval.rerankerModel(),
                             0L,
                             RagTraceWriteDtos.RewriteCandidateTraceWriteScope.CANDIDATE_RERANK
                     )
             );
         } else {
-            traceRepository.insertRerankResults(onlineQueryId, null, reranked, cohereRerankService.modelName());
+            traceRepository.insertRerankResults(onlineQueryId, null, reranked, rawRetrieval.rerankerModel());
         }
         long rerankLatency = responses.elapsedMs(stageStart);
 
@@ -598,24 +588,6 @@ public class RagService {
                 .toList();
     }
 
-    private Decision routerRawOnlyDecision(
-            String rawQuery,
-            List<RetrievalDoc> rawRetrieved,
-            QueryRouteDecision routeDecision
-    ) {
-        String rejectedReason = routeDecision.fallbackApplied()
-                ? routeDecision.fallbackReason()
-                : "query_router_strategy=" + routeDecision.strategy().name().toLowerCase(Locale.ROOT);
-        return new Decision(
-                rawQuery,
-                false,
-                rawRetrieved,
-                null,
-                routeDecision.reason(),
-                rejectedReason
-        );
-    }
-
     private boolean isSelectiveRewriteExecution(String mode, QueryRouteDecision routeDecision) {
         boolean forcedNonAnchorSelective = mode.startsWith("selective_rewrite")
                 && !routeDecision.routerEnabled()
@@ -654,55 +626,6 @@ public class RagService {
                 : NonAgenticExecutionKind.SELECTIVE_REWRITE;
     }
 
-    private Decision decide(
-            String mode,
-            String rawQuery,
-            double rawConfidence,
-            List<RetrievalDoc> rawRetrieved,
-            List<MemoryCandidate> memoryCandidates,
-            List<ExecutedRewriteCandidate> candidates,
-            double threshold,
-            UUID domainId,
-            RetrievalDtos.RetrievalRuntime retrievalRuntime
-    ) {
-        if ("raw_only".equals(mode)) {
-            return new Decision(rawQuery, false, rawRetrieved, null, "raw_only", "mode=raw_only");
-        }
-        if ("memory_only_ungated".equals(mode) || "memory_only_gated".equals(mode)) {
-            if (memoryCandidates.isEmpty()) {
-                return new Decision(rawQuery, false, rawRetrieved, null, "memory_empty", "no memory candidate");
-            }
-            String memoryQuery = memoryCandidates.getFirst().queryText();
-            String embedding = domainScopedRetrievalService.embeddingLiteral(memoryQuery, retrievalRuntime);
-            List<RetrievalDoc> retrievedLocal = domainScopedRetrievalService.retrieveChunks(
-                    memoryQuery,
-                    embedding,
-                    Math.max(20, rawRetrieved.size()),
-                    domainId,
-                    retrievalRuntime
-            );
-            List<RetrievalDoc> retrieved = cohereRerankService.rerank(memoryQuery, retrievedLocal, rawRetrieved.size());
-            return new Decision(memoryQuery, true, retrieved, null, "memory_only", null);
-        }
-
-        ExecutedRewriteCandidate best = candidates.stream()
-                .max(Comparator.comparingDouble(ExecutedRewriteCandidate::confidence))
-                .orElse(null);
-        if (best == null) {
-            return new Decision(rawQuery, false, rawRetrieved, null, "no_candidate", "rewrite candidate missing");
-        }
-
-        if ("rewrite_always".equals(mode)) {
-            return new Decision(best.query(), true, best.rerankedDocs(), best, "forced", null);
-        }
-
-        double delta = best.confidence() - rawConfidence;
-        if (delta >= threshold) {
-            return new Decision(best.query(), true, best.rerankedDocs(), best, "delta_above_threshold", null);
-        }
-        return new Decision(rawQuery, false, rawRetrieved, null, "delta_below_threshold", "best-candidate delta below threshold");
-    }
-
     private String normalizedMode(String mode) {
         if (mode == null || mode.isBlank()) {
             return "selective_rewrite";
@@ -732,13 +655,4 @@ public class RagService {
         return value.trim();
     }
 
-    private record Decision(
-            String finalQuery,
-            boolean rewriteApplied,
-            List<RetrievalDoc> finalRetrieved,
-            ExecutedRewriteCandidate selectedCandidate,
-            String selectedReason,
-            String rejectedReason
-    ) {
-    }
 }

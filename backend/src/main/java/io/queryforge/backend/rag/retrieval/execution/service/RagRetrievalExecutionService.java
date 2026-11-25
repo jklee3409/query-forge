@@ -12,6 +12,7 @@ import io.queryforge.backend.rag.retrieval.execution.dto.RetrievalExecutionDtos.
 import io.queryforge.backend.rag.retrieval.execution.dto.RetrievalExecutionDtos.RetrievalMaterial;
 import io.queryforge.backend.rag.retrieval.execution.dto.RetrievalExecutionDtos.RewriteExecutionRequest;
 import io.queryforge.backend.rag.retrieval.execution.dto.RetrievalExecutionDtos.RewriteExecutionResult;
+import io.queryforge.backend.rag.retrieval.memory.model.MemoryCandidate;
 import io.queryforge.backend.rag.retrieval.rerank.service.CohereRerankService;
 import io.queryforge.backend.rag.retrieval.rewrite.dto.RewriteDtos;
 import io.queryforge.backend.rag.retrieval.rewrite.service.RewriteCandidateService;
@@ -20,6 +21,7 @@ import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
 import java.util.List;
+import java.util.UUID;
 
 import static io.queryforge.backend.rag.retrieval.rewrite.service.RewriteScoring.confidence;
 
@@ -43,28 +45,25 @@ public class RagRetrievalExecutionService {
     }
 
     public RetrievalMaterial executeRawRetrieval(RawRetrievalRequest request, double memorySimilarity) {
+        return executeRetrieval(
+                request.originalQuery(), request.queryEmbeddingLiteral(), request.retrievalTopK(),
+                request.rerankTopN(), request.domainId(), request.retrievalRuntime(), memorySimilarity,
+                System.nanoTime()
+        );
+    }
+
+    public RetrievalMaterial executeMemoryRetrieval(
+            MemoryCandidate memory,
+            int rawRerankedCount,
+            UUID domainId,
+            RetrievalDtos.RetrievalRuntime runtime
+    ) {
         long started = System.nanoTime();
-        List<RetrievalDoc> localRetrievedDocs = domainScopedRetrievalService.retrieveChunks(
-                request.originalQuery(),
-                request.queryEmbeddingLiteral(),
-                request.retrievalTopK(),
-                request.domainId(),
-                request.retrievalRuntime()
-        );
-        List<RetrievalDoc> rerankedDocs = cohereRerankService.rerank(
-                request.originalQuery(),
-                localRetrievedDocs,
-                request.rerankTopN()
-        );
-        return new RetrievalMaterial(
-                request.originalQuery(),
-                localRetrievedDocs,
-                rerankedDocs,
-                confidence(rerankedDocs, memorySimilarity),
-                request.retrievalRuntime().retrieverName(),
-                cohereRerankService.modelName(),
-                retrievalMetadata(request.retrievalRuntime()),
-                elapsedMs(started)
+        String query = memory.queryText();
+        String embeddingLiteral = domainScopedRetrievalService.embeddingLiteral(query, runtime);
+        return executeRetrieval(
+                query, embeddingLiteral, Math.max(20, rawRerankedCount), rawRerankedCount,
+                domainId, runtime, memory.similarity(), started
         );
     }
 
@@ -99,33 +98,38 @@ public class RagRetrievalExecutionService {
         String query = generated.query();
         RetrievalDtos.RetrievalRuntime retrievalRuntime = request.retrievalRuntime();
         String embeddingLiteral = domainScopedRetrievalService.embeddingLiteral(query, retrievalRuntime);
-        List<RetrievalDoc> localRetrievedDocs = domainScopedRetrievalService.retrieveChunks(
-                query,
-                embeddingLiteral,
-                request.retrievalTopK(),
-                request.domainId(),
-                retrievalRuntime
-        );
-        List<RetrievalDoc> rerankedDocs = cohereRerankService.rerank(
-                query,
-                localRetrievedDocs,
-                request.rerankTopN()
+        RetrievalMaterial retrieval = executeRetrieval(
+                query, embeddingLiteral, request.retrievalTopK(), request.rerankTopN(),
+                request.domainId(), retrievalRuntime, request.rawDenseScore(), started
         );
         return new ExecutedRewriteCandidate(
-                candidateIndex,
-                generated.label(),
+                candidateIndex, generated.label(), query, candidateMetadata(candidateIndex, generated.label()), retrieval
+        );
+    }
+
+    private RetrievalMaterial executeRetrieval(
+            String query,
+            String embeddingLiteral,
+            int retrievalTopK,
+            int rerankTopN,
+            UUID domainId,
+            RetrievalDtos.RetrievalRuntime runtime,
+            double memorySimilarity,
+            long started
+    ) {
+        List<RetrievalDoc> localRetrievedDocs = domainScopedRetrievalService.retrieveChunks(
+                query, embeddingLiteral, retrievalTopK, domainId, runtime
+        );
+        List<RetrievalDoc> rerankedDocs = cohereRerankService.rerank(query, localRetrievedDocs, rerankTopN);
+        return new RetrievalMaterial(
                 query,
-                candidateMetadata(candidateIndex, generated.label()),
-                new RetrievalMaterial(
-                        query,
-                        localRetrievedDocs,
-                        rerankedDocs,
-                        confidence(rerankedDocs, request.rawDenseScore()),
-                        retrievalRuntime.retrieverName(),
-                        cohereRerankService.modelName(),
-                        retrievalMetadata(retrievalRuntime),
-                        elapsedMs(started)
-                )
+                localRetrievedDocs,
+                rerankedDocs,
+                confidence(rerankedDocs, memorySimilarity),
+                runtime.retrieverName(),
+                cohereRerankService.modelName(),
+                retrievalMetadata(runtime),
+                elapsedMs(started)
         );
     }
 

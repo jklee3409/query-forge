@@ -139,6 +139,22 @@ class RagRetrievalExecutionServiceTest {
     }
 
     @Test
+    void memoryQueryRetrievalUsesItsOwnEmbeddingAndOriginalRerankCount() {
+        MemoryCandidate memory = memory();
+        RetrievalDtos.RetrievalRuntime runtime = localDenseRuntime(10);
+        List<RetrievalDoc> docs = List.of(new RetrievalDoc("doc-1", "chunk-1", "Spring Security", 0.75d));
+        when(embeddingService.embed(memory.queryText())).thenReturn(List.of(1.0d, 0.0d));
+        when(embeddingService.toHalfvecLiteral(List.of(1.0d, 0.0d))).thenReturn("memory-embedding");
+        when(chunkRepository.findTopChunksByEmbedding("memory-embedding", 20, domainId)).thenReturn(docs);
+        when(cohereRerankService.rerank(memory.queryText(), docs, 0)).thenReturn(docs);
+
+        RetrievalExecutionDtos.RetrievalMaterial retrieval = service.executeMemoryRetrieval(memory, 0, domainId, runtime);
+
+        assertThat(retrieval.query()).isEqualTo(memory.queryText());
+        assertThat(retrieval.rerankedDocs()).isEqualTo(docs);
+    }
+
+    @Test
     void emptyRawOnlyExecutionReturnsEmptyDocsAndZeroConfidence() {
         String query = "FilterChainProxy order";
         RetrievalDtos.RetrievalRuntime runtime = localDenseRuntime(20);

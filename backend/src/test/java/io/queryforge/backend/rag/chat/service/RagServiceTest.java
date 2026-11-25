@@ -128,7 +128,6 @@ class RagServiceTest {
                 domainScopedRetrievalService,
                 ragRetrievalExecutionService,
                 ragTracePersistenceService,
-                cohereRerankService,
                 chatRuntimeConfigService,
                 chatReadinessService,
                 new QueryStrategyRouter(),
