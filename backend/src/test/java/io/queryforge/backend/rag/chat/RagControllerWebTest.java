@@ -1,7 +1,9 @@
 package io.queryforge.backend.rag.chat;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import io.queryforge.backend.rag.experiment.ExperimentPipelineService;
+import io.queryforge.backend.rag.eval.EvalReportController;
+import io.queryforge.backend.rag.eval.EvalReportDtos;
+import io.queryforge.backend.rag.eval.EvalReportService;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
@@ -20,7 +22,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-@WebMvcTest(controllers = RagController.class)
+@WebMvcTest(controllers = {RagController.class, EvalReportController.class})
 class RagControllerWebTest {
 
     @Autowired
@@ -33,13 +35,13 @@ class RagControllerWebTest {
     private RagService ragService;
 
     @MockitoBean
-    private ExperimentPipelineService experimentPipelineService;
+    private EvalReportService evalReportService;
 
     @Test
     void askEndpointReturnsTracePayload() throws Exception {
         UUID queryId = UUID.randomUUID();
         when(ragService.ask(any())).thenReturn(
-                new RagDtos.AskResponse(
+                new ChatDtos.AskResponse(
                         queryId,
                         "answer",
                         "final query",
@@ -95,8 +97,8 @@ class RagControllerWebTest {
 
     @Test
     void retrievalEvalEndpointReturnsLatestPayload() throws Exception {
-        when(ragService.readEvalReport("retrieval")).thenReturn(
-                new RagDtos.EvalReportResponse("retrieval", objectMapper.readTree("{\"ok\":true}"))
+        when(evalReportService.readEvalReport("retrieval")).thenReturn(
+                new EvalReportDtos.EvalReportResponse("retrieval", objectMapper.readTree("{\"ok\":true}"))
         );
 
         mockMvc.perform(get("/api/eval/retrieval"))

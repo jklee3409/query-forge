@@ -1,7 +1,6 @@
 package io.queryforge.backend.admin.console.runtime;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import io.queryforge.backend.admin.pipeline.AdminPipelineProperties;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.yaml.snakeyaml.Yaml;
@@ -16,7 +15,6 @@ import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
-import java.util.regex.Pattern;
 
 import static io.queryforge.backend.admin.console.configuration.ConsoleParameters.asTrimmedString;
 import static io.queryforge.backend.admin.console.configuration.ConsoleParameters.blankToNull;
@@ -27,52 +25,28 @@ import static io.queryforge.backend.admin.console.configuration.ConsoleParameter
 @RequiredArgsConstructor
 public class AdminRuntimeOptionsService {
 
+    private final ConsoleEnvironment environment;
     private static final String REWRITE_FAILURE_POLICY_FAIL_RUN = "fail_run";
-
     private static final String REWRITE_FAILURE_POLICY_SKIP_TO_RAW = "skip_to_raw";
-
     private static final String REWRITE_FAILURE_POLICY_HEURISTIC_FALLBACK = "heuristic_fallback";
-
     private static final String REWRITE_QUERY_PROFILE_COMPACT_ANCHOR = "compact_anchor";
-
     private static final String REWRITE_QUERY_PROFILE_DETAILED_INTENT = "detailed_intent";
-
     private static final String RETRIEVAL_BACKEND_LOCAL = "local";
-
     private static final String RETRIEVAL_BACKEND_DB_ANN = "db_ann";
-
     private static final String RETRIEVER_MODE_BM25_ONLY = "bm25_only";
-
     private static final String RETRIEVER_MODE_DENSE_ONLY = "dense_only";
-
     private static final String RETRIEVER_MODE_HYBRID = "hybrid";
-
     private static final String DEFAULT_LLM_MODEL = "gemini-2.5-flash-lite";
-
     private static final String DEFAULT_LLM_FALLBACK_MODEL = "gemini-2.5-flash-lite";
-
     private static final String DEFAULT_DENSE_EMBEDDING_MODEL = "intfloat/multilingual-e5-small";
-
     private static final String MODEL_CATALOG_RELATIVE_PATH = "configs/app/model_catalog.yml";
-
     private static final int DEFAULT_RAG_RETRIEVAL_TOP_K = 10;
-
     private static final double DEFAULT_REWRITE_THRESHOLD = 0.05d;
-
     private static final int DEFAULT_REWRITE_MEMORY_CANDIDATE_POOL_N = 20;
-
     private static final int DEFAULT_RETRIEVER_CANDIDATE_POOL_K = 50;
-
     private static final double DEFAULT_RAG_HYBRID_DENSE_WEIGHT = 0.60d;
-
     private static final double DEFAULT_RAG_HYBRID_BM25_WEIGHT = 0.32d;
-
     private static final double DEFAULT_RAG_HYBRID_TECHNICAL_WEIGHT = 0.08d;
-
-    private static final Pattern NON_ALNUM_PATTERN = Pattern.compile("[^A-Z0-9]");
-
-    private final AdminPipelineProperties pipelineProperties;
-
     private final ObjectMapper objectMapper;
 
     private final Yaml yaml = new Yaml();
@@ -83,18 +57,18 @@ public class AdminRuntimeOptionsService {
                 catalog.availableLlmModels(),
                 collectRuntimeOptions(
                         nullableStringCandidates(
-                                readEnv("QUERY_FORGE_ADMIN_LLM_MODELS"),
-                                readEnv("QUERY_FORGE_LLM_MODEL"),
-                                readEnv("QUERY_FORGE_LLM_SUMMARY_MODEL"),
-                                readEnv("QUERY_FORGE_LLM_QUERY_MODEL"),
-                                readEnv("QUERY_FORGE_LLM_SELF_EVAL_MODEL"),
-                                readEnv("QUERY_FORGE_LLM_REWRITE_MODEL"),
-                                readEnv("QUERY_FORGE_LLM_FALLBACK_MODELS")
+                                environment.readEnv("QUERY_FORGE_ADMIN_LLM_MODELS"),
+                                environment.readEnv("QUERY_FORGE_LLM_MODEL"),
+                                environment.readEnv("QUERY_FORGE_LLM_SUMMARY_MODEL"),
+                                environment.readEnv("QUERY_FORGE_LLM_QUERY_MODEL"),
+                                environment.readEnv("QUERY_FORGE_LLM_SELF_EVAL_MODEL"),
+                                environment.readEnv("QUERY_FORGE_LLM_REWRITE_MODEL"),
+                                environment.readEnv("QUERY_FORGE_LLM_FALLBACK_MODELS")
                         ),
                         List.of(DEFAULT_LLM_MODEL, DEFAULT_LLM_FALLBACK_MODEL)
                 )
         );
-        String envLlmModel = readEnv("QUERY_FORGE_LLM_MODEL");
+        String envLlmModel = environment.readEnv("QUERY_FORGE_LLM_MODEL");
         String defaultLlmModel = firstNonBlank(
                 llmModels.contains(envLlmModel) ? envLlmModel : null,
                 llmModels.contains(catalog.defaultLlmModel()) ? catalog.defaultLlmModel() : null,
@@ -105,14 +79,14 @@ public class AdminRuntimeOptionsService {
                 catalog.availableDenseEmbeddingModels(),
                 collectRuntimeOptions(
                         nullableStringCandidates(
-                                readEnv("QUERY_FORGE_ADMIN_DENSE_EMBEDDING_MODELS"),
-                                readEnv("QUERY_FORGE_LOCAL_EMBEDDING_MODEL"),
-                                readEnv("QUERY_FORGE_ANCHOR_EMBEDDING_MODEL")
+                                environment.readEnv("QUERY_FORGE_ADMIN_DENSE_EMBEDDING_MODELS"),
+                                environment.readEnv("QUERY_FORGE_LOCAL_EMBEDDING_MODEL"),
+                                environment.readEnv("QUERY_FORGE_ANCHOR_EMBEDDING_MODEL")
                         ),
                         List.of(DEFAULT_DENSE_EMBEDDING_MODEL)
                 )
         );
-        String envDenseModel = readEnv("QUERY_FORGE_LOCAL_EMBEDDING_MODEL");
+        String envDenseModel = environment.readEnv("QUERY_FORGE_LOCAL_EMBEDDING_MODEL");
         String defaultDenseEmbeddingModel = firstNonBlank(
                 denseEmbeddingModels.contains(envDenseModel) ? envDenseModel : null,
                 denseEmbeddingModels.contains(catalog.defaultDenseEmbeddingModel()) ? catalog.defaultDenseEmbeddingModel() : null,
@@ -179,150 +153,9 @@ public class AdminRuntimeOptionsService {
         );
     }
 
-    private String readEnv(String key) {
-        String value = System.getenv(key);
-        if (value == null || value.isBlank()) {
-            value = readFromDotEnvFile(key);
-        }
-        if (value == null || value.isBlank()) {
-            return null;
-        }
-        return value.trim();
-    }
-
-    private String readFromDotEnvFile(String key) {
-        Path envPath = resolveRepoRoot().resolve(".env").normalize();
-        if (!Files.exists(envPath)) {
-            return null;
-        }
-        try {
-            for (String entry : Files.readAllLines(envPath, StandardCharsets.UTF_8)) {
-                String line = entry.trim();
-                if (line.isEmpty() || line.startsWith("#")) {
-                    continue;
-                }
-                int delimiter = line.indexOf('=');
-                if (delimiter <= 0) {
-                    continue;
-                }
-                String name = line.substring(0, delimiter).trim();
-                if (!name.equals(key)) {
-                    continue;
-                }
-                String rawValue = line.substring(delimiter + 1).trim();
-                if ((rawValue.startsWith("\"") && rawValue.endsWith("\""))
-                        || (rawValue.startsWith("'") && rawValue.endsWith("'"))) {
-                    rawValue = rawValue.substring(1, rawValue.length() - 1);
-                }
-                return rawValue.isBlank() ? null : rawValue.trim();
-            }
-        } catch (IOException ignored) {
-            return null;
-        }
-        return null;
-    }
-
-    private String normalizeLlmProviderName(String provider) {
-        if (provider == null || provider.isBlank()) {
-            return "";
-        }
-        return provider.trim().toLowerCase().replace("_", "-");
-    }
-
-    private String providerEnvSuffix(String provider) {
-        String normalized = normalizeLlmProviderName(provider).toUpperCase();
-        return NON_ALNUM_PATTERN.matcher(normalized).replaceAll("_");
-    }
-
-    private String resolveApiKeyForProvider(String provider, String rewriteStageApiKey, String genericLlmApiKey) {
-        String envSuffix = providerEnvSuffix(provider);
-        String rewriteEnvApiKey = readEnv("QUERY_FORGE_LLM_REWRITE_API_KEY");
-        String sharedEnvApiKey = readEnv("QUERY_FORGE_LLM_API_KEY");
-        String providerScopedEnvApiKey = readEnv("QUERY_FORGE_LLM_" + envSuffix + "_API_KEY");
-        return switch (normalizeLlmProviderName(provider)) {
-            case "gemini", "gemini-native" -> firstNonBlank(
-                    rewriteStageApiKey,
-                    genericLlmApiKey,
-                    rewriteEnvApiKey,
-                    sharedEnvApiKey,
-                    providerScopedEnvApiKey,
-                    readEnv("QUERY_FORGE_GEMINI_API_KEY"),
-                    readEnv("QUERY_FORGE_LLM_GEMINI_API_KEY"),
-                    readEnv("GEMINI_API_KEY"),
-                    readEnv("GOOGLE_API_KEY")
-            );
-            case "openai" -> firstNonBlank(
-                    rewriteStageApiKey,
-                    genericLlmApiKey,
-                    rewriteEnvApiKey,
-                    sharedEnvApiKey,
-                    providerScopedEnvApiKey,
-                    readEnv("OPENAI_API_KEY")
-            );
-            case "groq" -> firstNonBlank(
-                    rewriteStageApiKey,
-                    genericLlmApiKey,
-                    rewriteEnvApiKey,
-                    sharedEnvApiKey,
-                    providerScopedEnvApiKey,
-                    readEnv("GROQ_API_KEY")
-            );
-            default -> firstNonBlank(
-                    rewriteStageApiKey,
-                    genericLlmApiKey,
-                    rewriteEnvApiKey,
-                    sharedEnvApiKey,
-                    providerScopedEnvApiKey
-            );
-        };
-    }
-
-    public void validateRewriteStageLlmConfig(Map<String, Object> config, boolean rewriteEnabled) {
-        if (!rewriteEnabled) {
-            return;
-        }
-        String provider = normalizeLlmProviderName(
-                firstNonBlank(
-                        asTrimmedString(config.get("llm_rewrite_provider")),
-                        asTrimmedString(config.get("llm_provider")),
-                        readEnv("QUERY_FORGE_LLM_REWRITE_PROVIDER"),
-                        readEnv("QUERY_FORGE_LLM_PROVIDER"),
-                        "gemini-native"
-                )
-        );
-        if (provider.isBlank()) {
-            throw new IllegalArgumentException(
-                    "rewrite_enabled=true requires llm_rewrite_provider (or llm_provider) for stage=rewrite"
-            );
-        }
-        String model = firstNonBlank(
-                asTrimmedString(config.get("llm_rewrite_model")),
-                asTrimmedString(config.get("llm_model")),
-                readEnv("QUERY_FORGE_LLM_REWRITE_MODEL"),
-                readEnv("QUERY_FORGE_LLM_MODEL")
-        );
-        if (model.isBlank()) {
-            throw new IllegalArgumentException(
-                    "rewrite_enabled=true requires llm_rewrite_model (or llm_model) for stage=rewrite"
-            );
-        }
-        String apiKey = resolveApiKeyForProvider(
-                provider,
-                asTrimmedString(config.get("llm_rewrite_api_key")),
-                asTrimmedString(config.get("llm_api_key"))
-        );
-        if (apiKey.isBlank()) {
-            throw new IllegalArgumentException(
-                    "rewrite_enabled=true requires rewrite-stage LLM API key "
-                            + "(llm_rewrite_api_key / QUERY_FORGE_LLM_REWRITE_API_KEY / QUERY_FORGE_LLM_API_KEY "
-                            + "/ GEMINI_API_KEY / provider API key env)"
-            );
-        }
-    }
-
     @SuppressWarnings("unchecked")
     public RuntimeCatalog loadRuntimeCatalog() {
-        Path catalogPath = resolveRepoRoot().resolve(MODEL_CATALOG_RELATIVE_PATH).normalize();
+        Path catalogPath = environment.resolveRepoRoot().resolve(MODEL_CATALOG_RELATIVE_PATH).normalize();
         if (!Files.exists(catalogPath)) {
             return buildFallbackRuntimeCatalog();
         }
@@ -364,13 +197,13 @@ public class AdminRuntimeOptionsService {
     private RuntimeCatalog buildFallbackRuntimeCatalog() {
         List<RuntimeOptionMetadata> llmModels = collectRuntimeOptions(
                 nullableStringCandidates(
-                        readEnv("QUERY_FORGE_ADMIN_LLM_MODELS"),
-                        readEnv("QUERY_FORGE_LLM_MODEL"),
-                        readEnv("QUERY_FORGE_LLM_SUMMARY_MODEL"),
-                        readEnv("QUERY_FORGE_LLM_QUERY_MODEL"),
-                        readEnv("QUERY_FORGE_LLM_SELF_EVAL_MODEL"),
-                        readEnv("QUERY_FORGE_LLM_REWRITE_MODEL"),
-                        readEnv("QUERY_FORGE_LLM_FALLBACK_MODELS")
+                        environment.readEnv("QUERY_FORGE_ADMIN_LLM_MODELS"),
+                        environment.readEnv("QUERY_FORGE_LLM_MODEL"),
+                        environment.readEnv("QUERY_FORGE_LLM_SUMMARY_MODEL"),
+                        environment.readEnv("QUERY_FORGE_LLM_QUERY_MODEL"),
+                        environment.readEnv("QUERY_FORGE_LLM_SELF_EVAL_MODEL"),
+                        environment.readEnv("QUERY_FORGE_LLM_REWRITE_MODEL"),
+                        environment.readEnv("QUERY_FORGE_LLM_FALLBACK_MODELS")
                 ),
                 List.of(DEFAULT_LLM_MODEL, DEFAULT_LLM_FALLBACK_MODEL)
         ).stream().map(model -> new RuntimeOptionMetadata(
@@ -384,9 +217,9 @@ public class AdminRuntimeOptionsService {
         )).toList();
         List<RuntimeOptionMetadata> denseModels = collectRuntimeOptions(
                 nullableStringCandidates(
-                        readEnv("QUERY_FORGE_ADMIN_DENSE_EMBEDDING_MODELS"),
-                        readEnv("QUERY_FORGE_LOCAL_EMBEDDING_MODEL"),
-                        readEnv("QUERY_FORGE_ANCHOR_EMBEDDING_MODEL")
+                        environment.readEnv("QUERY_FORGE_ADMIN_DENSE_EMBEDDING_MODELS"),
+                        environment.readEnv("QUERY_FORGE_LOCAL_EMBEDDING_MODEL"),
+                        environment.readEnv("QUERY_FORGE_ANCHOR_EMBEDDING_MODEL")
                 ),
                 List.of(DEFAULT_DENSE_EMBEDDING_MODEL)
         ).stream().map(model -> new RuntimeOptionMetadata(
@@ -628,7 +461,7 @@ public class AdminRuntimeOptionsService {
         }
     }
 
-    private boolean parseBooleanOrDefault(Object value, boolean fallback) {
+    boolean parseBooleanOrDefault(Object value, boolean fallback) {
         if (value == null) {
             return fallback;
         }
@@ -642,12 +475,12 @@ public class AdminRuntimeOptionsService {
         return "true".equalsIgnoreCase(normalized);
     }
 
-    private int intDefault(Object value, int fallback) {
+    int intDefault(Object value, int fallback) {
         Double parsed = parseNumber(value);
         return parsed == null ? fallback : parsed.intValue();
     }
 
-    private double doubleDefault(Object value, double fallback) {
+    double doubleDefault(Object value, double fallback) {
         Double parsed = parseNumber(value);
         return parsed == null ? fallback : parsed;
     }
@@ -697,47 +530,6 @@ public class AdminRuntimeOptionsService {
                         "llm provider is not selectable by catalog: " + provider + appendReason(providerOption.reason())
                 );
             }
-        }
-    }
-
-    public void validateRetrieverSelection(Map<String, Object> retrieverConfig, RuntimeCatalog catalog) {
-        String retrieverMode = normalizeRetrieverMode(asTrimmedString(retrieverConfig.get("retriever_mode")));
-        RuntimeOptionMetadata retrieverModeOption = catalog.findRetrieverMode(retrieverMode);
-        if (retrieverModeOption == null) {
-            throw new IllegalArgumentException("retriever_mode is not allowed by catalog: " + retrieverMode);
-        }
-        if (!isSelectable(retrieverModeOption)) {
-            throw new IllegalArgumentException(
-                    "retriever_mode is not selectable by catalog: " + retrieverMode + appendReason(retrieverModeOption.reason())
-            );
-        }
-        if (RETRIEVER_MODE_BM25_ONLY.equals(retrieverMode)) {
-            return;
-        }
-        String denseModel = blankToNull(asTrimmedString(retrieverConfig.get("dense_embedding_model")));
-        if (denseModel == null) {
-            throw new IllegalArgumentException("dense_embedding_model is required for retriever_mode=" + retrieverMode);
-        }
-        RuntimeOptionMetadata denseOption = catalog.findDenseEmbeddingModel(denseModel);
-        if (denseOption == null) {
-            throw new IllegalArgumentException("dense_embedding_model is not allowed by catalog: " + denseModel);
-        }
-        if (!isSelectable(denseOption)) {
-            throw new IllegalArgumentException(
-                    "dense_embedding_model is not selectable by catalog: " + denseModel + appendReason(denseOption.reason())
-            );
-        }
-    }
-
-    public void validateRetrievalBackendSelection(String retrievalBackend, RuntimeCatalog catalog) {
-        RuntimeOptionMetadata backendOption = catalog.findRetrievalBackend(retrievalBackend);
-        if (backendOption == null) {
-            throw new IllegalArgumentException("retrieval_backend is not allowed by catalog: " + retrievalBackend);
-        }
-        if (!isSelectable(backendOption)) {
-            throw new IllegalArgumentException(
-                    "retrieval_backend is not selectable by catalog: " + retrievalBackend + appendReason(backendOption.reason())
-            );
         }
     }
 
@@ -991,115 +783,6 @@ public class AdminRuntimeOptionsService {
     ) {
     }
 
-    public Map<String, Object> resolveRetrieverConfig(AdminRuntimeOptionsDtos.RetrieverConfigRequest request) {
-        return resolveRetrieverConfig(request, false, loadRuntimeCatalog());
-    }
-
-    public Map<String, Object> resolveRetrieverConfig(
-            AdminRuntimeOptionsDtos.RetrieverConfigRequest request,
-            boolean fixedModePreset
-    ) {
-        return resolveRetrieverConfig(request, fixedModePreset, loadRuntimeCatalog());
-    }
-
-    public Map<String, Object> resolveRetrieverConfig(
-            AdminRuntimeOptionsDtos.RetrieverConfigRequest request,
-            boolean fixedModePreset,
-            RuntimeCatalog runtimeCatalog
-    ) {
-        String defaultMode = firstNonBlank(runtimeCatalog.defaultRetrieverMode(), RETRIEVER_MODE_HYBRID);
-        String mode = normalizeRetrieverMode(request == null ? defaultMode : firstNonBlank(request.retrieverMode(), defaultMode));
-        Map<String, Object> modeDefaults = runtimeCatalog.retrieverModeDefault(mode);
-        String denseModel;
-        if (fixedModePreset || request == null || request.denseEmbeddingModel() == null || request.denseEmbeddingModel().isBlank()) {
-            denseModel = firstNonBlank(runtimeCatalog.defaultDenseEmbeddingModel(), DEFAULT_DENSE_EMBEDDING_MODEL);
-        } else {
-            denseModel = request.denseEmbeddingModel().trim();
-        }
-        boolean denseRequired;
-        if (fixedModePreset || request == null || request.denseEmbeddingRequired() == null) {
-            denseRequired = parseBooleanOrDefault(
-                    modeDefaults.get("dense_embedding_required"),
-                    !RETRIEVER_MODE_BM25_ONLY.equals(mode)
-            );
-        } else {
-            denseRequired = request.denseEmbeddingRequired();
-        }
-        if (RETRIEVER_MODE_BM25_ONLY.equals(mode)) {
-            denseRequired = false;
-        }
-        boolean denseFallbackEnabled = fixedModePreset
-                ? false
-                : request == null || request.denseFallbackEnabled() == null
-                ? parseBooleanOrDefault(modeDefaults.get("dense_fallback_enabled"), false)
-                : request.denseFallbackEnabled();
-        boolean rerankEnabled = fixedModePreset
-                ? false
-                : request == null || request.rerankEnabled() == null
-                ? parseBooleanOrDefault(modeDefaults.get("rerank_enabled"), false)
-                : request.rerankEnabled();
-        int candidatePoolK = fixedModePreset || request == null || request.candidatePoolK() == null
-                ? intDefault(
-                modeDefaults.get("retriever_candidate_pool_k"),
-                runtimeDefaultInt(runtimeCatalog, "retriever_candidate_pool_k", DEFAULT_RETRIEVER_CANDIDATE_POOL_K)
-        )
-                : clampRange(request.candidatePoolK(), 1, 500, "retriever_candidate_pool_k");
-
-        Map<?, ?> defaultWeights = modeDefaults.get("retriever_fusion_weights") instanceof Map<?, ?> weights
-                ? weights
-                : Map.of();
-        double defaultDenseWeight = doubleDefault(defaultWeights.get("dense"), DEFAULT_RAG_HYBRID_DENSE_WEIGHT);
-        double defaultBm25Weight = doubleDefault(defaultWeights.get("bm25"), DEFAULT_RAG_HYBRID_BM25_WEIGHT);
-        double defaultTechnicalWeight = doubleDefault(defaultWeights.get("technical"), DEFAULT_RAG_HYBRID_TECHNICAL_WEIGHT);
-        double denseWeight = fixedModePreset || request == null || request.denseWeight() == null
-                ? defaultDenseWeight
-                : clampRange(request.denseWeight(), 0.0d, 1.0d, "retriever_dense_weight");
-        double bm25Weight = fixedModePreset || request == null || request.bm25Weight() == null
-                ? defaultBm25Weight
-                : clampRange(request.bm25Weight(), 0.0d, 1.0d, "retriever_bm25_weight");
-        double technicalWeight = fixedModePreset || request == null || request.technicalWeight() == null
-                ? defaultTechnicalWeight
-                : clampRange(request.technicalWeight(), 0.0d, 1.0d, "retriever_technical_weight");
-        if (RETRIEVER_MODE_BM25_ONLY.equals(mode)) {
-            denseWeight = 0.0d;
-            bm25Weight = 1.0d;
-            technicalWeight = 0.0d;
-        } else if (RETRIEVER_MODE_DENSE_ONLY.equals(mode)) {
-            denseWeight = 1.0d;
-            bm25Weight = 0.0d;
-            technicalWeight = 0.0d;
-        } else {
-            double sum = denseWeight + bm25Weight + technicalWeight;
-            if (sum <= 0.0d) {
-                denseWeight = defaultDenseWeight;
-                bm25Weight = defaultBm25Weight;
-                technicalWeight = defaultTechnicalWeight;
-            } else {
-                denseWeight = denseWeight / sum;
-                bm25Weight = bm25Weight / sum;
-                technicalWeight = technicalWeight / sum;
-            }
-        }
-
-        Map<String, Double> fusionWeights = new LinkedHashMap<>();
-        fusionWeights.put("dense", denseWeight);
-        fusionWeights.put("bm25", bm25Weight);
-        fusionWeights.put("technical", technicalWeight);
-
-        Map<String, Object> retrieverConfig = new LinkedHashMap<>();
-        retrieverConfig.put("retriever_mode", mode);
-        retrieverConfig.put("dense_embedding_model", denseModel);
-        retrieverConfig.put("dense_embedding_required", denseRequired);
-        retrieverConfig.put("dense_fallback_enabled", denseFallbackEnabled);
-        retrieverConfig.put("dense_embedding_device", "cpu");
-        retrieverConfig.put("dense_embedding_batch_size", 32);
-        retrieverConfig.put("rerank_enabled", rerankEnabled);
-        retrieverConfig.put("retriever_candidate_pool_k", candidatePoolK);
-        retrieverConfig.put("candidate_pool_k", candidatePoolK);
-        retrieverConfig.put("retriever_fusion_weights", fusionWeights);
-        return retrieverConfig;
-    }
-
     public String normalizeRetrieverMode(String value) {
         if (value == null || value.isBlank()) {
             return RETRIEVER_MODE_HYBRID;
@@ -1115,45 +798,5 @@ public class AdminRuntimeOptionsService {
             throw new IllegalArgumentException("unsupported retriever_mode: " + value);
         }
         return normalized;
-    }
-
-    public String normalizeRetrievalBackend(String value) {
-        return normalizeRetrievalBackend(value, loadRuntimeCatalog());
-    }
-
-    public String normalizeRetrievalBackend(String value, RuntimeCatalog runtimeCatalog) {
-        if (value == null || value.isBlank()) {
-            return firstNonBlank(runtimeCatalog.defaultRetrievalBackend(), RETRIEVAL_BACKEND_LOCAL);
-        }
-        String normalized = value.trim().toLowerCase().replace("-", "_");
-        if (!List.of(RETRIEVAL_BACKEND_LOCAL, RETRIEVAL_BACKEND_DB_ANN).contains(normalized)) {
-            throw new IllegalArgumentException("unsupported retrieval_backend: " + value);
-        }
-        return normalized;
-    }
-
-    public void attachRetrieverConfig(Map<String, Object> config, Map<String, Object> retrieverConfig) {
-        config.put("retriever_config", retrieverConfig);
-        config.put("retriever_mode", retrieverConfig.get("retriever_mode"));
-        config.put("dense_embedding_model", retrieverConfig.get("dense_embedding_model"));
-        config.put("dense_embedding_required", retrieverConfig.get("dense_embedding_required"));
-        config.put("dense_fallback_enabled", retrieverConfig.get("dense_fallback_enabled"));
-        config.put("dense_embedding_device", retrieverConfig.get("dense_embedding_device"));
-        config.put("dense_embedding_batch_size", retrieverConfig.get("dense_embedding_batch_size"));
-        config.put("rerank_enabled", retrieverConfig.get("rerank_enabled"));
-        config.put("retriever_candidate_pool_k", retrieverConfig.get("retriever_candidate_pool_k"));
-        config.put("retriever_fusion_weights", retrieverConfig.get("retriever_fusion_weights"));
-    }
-
-    public Path resolveRepoRoot() {
-        Path configured = Path.of(pipelineProperties.repoRoot()).toAbsolutePath().normalize();
-        if (Files.exists(configured.resolve("pipeline/cli.py"))) {
-            return configured;
-        }
-        Path parent = configured.getParent();
-        if (parent != null && Files.exists(parent.resolve("pipeline/cli.py"))) {
-            return parent;
-        }
-        throw new IllegalStateException("failed to resolve repository root for admin console");
     }
 }

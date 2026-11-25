@@ -1,10 +1,9 @@
 package io.queryforge.backend.rag.retrieval.agentic;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import io.queryforge.backend.rag.chat.RagDtos;
 import io.queryforge.backend.rag.provider.RuntimeEnvService;
 import io.queryforge.backend.rag.provider.SpringAiChatGateway;
-import io.queryforge.backend.rag.runtime.ChatRuntimeDtos;
+import io.queryforge.backend.rag.runtime.ChatConfigDtos;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -45,7 +44,7 @@ class AgenticQueryPlannerServiceTest {
     @Test
     void planFallsBackToOriginalQueryWhenLlmPlannerIsUnavailable() {
         UUID domainId = UUID.randomUUID();
-        RagDtos.AgenticQueryPlan plan = plannerService.plan(
+        AgenticRetrievalDtos.AgenticQueryPlan plan = plannerService.plan(
                 "스프링 DB 연결 오류 설정 확인",
                 config(domainId),
                 objectMapper.createObjectNode(),
@@ -80,7 +79,7 @@ class AgenticQueryPlannerServiceTest {
                         }
                         """));
 
-        RagDtos.AgenticQueryPlan plan = springAiPlanner.plan(
+        AgenticRetrievalDtos.AgenticQueryPlan plan = springAiPlanner.plan(
                 "How does Spring Security filter ordering work?",
                 config(domainId),
                 objectMapper.createObjectNode(),
@@ -91,13 +90,13 @@ class AgenticQueryPlannerServiceTest {
         assertThat(plan.fallbackApplied()).isFalse();
         assertThat(plan.plannerModel()).isEqualTo("gpt-test");
         assertThat(plan.metadata().path("planner_provider").asText()).isEqualTo("spring-ai");
-        assertThat(plan.subqueries()).extracting(RagDtos.AgenticSubquery::query)
+        assertThat(plan.subqueries()).extracting(AgenticRetrievalDtos.AgenticSubquery::query)
                 .containsExactly("FilterChainProxy ordering", "SecurityFilterChain matching");
         assertThat(plan.subqueries().get(1).weight()).isEqualTo(1.0d);
     }
 
-    private ChatRuntimeDtos.ChatRuntimeConfigResponse config(UUID domainId) {
-        return new ChatRuntimeDtos.ChatRuntimeConfigResponse(
+    private ChatConfigDtos.ChatRuntimeConfigResponse config(UUID domainId) {
+        return new ChatConfigDtos.ChatRuntimeConfigResponse(
                 domainId,
                 "spring",
                 "Spring",

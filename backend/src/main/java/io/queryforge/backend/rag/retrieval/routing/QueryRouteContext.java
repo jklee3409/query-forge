@@ -1,13 +1,15 @@
 package io.queryforge.backend.rag.retrieval.routing;
 
-import io.queryforge.backend.rag.runtime.ChatRuntimeDtos;
+import io.queryforge.backend.rag.runtime.ChatConfigDtos;
+import io.queryforge.backend.rag.runtime.readiness.ChatReadinessDtos;
+
 import java.util.UUID;
 
 public record QueryRouteContext(
         String rawQuery,
         UUID domainId,
-        ChatRuntimeDtos.ChatRuntimeConfigResponse config,
-        ChatRuntimeDtos.ChatDomainReadinessResponse readiness,
+        ChatConfigDtos.ChatRuntimeConfigResponse config,
+        ChatReadinessDtos.ChatDomainReadinessResponse readiness,
         String runtimeMode,
         String rewriteQueryProfile,
         boolean anchorInjectionEnabled,

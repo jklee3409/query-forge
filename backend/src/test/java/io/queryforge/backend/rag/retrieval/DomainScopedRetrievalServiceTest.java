@@ -3,7 +3,8 @@ package io.queryforge.backend.rag.retrieval;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.queryforge.backend.rag.embedding.DenseEmbeddingService;
 import io.queryforge.backend.rag.embedding.HashEmbeddingService;
-import io.queryforge.backend.rag.persistence.RagRepository;
+import io.queryforge.backend.rag.retrieval.memory.MemoryCandidate;
+import io.queryforge.backend.rag.retrieval.memory.RagMemoryRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -32,7 +33,9 @@ class DomainScopedRetrievalServiceTest {
     private final UUID sourceGatingBatchId = UUID.fromString("33333333-3333-3333-3333-333333333333");
 
     @Mock
-    private RagRepository repository;
+    private ChunkRetrievalRepository chunkRepository;
+    @Mock
+    private RagMemoryRepository memoryRepository;
     @Mock
     private HashEmbeddingService embeddingService;
     @Mock
@@ -42,21 +45,21 @@ class DomainScopedRetrievalServiceTest {
 
     @BeforeEach
     void setUp() {
-        service = new DomainScopedRetrievalService(repository, embeddingService, denseEmbeddingService);
+        service = new DomainScopedRetrievalService(chunkRepository, memoryRepository, embeddingService, denseEmbeddingService);
     }
 
     @Test
     void localChunkRetrievalPassesDomainAndUsesCandidatePool() {
         DomainScopedRetrievalService.RetrievalRuntime runtime = localDenseRuntime(20);
-        List<RagRepository.RetrievalDoc> docs = List.of(new RagRepository.RetrievalDoc(
+        List<RetrievalDoc> docs = List.of(new RetrievalDoc(
                 "doc-1",
                 "chunk-1",
                 "Spring Security FilterChainProxy documentation",
                 0.8d
         ));
-        when(repository.findTopChunksByEmbedding("embedding", 20, domainId)).thenReturn(docs);
+        when(chunkRepository.findTopChunksByEmbedding("embedding", 20, domainId)).thenReturn(docs);
 
-        List<RagRepository.RetrievalDoc> result = service.retrieveChunks(
+        List<RetrievalDoc> result = service.retrieveChunks(
                 "FilterChainProxy order",
                 "embedding",
                 3,
@@ -64,17 +67,17 @@ class DomainScopedRetrievalServiceTest {
                 runtime
         );
 
-        assertThat(result).extracting(RagRepository.RetrievalDoc::chunkId).containsExactly("chunk-1");
+        assertThat(result).extracting(RetrievalDoc::chunkId).containsExactly("chunk-1");
         assertThat(result.getFirst().score()).isEqualTo(0.8d);
-        verify(repository).findTopChunksByEmbedding("embedding", 20, domainId);
-        verify(repository, never()).findChunkTextPool(anyList(), anyInt(), any());
+        verify(chunkRepository).findTopChunksByEmbedding("embedding", 20, domainId);
+        verify(chunkRepository, never()).findChunkTextPool(anyList(), anyInt(), any());
     }
 
     @Test
     void localMemoryRetrievalPreservesDomainSnapshotAndStrategyFilters() {
         DomainScopedRetrievalService.RetrievalRuntime runtime = localDenseRuntime(50);
-        List<RagRepository.MemoryCandidate> memories = List.of(memory());
-        when(repository.findMemoryTopN(
+        List<MemoryCandidate> memories = List.of(memory());
+        when(memoryRepository.findMemoryTopN(
                 eq("embedding"),
                 eq(5),
                 eq("full_gating"),
@@ -84,7 +87,7 @@ class DomainScopedRetrievalServiceTest {
                 eq(List.of(sourceGatingBatchId))
         )).thenReturn(memories);
 
-        List<RagRepository.MemoryCandidate> result = service.findMemoryCandidates(
+        List<MemoryCandidate> result = service.findMemoryCandidates(
                 "FilterChainProxy order",
                 "embedding",
                 5,
@@ -97,7 +100,7 @@ class DomainScopedRetrievalServiceTest {
         );
 
         assertThat(result).isEqualTo(memories);
-        verify(repository).findMemoryTopN(
+        verify(memoryRepository).findMemoryTopN(
                 "embedding",
                 5,
                 "full_gating",
@@ -106,16 +109,16 @@ class DomainScopedRetrievalServiceTest {
                 List.of(sourceGatingRunId),
                 List.of(sourceGatingBatchId)
         );
-        verify(repository, never()).findMemoryDensePool(anyString(), anyString(), anyInt(), anyString(), any(), anyList(), anyList(), anyList());
-        verify(repository, never()).findMemoryTextPool(anyString(), anyString(), anyList(), anyInt(), anyString(), any(), anyList(), anyList(), anyList());
+        verify(memoryRepository, never()).findMemoryDensePool(anyString(), anyString(), anyInt(), anyString(), any(), anyList(), anyList(), anyList());
+        verify(memoryRepository, never()).findMemoryTextPool(anyString(), anyString(), anyList(), anyInt(), anyString(), any(), anyList(), anyList(), anyList());
     }
 
     @Test
     void emptyChunkRetrievalReturnsEmptyList() {
         DomainScopedRetrievalService.RetrievalRuntime runtime = localDenseRuntime(20);
-        when(repository.findTopChunksByEmbedding("embedding", 20, domainId)).thenReturn(List.of());
+        when(chunkRepository.findTopChunksByEmbedding("embedding", 20, domainId)).thenReturn(List.of());
 
-        List<RagRepository.RetrievalDoc> result = service.retrieveChunks(
+        List<RetrievalDoc> result = service.retrieveChunks(
                 "FilterChainProxy order",
                 "embedding",
                 3,
@@ -124,7 +127,7 @@ class DomainScopedRetrievalServiceTest {
         );
 
         assertThat(result).isEmpty();
-        verify(repository).findTopChunksByEmbedding("embedding", 20, domainId);
+        verify(chunkRepository).findTopChunksByEmbedding("embedding", 20, domainId);
     }
 
     private DomainScopedRetrievalService.RetrievalRuntime localDenseRuntime(int candidatePoolK) {
@@ -139,8 +142,8 @@ class DomainScopedRetrievalServiceTest {
         );
     }
 
-    private RagRepository.MemoryCandidate memory() {
-        return new RagRepository.MemoryCandidate(
+    private MemoryCandidate memory() {
+        return new MemoryCandidate(
                 UUID.fromString("44444444-4444-4444-4444-444444444444"),
                 "FilterChainProxy SecurityFilterChain order",
                 "doc-1",

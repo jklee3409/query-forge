@@ -3,6 +3,7 @@ package io.queryforge.backend.admin.console.gating;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.queryforge.backend.admin.console.configuration.ConsoleExperimentConfig;
 import io.queryforge.backend.admin.console.jobs.LlmJobService;
+import io.queryforge.backend.admin.console.runtime.AdminRetrieverConfiguration;
 import io.queryforge.backend.admin.console.runtime.AdminRuntimeOptionsService;
 import io.queryforge.backend.admin.console.runtime.AdminRuntimeOptionsService.RuntimeCatalog;
 import io.queryforge.backend.admin.console.scope.ConsoleScopeService;
@@ -36,32 +37,20 @@ public class GatingService {
 
     private final ConsoleExperimentConfig experimentConfig;
     private final AdminRuntimeOptionsService runtimeOptionsService;
+    private final AdminRetrieverConfiguration retrieverConfiguration;
     private final ConsoleScopeService scopeService;
-
     private static final String GATING_PASS_STAGE_FAILED_RULE = "failed_rule";
-
     private static final String GATING_PASS_STAGE_REJECTED = "rejected";
-
     private static final String GATING_PASS_STAGE_PASSED_RULE = "passed_rule";
-
     private static final String GATING_PASS_STAGE_PASSED_LLM = "passed_llm";
-
     private static final String GATING_PASS_STAGE_PASSED_UTILITY = "passed_utility";
-
     private static final String GATING_PASS_STAGE_PASSED_DIVERSITY = "passed_diversity";
-
     private static final String GATING_PASS_STAGE_PASSED_ALL = "passed_all";
-
     private static final String RETRIEVER_MODE_BM25_ONLY = "bm25_only";
-
     private final GatingRepository gatingRepository;
-
     private final AdminSyntheticMethodRepository syntheticMethodRepository;
-
     private final SyntheticGenerationRepository generationRepository;
-
     private final LlmJobService llmJobService;
-
     private final ObjectMapper objectMapper;
 
     public List<GatingDtos.GatingBatchRow> listGatingBatches(Integer limit) {
@@ -181,14 +170,14 @@ public class GatingService {
         GatingDtos.GatingRunConfig requestConfig = request.config();
         GatingDtos.GatingStageFlags stageFlags = requestConfig == null ? null : requestConfig.stageFlags();
         GatingDtos.GatingThresholdConfig thresholdConfig = requestConfig == null ? null : requestConfig.thresholds();
-        Map<String, Object> retrieverConfig = runtimeOptionsService.resolveRetrieverConfig(
+        Map<String, Object> retrieverConfig = retrieverConfiguration.resolveRetrieverConfig(
                 requestConfig == null ? null : requestConfig.retrieverConfig()
         );
         if (singleEnglishMethod && requestConfig != null && requestConfig.retrieverConfig() == null) {
             retrieverConfig = forceBm25RetrieverConfig(retrieverConfig);
         }
         runtimeOptionsService.validateLlmModelSelection(blankToNull(request.llmModel()), runtimeCatalog);
-        runtimeOptionsService.validateRetrieverSelection(retrieverConfig, runtimeCatalog);
+        retrieverConfiguration.validateRetrieverSelection(retrieverConfig, runtimeCatalog);
         Map<String, Object> stageConfig = new LinkedHashMap<>();
         stageConfig.put(
                 "enable_rule_filter",
@@ -297,7 +286,7 @@ public class GatingService {
         config.put("final_score_threshold", finalScoreThreshold);
         config.put("llm_batch_size", 1);
         config.put("utility_candidate_pool_k", retrieverConfig.get("retriever_candidate_pool_k"));
-        runtimeOptionsService.attachRetrieverConfig(config, retrieverConfig);
+        retrieverConfiguration.attachRetrieverConfig(config, retrieverConfig);
         experimentConfig.applyLlmModelOverrides(config, request.llmModel());
         config.put("gating_batch_id", gatingBatchId.toString());
         experimentConfig.writeExperimentConfig(experimentName, config);

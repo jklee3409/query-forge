@@ -2,8 +2,9 @@ package io.queryforge.backend.rag.retrieval;
 
 import io.queryforge.backend.rag.embedding.DenseEmbeddingService;
 import io.queryforge.backend.rag.embedding.HashEmbeddingService;
-import io.queryforge.backend.rag.persistence.RagRepository;
-import io.queryforge.backend.rag.runtime.ChatRuntimeDtos;
+import io.queryforge.backend.rag.retrieval.memory.MemoryCandidate;
+import io.queryforge.backend.rag.retrieval.memory.RagMemoryRepository;
+import io.queryforge.backend.rag.runtime.ChatConfigDtos;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
@@ -24,12 +25,12 @@ public class DomainScopedRetrievalService {
 
     private static final Pattern SEARCH_TOKEN_PATTERN = Pattern.compile("[@A-Za-z0-9_./:$-]{2,}|\\p{InHangulSyllables}{2,}");
     private static final Pattern TECHNICAL_TOKEN_PATTERN = Pattern.compile("[@A-Za-z_][A-Za-z0-9_./:$-]{1,}");
-
-    private final RagRepository repository;
+    private final ChunkRetrievalRepository chunkRepository;
+    private final RagMemoryRepository memoryRepository;
     private final HashEmbeddingService embeddingService;
     private final DenseEmbeddingService denseEmbeddingService;
 
-    public RetrievalRuntime retrievalRuntime(ChatRuntimeDtos.ChatRuntimeConfigResponse config) {
+    public RetrievalRuntime retrievalRuntime(ChatConfigDtos.ChatRuntimeConfigResponse config) {
         String backend = config.retrievalBackend() == null || config.retrievalBackend().isBlank()
                 ? "local"
                 : config.retrievalBackend().trim().toLowerCase(Locale.ROOT).replace("-", "_");
@@ -77,7 +78,7 @@ public class DomainScopedRetrievalService {
         return embeddingService.toHalfvecLiteral(embeddingService.embed(query));
     }
 
-    public List<RagRepository.RetrievalDoc> retrieveChunks(
+    public List<RetrievalDoc> retrieveChunks(
             String query,
             String queryEmbeddingLiteral,
             int topK,
@@ -85,11 +86,11 @@ public class DomainScopedRetrievalService {
             RetrievalRuntime runtime
     ) {
         int poolSize = Math.max(topK, runtime.candidatePoolK());
-        List<RagRepository.RetrievalDoc> candidates = new ArrayList<>();
+        List<RetrievalDoc> candidates = new ArrayList<>();
         List<String> patterns = searchPatterns(query);
         if ("db_ann".equals(runtime.retrievalBackend())) {
             if (!"bm25_only".equals(runtime.retrieverMode())) {
-                candidates.addAll(repository.findDbAnnChunkDensePool(
+                candidates.addAll(chunkRepository.findDbAnnChunkDensePool(
                         queryEmbeddingLiteral,
                         runtime.denseEmbeddingModel(),
                         poolSize,
@@ -97,7 +98,7 @@ public class DomainScopedRetrievalService {
                 ));
             }
             if (!"dense_only".equals(runtime.retrieverMode())) {
-                candidates.addAll(repository.findDbAnnChunkTextPool(
+                candidates.addAll(chunkRepository.findDbAnnChunkTextPool(
                         queryEmbeddingLiteral,
                         runtime.denseEmbeddingModel(),
                         patterns,
@@ -107,10 +108,10 @@ public class DomainScopedRetrievalService {
             }
         } else {
             if (!"bm25_only".equals(runtime.retrieverMode())) {
-                candidates.addAll(repository.findTopChunksByEmbedding(queryEmbeddingLiteral, poolSize, domainId));
+                candidates.addAll(chunkRepository.findTopChunksByEmbedding(queryEmbeddingLiteral, poolSize, domainId));
             }
             if (!"dense_only".equals(runtime.retrieverMode())) {
-                candidates.addAll(repository.findChunkTextPool(patterns, poolSize, domainId));
+                candidates.addAll(chunkRepository.findChunkTextPool(patterns, poolSize, domainId));
             }
         }
         if (candidates.isEmpty()) {
@@ -119,7 +120,7 @@ public class DomainScopedRetrievalService {
         return rankDocs(query, mergeDocs(candidates), topK, runtime);
     }
 
-    public List<RagRepository.MemoryCandidate> findMemoryCandidates(
+    public List<MemoryCandidate> findMemoryCandidates(
             String query,
             String queryEmbeddingLiteral,
             int topN,
@@ -131,7 +132,7 @@ public class DomainScopedRetrievalService {
             RetrievalRuntime runtime
     ) {
         if (!"db_ann".equals(runtime.retrievalBackend())) {
-            return repository.findMemoryTopN(
+            return memoryRepository.findMemoryTopN(
                     queryEmbeddingLiteral,
                     topN,
                     gatingPreset,
@@ -142,9 +143,9 @@ public class DomainScopedRetrievalService {
             );
         }
         int poolSize = Math.max(topN, runtime.candidatePoolK());
-        List<RagRepository.MemoryCandidate> candidates = new ArrayList<>();
+        List<MemoryCandidate> candidates = new ArrayList<>();
         if (!"bm25_only".equals(runtime.retrieverMode())) {
-            candidates.addAll(repository.findMemoryDensePool(
+            candidates.addAll(memoryRepository.findMemoryDensePool(
                     queryEmbeddingLiteral,
                     runtime.denseEmbeddingModel(),
                     poolSize,
@@ -156,7 +157,7 @@ public class DomainScopedRetrievalService {
             ));
         }
         if (!"dense_only".equals(runtime.retrieverMode())) {
-            candidates.addAll(repository.findMemoryTextPool(
+            candidates.addAll(memoryRepository.findMemoryTextPool(
                     queryEmbeddingLiteral,
                     runtime.denseEmbeddingModel(),
                     searchPatterns(query),
@@ -171,10 +172,10 @@ public class DomainScopedRetrievalService {
         return rankMemories(query, mergeMemories(candidates), topN, runtime);
     }
 
-    private List<RagRepository.RetrievalDoc> mergeDocs(List<RagRepository.RetrievalDoc> docs) {
-        Map<String, RagRepository.RetrievalDoc> merged = new LinkedHashMap<>();
-        for (RagRepository.RetrievalDoc doc : docs) {
-            RagRepository.RetrievalDoc current = merged.get(doc.chunkId());
+    private List<RetrievalDoc> mergeDocs(List<RetrievalDoc> docs) {
+        Map<String, RetrievalDoc> merged = new LinkedHashMap<>();
+        for (RetrievalDoc doc : docs) {
+            RetrievalDoc current = merged.get(doc.chunkId());
             if (current == null || doc.score() > current.score()) {
                 merged.put(doc.chunkId(), doc);
             }
@@ -182,10 +183,10 @@ public class DomainScopedRetrievalService {
         return new ArrayList<>(merged.values());
     }
 
-    private List<RagRepository.MemoryCandidate> mergeMemories(List<RagRepository.MemoryCandidate> memories) {
-        Map<UUID, RagRepository.MemoryCandidate> merged = new LinkedHashMap<>();
-        for (RagRepository.MemoryCandidate memory : memories) {
-            RagRepository.MemoryCandidate current = merged.get(memory.memoryId());
+    private List<MemoryCandidate> mergeMemories(List<MemoryCandidate> memories) {
+        Map<UUID, MemoryCandidate> merged = new LinkedHashMap<>();
+        for (MemoryCandidate memory : memories) {
+            MemoryCandidate current = merged.get(memory.memoryId());
             if (current == null || memory.similarity() > current.similarity()) {
                 merged.put(memory.memoryId(), memory);
             }
@@ -193,30 +194,30 @@ public class DomainScopedRetrievalService {
         return new ArrayList<>(merged.values());
     }
 
-    private List<RagRepository.RetrievalDoc> rankDocs(
+    private List<RetrievalDoc> rankDocs(
             String query,
-            List<RagRepository.RetrievalDoc> candidates,
+            List<RetrievalDoc> candidates,
             int topK,
             RetrievalRuntime runtime
     ) {
         return candidates.stream()
-                .map(doc -> new RagRepository.RetrievalDoc(
+                .map(doc -> new RetrievalDoc(
                         doc.documentId(),
                         doc.chunkId(),
                         doc.chunkText(),
                         fusedScore(query, doc.chunkText(), doc.score(), runtime)
                 ))
                 .sorted(Comparator
-                        .comparingDouble(RagRepository.RetrievalDoc::score)
+                        .comparingDouble(RetrievalDoc::score)
                         .reversed()
-                        .thenComparing(RagRepository.RetrievalDoc::chunkId))
+                        .thenComparing(RetrievalDoc::chunkId))
                 .limit(Math.max(1, topK))
                 .toList();
     }
 
-    private List<RagRepository.MemoryCandidate> rankMemories(
+    private List<MemoryCandidate> rankMemories(
             String query,
-            List<RagRepository.MemoryCandidate> candidates,
+            List<MemoryCandidate> candidates,
             int topN,
             RetrievalRuntime runtime
     ) {
@@ -226,7 +227,7 @@ public class DomainScopedRetrievalService {
                         fusedScore(query, memoryLexicalText(candidate), candidate.similarity(), runtime)
                 ))
                 .sorted(Comparator
-                        .comparingDouble(RagRepository.MemoryCandidate::similarity)
+                        .comparingDouble(MemoryCandidate::similarity)
                         .reversed()
                         .thenComparing(memory -> memory.memoryId().toString()))
                 .limit(Math.max(1, topN))
@@ -243,8 +244,8 @@ public class DomainScopedRetrievalService {
         return Math.max(-1.0, Math.min(1.0, (combined * 2.0) - 1.0));
     }
 
-    private RagRepository.MemoryCandidate withSimilarity(RagRepository.MemoryCandidate source, double similarity) {
-        return new RagRepository.MemoryCandidate(
+    private MemoryCandidate withSimilarity(MemoryCandidate source, double similarity) {
+        return new MemoryCandidate(
                 source.memoryId(),
                 source.queryText(),
                 source.targetDocId(),
@@ -261,7 +262,7 @@ public class DomainScopedRetrievalService {
         );
     }
 
-    private String memoryLexicalText(RagRepository.MemoryCandidate candidate) {
+    private String memoryLexicalText(MemoryCandidate candidate) {
         return String.join(
                 " ",
                 candidate.queryText() == null ? "" : candidate.queryText(),

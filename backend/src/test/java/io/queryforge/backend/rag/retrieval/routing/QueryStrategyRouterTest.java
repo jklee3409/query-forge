@@ -2,7 +2,8 @@ package io.queryforge.backend.rag.retrieval.routing;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import io.queryforge.backend.rag.runtime.ChatRuntimeDtos;
+import io.queryforge.backend.rag.runtime.ChatConfigDtos;
+import io.queryforge.backend.rag.runtime.readiness.ChatReadinessDtos;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
@@ -239,8 +240,8 @@ class QueryStrategyRouterTest {
 
     private QueryRouteContext context(
             String query,
-            ChatRuntimeDtos.ChatRuntimeConfigResponse config,
-            ChatRuntimeDtos.ChatDomainReadinessResponse readiness,
+            ChatConfigDtos.ChatRuntimeConfigResponse config,
+            ChatReadinessDtos.ChatDomainReadinessResponse readiness,
             boolean memoryCandidatesKnown,
             boolean memoryCandidatesAvailable
     ) {
@@ -249,8 +250,8 @@ class QueryStrategyRouterTest {
 
     private QueryRouteContext context(
             String query,
-            ChatRuntimeDtos.ChatRuntimeConfigResponse config,
-            ChatRuntimeDtos.ChatDomainReadinessResponse readiness,
+            ChatConfigDtos.ChatRuntimeConfigResponse config,
+            ChatReadinessDtos.ChatDomainReadinessResponse readiness,
             boolean memoryCandidatesKnown,
             boolean memoryCandidatesAvailable,
             boolean agenticSubquery
@@ -275,11 +276,11 @@ class QueryStrategyRouterTest {
         );
     }
 
-    private ChatRuntimeDtos.ChatRuntimeConfigResponse config(String mode, boolean routerEnabled, boolean anchorInjectionEnabled) {
+    private ChatConfigDtos.ChatRuntimeConfigResponse config(String mode, boolean routerEnabled, boolean anchorInjectionEnabled) {
         return config(mode, routerEnabled, anchorInjectionEnabled, false);
     }
 
-    private ChatRuntimeDtos.ChatRuntimeConfigResponse config(
+    private ChatConfigDtos.ChatRuntimeConfigResponse config(
             String mode,
             boolean routerEnabled,
             boolean anchorInjectionEnabled,
@@ -293,7 +294,7 @@ class QueryStrategyRouterTest {
             metadata.put("agenticMultiQueryEnabled", true);
         }
         UUID domainId = UUID.randomUUID();
-        return new ChatRuntimeDtos.ChatRuntimeConfigResponse(
+        return new ChatConfigDtos.ChatRuntimeConfigResponse(
                 domainId,
                 "spring",
                 "Spring",
@@ -330,9 +331,9 @@ class QueryStrategyRouterTest {
         );
     }
 
-    private ChatRuntimeDtos.ChatDomainReadinessResponse readiness(boolean ready, String... reasons) {
+    private ChatReadinessDtos.ChatDomainReadinessResponse readiness(boolean ready, String... reasons) {
         UUID domainId = UUID.randomUUID();
-        return new ChatRuntimeDtos.ChatDomainReadinessResponse(
+        return new ChatReadinessDtos.ChatDomainReadinessResponse(
                 domainId,
                 "spring",
                 "Spring",

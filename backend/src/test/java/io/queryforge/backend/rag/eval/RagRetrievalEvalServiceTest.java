@@ -2,18 +2,24 @@ package io.queryforge.backend.rag.eval;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.queryforge.backend.rag.chat.ChatAnswerService;
-import io.queryforge.backend.rag.chat.RagDtos;
 import io.queryforge.backend.rag.chat.RagService;
-import io.queryforge.backend.rag.persistence.RagRepository;
+import io.queryforge.backend.rag.retrieval.ChunkRetrievalRepository;
 import io.queryforge.backend.rag.retrieval.DomainScopedRetrievalService;
 import io.queryforge.backend.rag.retrieval.RagPersistPolicy;
 import io.queryforge.backend.rag.retrieval.RagRetrievalExecutionService;
+import io.queryforge.backend.rag.retrieval.RetrievalDoc;
+import io.queryforge.backend.rag.retrieval.agentic.AgenticRetrievalDtos;
 import io.queryforge.backend.rag.retrieval.agentic.AgenticRetrievalService;
+import io.queryforge.backend.rag.retrieval.memory.MemoryCandidate;
+import io.queryforge.backend.rag.retrieval.memory.RagMemoryRepository;
 import io.queryforge.backend.rag.retrieval.routing.QueryRouteDecision;
 import io.queryforge.backend.rag.retrieval.routing.QueryStrategy;
 import io.queryforge.backend.rag.retrieval.routing.QueryStrategyRouter;
+import io.queryforge.backend.rag.runtime.ChatConfigDtos;
 import io.queryforge.backend.rag.runtime.ChatRuntimeConfigService;
-import io.queryforge.backend.rag.runtime.ChatRuntimeDtos;
+import io.queryforge.backend.rag.runtime.readiness.ChatReadinessDtos;
+import io.queryforge.backend.rag.runtime.readiness.ChatReadinessService;
+import io.queryforge.backend.rag.trace.RagTraceRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -68,6 +74,8 @@ class RagRetrievalEvalServiceTest {
     @Mock
     private ChatRuntimeConfigService chatRuntimeConfigService;
     @Mock
+    private ChatReadinessService chatReadinessService;
+    @Mock
     private DomainScopedRetrievalService domainScopedRetrievalService;
     @Mock
     private QueryStrategyRouter queryStrategyRouter;
@@ -82,6 +90,7 @@ class RagRetrievalEvalServiceTest {
     void setUp() {
         service = new RagRetrievalEvalService(
                 chatRuntimeConfigService,
+                chatReadinessService,
                 domainScopedRetrievalService,
                 queryStrategyRouter,
                 ragRetrievalExecutionService,
@@ -186,7 +195,7 @@ class RagRetrievalEvalServiceTest {
     @Test
     void rawOnlyCallsExecutionServiceAndReturnsRetrievedChunkIds() {
         givenRuntime();
-        List<RagRepository.RetrievalDoc> docs = List.of(doc("chunk-1", 0.91d), doc("chunk-2", 0.82d));
+        List<RetrievalDoc> docs = List.of(doc("chunk-1", 0.91d), doc("chunk-2", 0.82d));
         when(domainScopedRetrievalService.embeddingLiteral(QUERY, retrievalRuntime)).thenReturn("embedding");
         when(ragRetrievalExecutionService.executeRawOnly(any()))
                 .thenReturn(rawResult(QUERY, docs));
@@ -213,7 +222,7 @@ class RagRetrievalEvalServiceTest {
     @Test
     void retrievedChunkIdsPreserveResultOrderAndDuplicates() {
         givenRuntime();
-        List<RagRepository.RetrievalDoc> docs = List.of(
+        List<RetrievalDoc> docs = List.of(
                 doc("chunk-b", 0.91d),
                 doc("chunk-a", 0.82d),
                 doc("chunk-b", 0.71d)
@@ -230,7 +239,7 @@ class RagRetrievalEvalServiceTest {
     @Test
     void retrievedDocsRankIsOneBased() {
         givenRuntime();
-        List<RagRepository.RetrievalDoc> docs = List.of(
+        List<RetrievalDoc> docs = List.of(
                 doc("chunk-1", 0.91d),
                 doc("chunk-2", 0.82d),
                 doc("chunk-3", 0.73d)
@@ -340,8 +349,8 @@ class RagRetrievalEvalServiceTest {
     @Test
     void selectiveRewriteCallsExecutionService() {
         givenRuntime();
-        List<RagRepository.MemoryCandidate> memories = List.of(memory());
-        List<RagRepository.RetrievalDoc> docs = List.of(doc("chunk-selective", 0.93d));
+        List<MemoryCandidate> memories = List.of(memory());
+        List<RetrievalDoc> docs = List.of(doc("chunk-selective", 0.93d));
         givenMemoryCandidates(memories);
         when(ragRetrievalExecutionService.executeSelectiveRewrite(any()))
                 .thenReturn(selectiveResult("rewritten query", docs));
@@ -364,8 +373,8 @@ class RagRetrievalEvalServiceTest {
     @Test
     void anchorAwareRewriteCallsExecutionService() {
         givenRuntime();
-        List<RagRepository.MemoryCandidate> memories = List.of(memory());
-        List<RagRepository.RetrievalDoc> docs = List.of(doc("chunk-anchor", 0.95d));
+        List<MemoryCandidate> memories = List.of(memory());
+        List<RetrievalDoc> docs = List.of(doc("chunk-anchor", 0.95d));
         givenMemoryCandidates(memories);
         when(ragRetrievalExecutionService.executeAnchorAwareRewrite(any()))
                 .thenReturn(anchorResult("anchored query", docs));
@@ -388,7 +397,7 @@ class RagRetrievalEvalServiceTest {
     @Test
     void strategyRouterUsesCurrentJavaRouterRange() {
         givenRuntime();
-        List<RagRepository.MemoryCandidate> memories = List.of(memory());
+        List<MemoryCandidate> memories = List.of(memory());
         givenMemoryCandidates(memories);
         when(queryStrategyRouter.route(any())).thenReturn(routeDecision(QueryStrategy.SYNTHETIC_SELECTIVE_REWRITE));
         when(ragRetrievalExecutionService.executeSelectiveRewrite(any()))
@@ -452,17 +461,17 @@ class RagRetrievalEvalServiceTest {
                 .toList();
 
         assertThat(fieldTypes)
-                .doesNotContain(RagService.class, ChatAnswerService.class, RagRepository.class);
+                .doesNotContain(RagService.class, ChatAnswerService.class, ChunkRetrievalRepository.class, RagMemoryRepository.class, RagTraceRepository.class);
     }
 
     private void givenRuntime() {
-        ChatRuntimeDtos.ChatRuntimeConfigResponse config = config();
+        ChatConfigDtos.ChatRuntimeConfigResponse config = config();
         when(chatRuntimeConfigService.getConfig(DOMAIN_ID)).thenReturn(config);
-        when(chatRuntimeConfigService.getReadiness(DOMAIN_ID)).thenReturn(readiness());
+        when(chatReadinessService.getReadiness(DOMAIN_ID)).thenReturn(readiness());
         when(domainScopedRetrievalService.retrievalRuntime(config)).thenReturn(retrievalRuntime);
     }
 
-    private void givenMemoryCandidates(List<RagRepository.MemoryCandidate> memories) {
+    private void givenMemoryCandidates(List<MemoryCandidate> memories) {
         when(domainScopedRetrievalService.embeddingLiteral(QUERY, retrievalRuntime)).thenReturn("embedding");
         when(domainScopedRetrievalService.findMemoryCandidates(
                 eq(QUERY),
@@ -506,8 +515,8 @@ class RagRetrievalEvalServiceTest {
         );
     }
 
-    private ChatRuntimeDtos.ChatRuntimeConfigResponse config() {
-        return new ChatRuntimeDtos.ChatRuntimeConfigResponse(
+    private ChatConfigDtos.ChatRuntimeConfigResponse config() {
+        return new ChatConfigDtos.ChatRuntimeConfigResponse(
                 DOMAIN_ID,
                 "spring-security",
                 "Spring Security",
@@ -544,8 +553,8 @@ class RagRetrievalEvalServiceTest {
         );
     }
 
-    private ChatRuntimeDtos.ChatDomainReadinessResponse readiness() {
-        return new ChatRuntimeDtos.ChatDomainReadinessResponse(
+    private ChatReadinessDtos.ChatDomainReadinessResponse readiness() {
+        return new ChatReadinessDtos.ChatDomainReadinessResponse(
                 DOMAIN_ID,
                 "spring-security",
                 "Spring Security",
@@ -568,7 +577,7 @@ class RagRetrievalEvalServiceTest {
         );
     }
 
-    private RagRepository.RetrievalDoc doc(String chunkId, double score) {
+    private RetrievalDoc doc(String chunkId, double score) {
         return doc(
                 chunkId,
                 score,
@@ -576,8 +585,8 @@ class RagRetrievalEvalServiceTest {
         );
     }
 
-    private RagRepository.RetrievalDoc doc(String chunkId, double score, String chunkText) {
-        return new RagRepository.RetrievalDoc(
+    private RetrievalDoc doc(String chunkId, double score, String chunkText) {
+        return new RetrievalDoc(
                 "doc-1",
                 chunkId,
                 chunkText,
@@ -585,8 +594,8 @@ class RagRetrievalEvalServiceTest {
         );
     }
 
-    private RagRepository.MemoryCandidate memory() {
-        return new RagRepository.MemoryCandidate(
+    private MemoryCandidate memory() {
+        return new MemoryCandidate(
                 UUID.fromString("44444444-4444-4444-4444-444444444444"),
                 "historical security filter query",
                 "doc-1",
@@ -605,7 +614,7 @@ class RagRetrievalEvalServiceTest {
 
     private RagRetrievalExecutionService.RawOnlyExecutionResult rawResult(
             String query,
-            List<RagRepository.RetrievalDoc> docs
+            List<RetrievalDoc> docs
     ) {
         return rawResult(query, query, docs);
     }
@@ -613,7 +622,7 @@ class RagRetrievalEvalServiceTest {
     private RagRetrievalExecutionService.RawOnlyExecutionResult rawResult(
             String query,
             String finalQuery,
-            List<RagRepository.RetrievalDoc> docs
+            List<RetrievalDoc> docs
     ) {
         return new RagRetrievalExecutionService.RawOnlyExecutionResult(
                 query,
@@ -625,7 +634,7 @@ class RagRetrievalEvalServiceTest {
 
     private RagRetrievalExecutionService.SelectiveRewriteExecutionResult selectiveResult(
             String finalQuery,
-            List<RagRepository.RetrievalDoc> docs
+            List<RetrievalDoc> docs
     ) {
         return new RagRetrievalExecutionService.SelectiveRewriteExecutionResult(
                 QUERY,
@@ -638,7 +647,7 @@ class RagRetrievalEvalServiceTest {
 
     private RagRetrievalExecutionService.AnchorAwareRewriteExecutionResult anchorResult(
             String finalQuery,
-            List<RagRepository.RetrievalDoc> docs
+            List<RetrievalDoc> docs
     ) {
         return new RagRetrievalExecutionService.AnchorAwareRewriteExecutionResult(
                 QUERY,
@@ -652,7 +661,7 @@ class RagRetrievalEvalServiceTest {
 
     private RagRetrievalExecutionService.ExecutedRewriteCandidate candidate(
             String query,
-            List<RagRepository.RetrievalDoc> docs,
+            List<RetrievalDoc> docs,
             double confidence
     ) {
         return new RagRetrievalExecutionService.ExecutedRewriteCandidate(
@@ -666,7 +675,7 @@ class RagRetrievalEvalServiceTest {
 
     private RagRetrievalExecutionService.RetrievalMaterial retrieval(
             String query,
-            List<RagRepository.RetrievalDoc> docs,
+            List<RetrievalDoc> docs,
             double confidence
     ) {
         return new RagRetrievalExecutionService.RetrievalMaterial(
@@ -696,14 +705,14 @@ class RagRetrievalEvalServiceTest {
         );
     }
 
-    private AgenticRetrievalService.AgenticExecutionResult agenticResult(List<RagRepository.RetrievalDoc> docs) {
-        RagDtos.AgenticQueryPlan plan = new RagDtos.AgenticQueryPlan(
+    private AgenticRetrievalService.AgenticExecutionResult agenticResult(List<RetrievalDoc> docs) {
+        AgenticRetrievalDtos.AgenticQueryPlan plan = new AgenticRetrievalDtos.AgenticQueryPlan(
                 QUERY,
                 DOMAIN_ID,
                 "spring-security",
                 "Spring Security",
                 4,
-                List.of(new RagDtos.AgenticSubquery(
+                List.of(new AgenticRetrievalDtos.AgenticSubquery(
                         1,
                         QUERY,
                         "original_query",

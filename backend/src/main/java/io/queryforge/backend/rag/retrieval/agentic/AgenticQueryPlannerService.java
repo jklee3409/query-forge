@@ -4,11 +4,10 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import io.queryforge.backend.rag.chat.RagDtos;
-import io.queryforge.backend.rag.persistence.RagRepository;
 import io.queryforge.backend.rag.provider.RuntimeEnvService;
 import io.queryforge.backend.rag.provider.SpringAiChatGateway;
-import io.queryforge.backend.rag.runtime.ChatRuntimeDtos;
+import io.queryforge.backend.rag.retrieval.memory.MemoryCandidate;
+import io.queryforge.backend.rag.runtime.ChatConfigDtos;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
@@ -40,9 +39,7 @@ public class AgenticQueryPlannerService {
               ]
             }
             """;
-
     private static final int MEMORY_HINT_LIMIT = 5;
-
     private final ObjectMapper objectMapper;
     private final RuntimeEnvService runtimeEnvService;
     private final SpringAiChatGateway springAiChatGateway;
@@ -65,11 +62,11 @@ public class AgenticQueryPlannerService {
         this(objectMapper, runtimeEnvService, null);
     }
 
-    public RagDtos.AgenticQueryPlan plan(
+    public AgenticRetrievalDtos.AgenticQueryPlan plan(
             String rawQuery,
-            ChatRuntimeDtos.ChatRuntimeConfigResponse config,
+            ChatConfigDtos.ChatRuntimeConfigResponse config,
             JsonNode domainContext,
-            List<RagRepository.MemoryCandidate> memoryHints,
+            List<MemoryCandidate> memoryHints,
             int maxSubqueries
     ) {
         int limitedMax = Math.max(1, Math.min(maxSubqueries, 4));
@@ -77,7 +74,7 @@ public class AgenticQueryPlannerService {
         if (payload.isEmpty()) {
             return fallbackPlan(rawQuery, config, limitedMax, "planner unavailable or returned no valid subquery");
         }
-        List<RagDtos.AgenticSubquery> subqueries = normalizeSubqueries(
+        List<AgenticRetrievalDtos.AgenticSubquery> subqueries = normalizeSubqueries(
                 rawQuery,
                 payload.get().subqueries(),
                 limitedMax
@@ -88,7 +85,7 @@ public class AgenticQueryPlannerService {
         ObjectNode metadata = objectMapper.createObjectNode();
         metadata.put("planner_provider", payload.get().provider());
         metadata.put("source", "llm-planner");
-        return new RagDtos.AgenticQueryPlan(
+        return new AgenticRetrievalDtos.AgenticQueryPlan(
                 safeTrim(rawQuery),
                 config.domainId(),
                 safeTrim(config.domainKey()),
@@ -102,22 +99,22 @@ public class AgenticQueryPlannerService {
         );
     }
 
-    private RagDtos.AgenticQueryPlan fallbackPlan(
+    private AgenticRetrievalDtos.AgenticQueryPlan fallbackPlan(
             String rawQuery,
-            ChatRuntimeDtos.ChatRuntimeConfigResponse config,
+            ChatConfigDtos.ChatRuntimeConfigResponse config,
             int maxSubqueries,
             String reason
     ) {
         ObjectNode metadata = objectMapper.createObjectNode();
         metadata.put("source", "fallback-original-query");
-        RagDtos.AgenticSubquery subquery = new RagDtos.AgenticSubquery(
+        AgenticRetrievalDtos.AgenticSubquery subquery = new AgenticRetrievalDtos.AgenticSubquery(
                 1,
                 safeTrim(rawQuery),
                 "original_query",
                 1.0d,
                 objectMapper.createObjectNode()
         );
-        return new RagDtos.AgenticQueryPlan(
+        return new AgenticRetrievalDtos.AgenticQueryPlan(
                 safeTrim(rawQuery),
                 config.domainId(),
                 safeTrim(config.domainKey()),
@@ -133,9 +130,9 @@ public class AgenticQueryPlannerService {
 
     private Optional<PlannerPayload> requestPlan(
             String rawQuery,
-            ChatRuntimeDtos.ChatRuntimeConfigResponse config,
+            ChatConfigDtos.ChatRuntimeConfigResponse config,
             JsonNode domainContext,
-            List<RagRepository.MemoryCandidate> memoryHints,
+            List<MemoryCandidate> memoryHints,
             int maxSubqueries
     ) {
         String provider = runtimeEnvService.getOrDefault("QUERY_FORGE_LLM_PROVIDER", "gemini").toLowerCase(Locale.ROOT);
@@ -159,9 +156,9 @@ public class AgenticQueryPlannerService {
     private Optional<PlannerPayload> requestSpringAiPlan(
             String provider,
             String rawQuery,
-            ChatRuntimeDtos.ChatRuntimeConfigResponse config,
+            ChatConfigDtos.ChatRuntimeConfigResponse config,
             JsonNode domainContext,
-            List<RagRepository.MemoryCandidate> memoryHints,
+            List<MemoryCandidate> memoryHints,
             int maxSubqueries
     ) {
         if (springAiChatGateway == null) {
@@ -183,9 +180,9 @@ public class AgenticQueryPlannerService {
 
     private Optional<PlannerPayload> requestGeminiPlan(
             String rawQuery,
-            ChatRuntimeDtos.ChatRuntimeConfigResponse config,
+            ChatConfigDtos.ChatRuntimeConfigResponse config,
             JsonNode domainContext,
-            List<RagRepository.MemoryCandidate> memoryHints,
+            List<MemoryCandidate> memoryHints,
             int maxSubqueries
     ) {
         String apiKey = firstNonBlank(
@@ -248,9 +245,9 @@ public class AgenticQueryPlannerService {
 
     private Optional<PlannerPayload> requestOpenAiPlan(
             String rawQuery,
-            ChatRuntimeDtos.ChatRuntimeConfigResponse config,
+            ChatConfigDtos.ChatRuntimeConfigResponse config,
             JsonNode domainContext,
-            List<RagRepository.MemoryCandidate> memoryHints,
+            List<MemoryCandidate> memoryHints,
             int maxSubqueries
     ) {
         String apiKey = runtimeEnvService.getOrDefault("OPENAI_API_KEY", "").trim();
@@ -302,9 +299,9 @@ public class AgenticQueryPlannerService {
 
     private String buildPlannerPrompt(
             String rawQuery,
-            ChatRuntimeDtos.ChatRuntimeConfigResponse config,
+            ChatConfigDtos.ChatRuntimeConfigResponse config,
             JsonNode domainContext,
-            List<RagRepository.MemoryCandidate> memoryHints,
+            List<MemoryCandidate> memoryHints,
             int maxSubqueries
     ) {
         try {
@@ -327,13 +324,13 @@ public class AgenticQueryPlannerService {
         }
     }
 
-    private ArrayNode memoryHints(List<RagRepository.MemoryCandidate> memoryHints) {
+    private ArrayNode memoryHints(List<MemoryCandidate> memoryHints) {
         ArrayNode rows = objectMapper.createArrayNode();
         if (memoryHints == null || memoryHints.isEmpty()) {
             return rows;
         }
         for (int index = 0; index < Math.min(MEMORY_HINT_LIMIT, memoryHints.size()); index++) {
-            RagRepository.MemoryCandidate memory = memoryHints.get(index);
+            MemoryCandidate memory = memoryHints.get(index);
             ObjectNode row = rows.addObject();
             row.put("query_text", safeTrim(memory.queryText()));
             row.put("target_doc_id", safeTrim(memory.targetDocId()));
@@ -364,12 +361,12 @@ public class AgenticQueryPlannerService {
         return Optional.of(rows);
     }
 
-    private List<RagDtos.AgenticSubquery> normalizeSubqueries(
+    private List<AgenticRetrievalDtos.AgenticSubquery> normalizeSubqueries(
             String rawQuery,
             List<JsonNode> candidates,
             int maxSubqueries
     ) {
-        List<RagDtos.AgenticSubquery> rows = new ArrayList<>();
+        List<AgenticRetrievalDtos.AgenticSubquery> rows = new ArrayList<>();
         LinkedHashSet<String> dedupe = new LinkedHashSet<>();
         int ordinal = 0;
         for (JsonNode candidate : candidates) {
@@ -390,7 +387,7 @@ public class AgenticQueryPlannerService {
             double weight = candidate.isObject() ? candidate.path("weight").asDouble(1.0d) : 1.0d;
             ObjectNode metadata = objectMapper.createObjectNode();
             metadata.put("raw_query_overlap", query.equalsIgnoreCase(safeTrim(rawQuery)));
-            rows.add(new RagDtos.AgenticSubquery(
+            rows.add(new AgenticRetrievalDtos.AgenticSubquery(
                     ordinal,
                     query,
                     intent.isBlank() ? "subquery_" + ordinal : intent,

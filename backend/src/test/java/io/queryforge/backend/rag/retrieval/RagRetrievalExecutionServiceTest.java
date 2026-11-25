@@ -3,8 +3,11 @@ package io.queryforge.backend.rag.retrieval;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.queryforge.backend.rag.embedding.DenseEmbeddingService;
 import io.queryforge.backend.rag.embedding.HashEmbeddingService;
-import io.queryforge.backend.rag.persistence.RagRepository;
+import io.queryforge.backend.rag.retrieval.memory.MemoryCandidate;
+import io.queryforge.backend.rag.retrieval.memory.RagMemoryRepository;
 import io.queryforge.backend.rag.retrieval.rewrite.RewriteCandidateService;
+import io.queryforge.backend.rag.trace.RagTracePersistenceService;
+import io.queryforge.backend.rag.trace.RagTraceRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -16,8 +19,6 @@ import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyBoolean;
-import static org.mockito.ArgumentMatchers.anyDouble;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyString;
@@ -34,7 +35,9 @@ class RagRetrievalExecutionServiceTest {
     private final UUID domainId = UUID.fromString("11111111-1111-1111-1111-111111111111");
 
     @Mock
-    private RagRepository repository;
+    private ChunkRetrievalRepository chunkRepository;
+    @Mock
+    private RagMemoryRepository memoryRepository;
     @Mock
     private HashEmbeddingService embeddingService;
     @Mock
@@ -49,7 +52,8 @@ class RagRetrievalExecutionServiceTest {
     @BeforeEach
     void setUp() {
         DomainScopedRetrievalService domainScopedRetrievalService = new DomainScopedRetrievalService(
-                repository,
+                chunkRepository,
+                memoryRepository,
                 embeddingService,
                 denseEmbeddingService
         );
@@ -65,19 +69,19 @@ class RagRetrievalExecutionServiceTest {
     void rawOnlyExecutionRetrievesWithinDomainAndKeepsOriginalQuery() {
         String query = "FilterChainProxy order";
         DomainScopedRetrievalService.RetrievalRuntime runtime = localDenseRuntime(20);
-        List<RagRepository.RetrievalDoc> localDocs = List.of(new RagRepository.RetrievalDoc(
+        List<RetrievalDoc> localDocs = List.of(new RetrievalDoc(
                 "doc-1",
                 "chunk-1",
                 "Spring Security FilterChainProxy documentation",
                 0.8d
         ));
-        List<RagRepository.RetrievalDoc> rerankedDocs = List.of(new RagRepository.RetrievalDoc(
+        List<RetrievalDoc> rerankedDocs = List.of(new RetrievalDoc(
                 "doc-1",
                 "chunk-1",
                 "Spring Security FilterChainProxy documentation",
                 0.9d
         ));
-        when(repository.findTopChunksByEmbedding("embedding", 20, domainId)).thenReturn(localDocs);
+        when(chunkRepository.findTopChunksByEmbedding("embedding", 20, domainId)).thenReturn(localDocs);
         when(cohereRerankService.rerank(query, localDocs, 3)).thenReturn(rerankedDocs);
         when(cohereRerankService.modelName()).thenReturn("local-rerank-fallback");
 
@@ -94,7 +98,7 @@ class RagRetrievalExecutionServiceTest {
 
         assertThat(result.originalQuery()).isEqualTo(query);
         assertThat(result.finalQuery()).isEqualTo(query);
-        assertThat(result.localRetrievedDocs()).extracting(RagRepository.RetrievalDoc::chunkId)
+        assertThat(result.localRetrievedDocs()).extracting(RetrievalDoc::chunkId)
                 .containsExactly("chunk-1");
         assertThat(result.rerankedDocs()).isEqualTo(rerankedDocs);
         assertThat(result.rawRetrievalConfidence()).isGreaterThan(0.0d);
@@ -109,8 +113,8 @@ class RagRetrievalExecutionServiceTest {
         assertThat(result.candidateExecutions()).isEmpty();
         assertThat(result.anchorInjectionApplied()).isFalse();
 
-        verify(repository).findTopChunksByEmbedding("embedding", 20, domainId);
-        verify(repository, never()).findMemoryTopN(anyString(), anyInt(), anyString(), any(), anyList(), anyList(), anyList());
+        verify(chunkRepository).findTopChunksByEmbedding("embedding", 20, domainId);
+        verify(memoryRepository, never()).findMemoryTopN(anyString(), anyInt(), anyString(), any(), anyList(), anyList(), anyList());
         verifyNoRepositoryWrites();
     }
 
@@ -118,7 +122,7 @@ class RagRetrievalExecutionServiceTest {
     void emptyRawOnlyExecutionReturnsEmptyDocsAndZeroConfidence() {
         String query = "FilterChainProxy order";
         DomainScopedRetrievalService.RetrievalRuntime runtime = localDenseRuntime(20);
-        when(repository.findTopChunksByEmbedding("embedding", 20, domainId)).thenReturn(List.of());
+        when(chunkRepository.findTopChunksByEmbedding("embedding", 20, domainId)).thenReturn(List.of());
         when(cohereRerankService.rerank(query, List.of(), 3)).thenReturn(List.of());
         when(cohereRerankService.modelName()).thenReturn("local-rerank-fallback");
 
@@ -139,7 +143,7 @@ class RagRetrievalExecutionServiceTest {
         assertThat(result.rerankedDocs()).isEmpty();
         assertThat(result.rawRetrievalConfidence()).isZero();
         assertThat(result.rawRerankedChunkIds()).isEmpty();
-        verify(repository).findTopChunksByEmbedding("embedding", 20, domainId);
+        verify(chunkRepository).findTopChunksByEmbedding("embedding", 20, domainId);
         verifyNoRepositoryWrites();
     }
 
@@ -148,14 +152,14 @@ class RagRetrievalExecutionServiceTest {
         String query = "spring filter order";
         String rewrittenQuery = "FilterChainProxy SecurityFilterChain order";
         DomainScopedRetrievalService.RetrievalRuntime runtime = localDenseRuntime(20);
-        List<RagRepository.MemoryCandidate> memories = List.of(memory());
-        List<RagRepository.RetrievalDoc> localDocs = List.of(new RagRepository.RetrievalDoc(
+        List<MemoryCandidate> memories = List.of(memory());
+        List<RetrievalDoc> localDocs = List.of(new RetrievalDoc(
                 "doc-1",
                 "chunk-1",
                 "Spring Security FilterChainProxy documentation",
                 0.8d
         ));
-        List<RagRepository.RetrievalDoc> rerankedDocs = List.of(new RagRepository.RetrievalDoc(
+        List<RetrievalDoc> rerankedDocs = List.of(new RetrievalDoc(
                 "doc-1",
                 "chunk-1",
                 "Spring Security FilterChainProxy documentation",
@@ -172,7 +176,7 @@ class RagRetrievalExecutionServiceTest {
         )).thenReturn(List.of(new RewriteCandidateService.CandidateTemplate("candidate-1", rewrittenQuery)));
         when(embeddingService.embed(rewrittenQuery)).thenReturn(List.of(1.0d, 0.0d));
         when(embeddingService.toHalfvecLiteral(List.of(1.0d, 0.0d))).thenReturn("embedding");
-        when(repository.findTopChunksByEmbedding("embedding", 20, domainId)).thenReturn(localDocs);
+        when(chunkRepository.findTopChunksByEmbedding("embedding", 20, domainId)).thenReturn(localDocs);
         when(cohereRerankService.rerank(rewrittenQuery, localDocs, 3)).thenReturn(rerankedDocs);
         when(cohereRerankService.modelName()).thenReturn("local-rerank-fallback");
 
@@ -225,7 +229,7 @@ class RagRetrievalExecutionServiceTest {
                 eq(false),
                 any()
         );
-        verify(repository).findTopChunksByEmbedding("embedding", 20, domainId);
+        verify(chunkRepository).findTopChunksByEmbedding("embedding", 20, domainId);
         verifyNoRepositoryWrites();
     }
 
@@ -234,14 +238,14 @@ class RagRetrievalExecutionServiceTest {
         String query = "FilterChainProxy SecurityFilterChain order";
         String rewrittenQuery = "FilterChainProxy SecurityFilterChain order in Spring Security";
         DomainScopedRetrievalService.RetrievalRuntime runtime = localDenseRuntime(20);
-        List<RagRepository.MemoryCandidate> memories = List.of(memory());
-        List<RagRepository.RetrievalDoc> localDocs = List.of(new RagRepository.RetrievalDoc(
+        List<MemoryCandidate> memories = List.of(memory());
+        List<RetrievalDoc> localDocs = List.of(new RetrievalDoc(
                 "doc-1",
                 "chunk-1",
                 "Spring Security FilterChainProxy documentation",
                 0.8d
         ));
-        List<RagRepository.RetrievalDoc> rerankedDocs = List.of(new RagRepository.RetrievalDoc(
+        List<RetrievalDoc> rerankedDocs = List.of(new RetrievalDoc(
                 "doc-1",
                 "chunk-1",
                 "Spring Security FilterChainProxy documentation",
@@ -258,7 +262,7 @@ class RagRetrievalExecutionServiceTest {
         )).thenReturn(List.of(new RewriteCandidateService.CandidateTemplate("anchor-aware", rewrittenQuery)));
         when(embeddingService.embed(rewrittenQuery)).thenReturn(List.of(1.0d, 0.0d));
         when(embeddingService.toHalfvecLiteral(List.of(1.0d, 0.0d))).thenReturn("embedding");
-        when(repository.findTopChunksByEmbedding("embedding", 20, domainId)).thenReturn(localDocs);
+        when(chunkRepository.findTopChunksByEmbedding("embedding", 20, domainId)).thenReturn(localDocs);
         when(cohereRerankService.rerank(rewrittenQuery, localDocs, 3)).thenReturn(rerankedDocs);
         when(cohereRerankService.modelName()).thenReturn("local-rerank-fallback");
 
@@ -311,7 +315,7 @@ class RagRetrievalExecutionServiceTest {
                 eq(true),
                 any()
         );
-        verify(repository).findTopChunksByEmbedding("embedding", 20, domainId);
+        verify(chunkRepository).findTopChunksByEmbedding("embedding", 20, domainId);
         verifyNoRepositoryWrites();
     }
 
@@ -319,7 +323,7 @@ class RagRetrievalExecutionServiceTest {
     void anchorAwareRewriteExecutionReturnsEmptyCandidatesWithoutRetrieval() {
         String query = "FilterChainProxy SecurityFilterChain order";
         DomainScopedRetrievalService.RetrievalRuntime runtime = localDenseRuntime(20);
-        List<RagRepository.MemoryCandidate> memories = List.of(memory());
+        List<MemoryCandidate> memories = List.of(memory());
         when(rewriteCandidateService.buildCandidates(
                 eq(query),
                 any(),
@@ -348,7 +352,7 @@ class RagRetrievalExecutionServiceTest {
 
         assertThat(result.anchorInjectionApplied()).isTrue();
         assertThat(result.candidates()).isEmpty();
-        verify(repository, never()).findTopChunksByEmbedding(anyString(), anyInt(), any());
+        verify(chunkRepository, never()).findTopChunksByEmbedding(anyString(), anyInt(), any());
         verifyNoRepositoryWrites();
     }
 
@@ -356,7 +360,7 @@ class RagRetrievalExecutionServiceTest {
     void selectiveRewriteExecutionReturnsEmptyCandidatesWithoutRetrieval() {
         String query = "spring filter order";
         DomainScopedRetrievalService.RetrievalRuntime runtime = localDenseRuntime(20);
-        List<RagRepository.MemoryCandidate> memories = List.of(memory());
+        List<MemoryCandidate> memories = List.of(memory());
         when(rewriteCandidateService.buildCandidates(
                 eq(query),
                 any(),
@@ -384,7 +388,7 @@ class RagRetrievalExecutionServiceTest {
         );
 
         assertThat(result.candidates()).isEmpty();
-        verify(repository, never()).findTopChunksByEmbedding(anyString(), anyInt(), any());
+        verify(chunkRepository, never()).findTopChunksByEmbedding(anyString(), anyInt(), any());
         verifyNoRepositoryWrites();
     }
 
@@ -400,8 +404,8 @@ class RagRetrievalExecutionServiceTest {
         );
     }
 
-    private RagRepository.MemoryCandidate memory() {
-        return new RagRepository.MemoryCandidate(
+    private MemoryCandidate memory() {
+        return new MemoryCandidate(
                 UUID.fromString("22222222-2222-2222-2222-222222222222"),
                 "FilterChainProxy SecurityFilterChain order",
                 "doc-1",
@@ -419,16 +423,9 @@ class RagRetrievalExecutionServiceTest {
     }
 
     private void verifyNoRepositoryWrites() {
-        verify(repository, never()).createOnlineQuery(any(), any(), anyString(), any(), anyString(), anyDouble(), any());
-        verify(repository, never()).createRewriteCandidate(any(), anyInt(), anyString(), anyString(), any(), any(), anyDouble(), any());
-        verify(repository, never()).markRewriteCandidateAdopted(any(), anyBoolean(), any());
-        verify(repository, never()).insertRetrievalResults(any(), any(), anyString(), anyList(), anyString(), anyString(), any());
-        verify(repository, never()).insertRerankResults(any(), any(), anyList(), anyString());
-        verify(repository, never()).insertAnswer(any(), anyString(), any(), any(), anyString(), any());
-        verify(repository, never()).upsertOnlineQueryDecision(any(), anyString(), anyBoolean(), any(), any(), any(), anyString(), any(), any());
-        verify(repository, never()).mergeOnlineQueryMetadata(any(), any());
-        verify(repository, never()).createOnlineRewriteLog(any(), any(), anyString(), anyString(), anyString(), any(), any(), anyBoolean(), anyString(), anyBoolean(), any(), any(), any(), any(), any(), any(), any(), any());
-        verify(repository, never()).insertMemoryRetrievalLog(any(), any(), anyInt(), any(), any());
-        verify(repository, never()).insertRewriteCandidateLog(any(), any(), any(), anyInt(), anyString(), anyString(), any(), anyBoolean(), any(), any(), any(), any());
+        assertThat(java.util.stream.Stream.of(RagRetrievalExecutionService.class, DomainScopedRetrievalService.class)
+                .flatMap(type -> java.util.Arrays.stream(type.getDeclaredFields()))
+                .map(java.lang.reflect.Field::getType)
+                .toList()).doesNotContain(RagTraceRepository.class, RagTracePersistenceService.class);
     }
 }

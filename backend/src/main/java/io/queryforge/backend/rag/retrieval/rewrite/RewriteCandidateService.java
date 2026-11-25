@@ -4,9 +4,9 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import io.queryforge.backend.rag.persistence.RagRepository;
 import io.queryforge.backend.rag.provider.RuntimeEnvService;
 import io.queryforge.backend.rag.provider.SpringAiChatGateway;
+import io.queryforge.backend.rag.retrieval.memory.MemoryCandidate;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
@@ -33,9 +33,7 @@ public class RewriteCandidateService {
             "selective_rewrite_v2.md",
             "selective_rewrite_v1.md"
     );
-
     private static final int MEMORY_CANDIDATE_LIMIT = 5;
-
     private final ObjectMapper objectMapper;
     private final RuntimeEnvService runtimeEnvService;
     private final SpringAiChatGateway springAiChatGateway;
@@ -67,7 +65,7 @@ public class RewriteCandidateService {
     public List<CandidateTemplate> buildCandidates(
             String rawQuery,
             JsonNode sessionContext,
-            List<RagRepository.MemoryCandidate> memories,
+            List<MemoryCandidate> memories,
             int candidateCount,
             String rewriteQueryProfile,
             boolean anchorInjectionEnabled,
@@ -134,7 +132,7 @@ public class RewriteCandidateService {
             PromptAsset promptAsset,
             String rawQuery,
             JsonNode sessionContext,
-            List<RagRepository.MemoryCandidate> memories,
+            List<MemoryCandidate> memories,
             int candidateCount,
             String rewriteQueryProfile,
             boolean anchorInjectionEnabled,
@@ -184,7 +182,7 @@ public class RewriteCandidateService {
             PromptAsset promptAsset,
             String rawQuery,
             JsonNode sessionContext,
-            List<RagRepository.MemoryCandidate> memories,
+            List<MemoryCandidate> memories,
             int candidateCount,
             String rewriteQueryProfile,
             boolean anchorInjectionEnabled,
@@ -213,7 +211,7 @@ public class RewriteCandidateService {
             PromptAsset promptAsset,
             String rawQuery,
             JsonNode sessionContext,
-            List<RagRepository.MemoryCandidate> memories,
+            List<MemoryCandidate> memories,
             int candidateCount,
             String rewriteQueryProfile,
             boolean anchorInjectionEnabled,
@@ -288,7 +286,7 @@ public class RewriteCandidateService {
             PromptAsset promptAsset,
             String rawQuery,
             JsonNode sessionContext,
-            List<RagRepository.MemoryCandidate> memories,
+            List<MemoryCandidate> memories,
             int candidateCount,
             String rewriteQueryProfile,
             boolean anchorInjectionEnabled,
@@ -352,7 +350,7 @@ public class RewriteCandidateService {
     private String buildRewriteUserPrompt(
             String rawQuery,
             JsonNode sessionContext,
-            List<RagRepository.MemoryCandidate> memories,
+            List<MemoryCandidate> memories,
             int candidateCount,
             String rewriteQueryProfile,
             boolean anchorInjectionEnabled,
@@ -385,10 +383,10 @@ public class RewriteCandidateService {
         return value;
     }
 
-    private ArrayNode topMemoryCandidates(List<RagRepository.MemoryCandidate> memories, boolean anchorInjectionEnabled) {
+    private ArrayNode topMemoryCandidates(List<MemoryCandidate> memories, boolean anchorInjectionEnabled) {
         ArrayNode rows = objectMapper.createArrayNode();
         for (int index = 0; index < Math.min(MEMORY_CANDIDATE_LIMIT, memories.size()); index++) {
-            RagRepository.MemoryCandidate memory = memories.get(index);
+            MemoryCandidate memory = memories.get(index);
             ObjectNode row = rows.addObject();
             if (memory.memoryId() != null) {
                 row.put("memory_id", memory.memoryId().toString());
@@ -532,7 +530,7 @@ public class RewriteCandidateService {
     private List<CandidateTemplate> heuristicCandidates(
             String rawQuery,
             JsonNode sessionContext,
-            List<RagRepository.MemoryCandidate> memories,
+            List<MemoryCandidate> memories,
             int candidateCount
     ) {
         String normalizedRaw = normalizeWhitespace(rawQuery);

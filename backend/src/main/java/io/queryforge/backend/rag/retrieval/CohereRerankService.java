@@ -2,7 +2,6 @@ package io.queryforge.backend.rag.retrieval;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import io.queryforge.backend.rag.persistence.RagRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
@@ -41,7 +40,7 @@ public class CohereRerankService {
         return apiKey != null && !apiKey.isBlank();
     }
 
-    public List<RagRepository.RetrievalDoc> rerank(String query, List<RagRepository.RetrievalDoc> docs, int topN) {
+    public List<RetrievalDoc> rerank(String query, List<RetrievalDoc> docs, int topN) {
         int limitedTopN = Math.max(1, Math.min(topN, docs.size()));
         if (docs.isEmpty()) {
             return List.of();
@@ -54,7 +53,7 @@ public class CohereRerankService {
             JsonNode payload = objectMapper.valueToTree(java.util.Map.of(
                     "model", model,
                     "query", query,
-                    "documents", docs.stream().map(RagRepository.RetrievalDoc::chunkText).toList(),
+                    "documents", docs.stream().map(RetrievalDoc::chunkText).toList(),
                     "top_n", limitedTopN
             ));
             for (int attempt = 0; attempt < maxRetries; attempt++) {
@@ -84,16 +83,16 @@ public class CohereRerankService {
                 if (!results.isArray() || results.isEmpty()) {
                     return lexicalFallback(query, docs, limitedTopN);
                 }
-                List<RagRepository.RetrievalDoc> reranked = new ArrayList<>();
+                List<RetrievalDoc> reranked = new ArrayList<>();
                 for (JsonNode row : results) {
                     int index = row.path("index").asInt(-1);
                     if (index < 0 || index >= docs.size()) {
                         continue;
                     }
                     double relevance = row.path("relevance_score").asDouble(0.0d);
-                    RagRepository.RetrievalDoc doc = docs.get(index);
+                    RetrievalDoc doc = docs.get(index);
                     reranked.add(
-                            new RagRepository.RetrievalDoc(
+                            new RetrievalDoc(
                                     doc.documentId(),
                                     doc.chunkId(),
                                     doc.chunkText(),
@@ -132,12 +131,12 @@ public class CohereRerankService {
         }
     }
 
-    private List<RagRepository.RetrievalDoc> lexicalFallback(
+    private List<RetrievalDoc> lexicalFallback(
             String query,
-            List<RagRepository.RetrievalDoc> docs,
+            List<RetrievalDoc> docs,
             int topN
     ) {
-        List<RagRepository.RetrievalDoc> sorted = new ArrayList<>(docs);
+        List<RetrievalDoc> sorted = new ArrayList<>(docs);
         sorted.sort((left, right) -> {
             double leftScore = (0.7d * left.score()) + (0.3d * lexicalBoost(query, left.chunkText()));
             double rightScore = (0.7d * right.score()) + (0.3d * lexicalBoost(query, right.chunkText()));

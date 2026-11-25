@@ -3,6 +3,7 @@ package io.queryforge.backend.admin.console.embedding;
 import io.queryforge.backend.admin.console.configuration.ConsoleExperimentConfig;
 import io.queryforge.backend.admin.console.jobs.LlmJobDtos;
 import io.queryforge.backend.admin.console.jobs.LlmJobService;
+import io.queryforge.backend.admin.console.runtime.AdminRetrieverConfiguration;
 import io.queryforge.backend.admin.console.runtime.AdminRuntimeOptionsDtos;
 import io.queryforge.backend.admin.console.runtime.AdminRuntimeOptionsService;
 import io.queryforge.backend.admin.console.runtime.AdminRuntimeOptionsService.RuntimeCatalog;
@@ -24,22 +25,15 @@ import static io.queryforge.backend.admin.console.configuration.ConsoleParameter
 public class ChunkEmbeddingAdminService {
 
     private final AdminRuntimeOptionsService runtimeOptionsService;
+    private final AdminRetrieverConfiguration retrieverConfiguration;
     private final ConsoleExperimentConfig experimentConfig;
-
     private static final String SYNTHETIC_FREE_BASELINE_METHOD = "BASELINE";
-
     private static final String RETRIEVAL_BACKEND_DB_ANN = "db_ann";
-
     private static final String RETRIEVER_MODE_DENSE_ONLY = "dense_only";
-
     private static final String DEFAULT_DENSE_EMBEDDING_MODEL = "intfloat/multilingual-e5-small";
-
     private static final int DEFAULT_RETRIEVER_CANDIDATE_POOL_K = 50;
-
     private static final String VECTOR_STORE_POSTGRESQL_PGVECTOR = "postgresql-pgvector";
-
     private final ChunkEmbeddingAdminRepository chunkEmbeddingRepository;
-
     private final LlmJobService llmJobService;
 
     public ChunkEmbeddingAdminDtos.ChunkEmbeddingMaterializationStatusResponse getChunkEmbeddingMaterializationStatus(String embeddingModel) {
@@ -65,7 +59,7 @@ public class ChunkEmbeddingAdminService {
         }
         String experimentName = "admin_materialize_" + UUID.randomUUID().toString().replace("-", "").substring(0, 12);
         Map<String, Object> config = experimentConfig.baseExperimentConfig(experimentName, SYNTHETIC_FREE_BASELINE_METHOD);
-        Map<String, Object> retrieverConfig = runtimeOptionsService.resolveRetrieverConfig(
+        Map<String, Object> retrieverConfig = retrieverConfiguration.resolveRetrieverConfig(
                 new AdminRuntimeOptionsDtos.RetrieverConfigRequest(
                         RETRIEVER_MODE_DENSE_ONLY,
                         normalizedEmbeddingModel,
@@ -79,7 +73,7 @@ public class ChunkEmbeddingAdminService {
                 ),
                 false
         );
-        runtimeOptionsService.attachRetrieverConfig(config, retrieverConfig);
+        retrieverConfiguration.attachRetrieverConfig(config, retrieverConfig);
         config.put("retrieval_backend", RETRIEVAL_BACKEND_DB_ANN);
         config.put("chunk_embedding_model", normalizedEmbeddingModel);
         config.put("vector_store", VECTOR_STORE_POSTGRESQL_PGVECTOR);

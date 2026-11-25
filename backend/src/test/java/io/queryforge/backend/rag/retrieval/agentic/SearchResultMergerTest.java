@@ -1,6 +1,6 @@
 package io.queryforge.backend.rag.retrieval.agentic;
 
-import io.queryforge.backend.rag.persistence.RagRepository;
+import io.queryforge.backend.rag.retrieval.RetrievalDoc;
 import org.junit.jupiter.api.Test;
 
 import java.util.List;
@@ -13,21 +13,21 @@ class SearchResultMergerTest {
 
     @Test
     void mergeRrfDedupesByChunkIdAndKeepsTopRankedChunks() {
-        List<RagRepository.RetrievalDoc> first = List.of(
-                new RagRepository.RetrievalDoc("doc-1", "chunk-a", "A", 0.8d),
-                new RagRepository.RetrievalDoc("doc-2", "chunk-b", "B", 0.7d)
+        List<RetrievalDoc> first = List.of(
+                new RetrievalDoc("doc-1", "chunk-a", "A", 0.8d),
+                new RetrievalDoc("doc-2", "chunk-b", "B", 0.7d)
         );
-        List<RagRepository.RetrievalDoc> second = List.of(
-                new RagRepository.RetrievalDoc("doc-2", "chunk-b", "B updated", 0.95d),
-                new RagRepository.RetrievalDoc("doc-3", "chunk-c", "C", 0.6d)
+        List<RetrievalDoc> second = List.of(
+                new RetrievalDoc("doc-2", "chunk-b", "B updated", 0.95d),
+                new RetrievalDoc("doc-3", "chunk-c", "C", 0.6d)
         );
 
-        List<RagRepository.RetrievalDoc> merged = merger.mergeRrf(List.of(first, second), 3, 60);
+        List<RetrievalDoc> merged = merger.mergeRrf(List.of(first, second), 3, 60);
 
         assertThat(merged).hasSize(3);
         assertThat(merged.getFirst().chunkId()).isEqualTo("chunk-b");
         assertThat(merged.getFirst().chunkText()).isEqualTo("B updated");
-        assertThat(merged).extracting(RagRepository.RetrievalDoc::chunkId)
+        assertThat(merged).extracting(RetrievalDoc::chunkId)
                 .containsExactly("chunk-b", "chunk-a", "chunk-c");
     }
 }

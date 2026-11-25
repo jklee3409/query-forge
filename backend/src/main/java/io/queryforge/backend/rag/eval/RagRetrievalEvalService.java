@@ -4,18 +4,20 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import io.queryforge.backend.rag.persistence.RagRepository;
 import io.queryforge.backend.rag.retrieval.DomainScopedRetrievalService;
 import io.queryforge.backend.rag.retrieval.RagLlmCallCount;
 import io.queryforge.backend.rag.retrieval.RagPersistPolicy;
 import io.queryforge.backend.rag.retrieval.RagRetrievalExecutionService;
+import io.queryforge.backend.rag.retrieval.RetrievalDoc;
 import io.queryforge.backend.rag.retrieval.agentic.AgenticRetrievalService;
+import io.queryforge.backend.rag.retrieval.memory.MemoryCandidate;
 import io.queryforge.backend.rag.retrieval.routing.QueryRouteContext;
 import io.queryforge.backend.rag.retrieval.routing.QueryRouteDecision;
-import io.queryforge.backend.rag.retrieval.routing.QueryStrategy;
 import io.queryforge.backend.rag.retrieval.routing.QueryStrategyRouter;
+import io.queryforge.backend.rag.runtime.ChatConfigDtos;
 import io.queryforge.backend.rag.runtime.ChatRuntimeConfigService;
-import io.queryforge.backend.rag.runtime.ChatRuntimeDtos;
+import io.queryforge.backend.rag.runtime.readiness.ChatReadinessDtos;
+import io.queryforge.backend.rag.runtime.readiness.ChatReadinessService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
@@ -45,7 +47,6 @@ public class RagRetrievalEvalService {
             "agentic_multi_query",
             "strategy_router"
     );
-
     private static final String ERROR_REQUEST_REQUIRED = "request_required";
     private static final String ERROR_DOMAIN_ID_REQUIRED = "domainId_required";
     private static final String ERROR_QUERY_REQUIRED = "query_required";
@@ -53,6 +54,7 @@ public class RagRetrievalEvalService {
     private static final String ERROR_UNSUPPORTED_ANSWER_GENERATION = "unsupported_answer_generation";
     private static final String ERROR_UNSUPPORTED_FORCED_MODE = "unsupported_forced_mode";
     private final ChatRuntimeConfigService chatRuntimeConfigService;
+    private final ChatReadinessService chatReadinessService;
     private final DomainScopedRetrievalService domainScopedRetrievalService;
     private final QueryStrategyRouter queryStrategyRouter;
     private final RagRetrievalExecutionService ragRetrievalExecutionService;
@@ -73,8 +75,8 @@ public class RagRetrievalEvalService {
 
         UUID domainId = request.domainId();
         String query = request.query().trim();
-        ChatRuntimeDtos.ChatRuntimeConfigResponse config = chatRuntimeConfigService.getConfig(domainId);
-        ChatRuntimeDtos.ChatDomainReadinessResponse readiness = chatRuntimeConfigService.getReadiness(domainId);
+        ChatConfigDtos.ChatRuntimeConfigResponse config = chatRuntimeConfigService.getConfig(domainId);
+        ChatReadinessDtos.ChatDomainReadinessResponse readiness = chatReadinessService.getReadiness(domainId);
         RuntimeEvalContext runtimeContext = runtimeContext(request, config, readiness);
         config = runtimeContext.config();
         readiness = runtimeContext.readiness();
@@ -153,14 +155,14 @@ public class RagRetrievalEvalService {
     private RagRetrievalEvalDtos.RagRetrievalEvalResponse executeStrategyRouter(
             RagRetrievalEvalDtos.RagRetrievalEvalRequest request,
             String query,
-            ChatRuntimeDtos.ChatRuntimeConfigResponse config,
-            ChatRuntimeDtos.ChatDomainReadinessResponse readiness,
+            ChatConfigDtos.ChatRuntimeConfigResponse config,
+            ChatReadinessDtos.ChatDomainReadinessResponse readiness,
             DomainScopedRetrievalService.RetrievalRuntime retrievalRuntime,
             int retrievalTopK,
             int rerankTopN,
             long started
     ) {
-        List<RagRepository.MemoryCandidate> memoryCandidates = findMemoryCandidates(
+        List<MemoryCandidate> memoryCandidates = findMemoryCandidates(
                 query,
                 config,
                 retrievalRuntime
@@ -231,7 +233,7 @@ public class RagRetrievalEvalService {
     private RagRetrievalEvalDtos.RagRetrievalEvalResponse executeRawOnly(
             RagRetrievalEvalDtos.RagRetrievalEvalRequest request,
             String query,
-            ChatRuntimeDtos.ChatRuntimeConfigResponse config,
+            ChatConfigDtos.ChatRuntimeConfigResponse config,
             DomainScopedRetrievalService.RetrievalRuntime retrievalRuntime,
             int retrievalTopK,
             int rerankTopN,
@@ -266,7 +268,7 @@ public class RagRetrievalEvalService {
     private RagRetrievalEvalDtos.RagRetrievalEvalResponse executeRewrite(
             RagRetrievalEvalDtos.RagRetrievalEvalRequest request,
             String query,
-            ChatRuntimeDtos.ChatRuntimeConfigResponse config,
+            ChatConfigDtos.ChatRuntimeConfigResponse config,
             DomainScopedRetrievalService.RetrievalRuntime retrievalRuntime,
             int retrievalTopK,
             int rerankTopN,
@@ -293,7 +295,7 @@ public class RagRetrievalEvalService {
     private RagRetrievalEvalDtos.RagRetrievalEvalResponse executeRewrite(
             RagRetrievalEvalDtos.RagRetrievalEvalRequest request,
             String query,
-            ChatRuntimeDtos.ChatRuntimeConfigResponse config,
+            ChatConfigDtos.ChatRuntimeConfigResponse config,
             DomainScopedRetrievalService.RetrievalRuntime retrievalRuntime,
             int retrievalTopK,
             int rerankTopN,
@@ -301,7 +303,7 @@ public class RagRetrievalEvalService {
             String selectedMode,
             long started,
             QueryRouteDecision routeDecision,
-            List<RagRepository.MemoryCandidate> memoryCandidates
+            List<MemoryCandidate> memoryCandidates
     ) {
         double rawDenseScore = memoryCandidates.isEmpty() ? 0.0d : memoryCandidates.getFirst().similarity();
         int candidateCount = Math.min(
@@ -345,7 +347,7 @@ public class RagRetrievalEvalService {
                 ? List.of("rewrite execution returned no candidates; retrievedChunkIds is empty")
                 : List.of();
         String finalQuery = selected == null ? query : selected.query();
-        List<RagRepository.RetrievalDoc> docs = selected == null ? List.of() : selected.rerankedDocs();
+        List<RetrievalDoc> docs = selected == null ? List.of() : selected.rerankedDocs();
         return response(
                 request,
                 config.domainId(),
@@ -361,9 +363,9 @@ public class RagRetrievalEvalService {
         );
     }
 
-    private List<RagRepository.MemoryCandidate> findMemoryCandidates(
+    private List<MemoryCandidate> findMemoryCandidates(
             String query,
-            ChatRuntimeDtos.ChatRuntimeConfigResponse config,
+            ChatConfigDtos.ChatRuntimeConfigResponse config,
             DomainScopedRetrievalService.RetrievalRuntime retrievalRuntime
     ) {
         String embeddingLiteral = domainScopedRetrievalService.embeddingLiteral(query, retrievalRuntime);
@@ -383,17 +385,17 @@ public class RagRetrievalEvalService {
     private RagRetrievalEvalDtos.RagRetrievalEvalResponse executeAgentic(
             RagRetrievalEvalDtos.RagRetrievalEvalRequest request,
             String query,
-            ChatRuntimeDtos.ChatRuntimeConfigResponse config,
-            ChatRuntimeDtos.ChatDomainReadinessResponse readiness,
+            ChatConfigDtos.ChatRuntimeConfigResponse config,
+            ChatReadinessDtos.ChatDomainReadinessResponse readiness,
             int retrievalTopK,
             int rerankTopN,
             long started,
             QueryRouteDecision routeDecision,
-            List<RagRepository.MemoryCandidate> plannerMemoryCandidates
+            List<MemoryCandidate> plannerMemoryCandidates
     ) {
         DomainScopedRetrievalService.RetrievalRuntime retrievalRuntime =
                 domainScopedRetrievalService.retrievalRuntime(config);
-        List<RagRepository.MemoryCandidate> memoryCandidates = plannerMemoryCandidates == null
+        List<MemoryCandidate> memoryCandidates = plannerMemoryCandidates == null
                 ? findMemoryCandidates(query, config, retrievalRuntime)
                 : plannerMemoryCandidates;
         AgenticEvalSettings settings = agenticEvalSettings(config.metadata());
@@ -445,7 +447,7 @@ public class RagRetrievalEvalService {
             String query,
             String finalQuery,
             String selectedMode,
-            List<RagRepository.RetrievalDoc> docs,
+            List<RetrievalDoc> docs,
             long executionLatencyMs,
             long started,
             QueryRouteDecision routeDecision,
@@ -474,7 +476,7 @@ public class RagRetrievalEvalService {
             String query,
             String finalQuery,
             String selectedMode,
-            List<RagRepository.RetrievalDoc> docs,
+            List<RetrievalDoc> docs,
             long executionLatencyMs,
             long started,
             QueryRouteDecision routeDecision,
@@ -482,10 +484,10 @@ public class RagRetrievalEvalService {
             List<String> warnings,
             RagLlmCallCount llmCallCount
     ) {
-        List<RagRepository.RetrievalDoc> safeDocs = docs == null ? List.of() : docs;
+        List<RetrievalDoc> safeDocs = docs == null ? List.of() : docs;
         String safeFinalQuery = finalQueryOrOriginal(finalQuery, query);
         List<String> chunkIds = safeDocs.stream()
-                .map(RagRepository.RetrievalDoc::chunkId)
+                .map(RetrievalDoc::chunkId)
                 .toList();
         List<RagRetrievalEvalDtos.RagRetrievalEvalDoc> responseDocs = toDocs(safeDocs, request.includeScores());
         return new RagRetrievalEvalDtos.RagRetrievalEvalResponse(
@@ -508,12 +510,12 @@ public class RagRetrievalEvalService {
     }
 
     private List<RagRetrievalEvalDtos.RagRetrievalEvalDoc> toDocs(
-            List<RagRepository.RetrievalDoc> docs,
+            List<RetrievalDoc> docs,
             boolean includeScores
     ) {
         return IntStream.range(0, docs.size())
                 .mapToObj(index -> {
-                    RagRepository.RetrievalDoc doc = docs.get(index);
+                    RetrievalDoc doc = docs.get(index);
                     return new RagRetrievalEvalDtos.RagRetrievalEvalDoc(
                             doc.chunkId(),
                             doc.documentId(),
@@ -610,8 +612,8 @@ public class RagRetrievalEvalService {
 
     private RuntimeEvalContext runtimeContext(
             RagRetrievalEvalDtos.RagRetrievalEvalRequest request,
-            ChatRuntimeDtos.ChatRuntimeConfigResponse baseConfig,
-            ChatRuntimeDtos.ChatDomainReadinessResponse baseReadiness
+            ChatConfigDtos.ChatRuntimeConfigResponse baseConfig,
+            ChatReadinessDtos.ChatDomainReadinessResponse baseReadiness
     ) {
         JsonNode runtime = request.runtimeConfig();
         if (runtime == null || runtime.isNull() || runtime.isMissingNode() || !runtime.isObject()) {
@@ -695,7 +697,7 @@ public class RagRetrievalEvalService {
         if (sourceGatingRunIds.isEmpty() && sourceGatingRunId != null) {
             sourceGatingRunIds = List.of(sourceGatingRunId);
         }
-        ChatRuntimeDtos.ChatRuntimeConfigResponse config = new ChatRuntimeDtos.ChatRuntimeConfigResponse(
+        ChatConfigDtos.ChatRuntimeConfigResponse config = new ChatConfigDtos.ChatRuntimeConfigResponse(
                 baseConfig.domainId(),
                 baseConfig.domainKey(),
                 baseConfig.displayName(),
@@ -740,7 +742,7 @@ public class RagRetrievalEvalService {
                 boolValue(runtime, baseConfig.readyForRewrite(), "readyForRewrite", "ready_for_rewrite"),
                 baseConfig.readinessMessage()
         );
-        ChatRuntimeDtos.ChatDomainReadinessResponse readiness = readinessForRuntimeOverride(
+        ChatReadinessDtos.ChatDomainReadinessResponse readiness = readinessForRuntimeOverride(
                 runtime,
                 baseReadiness,
                 config
@@ -748,16 +750,16 @@ public class RagRetrievalEvalService {
         return new RuntimeEvalContext(config, readiness);
     }
 
-    private ChatRuntimeDtos.ChatDomainReadinessResponse readinessForRuntimeOverride(
+    private ChatReadinessDtos.ChatDomainReadinessResponse readinessForRuntimeOverride(
             JsonNode runtime,
-            ChatRuntimeDtos.ChatDomainReadinessResponse base,
-            ChatRuntimeDtos.ChatRuntimeConfigResponse config
+            ChatReadinessDtos.ChatDomainReadinessResponse base,
+            ChatConfigDtos.ChatRuntimeConfigResponse config
     ) {
         boolean rewriteBacked = !"raw_only".equals(normalizedMode(config.mode()));
         boolean hasSnapshot = !nonNullList(config.sourceGatingRunIds()).isEmpty()
                 || !nonNullList(config.sourceGatingBatchIds()).isEmpty();
         boolean ready = boolValue(runtime, base.readyForRewrite() || !rewriteBacked || hasSnapshot, "readyForRewrite", "ready_for_rewrite");
-        return new ChatRuntimeDtos.ChatDomainReadinessResponse(
+        return new ChatReadinessDtos.ChatDomainReadinessResponse(
                 config.domainId(),
                 config.domainKey(),
                 config.displayName(),
@@ -920,7 +922,7 @@ public class RagRetrievalEvalService {
         node.set("agenticPlan", objectMapper.valueToTree(result.plan()));
         node.set("subqueryTraces", objectMapper.valueToTree(result.traces()));
         node.set("retrievedChunkIds", objectMapper.valueToTree(result.mergedDocs().stream()
-                .map(RagRepository.RetrievalDoc::chunkId)
+                .map(RetrievalDoc::chunkId)
                 .toList()));
         node.put("mergeStrategy", "RRF");
         node.put("rrfK", settings.rrfK());
@@ -940,8 +942,8 @@ public class RagRetrievalEvalService {
     }
 
     private void validateRuntime(
-            ChatRuntimeDtos.ChatRuntimeConfigResponse config,
-            ChatRuntimeDtos.ChatDomainReadinessResponse readiness
+            ChatConfigDtos.ChatRuntimeConfigResponse config,
+            ChatReadinessDtos.ChatDomainReadinessResponse readiness
     ) {
         if (config == null || config.domainId() == null) {
             throw new IllegalArgumentException("active chat runtime config is required for retrieval eval");
@@ -956,8 +958,8 @@ public class RagRetrievalEvalService {
 
     private QueryRouteContext routeContext(
             String rawQuery,
-            ChatRuntimeDtos.ChatRuntimeConfigResponse config,
-            ChatRuntimeDtos.ChatDomainReadinessResponse readiness,
+            ChatConfigDtos.ChatRuntimeConfigResponse config,
+            ChatReadinessDtos.ChatDomainReadinessResponse readiness,
             String mode,
             String rewriteQueryProfile,
             boolean anchorInjectionEnabled,
@@ -985,7 +987,7 @@ public class RagRetrievalEvalService {
         );
     }
 
-    private ObjectNode domainContext(ChatRuntimeDtos.ChatRuntimeConfigResponse config) {
+    private ObjectNode domainContext(ChatConfigDtos.ChatRuntimeConfigResponse config) {
         ObjectNode node = objectMapper.createObjectNode();
         node.put("current_technical_domain", config.displayName());
         node.put("domain_key", config.domainKey());
@@ -1069,8 +1071,8 @@ public class RagRetrievalEvalService {
     }
 
     private record RuntimeEvalContext(
-            ChatRuntimeDtos.ChatRuntimeConfigResponse config,
-            ChatRuntimeDtos.ChatDomainReadinessResponse readiness
+            ChatConfigDtos.ChatRuntimeConfigResponse config,
+            ChatReadinessDtos.ChatDomainReadinessResponse readiness
     ) {
     }
 

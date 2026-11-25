@@ -4,9 +4,9 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import io.queryforge.backend.rag.persistence.RagRepository;
 import io.queryforge.backend.rag.provider.RuntimeEnvService;
 import io.queryforge.backend.rag.provider.SpringAiChatGateway;
+import io.queryforge.backend.rag.retrieval.RetrievalDoc;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 
@@ -41,12 +41,10 @@ public class ChatAnswerService {
             }
             The cited ids must come only from the provided context.
             """;
-
     private static final int MAX_CONTEXT_CHUNKS = 6;
     private static final int MAX_CHUNK_TEXT_LENGTH = 1400;
     private static final int GEMINI_SERVICE_UNAVAILABLE_STATUS = 503;
     private static final int GEMINI_MAX_ATTEMPTS = 2;
-
     private final ObjectMapper objectMapper;
     private final RuntimeEnvService runtimeEnvService;
     private final SpringAiChatGateway springAiChatGateway;
@@ -81,7 +79,7 @@ public class ChatAnswerService {
             String rawQuery,
             String finalQuery,
             String domainDisplayName,
-            List<RagRepository.RetrievalDoc> retrievedDocs
+            List<RetrievalDoc> retrievedDocs
     ) {
         String provider = runtimeEnvService.getOrDefault("QUERY_FORGE_LLM_PROVIDER", "gemini").toLowerCase(Locale.ROOT);
         Optional<GeneratedAnswer> springAiAnswer = requestSpringAiAnswer(
@@ -105,7 +103,7 @@ public class ChatAnswerService {
             String rawQuery,
             String finalQuery,
             String domainDisplayName,
-            List<RagRepository.RetrievalDoc> retrievedDocs
+            List<RetrievalDoc> retrievedDocs
     ) {
         if (springAiChatGateway == null) {
             return Optional.empty();
@@ -125,7 +123,7 @@ public class ChatAnswerService {
             String rawQuery,
             String finalQuery,
             String domainDisplayName,
-            List<RagRepository.RetrievalDoc> retrievedDocs
+            List<RetrievalDoc> retrievedDocs
     ) {
         String apiKey = firstNonBlank(
                 runtimeEnvService.get("QUERY_FORGE_GEMINI_API_KEY"),
@@ -202,7 +200,7 @@ public class ChatAnswerService {
             String rawQuery,
             String finalQuery,
             String domainDisplayName,
-            List<RagRepository.RetrievalDoc> retrievedDocs
+            List<RetrievalDoc> retrievedDocs
     ) {
         String apiKey = runtimeEnvService.get("OPENAI_API_KEY");
         if (apiKey == null || apiKey.isBlank()) {
@@ -254,7 +252,7 @@ public class ChatAnswerService {
             String rawQuery,
             String finalQuery,
             String domainDisplayName,
-            List<RagRepository.RetrievalDoc> retrievedDocs
+            List<RetrievalDoc> retrievedDocs
     ) {
         try {
             ObjectNode payload = objectMapper.createObjectNode();
@@ -270,10 +268,10 @@ public class ChatAnswerService {
         }
     }
 
-    private ArrayNode contextChunks(List<RagRepository.RetrievalDoc> retrievedDocs) {
+    private ArrayNode contextChunks(List<RetrievalDoc> retrievedDocs) {
         ArrayNode rows = objectMapper.createArrayNode();
         for (int index = 0; index < Math.min(MAX_CONTEXT_CHUNKS, retrievedDocs.size()); index++) {
-            RagRepository.RetrievalDoc row = retrievedDocs.get(index);
+            RetrievalDoc row = retrievedDocs.get(index);
             ObjectNode item = rows.addObject();
             item.put("rank", index + 1);
             item.put("document_id", safeTrim(row.documentId()));
@@ -284,7 +282,7 @@ public class ChatAnswerService {
         return rows;
     }
 
-    private GeneratedAnswer parseAnswerPayload(String rawContent, String modelName, List<RagRepository.RetrievalDoc> retrievedDocs) {
+    private GeneratedAnswer parseAnswerPayload(String rawContent, String modelName, List<RetrievalDoc> retrievedDocs) {
         if (rawContent == null || rawContent.isBlank()) {
             throw new IllegalStateException("chat answer generation returned empty content");
         }
@@ -302,7 +300,7 @@ public class ChatAnswerService {
         LinkedHashSet<String> allowedChunkIds = new LinkedHashSet<>();
         List<String> fallbackDocIds = new ArrayList<>();
         List<String> fallbackChunkIds = new ArrayList<>();
-        for (RagRepository.RetrievalDoc row : retrievedDocs) {
+        for (RetrievalDoc row : retrievedDocs) {
             String chunkId = safeTrim(row.chunkId());
             String documentId = safeTrim(row.documentId());
             if (!chunkId.isBlank()) {

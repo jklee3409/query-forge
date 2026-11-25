@@ -3,15 +3,16 @@ package io.queryforge.backend.rag.trace;
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import io.queryforge.backend.rag.chat.ChatAnswerService;
-import io.queryforge.backend.rag.persistence.RagRepository;
 import io.queryforge.backend.rag.retrieval.ForcedRetrievalMode;
 import io.queryforge.backend.rag.retrieval.RagPersistPolicy;
 import io.queryforge.backend.rag.retrieval.RagRetrievalExecutionResult;
 import io.queryforge.backend.rag.retrieval.RagRetrievalExecutionService;
-import org.mockito.ArgumentCaptor;
+import io.queryforge.backend.rag.retrieval.RetrievalDoc;
+import io.queryforge.backend.rag.retrieval.memory.MemoryCandidate;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
@@ -39,13 +40,13 @@ import static org.mockito.Mockito.when;
 class RagTracePersistenceServiceTest {
 
     @Mock
-    private RagRepository repository;
+    private RagTraceRepository traceRepository;
 
     private RagTracePersistenceService service;
 
     @BeforeEach
     void setUp() {
-        service = new RagTracePersistenceService(repository);
+        service = new RagTracePersistenceService(traceRepository);
     }
 
     @Test
@@ -61,7 +62,7 @@ class RagTracePersistenceServiceTest {
         assertThat(result.persisted()).isFalse();
         assertThat(result.status()).isEqualTo("skipped_none");
         verifyNoPersistenceWrites();
-        verifyNoInteractions(repository);
+        verifyNoInteractions(traceRepository);
     }
 
     @Test
@@ -74,7 +75,7 @@ class RagTracePersistenceServiceTest {
         assertThat(result.onlineQueryId()).isNull();
         assertThat(result.persisted()).isFalse();
         assertThat(result.status()).isEqualTo("skipped_none");
-        verifyNoInteractions(repository);
+        verifyNoInteractions(traceRepository);
     }
 
     @Test
@@ -84,7 +85,7 @@ class RagTracePersistenceServiceTest {
                 .hasMessageContaining("TRACE_ONLY")
                 .hasMessageContaining("Phase 5F");
 
-        verifyNoInteractions(repository);
+        verifyNoInteractions(traceRepository);
     }
 
     @Test
@@ -94,7 +95,7 @@ class RagTracePersistenceServiceTest {
                 .hasMessageContaining("ONLINE_QUERY")
                 .hasMessageContaining("phase-specific");
 
-        verifyNoInteractions(repository);
+        verifyNoInteractions(traceRepository);
     }
 
     @Test
@@ -125,7 +126,7 @@ class RagTracePersistenceServiceTest {
         assertThat(result.onlineQueryId()).isEqualTo(onlineQueryId);
         assertThat(result.persisted()).isTrue();
         assertThat(result.status()).isEqualTo("persisted_raw_only_online_query_decision");
-        verify(repository).upsertOnlineQueryDecision(
+        verify(traceRepository).upsertOnlineQueryDecision(
                 eq(onlineQueryId),
                 eq("FilterChainProxy order"),
                 eq(false),
@@ -166,7 +167,7 @@ class RagTracePersistenceServiceTest {
 
         assertThat(result.persisted()).isTrue();
         assertThat(result.status()).isEqualTo("persisted_selective_rewrite_online_query_decision");
-        verify(repository).upsertOnlineQueryDecision(
+        verify(traceRepository).upsertOnlineQueryDecision(
                 eq(onlineQueryId),
                 eq("FilterChainProxy SecurityFilterChain order"),
                 eq(true),
@@ -207,7 +208,7 @@ class RagTracePersistenceServiceTest {
 
         assertThat(result.persisted()).isTrue();
         assertThat(result.status()).isEqualTo("persisted_anchor_aware_rewrite_online_query_decision");
-        verify(repository).upsertOnlineQueryDecision(
+        verify(traceRepository).upsertOnlineQueryDecision(
                 eq(onlineQueryId),
                 eq("FilterChainProxy order in Spring Security"),
                 eq(true),
@@ -241,7 +242,7 @@ class RagTracePersistenceServiceTest {
         assertThat(result.onlineQueryId()).isEqualTo(onlineQueryId);
         assertThat(result.persisted()).isTrue();
         assertThat(result.status()).isEqualTo("persisted_selective_rewrite_online_query_metadata");
-        verify(repository).mergeOnlineQueryMetadata(eq(onlineQueryId), eq(metadata));
+        verify(traceRepository).mergeOnlineQueryMetadata(eq(onlineQueryId), eq(metadata));
         verifyNoForbiddenOnlineWritesExceptOnlineQueryMetadata();
     }
 
@@ -280,7 +281,7 @@ class RagTracePersistenceServiceTest {
         assertThat(decisionResult.status()).isEqualTo("skipped_none");
         assertThat(metadataResult.persisted()).isFalse();
         assertThat(metadataResult.status()).isEqualTo("skipped_none");
-        verifyNoInteractions(repository);
+        verifyNoInteractions(traceRepository);
     }
 
     @Test
@@ -317,14 +318,14 @@ class RagTracePersistenceServiceTest {
                 .hasMessageContaining("TRACE_ONLY")
                 .hasMessageContaining("Phase 5F");
 
-        verifyNoInteractions(repository);
+        verifyNoInteractions(traceRepository);
     }
 
     @Test
     void onlineQueryRawOnlyRetrievalTracePersistsRetrievalResultsOnly() {
         UUID onlineQueryId = UUID.fromString("22222222-2222-2222-2222-222222222222");
-        List<RagRepository.RetrievalDoc> retrievedDocs = docs("doc-1", "chunk-1", 0.82d);
-        List<RagRepository.RetrievalDoc> rerankedDocs = docs("doc-2", "chunk-2", 0.92d);
+        List<RetrievalDoc> retrievedDocs = docs("doc-1", "chunk-1", 0.82d);
+        List<RetrievalDoc> rerankedDocs = docs("doc-2", "chunk-2", 0.92d);
         ObjectNode metadata = JsonNodeFactory.instance.objectNode().put("retriever_mode", "dense_only");
 
         RagTracePersistenceService.RagTracePersistenceResult result = service.persistRawOnlyTrace(
@@ -342,8 +343,8 @@ class RagTracePersistenceServiceTest {
         assertThat(result.onlineQueryId()).isEqualTo(onlineQueryId);
         assertThat(result.persisted()).isTrue();
         assertThat(result.status()).isEqualTo("persisted_raw_only_retrieval");
-        ArgumentCaptor<List<RagRepository.RetrievalDoc>> docsCaptor = ArgumentCaptor.forClass(List.class);
-        verify(repository).insertRetrievalResults(
+        ArgumentCaptor<List<RetrievalDoc>> docsCaptor = ArgumentCaptor.forClass(List.class);
+        verify(traceRepository).insertRetrievalResults(
                 eq(onlineQueryId),
                 isNull(),
                 eq("raw"),
@@ -353,15 +354,15 @@ class RagTracePersistenceServiceTest {
                 eq(metadata)
         );
         assertThat(docsCaptor.getValue()).isEqualTo(retrievedDocs);
-        verify(repository, never()).insertRerankResults(any(), any(), anyList(), anyString());
+        verify(traceRepository, never()).insertRerankResults(any(), any(), anyList(), anyString());
         verifyNoForbiddenOnlineWrites();
     }
 
     @Test
     void onlineQueryRawOnlyRerankTracePersistsRerankResultsOnly() {
         UUID onlineQueryId = UUID.fromString("33333333-3333-3333-3333-333333333333");
-        List<RagRepository.RetrievalDoc> retrievedDocs = docs("doc-1", "chunk-1", 0.82d);
-        List<RagRepository.RetrievalDoc> rerankedDocs = docs("doc-2", "chunk-2", 0.92d);
+        List<RetrievalDoc> retrievedDocs = docs("doc-1", "chunk-1", 0.82d);
+        List<RetrievalDoc> rerankedDocs = docs("doc-2", "chunk-2", 0.92d);
         ObjectNode metadata = JsonNodeFactory.instance.objectNode().put("retriever_mode", "dense_only");
 
         RagTracePersistenceService.RagTracePersistenceResult result = service.persistRawOnlyTrace(
@@ -379,13 +380,13 @@ class RagTracePersistenceServiceTest {
         assertThat(result.onlineQueryId()).isEqualTo(onlineQueryId);
         assertThat(result.persisted()).isTrue();
         assertThat(result.status()).isEqualTo("persisted_raw_only_rerank");
-        verify(repository).insertRerankResults(
+        verify(traceRepository).insertRerankResults(
                 eq(onlineQueryId),
                 isNull(),
                 eq(rerankedDocs),
                 eq("local-rerank-fallback")
         );
-        verify(repository, never()).insertRetrievalResults(any(), any(), anyString(), anyList(), anyString(), anyString(), any());
+        verify(traceRepository, never()).insertRetrievalResults(any(), any(), anyString(), anyList(), anyString(), anyString(), any());
         verifyNoForbiddenOnlineWrites();
     }
 
@@ -405,7 +406,7 @@ class RagTracePersistenceServiceTest {
         assertThat(result.persistPolicy()).isEqualTo(RagPersistPolicy.NONE);
         assertThat(result.persisted()).isFalse();
         assertThat(result.status()).isEqualTo("skipped_none");
-        verifyNoInteractions(repository);
+        verifyNoInteractions(traceRepository);
     }
 
     @Test
@@ -422,14 +423,14 @@ class RagTracePersistenceServiceTest {
                 .hasMessageContaining("TRACE_ONLY")
                 .hasMessageContaining("Phase 5F");
 
-        verifyNoInteractions(repository);
+        verifyNoInteractions(traceRepository);
     }
 
     @Test
     void onlineQuerySelectiveRewriteCandidateRetrievalPersistsRetrievalResultsOnly() {
         UUID onlineQueryId = UUID.fromString("66666666-6666-6666-6666-666666666666");
         UUID rewriteCandidateId = UUID.fromString("77777777-7777-7777-7777-777777777777");
-        List<RagRepository.RetrievalDoc> retrievedDocs = docs("doc-1", "chunk-1", 0.81d);
+        List<RetrievalDoc> retrievedDocs = docs("doc-1", "chunk-1", 0.81d);
         ObjectNode metadata = JsonNodeFactory.instance.objectNode().put("retriever_mode", "dense_only");
 
         RagTracePersistenceService.RagTracePersistenceResult result = service.persistRewriteCandidateTrace(
@@ -449,7 +450,7 @@ class RagTracePersistenceServiceTest {
         assertThat(result.onlineQueryId()).isEqualTo(onlineQueryId);
         assertThat(result.persisted()).isTrue();
         assertThat(result.status()).isEqualTo("persisted_selective_rewrite_candidate_retrieval");
-        verify(repository).insertRetrievalResults(
+        verify(traceRepository).insertRetrievalResults(
                 eq(onlineQueryId),
                 eq(rewriteCandidateId),
                 eq("rewrite_candidate"),
@@ -458,7 +459,7 @@ class RagTracePersistenceServiceTest {
                 eq("local:dense_only:hash-embedding-v1"),
                 eq(metadata)
         );
-        verify(repository, never()).insertRerankResults(any(), any(), anyList(), anyString());
+        verify(traceRepository, never()).insertRerankResults(any(), any(), anyList(), anyString());
         verifyNoForbiddenOnlineWrites();
     }
 
@@ -466,7 +467,7 @@ class RagTracePersistenceServiceTest {
     void onlineQuerySelectiveRewriteCandidateRerankPersistsRerankResultsOnly() {
         UUID onlineQueryId = UUID.fromString("88888888-8888-8888-8888-888888888888");
         UUID rewriteCandidateId = UUID.fromString("99999999-9999-9999-9999-999999999999");
-        List<RagRepository.RetrievalDoc> rerankedDocs = docs("doc-2", "chunk-2", 0.91d);
+        List<RetrievalDoc> rerankedDocs = docs("doc-2", "chunk-2", 0.91d);
 
         RagTracePersistenceService.RagTracePersistenceResult result = service.persistRewriteCandidateTrace(
                 rewriteCandidateRequest(
@@ -484,13 +485,13 @@ class RagTracePersistenceServiceTest {
         assertThat(result.persistPolicy()).isEqualTo(RagPersistPolicy.ONLINE_QUERY);
         assertThat(result.persisted()).isTrue();
         assertThat(result.status()).isEqualTo("persisted_selective_rewrite_candidate_rerank");
-        verify(repository).insertRerankResults(
+        verify(traceRepository).insertRerankResults(
                 eq(onlineQueryId),
                 eq(rewriteCandidateId),
                 eq(rerankedDocs),
                 eq("local-rerank-fallback")
         );
-        verify(repository, never()).insertRetrievalResults(any(), any(), anyString(), anyList(), anyString(), anyString(), any());
+        verify(traceRepository, never()).insertRetrievalResults(any(), any(), anyString(), anyList(), anyString(), anyString(), any());
         verifyNoForbiddenOnlineWrites();
     }
 
@@ -498,7 +499,7 @@ class RagTracePersistenceServiceTest {
     void onlineQueryAnchorAwareRewriteCandidateRetrievalPersistsRetrievalResultsOnly() {
         UUID onlineQueryId = UUID.fromString("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa");
         UUID rewriteCandidateId = UUID.fromString("bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb");
-        List<RagRepository.RetrievalDoc> retrievedDocs = docs("doc-3", "chunk-3", 0.84d);
+        List<RetrievalDoc> retrievedDocs = docs("doc-3", "chunk-3", 0.84d);
         ObjectNode metadata = JsonNodeFactory.instance.objectNode().put("retriever_mode", "hybrid");
 
         RagTracePersistenceService.RagTracePersistenceResult result = service.persistRewriteCandidateTrace(
@@ -517,7 +518,7 @@ class RagTracePersistenceServiceTest {
         assertThat(result.persistPolicy()).isEqualTo(RagPersistPolicy.ONLINE_QUERY);
         assertThat(result.persisted()).isTrue();
         assertThat(result.status()).isEqualTo("persisted_anchor_aware_rewrite_candidate_retrieval");
-        verify(repository).insertRetrievalResults(
+        verify(traceRepository).insertRetrievalResults(
                 eq(onlineQueryId),
                 eq(rewriteCandidateId),
                 eq("rewrite_candidate"),
@@ -526,7 +527,7 @@ class RagTracePersistenceServiceTest {
                 eq("local:dense_only:hash-embedding-v1"),
                 eq(metadata)
         );
-        verify(repository, never()).insertRerankResults(any(), any(), anyList(), anyString());
+        verify(traceRepository, never()).insertRerankResults(any(), any(), anyList(), anyString());
         verifyNoForbiddenOnlineWrites();
     }
 
@@ -534,7 +535,7 @@ class RagTracePersistenceServiceTest {
     void onlineQueryAnchorAwareRewriteCandidateRerankPersistsRerankResultsOnly() {
         UUID onlineQueryId = UUID.fromString("cccccccc-cccc-cccc-cccc-cccccccccccc");
         UUID rewriteCandidateId = UUID.fromString("dddddddd-dddd-dddd-dddd-dddddddddddd");
-        List<RagRepository.RetrievalDoc> rerankedDocs = docs("doc-4", "chunk-4", 0.94d);
+        List<RetrievalDoc> rerankedDocs = docs("doc-4", "chunk-4", 0.94d);
 
         RagTracePersistenceService.RagTracePersistenceResult result = service.persistRewriteCandidateTrace(
                 rewriteCandidateRequest(
@@ -552,13 +553,13 @@ class RagTracePersistenceServiceTest {
         assertThat(result.persistPolicy()).isEqualTo(RagPersistPolicy.ONLINE_QUERY);
         assertThat(result.persisted()).isTrue();
         assertThat(result.status()).isEqualTo("persisted_anchor_aware_rewrite_candidate_rerank");
-        verify(repository).insertRerankResults(
+        verify(traceRepository).insertRerankResults(
                 eq(onlineQueryId),
                 eq(rewriteCandidateId),
                 eq(rerankedDocs),
                 eq("local-rerank-fallback")
         );
-        verify(repository, never()).insertRetrievalResults(any(), any(), anyString(), anyList(), anyString(), anyString(), any());
+        verify(traceRepository, never()).insertRetrievalResults(any(), any(), anyString(), anyList(), anyString(), anyString(), any());
         verifyNoForbiddenOnlineWrites();
     }
 
@@ -580,7 +581,7 @@ class RagTracePersistenceServiceTest {
         assertThat(result.persistPolicy()).isEqualTo(RagPersistPolicy.NONE);
         assertThat(result.persisted()).isFalse();
         assertThat(result.status()).isEqualTo("skipped_none");
-        verifyNoInteractions(repository);
+        verifyNoInteractions(traceRepository);
     }
 
     @Test
@@ -599,13 +600,13 @@ class RagTracePersistenceServiceTest {
                 .hasMessageContaining("TRACE_ONLY")
                 .hasMessageContaining("Phase 5F");
 
-        verifyNoInteractions(repository);
+        verifyNoInteractions(traceRepository);
     }
 
     @Test
     void onlineQueryAgenticSubqueryRawRetrievalPersistsRetrievalResultsOnly() {
         UUID onlineQueryId = UUID.fromString("46464646-4646-4646-4646-464646464646");
-        List<RagRepository.RetrievalDoc> retrievedDocs = docs("doc-agentic-raw", "chunk-agentic-raw", 0.83d);
+        List<RetrievalDoc> retrievedDocs = docs("doc-agentic-raw", "chunk-agentic-raw", 0.83d);
         ObjectNode metadata = JsonNodeFactory.instance.objectNode()
                 .put("agentic_phase", "raw")
                 .put("subquery_index", 1);
@@ -625,7 +626,7 @@ class RagTracePersistenceServiceTest {
         assertThat(result.onlineQueryId()).isEqualTo(onlineQueryId);
         assertThat(result.persisted()).isTrue();
         assertThat(result.status()).isEqualTo("persisted_agentic_multi_query_subquery_raw_retrieval");
-        verify(repository).insertRetrievalResults(
+        verify(traceRepository).insertRetrievalResults(
                 eq(onlineQueryId),
                 isNull(),
                 eq("raw"),
@@ -634,7 +635,7 @@ class RagTracePersistenceServiceTest {
                 eq("local:dense_only:hash-embedding-v1"),
                 eq(metadata)
         );
-        verify(repository, never()).insertRerankResults(any(), any(), anyList(), anyString());
+        verify(traceRepository, never()).insertRerankResults(any(), any(), anyList(), anyString());
         verifyNoForbiddenOnlineWrites();
     }
 
@@ -642,7 +643,7 @@ class RagTracePersistenceServiceTest {
     void onlineQueryAgenticSubqueryCandidateRetrievalPersistsRetrievalResultsOnly() {
         UUID onlineQueryId = UUID.fromString("47474747-4747-4747-4747-474747474747");
         UUID rewriteCandidateId = UUID.fromString("48484848-4848-4848-4848-484848484848");
-        List<RagRepository.RetrievalDoc> retrievedDocs = docs("doc-agentic-candidate", "chunk-agentic-candidate", 0.91d);
+        List<RetrievalDoc> retrievedDocs = docs("doc-agentic-candidate", "chunk-agentic-candidate", 0.91d);
         ObjectNode metadata = JsonNodeFactory.instance.objectNode()
                 .put("agentic_phase", "rewrite_candidate")
                 .put("subquery_index", 1);
@@ -661,7 +662,7 @@ class RagTracePersistenceServiceTest {
         assertThat(result.persistPolicy()).isEqualTo(RagPersistPolicy.ONLINE_QUERY);
         assertThat(result.persisted()).isTrue();
         assertThat(result.status()).isEqualTo("persisted_agentic_multi_query_subquery_candidate_retrieval");
-        verify(repository).insertRetrievalResults(
+        verify(traceRepository).insertRetrievalResults(
                 eq(onlineQueryId),
                 eq(rewriteCandidateId),
                 eq("rewrite_candidate"),
@@ -670,7 +671,7 @@ class RagTracePersistenceServiceTest {
                 eq("local:dense_only:hash-embedding-v1"),
                 eq(metadata)
         );
-        verify(repository, never()).insertRerankResults(any(), any(), anyList(), anyString());
+        verify(traceRepository, never()).insertRerankResults(any(), any(), anyList(), anyString());
         verifyNoForbiddenOnlineWrites();
     }
 
@@ -690,7 +691,7 @@ class RagTracePersistenceServiceTest {
         assertThat(result.persistPolicy()).isEqualTo(RagPersistPolicy.NONE);
         assertThat(result.persisted()).isFalse();
         assertThat(result.status()).isEqualTo("skipped_none");
-        verifyNoInteractions(repository);
+        verifyNoInteractions(traceRepository);
     }
 
     @Test
@@ -707,7 +708,7 @@ class RagTracePersistenceServiceTest {
                 .hasMessageContaining("TRACE_ONLY")
                 .hasMessageContaining("Phase 6A");
 
-        verifyNoInteractions(repository);
+        verifyNoInteractions(traceRepository);
     }
 
     @Test
@@ -719,7 +720,7 @@ class RagTracePersistenceServiceTest {
                 .put("candidate_template_label", "candidate-1");
         ObjectNode scoreBreakdown = JsonNodeFactory.instance.objectNode().put("r1", 0.91d);
 
-        when(repository.createRewriteCandidate(
+        when(traceRepository.createRewriteCandidate(
                 eq(onlineQueryId),
                 eq(21),
                 eq("subquery_2_candidate-1"),
@@ -744,7 +745,7 @@ class RagTracePersistenceServiceTest {
         assertThat(result.rewriteCandidateId()).isEqualTo(rewriteCandidateId);
         assertThat(result.persisted()).isTrue();
         assertThat(result.status()).isEqualTo("persisted_agentic_multi_query_candidate_root");
-        verify(repository).createRewriteCandidate(
+        verify(traceRepository).createRewriteCandidate(
                 eq(onlineQueryId),
                 eq(21),
                 eq("subquery_2_candidate-1"),
@@ -779,7 +780,7 @@ class RagTracePersistenceServiceTest {
         assertThat(result.rewriteCandidateId()).isEqualTo(rewriteCandidateId);
         assertThat(result.persisted()).isTrue();
         assertThat(result.status()).isEqualTo("persisted_agentic_multi_query_candidate_adoption");
-        verify(repository).markRewriteCandidateAdopted(eq(rewriteCandidateId), eq(true), isNull());
+        verify(traceRepository).markRewriteCandidateAdopted(eq(rewriteCandidateId), eq(true), isNull());
         verifyNoForbiddenOnlineWritesExceptCandidateAdoption();
     }
 
@@ -809,7 +810,7 @@ class RagTracePersistenceServiceTest {
         assertThat(createResult.status()).isEqualTo("skipped_none");
         assertThat(adoptionResult.persisted()).isFalse();
         assertThat(adoptionResult.status()).isEqualTo("skipped_none");
-        verifyNoInteractions(repository);
+        verifyNoInteractions(traceRepository);
     }
 
     @Test
@@ -839,13 +840,13 @@ class RagTracePersistenceServiceTest {
                 .hasMessageContaining("TRACE_ONLY")
                 .hasMessageContaining("Phase 6B");
 
-        verifyNoInteractions(repository);
+        verifyNoInteractions(traceRepository);
     }
 
     @Test
     void onlineQueryAgenticFinalRrfRerankPersistsRerankResultsOnly() {
         UUID onlineQueryId = UUID.fromString("61616161-6161-6161-6161-616161616161");
-        List<RagRepository.RetrievalDoc> finalMergedDocs = docs("doc-agentic-final", "chunk-agentic-final", 0.96d);
+        List<RetrievalDoc> finalMergedDocs = docs("doc-agentic-final", "chunk-agentic-final", 0.96d);
 
         RagTracePersistenceService.RagTracePersistenceResult result = service.persistAgenticFinalRerankTrace(
                 agenticFinalRerankRequest(
@@ -859,13 +860,13 @@ class RagTracePersistenceServiceTest {
         assertThat(result.onlineQueryId()).isEqualTo(onlineQueryId);
         assertThat(result.persisted()).isTrue();
         assertThat(result.status()).isEqualTo("persisted_agentic_multi_query_final_rrf_rerank");
-        verify(repository).insertRerankResults(
+        verify(traceRepository).insertRerankResults(
                 eq(onlineQueryId),
                 isNull(),
                 eq(finalMergedDocs),
                 eq("agentic-rrf")
         );
-        verify(repository, never()).insertRetrievalResults(any(), any(), anyString(), anyList(), anyString(), anyString(), any());
+        verify(traceRepository, never()).insertRetrievalResults(any(), any(), anyString(), anyList(), anyString(), anyString(), any());
         verifyNoForbiddenOnlineWrites();
     }
 
@@ -882,7 +883,7 @@ class RagTracePersistenceServiceTest {
         assertThat(result.persistPolicy()).isEqualTo(RagPersistPolicy.NONE);
         assertThat(result.persisted()).isFalse();
         assertThat(result.status()).isEqualTo("skipped_none");
-        verifyNoInteractions(repository);
+        verifyNoInteractions(traceRepository);
     }
 
     @Test
@@ -896,7 +897,7 @@ class RagTracePersistenceServiceTest {
                 .hasMessageContaining("TRACE_ONLY")
                 .hasMessageContaining("Phase 6C");
 
-        verifyNoInteractions(repository);
+        verifyNoInteractions(traceRepository);
     }
 
     @Test
@@ -905,7 +906,7 @@ class RagTracePersistenceServiceTest {
         UUID rewriteLogId = UUID.fromString("65656565-6565-6565-6565-656565656565");
         ObjectNode metadata = JsonNodeFactory.instance.objectNode().put("agentic_multi_query", true);
 
-        when(repository.createOnlineRewriteLog(
+        when(traceRepository.createOnlineRewriteLog(
                 eq(onlineQueryId),
                 isNull(),
                 eq("spring security and mvc filter order"),
@@ -938,7 +939,7 @@ class RagTracePersistenceServiceTest {
         assertThat(result.rewriteLogId()).isEqualTo(rewriteLogId);
         assertThat(result.persisted()).isTrue();
         assertThat(result.status()).isEqualTo("persisted_agentic_multi_query_rewrite_log");
-        verify(repository).createOnlineRewriteLog(
+        verify(traceRepository).createOnlineRewriteLog(
                 eq(onlineQueryId),
                 isNull(),
                 eq("spring security and mvc filter order"),
@@ -965,7 +966,7 @@ class RagTracePersistenceServiceTest {
     void onlineQueryAgenticMemoryRetrievalTracePersistsMemoryLogOnly() {
         UUID onlineQueryId = UUID.fromString("66666666-6666-6666-6666-666666666666");
         UUID rewriteLogId = UUID.fromString("67676767-6767-6767-6767-676767676767");
-        RagRepository.MemoryCandidate memoryCandidate = memoryCandidate();
+        MemoryCandidate memoryCandidate = memoryCandidate();
         ObjectNode metadata = JsonNodeFactory.instance.objectNode()
                 .put("gating_preset", "full_gating")
                 .put("agentic_role", "planner_memory_hint");
@@ -983,7 +984,7 @@ class RagTracePersistenceServiceTest {
         assertThat(result.onlineQueryId()).isEqualTo(onlineQueryId);
         assertThat(result.persisted()).isTrue();
         assertThat(result.status()).isEqualTo("persisted_agentic_multi_query_memory_retrieval_log");
-        verify(repository).insertMemoryRetrievalLog(
+        verify(traceRepository).insertMemoryRetrievalLog(
                 eq(rewriteLogId),
                 eq(onlineQueryId),
                 eq(1),
@@ -1017,7 +1018,7 @@ class RagTracePersistenceServiceTest {
         assertThat(result.onlineQueryId()).isEqualTo(onlineQueryId);
         assertThat(result.persisted()).isTrue();
         assertThat(result.status()).isEqualTo("persisted_agentic_multi_query_rewrite_candidate_log");
-        verify(repository).insertRewriteCandidateLog(
+        verify(traceRepository).insertRewriteCandidateLog(
                 eq(rewriteLogId),
                 eq(onlineQueryId),
                 eq(rewriteCandidateId),
@@ -1068,7 +1069,7 @@ class RagTracePersistenceServiceTest {
         assertThat(rewriteLogResult.rewriteLogId()).isNull();
         assertThat(memoryResult.persisted()).isFalse();
         assertThat(candidateResult.persisted()).isFalse();
-        verifyNoInteractions(repository);
+        verifyNoInteractions(traceRepository);
     }
 
     @Test
@@ -1109,7 +1110,7 @@ class RagTracePersistenceServiceTest {
                 .hasMessageContaining("TRACE_ONLY")
                 .hasMessageContaining("Phase 6D");
 
-        verifyNoInteractions(repository);
+        verifyNoInteractions(traceRepository);
     }
 
     @Test
@@ -1138,7 +1139,7 @@ class RagTracePersistenceServiceTest {
         assertThat(result.onlineQueryId()).isEqualTo(onlineQueryId);
         assertThat(result.persisted()).isTrue();
         assertThat(result.status()).isEqualTo("persisted_agentic_multi_query_online_query_decision");
-        verify(repository).upsertOnlineQueryDecision(
+        verify(traceRepository).upsertOnlineQueryDecision(
                 eq(onlineQueryId),
                 eq("spring security and mvc filter order"),
                 eq(false),
@@ -1170,7 +1171,7 @@ class RagTracePersistenceServiceTest {
         assertThat(result.onlineQueryId()).isEqualTo(onlineQueryId);
         assertThat(result.persisted()).isTrue();
         assertThat(result.status()).isEqualTo("persisted_agentic_multi_query_online_query_metadata");
-        verify(repository).mergeOnlineQueryMetadata(eq(onlineQueryId), eq(metadata));
+        verify(traceRepository).mergeOnlineQueryMetadata(eq(onlineQueryId), eq(metadata));
         verifyNoForbiddenOnlineWritesExceptOnlineQueryMetadata();
     }
 
@@ -1205,7 +1206,7 @@ class RagTracePersistenceServiceTest {
         assertThat(decisionResult.status()).isEqualTo("skipped_none");
         assertThat(metadataResult.persisted()).isFalse();
         assertThat(metadataResult.status()).isEqualTo("skipped_none");
-        verifyNoInteractions(repository);
+        verifyNoInteractions(traceRepository);
     }
 
     @Test
@@ -1240,7 +1241,7 @@ class RagTracePersistenceServiceTest {
                 .hasMessageContaining("TRACE_ONLY")
                 .hasMessageContaining("Phase 6E");
 
-        verifyNoInteractions(repository);
+        verifyNoInteractions(traceRepository);
     }
 
     @Test
@@ -1250,7 +1251,7 @@ class RagTracePersistenceServiceTest {
         ObjectNode candidateMetadata = JsonNodeFactory.instance.objectNode().put("candidate_index", 1);
         ObjectNode scoreBreakdown = JsonNodeFactory.instance.objectNode().put("r1", 0.91d);
 
-        when(repository.createRewriteCandidate(
+        when(traceRepository.createRewriteCandidate(
                 eq(onlineQueryId),
                 eq(1),
                 eq("candidate-1"),
@@ -1276,7 +1277,7 @@ class RagTracePersistenceServiceTest {
         assertThat(result.rewriteCandidateId()).isEqualTo(rewriteCandidateId);
         assertThat(result.persisted()).isTrue();
         assertThat(result.status()).isEqualTo("persisted_selective_rewrite_candidate_root");
-        verify(repository).createRewriteCandidate(
+        verify(traceRepository).createRewriteCandidate(
                 eq(onlineQueryId),
                 eq(1),
                 eq("candidate-1"),
@@ -1295,7 +1296,7 @@ class RagTracePersistenceServiceTest {
         UUID rewriteCandidateId = UUID.fromString("18181818-1818-1818-1818-181818181818");
         ObjectNode scoreBreakdown = JsonNodeFactory.instance.objectNode().put("r1", 0.93d);
 
-        when(repository.createRewriteCandidate(
+        when(traceRepository.createRewriteCandidate(
                 eq(onlineQueryId),
                 eq(1),
                 eq("candidate-1"),
@@ -1319,7 +1320,7 @@ class RagTracePersistenceServiceTest {
         assertThat(result.persisted()).isTrue();
         assertThat(result.rewriteCandidateId()).isEqualTo(rewriteCandidateId);
         assertThat(result.status()).isEqualTo("persisted_anchor_aware_rewrite_candidate_root");
-        verify(repository).createRewriteCandidate(
+        verify(traceRepository).createRewriteCandidate(
                 eq(onlineQueryId),
                 eq(1),
                 eq("candidate-1"),
@@ -1353,7 +1354,7 @@ class RagTracePersistenceServiceTest {
         assertThat(result.rewriteCandidateId()).isEqualTo(rewriteCandidateId);
         assertThat(result.persisted()).isTrue();
         assertThat(result.status()).isEqualTo("persisted_selective_rewrite_candidate_adoption");
-        verify(repository).markRewriteCandidateAdopted(eq(rewriteCandidateId), eq(true), isNull());
+        verify(traceRepository).markRewriteCandidateAdopted(eq(rewriteCandidateId), eq(true), isNull());
         verifyNoForbiddenOnlineWritesExceptCandidateAdoption();
     }
 
@@ -1383,7 +1384,7 @@ class RagTracePersistenceServiceTest {
         assertThat(createResult.status()).isEqualTo("skipped_none");
         assertThat(adoptionResult.persisted()).isFalse();
         assertThat(adoptionResult.status()).isEqualTo("skipped_none");
-        verifyNoInteractions(repository);
+        verifyNoInteractions(traceRepository);
     }
 
     @Test
@@ -1413,7 +1414,7 @@ class RagTracePersistenceServiceTest {
                 .hasMessageContaining("TRACE_ONLY")
                 .hasMessageContaining("Phase 5F");
 
-        verifyNoInteractions(repository);
+        verifyNoInteractions(traceRepository);
     }
 
     @Test
@@ -1422,7 +1423,7 @@ class RagTracePersistenceServiceTest {
         UUID rewriteLogId = UUID.fromString("29292929-2929-2929-2929-292929292929");
         ObjectNode metadata = JsonNodeFactory.instance.objectNode().put("router_strategy", "SYNTHETIC_SELECTIVE_REWRITE");
 
-        when(repository.createOnlineRewriteLog(
+        when(traceRepository.createOnlineRewriteLog(
                 eq(onlineQueryId),
                 isNull(),
                 eq("spring filter order"),
@@ -1457,7 +1458,7 @@ class RagTracePersistenceServiceTest {
         assertThat(result.rewriteLogId()).isEqualTo(rewriteLogId);
         assertThat(result.persisted()).isTrue();
         assertThat(result.status()).isEqualTo("persisted_selective_rewrite_rewrite_log");
-        verify(repository).createOnlineRewriteLog(
+        verify(traceRepository).createOnlineRewriteLog(
                 eq(onlineQueryId),
                 isNull(),
                 eq("spring filter order"),
@@ -1486,7 +1487,7 @@ class RagTracePersistenceServiceTest {
         UUID rewriteLogId = UUID.fromString("31313131-3131-3131-3131-313131313131");
         ObjectNode metadata = JsonNodeFactory.instance.objectNode().put("router_strategy", "ANCHOR_AWARE_REWRITE");
 
-        when(repository.createOnlineRewriteLog(
+        when(traceRepository.createOnlineRewriteLog(
                 eq(onlineQueryId),
                 isNull(),
                 anyString(),
@@ -1519,7 +1520,7 @@ class RagTracePersistenceServiceTest {
         assertThat(result.persisted()).isTrue();
         assertThat(result.rewriteLogId()).isEqualTo(rewriteLogId);
         assertThat(result.status()).isEqualTo("persisted_anchor_aware_rewrite_rewrite_log");
-        verify(repository).createOnlineRewriteLog(
+        verify(traceRepository).createOnlineRewriteLog(
                 eq(onlineQueryId),
                 isNull(),
                 eq("spring filter order"),
@@ -1546,7 +1547,7 @@ class RagTracePersistenceServiceTest {
     void onlineQueryMemoryRetrievalTracePersistsMemoryLogOnly() {
         UUID onlineQueryId = UUID.fromString("32323232-3232-3232-3232-323232323232");
         UUID rewriteLogId = UUID.fromString("33333333-3333-3333-3333-333333333331");
-        RagRepository.MemoryCandidate memoryCandidate = memoryCandidate();
+        MemoryCandidate memoryCandidate = memoryCandidate();
         ObjectNode metadata = JsonNodeFactory.instance.objectNode().put("gating_preset", "full_gating");
 
         RagTracePersistenceService.RagTracePersistenceResult result = service.insertMemoryRetrievalTrace(
@@ -1564,7 +1565,7 @@ class RagTracePersistenceServiceTest {
         assertThat(result.onlineQueryId()).isEqualTo(onlineQueryId);
         assertThat(result.persisted()).isTrue();
         assertThat(result.status()).isEqualTo("persisted_selective_rewrite_memory_retrieval_log");
-        verify(repository).insertMemoryRetrievalLog(
+        verify(traceRepository).insertMemoryRetrievalLog(
                 eq(rewriteLogId),
                 eq(onlineQueryId),
                 eq(1),
@@ -1598,7 +1599,7 @@ class RagTracePersistenceServiceTest {
         assertThat(result.onlineQueryId()).isEqualTo(onlineQueryId);
         assertThat(result.persisted()).isTrue();
         assertThat(result.status()).isEqualTo("persisted_anchor_aware_rewrite_rewrite_candidate_log");
-        verify(repository).insertRewriteCandidateLog(
+        verify(traceRepository).insertRewriteCandidateLog(
                 eq(rewriteLogId),
                 eq(onlineQueryId),
                 eq(rewriteCandidateId),
@@ -1652,7 +1653,7 @@ class RagTracePersistenceServiceTest {
         assertThat(rewriteLogResult.rewriteLogId()).isNull();
         assertThat(memoryResult.persisted()).isFalse();
         assertThat(candidateResult.persisted()).isFalse();
-        verifyNoInteractions(repository);
+        verifyNoInteractions(traceRepository);
     }
 
     @Test
@@ -1696,7 +1697,7 @@ class RagTracePersistenceServiceTest {
                 .hasMessageContaining("TRACE_ONLY")
                 .hasMessageContaining("Phase 5F");
 
-        verifyNoInteractions(repository);
+        verifyNoInteractions(traceRepository);
     }
 
     @Test
@@ -1784,8 +1785,8 @@ class RagTracePersistenceServiceTest {
     private RagTracePersistenceService.RawOnlyTracePersistenceRequest rawOnlyRequest(
             RagPersistPolicy policy,
             UUID onlineQueryId,
-            List<RagRepository.RetrievalDoc> retrievedDocs,
-            List<RagRepository.RetrievalDoc> rerankedDocs,
+            List<RetrievalDoc> retrievedDocs,
+            List<RetrievalDoc> rerankedDocs,
             ObjectNode metadata,
             RagTracePersistenceService.RawOnlyTraceWriteScope writeScope
     ) {
@@ -1810,8 +1811,8 @@ class RagTracePersistenceServiceTest {
             UUID onlineQueryId,
             UUID rewriteCandidateId,
             RagRetrievalExecutionService.NonAgenticExecutionKind executionKind,
-            List<RagRepository.RetrievalDoc> retrievedDocs,
-            List<RagRepository.RetrievalDoc> rerankedDocs,
+            List<RetrievalDoc> retrievedDocs,
+            List<RetrievalDoc> rerankedDocs,
             ObjectNode metadata,
             RagTracePersistenceService.RewriteCandidateTraceWriteScope writeScope
     ) {
@@ -1838,7 +1839,7 @@ class RagTracePersistenceServiceTest {
             RagPersistPolicy policy,
             UUID onlineQueryId,
             UUID rewriteCandidateId,
-            List<RagRepository.RetrievalDoc> retrievedDocs,
+            List<RetrievalDoc> retrievedDocs,
             ObjectNode metadata,
             RagTracePersistenceService.AgenticSubqueryRetrievalTraceWriteScope writeScope
     ) {
@@ -1884,7 +1885,7 @@ class RagTracePersistenceServiceTest {
     private RagTracePersistenceService.AgenticFinalRerankTracePersistenceRequest agenticFinalRerankRequest(
             RagPersistPolicy policy,
             UUID onlineQueryId,
-            List<RagRepository.RetrievalDoc> finalMergedDocs
+            List<RetrievalDoc> finalMergedDocs
     ) {
         return new RagTracePersistenceService.AgenticFinalRerankTracePersistenceRequest(
                 policy,
@@ -1930,7 +1931,7 @@ class RagTracePersistenceServiceTest {
             RagPersistPolicy policy,
             UUID onlineQueryId,
             UUID rewriteLogId,
-            RagRepository.MemoryCandidate memoryCandidate,
+            MemoryCandidate memoryCandidate,
             ObjectNode metadata
     ) {
         return new RagTracePersistenceService.AgenticMemoryRetrievalLogPersistenceRequest(
@@ -2073,7 +2074,7 @@ class RagTracePersistenceServiceTest {
             UUID onlineQueryId,
             UUID rewriteLogId,
             RagRetrievalExecutionService.NonAgenticExecutionKind executionKind,
-            RagRepository.MemoryCandidate memoryCandidate,
+            MemoryCandidate memoryCandidate,
             ObjectNode metadata
     ) {
         return new RagTracePersistenceService.MemoryRetrievalLogPersistenceRequest(
@@ -2114,8 +2115,8 @@ class RagTracePersistenceServiceTest {
         );
     }
 
-    private List<RagRepository.RetrievalDoc> docs(String documentId, String chunkId, double score) {
-        return List.of(new RagRepository.RetrievalDoc(
+    private List<RetrievalDoc> docs(String documentId, String chunkId, double score) {
+        return List.of(new RetrievalDoc(
                 documentId,
                 chunkId,
                 "content",
@@ -2123,8 +2124,8 @@ class RagTracePersistenceServiceTest {
         ));
     }
 
-    private RagRepository.MemoryCandidate memoryCandidate() {
-        return new RagRepository.MemoryCandidate(
+    private MemoryCandidate memoryCandidate() {
+        return new MemoryCandidate(
                 UUID.fromString("43434343-4343-4343-4343-434343434343"),
                 "FilterChainProxy SecurityFilterChain order",
                 "memory-doc",
@@ -2142,119 +2143,119 @@ class RagTracePersistenceServiceTest {
     }
 
     private void verifyNoForbiddenOnlineWrites() {
-        verify(repository, never()).createOnlineQuery(any(), any(), anyString(), any(), anyString(), anyDouble(), any());
-        verify(repository, never()).createRewriteCandidate(any(), anyInt(), anyString(), anyString(), any(), any(), anyDouble(), any());
-        verify(repository, never()).markRewriteCandidateAdopted(any(), anyBoolean(), any());
-        verify(repository, never()).insertAnswer(any(), anyString(), any(), any(), anyString(), any());
-        verify(repository, never()).upsertOnlineQueryDecision(any(), anyString(), anyBoolean(), any(), any(), any(), anyString(), any(), any());
-        verify(repository, never()).mergeOnlineQueryMetadata(any(), any());
-        verify(repository, never()).createOnlineRewriteLog(any(), any(), anyString(), anyString(), anyString(), any(), any(), anyBoolean(), anyString(), anyBoolean(), any(), any(), any(), any(), any(), any(), any(), any());
-        verify(repository, never()).insertMemoryRetrievalLog(any(), any(), anyInt(), any(), any());
-        verify(repository, never()).insertRewriteCandidateLog(any(), any(), any(), anyInt(), anyString(), anyString(), any(), anyBoolean(), any(), any(), any(), any());
+        verify(traceRepository, never()).createOnlineQuery(any(), any(), anyString(), any(), anyString(), anyDouble(), any());
+        verify(traceRepository, never()).createRewriteCandidate(any(), anyInt(), anyString(), anyString(), any(), any(), anyDouble(), any());
+        verify(traceRepository, never()).markRewriteCandidateAdopted(any(), anyBoolean(), any());
+        verify(traceRepository, never()).insertAnswer(any(), anyString(), any(), any(), anyString(), any());
+        verify(traceRepository, never()).upsertOnlineQueryDecision(any(), anyString(), anyBoolean(), any(), any(), any(), anyString(), any(), any());
+        verify(traceRepository, never()).mergeOnlineQueryMetadata(any(), any());
+        verify(traceRepository, never()).createOnlineRewriteLog(any(), any(), anyString(), anyString(), anyString(), any(), any(), anyBoolean(), anyString(), anyBoolean(), any(), any(), any(), any(), any(), any(), any(), any());
+        verify(traceRepository, never()).insertMemoryRetrievalLog(any(), any(), anyInt(), any(), any());
+        verify(traceRepository, never()).insertRewriteCandidateLog(any(), any(), any(), anyInt(), anyString(), anyString(), any(), anyBoolean(), any(), any(), any(), any());
     }
 
     private void verifyNoForbiddenOnlineWritesExceptOnlineQueryDecision() {
-        verify(repository, never()).createOnlineQuery(any(), any(), anyString(), any(), anyString(), anyDouble(), any());
-        verify(repository, never()).createRewriteCandidate(any(), anyInt(), anyString(), anyString(), any(), any(), anyDouble(), any());
-        verify(repository, never()).markRewriteCandidateAdopted(any(), anyBoolean(), any());
-        verify(repository, never()).insertRetrievalResults(any(), any(), anyString(), anyList(), anyString(), anyString(), any());
-        verify(repository, never()).insertRerankResults(any(), any(), anyList(), anyString());
-        verify(repository, never()).insertAnswer(any(), anyString(), any(), any(), anyString(), any());
-        verify(repository, never()).mergeOnlineQueryMetadata(any(), any());
-        verify(repository, never()).createOnlineRewriteLog(any(), any(), anyString(), anyString(), anyString(), any(), any(), anyBoolean(), anyString(), anyBoolean(), any(), any(), any(), any(), any(), any(), any(), any());
-        verify(repository, never()).insertMemoryRetrievalLog(any(), any(), anyInt(), any(), any());
-        verify(repository, never()).insertRewriteCandidateLog(any(), any(), any(), anyInt(), anyString(), anyString(), any(), anyBoolean(), any(), any(), any(), any());
+        verify(traceRepository, never()).createOnlineQuery(any(), any(), anyString(), any(), anyString(), anyDouble(), any());
+        verify(traceRepository, never()).createRewriteCandidate(any(), anyInt(), anyString(), anyString(), any(), any(), anyDouble(), any());
+        verify(traceRepository, never()).markRewriteCandidateAdopted(any(), anyBoolean(), any());
+        verify(traceRepository, never()).insertRetrievalResults(any(), any(), anyString(), anyList(), anyString(), anyString(), any());
+        verify(traceRepository, never()).insertRerankResults(any(), any(), anyList(), anyString());
+        verify(traceRepository, never()).insertAnswer(any(), anyString(), any(), any(), anyString(), any());
+        verify(traceRepository, never()).mergeOnlineQueryMetadata(any(), any());
+        verify(traceRepository, never()).createOnlineRewriteLog(any(), any(), anyString(), anyString(), anyString(), any(), any(), anyBoolean(), anyString(), anyBoolean(), any(), any(), any(), any(), any(), any(), any(), any());
+        verify(traceRepository, never()).insertMemoryRetrievalLog(any(), any(), anyInt(), any(), any());
+        verify(traceRepository, never()).insertRewriteCandidateLog(any(), any(), any(), anyInt(), anyString(), anyString(), any(), anyBoolean(), any(), any(), any(), any());
     }
 
     private void verifyNoForbiddenOnlineWritesExceptOnlineQueryMetadata() {
-        verify(repository, never()).createOnlineQuery(any(), any(), anyString(), any(), anyString(), anyDouble(), any());
-        verify(repository, never()).createRewriteCandidate(any(), anyInt(), anyString(), anyString(), any(), any(), anyDouble(), any());
-        verify(repository, never()).markRewriteCandidateAdopted(any(), anyBoolean(), any());
-        verify(repository, never()).insertRetrievalResults(any(), any(), anyString(), anyList(), anyString(), anyString(), any());
-        verify(repository, never()).insertRerankResults(any(), any(), anyList(), anyString());
-        verify(repository, never()).insertAnswer(any(), anyString(), any(), any(), anyString(), any());
-        verify(repository, never()).upsertOnlineQueryDecision(any(), anyString(), anyBoolean(), any(), any(), any(), anyString(), any(), any());
-        verify(repository, never()).createOnlineRewriteLog(any(), any(), anyString(), anyString(), anyString(), any(), any(), anyBoolean(), anyString(), anyBoolean(), any(), any(), any(), any(), any(), any(), any(), any());
-        verify(repository, never()).insertMemoryRetrievalLog(any(), any(), anyInt(), any(), any());
-        verify(repository, never()).insertRewriteCandidateLog(any(), any(), any(), anyInt(), anyString(), anyString(), any(), anyBoolean(), any(), any(), any(), any());
+        verify(traceRepository, never()).createOnlineQuery(any(), any(), anyString(), any(), anyString(), anyDouble(), any());
+        verify(traceRepository, never()).createRewriteCandidate(any(), anyInt(), anyString(), anyString(), any(), any(), anyDouble(), any());
+        verify(traceRepository, never()).markRewriteCandidateAdopted(any(), anyBoolean(), any());
+        verify(traceRepository, never()).insertRetrievalResults(any(), any(), anyString(), anyList(), anyString(), anyString(), any());
+        verify(traceRepository, never()).insertRerankResults(any(), any(), anyList(), anyString());
+        verify(traceRepository, never()).insertAnswer(any(), anyString(), any(), any(), anyString(), any());
+        verify(traceRepository, never()).upsertOnlineQueryDecision(any(), anyString(), anyBoolean(), any(), any(), any(), anyString(), any(), any());
+        verify(traceRepository, never()).createOnlineRewriteLog(any(), any(), anyString(), anyString(), anyString(), any(), any(), anyBoolean(), anyString(), anyBoolean(), any(), any(), any(), any(), any(), any(), any(), any());
+        verify(traceRepository, never()).insertMemoryRetrievalLog(any(), any(), anyInt(), any(), any());
+        verify(traceRepository, never()).insertRewriteCandidateLog(any(), any(), any(), anyInt(), anyString(), anyString(), any(), anyBoolean(), any(), any(), any(), any());
     }
 
     private void verifyNoForbiddenOnlineWritesExceptCandidateRoot() {
-        verify(repository, never()).createOnlineQuery(any(), any(), anyString(), any(), anyString(), anyDouble(), any());
-        verify(repository, never()).markRewriteCandidateAdopted(any(), anyBoolean(), any());
-        verify(repository, never()).insertRetrievalResults(any(), any(), anyString(), anyList(), anyString(), anyString(), any());
-        verify(repository, never()).insertRerankResults(any(), any(), anyList(), anyString());
-        verify(repository, never()).insertAnswer(any(), anyString(), any(), any(), anyString(), any());
-        verify(repository, never()).upsertOnlineQueryDecision(any(), anyString(), anyBoolean(), any(), any(), any(), anyString(), any(), any());
-        verify(repository, never()).mergeOnlineQueryMetadata(any(), any());
-        verify(repository, never()).createOnlineRewriteLog(any(), any(), anyString(), anyString(), anyString(), any(), any(), anyBoolean(), anyString(), anyBoolean(), any(), any(), any(), any(), any(), any(), any(), any());
-        verify(repository, never()).insertMemoryRetrievalLog(any(), any(), anyInt(), any(), any());
-        verify(repository, never()).insertRewriteCandidateLog(any(), any(), any(), anyInt(), anyString(), anyString(), any(), anyBoolean(), any(), any(), any(), any());
+        verify(traceRepository, never()).createOnlineQuery(any(), any(), anyString(), any(), anyString(), anyDouble(), any());
+        verify(traceRepository, never()).markRewriteCandidateAdopted(any(), anyBoolean(), any());
+        verify(traceRepository, never()).insertRetrievalResults(any(), any(), anyString(), anyList(), anyString(), anyString(), any());
+        verify(traceRepository, never()).insertRerankResults(any(), any(), anyList(), anyString());
+        verify(traceRepository, never()).insertAnswer(any(), anyString(), any(), any(), anyString(), any());
+        verify(traceRepository, never()).upsertOnlineQueryDecision(any(), anyString(), anyBoolean(), any(), any(), any(), anyString(), any(), any());
+        verify(traceRepository, never()).mergeOnlineQueryMetadata(any(), any());
+        verify(traceRepository, never()).createOnlineRewriteLog(any(), any(), anyString(), anyString(), anyString(), any(), any(), anyBoolean(), anyString(), anyBoolean(), any(), any(), any(), any(), any(), any(), any(), any());
+        verify(traceRepository, never()).insertMemoryRetrievalLog(any(), any(), anyInt(), any(), any());
+        verify(traceRepository, never()).insertRewriteCandidateLog(any(), any(), any(), anyInt(), anyString(), anyString(), any(), anyBoolean(), any(), any(), any(), any());
     }
 
     private void verifyNoForbiddenOnlineWritesExceptCandidateAdoption() {
-        verify(repository, never()).createOnlineQuery(any(), any(), anyString(), any(), anyString(), anyDouble(), any());
-        verify(repository, never()).createRewriteCandidate(any(), anyInt(), anyString(), anyString(), any(), any(), anyDouble(), any());
-        verify(repository, never()).insertRetrievalResults(any(), any(), anyString(), anyList(), anyString(), anyString(), any());
-        verify(repository, never()).insertRerankResults(any(), any(), anyList(), anyString());
-        verify(repository, never()).insertAnswer(any(), anyString(), any(), any(), anyString(), any());
-        verify(repository, never()).upsertOnlineQueryDecision(any(), anyString(), anyBoolean(), any(), any(), any(), anyString(), any(), any());
-        verify(repository, never()).mergeOnlineQueryMetadata(any(), any());
-        verify(repository, never()).createOnlineRewriteLog(any(), any(), anyString(), anyString(), anyString(), any(), any(), anyBoolean(), anyString(), anyBoolean(), any(), any(), any(), any(), any(), any(), any(), any());
-        verify(repository, never()).insertMemoryRetrievalLog(any(), any(), anyInt(), any(), any());
-        verify(repository, never()).insertRewriteCandidateLog(any(), any(), any(), anyInt(), anyString(), anyString(), any(), anyBoolean(), any(), any(), any(), any());
+        verify(traceRepository, never()).createOnlineQuery(any(), any(), anyString(), any(), anyString(), anyDouble(), any());
+        verify(traceRepository, never()).createRewriteCandidate(any(), anyInt(), anyString(), anyString(), any(), any(), anyDouble(), any());
+        verify(traceRepository, never()).insertRetrievalResults(any(), any(), anyString(), anyList(), anyString(), anyString(), any());
+        verify(traceRepository, never()).insertRerankResults(any(), any(), anyList(), anyString());
+        verify(traceRepository, never()).insertAnswer(any(), anyString(), any(), any(), anyString(), any());
+        verify(traceRepository, never()).upsertOnlineQueryDecision(any(), anyString(), anyBoolean(), any(), any(), any(), anyString(), any(), any());
+        verify(traceRepository, never()).mergeOnlineQueryMetadata(any(), any());
+        verify(traceRepository, never()).createOnlineRewriteLog(any(), any(), anyString(), anyString(), anyString(), any(), any(), anyBoolean(), anyString(), anyBoolean(), any(), any(), any(), any(), any(), any(), any(), any());
+        verify(traceRepository, never()).insertMemoryRetrievalLog(any(), any(), anyInt(), any(), any());
+        verify(traceRepository, never()).insertRewriteCandidateLog(any(), any(), any(), anyInt(), anyString(), anyString(), any(), anyBoolean(), any(), any(), any(), any());
     }
 
     private void verifyNoForbiddenOnlineWritesExceptRewriteLog() {
-        verify(repository, never()).createOnlineQuery(any(), any(), anyString(), any(), anyString(), anyDouble(), any());
-        verify(repository, never()).createRewriteCandidate(any(), anyInt(), anyString(), anyString(), any(), any(), anyDouble(), any());
-        verify(repository, never()).markRewriteCandidateAdopted(any(), anyBoolean(), any());
-        verify(repository, never()).insertRetrievalResults(any(), any(), anyString(), anyList(), anyString(), anyString(), any());
-        verify(repository, never()).insertRerankResults(any(), any(), anyList(), anyString());
-        verify(repository, never()).insertAnswer(any(), anyString(), any(), any(), anyString(), any());
-        verify(repository, never()).upsertOnlineQueryDecision(any(), anyString(), anyBoolean(), any(), any(), any(), anyString(), any(), any());
-        verify(repository, never()).mergeOnlineQueryMetadata(any(), any());
-        verify(repository, never()).insertMemoryRetrievalLog(any(), any(), anyInt(), any(), any());
-        verify(repository, never()).insertRewriteCandidateLog(any(), any(), any(), anyInt(), anyString(), anyString(), any(), anyBoolean(), any(), any(), any(), any());
+        verify(traceRepository, never()).createOnlineQuery(any(), any(), anyString(), any(), anyString(), anyDouble(), any());
+        verify(traceRepository, never()).createRewriteCandidate(any(), anyInt(), anyString(), anyString(), any(), any(), anyDouble(), any());
+        verify(traceRepository, never()).markRewriteCandidateAdopted(any(), anyBoolean(), any());
+        verify(traceRepository, never()).insertRetrievalResults(any(), any(), anyString(), anyList(), anyString(), anyString(), any());
+        verify(traceRepository, never()).insertRerankResults(any(), any(), anyList(), anyString());
+        verify(traceRepository, never()).insertAnswer(any(), anyString(), any(), any(), anyString(), any());
+        verify(traceRepository, never()).upsertOnlineQueryDecision(any(), anyString(), anyBoolean(), any(), any(), any(), anyString(), any(), any());
+        verify(traceRepository, never()).mergeOnlineQueryMetadata(any(), any());
+        verify(traceRepository, never()).insertMemoryRetrievalLog(any(), any(), anyInt(), any(), any());
+        verify(traceRepository, never()).insertRewriteCandidateLog(any(), any(), any(), anyInt(), anyString(), anyString(), any(), anyBoolean(), any(), any(), any(), any());
     }
 
     private void verifyNoForbiddenOnlineWritesExceptMemoryRetrievalLog() {
-        verify(repository, never()).createOnlineQuery(any(), any(), anyString(), any(), anyString(), anyDouble(), any());
-        verify(repository, never()).createRewriteCandidate(any(), anyInt(), anyString(), anyString(), any(), any(), anyDouble(), any());
-        verify(repository, never()).markRewriteCandidateAdopted(any(), anyBoolean(), any());
-        verify(repository, never()).insertRetrievalResults(any(), any(), anyString(), anyList(), anyString(), anyString(), any());
-        verify(repository, never()).insertRerankResults(any(), any(), anyList(), anyString());
-        verify(repository, never()).insertAnswer(any(), anyString(), any(), any(), anyString(), any());
-        verify(repository, never()).upsertOnlineQueryDecision(any(), anyString(), anyBoolean(), any(), any(), any(), anyString(), any(), any());
-        verify(repository, never()).mergeOnlineQueryMetadata(any(), any());
-        verify(repository, never()).createOnlineRewriteLog(any(), any(), anyString(), anyString(), anyString(), any(), any(), anyBoolean(), anyString(), anyBoolean(), any(), any(), any(), any(), any(), any(), any(), any());
-        verify(repository, never()).insertRewriteCandidateLog(any(), any(), any(), anyInt(), anyString(), anyString(), any(), anyBoolean(), any(), any(), any(), any());
+        verify(traceRepository, never()).createOnlineQuery(any(), any(), anyString(), any(), anyString(), anyDouble(), any());
+        verify(traceRepository, never()).createRewriteCandidate(any(), anyInt(), anyString(), anyString(), any(), any(), anyDouble(), any());
+        verify(traceRepository, never()).markRewriteCandidateAdopted(any(), anyBoolean(), any());
+        verify(traceRepository, never()).insertRetrievalResults(any(), any(), anyString(), anyList(), anyString(), anyString(), any());
+        verify(traceRepository, never()).insertRerankResults(any(), any(), anyList(), anyString());
+        verify(traceRepository, never()).insertAnswer(any(), anyString(), any(), any(), anyString(), any());
+        verify(traceRepository, never()).upsertOnlineQueryDecision(any(), anyString(), anyBoolean(), any(), any(), any(), anyString(), any(), any());
+        verify(traceRepository, never()).mergeOnlineQueryMetadata(any(), any());
+        verify(traceRepository, never()).createOnlineRewriteLog(any(), any(), anyString(), anyString(), anyString(), any(), any(), anyBoolean(), anyString(), anyBoolean(), any(), any(), any(), any(), any(), any(), any(), any());
+        verify(traceRepository, never()).insertRewriteCandidateLog(any(), any(), any(), anyInt(), anyString(), anyString(), any(), anyBoolean(), any(), any(), any(), any());
     }
 
     private void verifyNoForbiddenOnlineWritesExceptRewriteCandidateLog() {
-        verify(repository, never()).createOnlineQuery(any(), any(), anyString(), any(), anyString(), anyDouble(), any());
-        verify(repository, never()).createRewriteCandidate(any(), anyInt(), anyString(), anyString(), any(), any(), anyDouble(), any());
-        verify(repository, never()).markRewriteCandidateAdopted(any(), anyBoolean(), any());
-        verify(repository, never()).insertRetrievalResults(any(), any(), anyString(), anyList(), anyString(), anyString(), any());
-        verify(repository, never()).insertRerankResults(any(), any(), anyList(), anyString());
-        verify(repository, never()).insertAnswer(any(), anyString(), any(), any(), anyString(), any());
-        verify(repository, never()).upsertOnlineQueryDecision(any(), anyString(), anyBoolean(), any(), any(), any(), anyString(), any(), any());
-        verify(repository, never()).mergeOnlineQueryMetadata(any(), any());
-        verify(repository, never()).createOnlineRewriteLog(any(), any(), anyString(), anyString(), anyString(), any(), any(), anyBoolean(), anyString(), anyBoolean(), any(), any(), any(), any(), any(), any(), any(), any());
-        verify(repository, never()).insertMemoryRetrievalLog(any(), any(), anyInt(), any(), any());
+        verify(traceRepository, never()).createOnlineQuery(any(), any(), anyString(), any(), anyString(), anyDouble(), any());
+        verify(traceRepository, never()).createRewriteCandidate(any(), anyInt(), anyString(), anyString(), any(), any(), anyDouble(), any());
+        verify(traceRepository, never()).markRewriteCandidateAdopted(any(), anyBoolean(), any());
+        verify(traceRepository, never()).insertRetrievalResults(any(), any(), anyString(), anyList(), anyString(), anyString(), any());
+        verify(traceRepository, never()).insertRerankResults(any(), any(), anyList(), anyString());
+        verify(traceRepository, never()).insertAnswer(any(), anyString(), any(), any(), anyString(), any());
+        verify(traceRepository, never()).upsertOnlineQueryDecision(any(), anyString(), anyBoolean(), any(), any(), any(), anyString(), any(), any());
+        verify(traceRepository, never()).mergeOnlineQueryMetadata(any(), any());
+        verify(traceRepository, never()).createOnlineRewriteLog(any(), any(), anyString(), anyString(), anyString(), any(), any(), anyBoolean(), anyString(), anyBoolean(), any(), any(), any(), any(), any(), any(), any(), any());
+        verify(traceRepository, never()).insertMemoryRetrievalLog(any(), any(), anyInt(), any(), any());
     }
 
     private void verifyNoPersistenceWrites() {
-        verify(repository, never()).createOnlineQuery(any(), any(), anyString(), any(), anyString(), anyDouble(), any());
-        verify(repository, never()).createRewriteCandidate(any(), anyInt(), anyString(), anyString(), any(), any(), anyDouble(), any());
-        verify(repository, never()).markRewriteCandidateAdopted(any(), anyBoolean(), any());
-        verify(repository, never()).insertRetrievalResults(any(), any(), anyString(), anyList(), anyString(), anyString(), any());
-        verify(repository, never()).insertRerankResults(any(), any(), anyList(), anyString());
-        verify(repository, never()).insertAnswer(any(), anyString(), any(), any(), anyString(), any());
-        verify(repository, never()).upsertOnlineQueryDecision(any(), anyString(), anyBoolean(), any(), any(), any(), anyString(), any(), any());
-        verify(repository, never()).mergeOnlineQueryMetadata(any(), any());
-        verify(repository, never()).createOnlineRewriteLog(any(), any(), anyString(), anyString(), anyString(), any(), any(), anyBoolean(), anyString(), anyBoolean(), any(), any(), any(), any(), any(), any(), any(), any());
-        verify(repository, never()).insertMemoryRetrievalLog(any(), any(), anyInt(), any(), any());
-        verify(repository, never()).insertRewriteCandidateLog(any(), any(), any(), anyInt(), anyString(), anyString(), any(), anyBoolean(), any(), any(), any(), any());
+        verify(traceRepository, never()).createOnlineQuery(any(), any(), anyString(), any(), anyString(), anyDouble(), any());
+        verify(traceRepository, never()).createRewriteCandidate(any(), anyInt(), anyString(), anyString(), any(), any(), anyDouble(), any());
+        verify(traceRepository, never()).markRewriteCandidateAdopted(any(), anyBoolean(), any());
+        verify(traceRepository, never()).insertRetrievalResults(any(), any(), anyString(), anyList(), anyString(), anyString(), any());
+        verify(traceRepository, never()).insertRerankResults(any(), any(), anyList(), anyString());
+        verify(traceRepository, never()).insertAnswer(any(), anyString(), any(), any(), anyString(), any());
+        verify(traceRepository, never()).upsertOnlineQueryDecision(any(), anyString(), anyBoolean(), any(), any(), any(), anyString(), any(), any());
+        verify(traceRepository, never()).mergeOnlineQueryMetadata(any(), any());
+        verify(traceRepository, never()).createOnlineRewriteLog(any(), any(), anyString(), anyString(), anyString(), any(), any(), anyBoolean(), anyString(), anyBoolean(), any(), any(), any(), any(), any(), any(), any(), any());
+        verify(traceRepository, never()).insertMemoryRetrievalLog(any(), any(), anyInt(), any(), any());
+        verify(traceRepository, never()).insertRewriteCandidateLog(any(), any(), any(), anyInt(), anyString(), anyString(), any(), anyBoolean(), any(), any(), any(), any());
     }
 }

@@ -1,7 +1,8 @@
 package io.queryforge.backend.rag.retrieval.routing;
 
 import com.fasterxml.jackson.databind.JsonNode;
-import io.queryforge.backend.rag.runtime.ChatRuntimeDtos;
+import io.queryforge.backend.rag.runtime.ChatConfigDtos;
+import io.queryforge.backend.rag.runtime.readiness.ChatReadinessDtos;
 import org.springframework.stereotype.Component;
 
 import java.util.LinkedHashMap;
@@ -26,7 +27,7 @@ public class QueryStrategyRouter {
     );
 
     public QueryRouteDecision route(QueryRouteContext context) {
-        ChatRuntimeDtos.ChatRuntimeConfigResponse config = context.config();
+        ChatConfigDtos.ChatRuntimeConfigResponse config = context.config();
         String mode = normalize(context.runtimeMode(), "selective_rewrite");
         String rewriteProfile = normalize(context.rewriteQueryProfile(), "compact_anchor");
         boolean routerEnabled = routerEnabled(config);
@@ -211,7 +212,7 @@ public class QueryStrategyRouter {
         return metadata;
     }
 
-    private boolean routerEnabled(ChatRuntimeDtos.ChatRuntimeConfigResponse config) {
+    private boolean routerEnabled(ChatConfigDtos.ChatRuntimeConfigResponse config) {
         if (config == null) {
             return false;
         }
@@ -240,7 +241,7 @@ public class QueryStrategyRouter {
         return true;
     }
 
-    private boolean agenticMultiQueryEnabled(ChatRuntimeDtos.ChatRuntimeConfigResponse config) {
+    private boolean agenticMultiQueryEnabled(ChatConfigDtos.ChatRuntimeConfigResponse config) {
         if (config == null) {
             return false;
         }
@@ -257,11 +258,11 @@ public class QueryStrategyRouter {
                 || metadata.path("query_router_agentic_enabled").asBoolean(false);
     }
 
-    private boolean readyForRewrite(ChatRuntimeDtos.ChatDomainReadinessResponse readiness) {
+    private boolean readyForRewrite(ChatReadinessDtos.ChatDomainReadinessResponse readiness) {
         return readiness != null && readiness.readyForRewrite();
     }
 
-    private String blockingReason(ChatRuntimeDtos.ChatDomainReadinessResponse readiness, String fallback) {
+    private String blockingReason(ChatReadinessDtos.ChatDomainReadinessResponse readiness, String fallback) {
         if (readiness == null || readiness.blockingReasons() == null || readiness.blockingReasons().isEmpty()) {
             return fallback;
         }

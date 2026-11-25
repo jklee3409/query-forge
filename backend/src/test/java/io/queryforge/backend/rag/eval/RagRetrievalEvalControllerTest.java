@@ -3,9 +3,11 @@ package io.queryforge.backend.rag.eval;
 import io.queryforge.backend.rag.RagApiExceptionHandler;
 import io.queryforge.backend.rag.chat.ChatAnswerService;
 import io.queryforge.backend.rag.chat.RagService;
-import io.queryforge.backend.rag.persistence.RagRepository;
+import io.queryforge.backend.rag.retrieval.ChunkRetrievalRepository;
 import io.queryforge.backend.rag.retrieval.RagLlmCallCount;
 import io.queryforge.backend.rag.retrieval.RagPersistPolicy;
+import io.queryforge.backend.rag.retrieval.memory.RagMemoryRepository;
+import io.queryforge.backend.rag.trace.RagTraceRepository;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -246,13 +248,13 @@ class RagRetrievalEvalControllerTest {
 
         assertThat(fieldTypes).containsExactly(RagRetrievalEvalService.class);
         assertThat(fieldTypes)
-                .doesNotContain(RagService.class, ChatAnswerService.class, RagRepository.class);
+                .doesNotContain(RagService.class, ChatAnswerService.class, ChunkRetrievalRepository.class, RagMemoryRepository.class, RagTraceRepository.class);
 
         List<Class<?>> serviceFieldTypes = Arrays.stream(RagRetrievalEvalService.class.getDeclaredFields())
                 .map(Field::getType)
                 .toList();
         assertThat(serviceFieldTypes)
-                .doesNotContain(RagService.class, ChatAnswerService.class, RagRepository.class);
+                .doesNotContain(RagService.class, ChatAnswerService.class, ChunkRetrievalRepository.class, RagMemoryRepository.class, RagTraceRepository.class);
     }
 
     private void assertEvalProblem(String requestBody, String code, String message) throws Exception {

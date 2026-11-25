@@ -2,11 +2,12 @@ package io.queryforge.backend.rag.trace;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
-import io.queryforge.backend.rag.persistence.RagRepository;
 import io.queryforge.backend.rag.retrieval.ForcedRetrievalMode;
 import io.queryforge.backend.rag.retrieval.RagPersistPolicy;
 import io.queryforge.backend.rag.retrieval.RagRetrievalExecutionResult;
 import io.queryforge.backend.rag.retrieval.RagRetrievalExecutionService;
+import io.queryforge.backend.rag.retrieval.RetrievalDoc;
+import io.queryforge.backend.rag.retrieval.memory.MemoryCandidate;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
@@ -18,7 +19,7 @@ import java.util.UUID;
 @RequiredArgsConstructor
 public class RagTracePersistenceService {
 
-    private final RagRepository repository;
+    private final RagTraceRepository traceRepository;
 
     public RagTracePersistenceResult persist(RagTracePersistenceRequest request) {
         if (request == null) {
@@ -410,7 +411,7 @@ public class RagTracePersistenceService {
             throw new IllegalArgumentException("raw_only trace persistence requires mode=raw_only");
         }
         switch (request.writeScope()) {
-            case RETRIEVAL -> repository.insertRetrievalResults(
+            case RETRIEVAL -> traceRepository.insertRetrievalResults(
                     request.onlineQueryId(),
                     null,
                     "raw",
@@ -419,7 +420,7 @@ public class RagTracePersistenceService {
                     request.retrieverName(),
                     request.retrievalMetadata()
             );
-            case RERANK -> repository.insertRerankResults(
+            case RERANK -> traceRepository.insertRerankResults(
                     request.onlineQueryId(),
                     null,
                     request.rawRerankedDocs(),
@@ -448,7 +449,7 @@ public class RagTracePersistenceService {
             throw new IllegalArgumentException("mode is required for ONLINE_QUERY rewrite candidate trace persistence");
         }
         switch (request.writeScope()) {
-            case CANDIDATE_RETRIEVAL -> repository.insertRetrievalResults(
+            case CANDIDATE_RETRIEVAL -> traceRepository.insertRetrievalResults(
                     request.onlineQueryId(),
                     request.rewriteCandidateId(),
                     "rewrite_candidate",
@@ -457,7 +458,7 @@ public class RagTracePersistenceService {
                     request.retrieverName(),
                     request.retrievalMetadata()
             );
-            case CANDIDATE_RERANK -> repository.insertRerankResults(
+            case CANDIDATE_RERANK -> traceRepository.insertRerankResults(
                     request.onlineQueryId(),
                     request.rewriteCandidateId(),
                     request.rerankedDocs(),
@@ -489,7 +490,7 @@ public class RagTracePersistenceService {
                 if (request.rewriteCandidateId() != null) {
                     throw new IllegalArgumentException("rewriteCandidateId must be null for agentic subquery raw retrieval trace persistence");
                 }
-                repository.insertRetrievalResults(
+                traceRepository.insertRetrievalResults(
                         request.onlineQueryId(),
                         null,
                         request.writeScope().repositoryStage,
@@ -503,7 +504,7 @@ public class RagTracePersistenceService {
                 if (request.rewriteCandidateId() == null) {
                     throw new IllegalArgumentException("rewriteCandidateId is required for agentic subquery candidate retrieval trace persistence");
                 }
-                repository.insertRetrievalResults(
+                traceRepository.insertRetrievalResults(
                         request.onlineQueryId(),
                         request.rewriteCandidateId(),
                         request.writeScope().repositoryStage,
@@ -536,7 +537,7 @@ public class RagTracePersistenceService {
         if (!"agentic-rrf".equals(request.rerankerModel())) {
             throw new IllegalArgumentException("agentic final RRF rerank trace persistence requires rerankerModel=agentic-rrf");
         }
-        repository.insertRerankResults(
+        traceRepository.insertRerankResults(
                 request.onlineQueryId(),
                 null,
                 request.finalMergedDocs(),
@@ -557,7 +558,7 @@ public class RagTracePersistenceService {
             throw new IllegalArgumentException("onlineQueryId is required for ONLINE_QUERY agentic rewrite log persistence");
         }
         validateAgenticExecutionKind(request.executionKind(), "agentic rewrite log persistence");
-        UUID rewriteLogId = repository.createOnlineRewriteLog(
+        UUID rewriteLogId = traceRepository.createOnlineRewriteLog(
                 request.onlineQueryId(),
                 request.runId(),
                 request.rawQuery(),
@@ -599,7 +600,7 @@ public class RagTracePersistenceService {
             throw new IllegalArgumentException("candidate is required for ONLINE_QUERY agentic memory retrieval log persistence");
         }
         validateAgenticExecutionKind(request.executionKind(), "agentic memory retrieval log persistence");
-        repository.insertMemoryRetrievalLog(
+        traceRepository.insertMemoryRetrievalLog(
                 request.rewriteLogId(),
                 request.onlineQueryId(),
                 request.retrievalRank(),
@@ -627,7 +628,7 @@ public class RagTracePersistenceService {
             throw new IllegalArgumentException("rewriteCandidateId is required for ONLINE_QUERY agentic rewrite candidate log persistence");
         }
         validateAgenticExecutionKind(request.executionKind(), "agentic rewrite candidate log persistence");
-        repository.insertRewriteCandidateLog(
+        traceRepository.insertRewriteCandidateLog(
                 request.rewriteLogId(),
                 request.onlineQueryId(),
                 request.rewriteCandidateId(),
@@ -656,7 +657,7 @@ public class RagTracePersistenceService {
             throw new IllegalArgumentException("onlineQueryId is required for ONLINE_QUERY agentic decision persistence");
         }
         validateAgenticExecutionKind(request.executionKind(), "agentic online query decision persistence");
-        repository.upsertOnlineQueryDecision(
+        traceRepository.upsertOnlineQueryDecision(
                 request.onlineQueryId(),
                 request.finalQueryUsed(),
                 request.rewriteApplied(),
@@ -682,7 +683,7 @@ public class RagTracePersistenceService {
             throw new IllegalArgumentException("onlineQueryId is required for ONLINE_QUERY agentic metadata merge persistence");
         }
         validateAgenticExecutionKind(request.executionKind(), "agentic online query metadata merge persistence");
-        repository.mergeOnlineQueryMetadata(request.onlineQueryId(), request.metadata());
+        traceRepository.mergeOnlineQueryMetadata(request.onlineQueryId(), request.metadata());
         return new RagTracePersistenceResult(
                 RagPersistPolicy.ONLINE_QUERY,
                 request.onlineQueryId(),
@@ -698,7 +699,7 @@ public class RagTracePersistenceService {
             throw new IllegalArgumentException("onlineQueryId is required for ONLINE_QUERY rewrite candidate creation persistence");
         }
         validateRewriteCandidateExecutionKind(request.executionKind(), "rewrite candidate creation persistence");
-        UUID rewriteCandidateId = repository.createRewriteCandidate(
+        UUID rewriteCandidateId = traceRepository.createRewriteCandidate(
                 request.onlineQueryId(),
                 request.candidateIndex(),
                 request.candidateLabel(),
@@ -724,7 +725,7 @@ public class RagTracePersistenceService {
             throw new IllegalArgumentException("onlineQueryId is required for ONLINE_QUERY agentic rewrite candidate creation persistence");
         }
         validateAgenticExecutionKind(request.executionKind(), "agentic rewrite candidate creation persistence");
-        UUID rewriteCandidateId = repository.createRewriteCandidate(
+        UUID rewriteCandidateId = traceRepository.createRewriteCandidate(
                 request.onlineQueryId(),
                 request.candidateIndex(),
                 request.candidateLabel(),
@@ -753,7 +754,7 @@ public class RagTracePersistenceService {
             throw new IllegalArgumentException("rewriteCandidateId is required for ONLINE_QUERY rewrite candidate adoption persistence");
         }
         validateRewriteCandidateExecutionKind(request.executionKind(), "rewrite candidate adoption persistence");
-        repository.markRewriteCandidateAdopted(
+        traceRepository.markRewriteCandidateAdopted(
                 request.rewriteCandidateId(),
                 request.adopted(),
                 request.rejectedReason()
@@ -777,7 +778,7 @@ public class RagTracePersistenceService {
             throw new IllegalArgumentException("rewriteCandidateId is required for ONLINE_QUERY agentic rewrite candidate adoption persistence");
         }
         validateAgenticExecutionKind(request.executionKind(), "agentic rewrite candidate adoption persistence");
-        repository.markRewriteCandidateAdopted(
+        traceRepository.markRewriteCandidateAdopted(
                 request.rewriteCandidateId(),
                 request.adopted(),
                 request.rejectedReason()
@@ -798,7 +799,7 @@ public class RagTracePersistenceService {
             throw new IllegalArgumentException("onlineQueryId is required for ONLINE_QUERY rewrite log persistence");
         }
         validateRewriteCandidateExecutionKind(request.executionKind(), "rewrite log persistence");
-        UUID rewriteLogId = repository.createOnlineRewriteLog(
+        UUID rewriteLogId = traceRepository.createOnlineRewriteLog(
                 request.onlineQueryId(),
                 request.runId(),
                 request.rawQuery(),
@@ -840,7 +841,7 @@ public class RagTracePersistenceService {
             throw new IllegalArgumentException("candidate is required for ONLINE_QUERY memory retrieval log persistence");
         }
         validateRewriteCandidateExecutionKind(request.executionKind(), "memory retrieval log persistence");
-        repository.insertMemoryRetrievalLog(
+        traceRepository.insertMemoryRetrievalLog(
                 request.rewriteLogId(),
                 request.onlineQueryId(),
                 request.retrievalRank(),
@@ -868,7 +869,7 @@ public class RagTracePersistenceService {
             throw new IllegalArgumentException("rewriteCandidateId is required for ONLINE_QUERY rewrite candidate log persistence");
         }
         validateRewriteCandidateExecutionKind(request.executionKind(), "rewrite candidate log persistence");
-        repository.insertRewriteCandidateLog(
+        traceRepository.insertRewriteCandidateLog(
                 request.rewriteLogId(),
                 request.onlineQueryId(),
                 request.rewriteCandidateId(),
@@ -897,7 +898,7 @@ public class RagTracePersistenceService {
             throw new IllegalArgumentException("onlineQueryId is required for ONLINE_QUERY decision persistence");
         }
         validateNonAgenticExecutionKind(request.executionKind(), "online query decision persistence");
-        repository.upsertOnlineQueryDecision(
+        traceRepository.upsertOnlineQueryDecision(
                 request.onlineQueryId(),
                 request.finalQueryUsed(),
                 request.rewriteApplied(),
@@ -923,7 +924,7 @@ public class RagTracePersistenceService {
             throw new IllegalArgumentException("onlineQueryId is required for ONLINE_QUERY metadata merge persistence");
         }
         validateNonAgenticExecutionKind(request.executionKind(), "online query metadata merge persistence");
-        repository.mergeOnlineQueryMetadata(request.onlineQueryId(), request.metadata());
+        traceRepository.mergeOnlineQueryMetadata(request.onlineQueryId(), request.metadata());
         return new RagTracePersistenceResult(
                 RagPersistPolicy.ONLINE_QUERY,
                 request.onlineQueryId(),
@@ -1045,8 +1046,8 @@ public class RagTracePersistenceService {
             String rawQuery,
             String finalQuery,
             String mode,
-            List<RagRepository.RetrievalDoc> rawRetrievedDocs,
-            List<RagRepository.RetrievalDoc> rawRerankedDocs,
+            List<RetrievalDoc> rawRetrievedDocs,
+            List<RetrievalDoc> rawRerankedDocs,
             JsonNode retrievalMetadata,
             String retrieverName,
             String rerankerModel,
@@ -1077,8 +1078,8 @@ public class RagTracePersistenceService {
             String candidateQuery,
             String candidateLabel,
             String mode,
-            List<RagRepository.RetrievalDoc> retrievedDocs,
-            List<RagRepository.RetrievalDoc> rerankedDocs,
+            List<RetrievalDoc> retrievedDocs,
+            List<RetrievalDoc> rerankedDocs,
             JsonNode retrievalMetadata,
             String retrieverName,
             String rerankerModel,
@@ -1109,7 +1110,7 @@ public class RagTracePersistenceService {
             String subqueryText,
             String mode,
             UUID rewriteCandidateId,
-            List<RagRepository.RetrievalDoc> retrievedDocs,
+            List<RetrievalDoc> retrievedDocs,
             JsonNode retrievalMetadata,
             String retrieverName,
             long latencyMs,
@@ -1178,7 +1179,7 @@ public class RagTracePersistenceService {
             RagPersistPolicy persistPolicy,
             UUID onlineQueryId,
             AgenticRetrievalExecutionKind executionKind,
-            List<RagRepository.RetrievalDoc> finalMergedDocs,
+            List<RetrievalDoc> finalMergedDocs,
             String resultScope,
             String rerankerModel,
             long latencyMs
@@ -1232,7 +1233,7 @@ public class RagTracePersistenceService {
             UUID rewriteLogId,
             AgenticRetrievalExecutionKind executionKind,
             int retrievalRank,
-            RagRepository.MemoryCandidate candidate,
+            MemoryCandidate candidate,
             JsonNode metadata
     ) {
         public AgenticMemoryRetrievalLogPersistenceRequest {
@@ -1386,7 +1387,7 @@ public class RagTracePersistenceService {
             UUID rewriteLogId,
             RagRetrievalExecutionService.NonAgenticExecutionKind executionKind,
             int retrievalRank,
-            RagRepository.MemoryCandidate candidate,
+            MemoryCandidate candidate,
             JsonNode metadata
     ) {
         public MemoryRetrievalLogPersistenceRequest {

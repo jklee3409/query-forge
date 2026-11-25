@@ -4,7 +4,6 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import io.queryforge.backend.admin.pipeline.AdminPipelineProperties;
-import io.queryforge.backend.rag.chat.RagDtos;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -39,16 +38,15 @@ public class ExperimentPipelineService {
             "eval-retrieval",
             "eval-answer"
     );
-
     private final AdminPipelineProperties properties;
     private final ObjectMapper objectMapper;
     private final Map<String, Process> runningProcesses = new ConcurrentHashMap<>();
 
-    public RagDtos.ExperimentCommandResponse run(RagDtos.ExperimentCommandRequest request) {
+    public RagExperimentDtos.ExperimentCommandResponse run(RagExperimentDtos.ExperimentCommandRequest request) {
         return run(request, null);
     }
 
-    public RagDtos.ExperimentCommandResponse run(RagDtos.ExperimentCommandRequest request, String executionKey) {
+    public RagExperimentDtos.ExperimentCommandResponse run(RagExperimentDtos.ExperimentCommandRequest request, String executionKey) {
         String command = normalizedCommand(request.command());
         if (!ALLOWED_COMMANDS.contains(command)) {
             throw new IllegalArgumentException("unsupported command: " + request.command());
@@ -89,7 +87,7 @@ public class ExperimentPipelineService {
                 String stderr = stderrFuture.join();
                 String timeoutMessage = "command timed out after " + timeoutSeconds + " seconds";
                 JsonNode summary = parseSummary(stdout);
-                return new RagDtos.ExperimentCommandResponse(
+                return new RagExperimentDtos.ExperimentCommandResponse(
                         command,
                         experiment,
                         124,
@@ -102,7 +100,7 @@ public class ExperimentPipelineService {
             String stdout = stdoutFuture.join();
             String stderr = stderrFuture.join();
             JsonNode summary = parseSummary(stdout);
-            return new RagDtos.ExperimentCommandResponse(
+            return new RagExperimentDtos.ExperimentCommandResponse(
                     command,
                     experiment,
                     exitCode,

@@ -1,9 +1,8 @@
 package io.queryforge.backend.rag.retrieval.agentic;
 
-import io.queryforge.backend.rag.persistence.RagRepository;
+import io.queryforge.backend.rag.retrieval.RetrievalDoc;
 import org.springframework.stereotype.Component;
 
-import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -12,8 +11,8 @@ import java.util.Map;
 @Component
 public class SearchResultMerger {
 
-    public List<RagRepository.RetrievalDoc> mergeRrf(
-            List<List<RagRepository.RetrievalDoc>> rankedResults,
+    public List<RetrievalDoc> mergeRrf(
+            List<List<RetrievalDoc>> rankedResults,
             int finalTopK,
             int rrfK
     ) {
@@ -22,12 +21,12 @@ public class SearchResultMerger {
         }
         Map<String, Accumulator> merged = new LinkedHashMap<>();
         int safeRrfK = Math.max(1, rrfK);
-        for (List<RagRepository.RetrievalDoc> resultSet : rankedResults) {
+        for (List<RetrievalDoc> resultSet : rankedResults) {
             if (resultSet == null || resultSet.isEmpty()) {
                 continue;
             }
             for (int index = 0; index < resultSet.size(); index++) {
-                RagRepository.RetrievalDoc doc = resultSet.get(index);
+                RetrievalDoc doc = resultSet.get(index);
                 if (doc == null || doc.chunkId() == null || doc.chunkId().isBlank()) {
                     continue;
                 }
@@ -46,20 +45,20 @@ public class SearchResultMerger {
         return merged.values().stream()
                 .map(Accumulator::toRetrievalDoc)
                 .sorted(Comparator
-                        .comparingDouble(RagRepository.RetrievalDoc::score)
+                        .comparingDouble(RetrievalDoc::score)
                         .reversed()
-                        .thenComparing(RagRepository.RetrievalDoc::chunkId))
+                        .thenComparing(RetrievalDoc::chunkId))
                 .limit(Math.max(1, finalTopK))
                 .toList();
     }
 
     private record Accumulator(
-            RagRepository.RetrievalDoc representative,
+            RetrievalDoc representative,
             double rrfScore,
             double bestOriginalScore
     ) {
-        Accumulator add(RagRepository.RetrievalDoc candidate, double additionalScore) {
-            RagRepository.RetrievalDoc nextRepresentative = representative;
+        Accumulator add(RetrievalDoc candidate, double additionalScore) {
+            RetrievalDoc nextRepresentative = representative;
             double nextBestOriginalScore = bestOriginalScore;
             if (candidate.score() > bestOriginalScore) {
                 nextRepresentative = candidate;
@@ -68,8 +67,8 @@ public class SearchResultMerger {
             return new Accumulator(nextRepresentative, rrfScore + additionalScore, nextBestOriginalScore);
         }
 
-        RagRepository.RetrievalDoc toRetrievalDoc() {
-            return new RagRepository.RetrievalDoc(
+        RetrievalDoc toRetrievalDoc() {
+            return new RetrievalDoc(
                     representative.documentId(),
                     representative.chunkId(),
                     representative.chunkText(),

@@ -3,9 +3,9 @@ package io.queryforge.backend.rag.chat;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.sun.net.httpserver.HttpExchange;
 import com.sun.net.httpserver.HttpServer;
-import io.queryforge.backend.rag.persistence.RagRepository;
 import io.queryforge.backend.rag.provider.RuntimeEnvService;
 import io.queryforge.backend.rag.provider.SpringAiChatGateway;
+import io.queryforge.backend.rag.retrieval.RetrievalDoc;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
@@ -164,8 +164,8 @@ class ChatAnswerServiceTest {
                 """.formatted(answerJson);
     }
 
-    private List<RagRepository.RetrievalDoc> docs() {
-        return List.of(new RagRepository.RetrievalDoc(
+    private List<RetrievalDoc> docs() {
+        return List.of(new RetrievalDoc(
                 "doc-1",
                 "chunk-1",
                 "Spring Security filter chain reference",

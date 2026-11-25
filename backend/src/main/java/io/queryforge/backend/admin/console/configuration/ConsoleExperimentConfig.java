@@ -2,6 +2,7 @@ package io.queryforge.backend.admin.console.configuration;
 
 import io.queryforge.backend.admin.console.runtime.AdminRuntimeOptionsService;
 import io.queryforge.backend.admin.console.runtime.AdminRuntimeOptionsService.RuntimeCatalog;
+import io.queryforge.backend.admin.console.runtime.ConsoleEnvironment;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.yaml.snakeyaml.Yaml;
@@ -21,25 +22,16 @@ import static io.queryforge.backend.admin.console.configuration.ConsoleParameter
 public class ConsoleExperimentConfig {
 
     private final AdminRuntimeOptionsService runtimeOptionsService;
-
+    private final ConsoleEnvironment environment;
     private static final String REWRITE_FAILURE_POLICY_FAIL_RUN = "fail_run";
-
     private static final String REWRITE_QUERY_PROFILE_COMPACT_ANCHOR = "compact_anchor";
-
     private static final String REWRITE_QUERY_PROFILE_DETAILED_INTENT = "detailed_intent";
-
     private static final String QUERY_LANGUAGE_KO = "ko";
-
     private static final String QUERY_LANGUAGE_EN = "en";
-
     private static final String DEFAULT_LLM_MODEL = "gemini-2.5-flash-lite";
-
     private static final String DEFAULT_LLM_FALLBACK_MODEL = "gemini-2.5-flash-lite";
-
     private static final int DEFAULT_RAG_RETRIEVAL_TOP_K = 10;
-
     private static final double DEFAULT_REWRITE_THRESHOLD = 0.05d;
-
     private static final int DEFAULT_REWRITE_MEMORY_CANDIDATE_POOL_N = 20;
 
     private final Yaml yaml = new Yaml();
@@ -226,7 +218,7 @@ public class ConsoleExperimentConfig {
     }
 
     public void writeExperimentConfig(String experimentName, Map<String, Object> config) {
-        Path configPath = runtimeOptionsService.resolveRepoRoot().resolve("configs/experiments").resolve(experimentName + ".yaml").normalize();
+        Path configPath = environment.resolveRepoRoot().resolve("configs/experiments").resolve(experimentName + ".yaml").normalize();
         try {
             Files.createDirectories(configPath.getParent());
             Files.writeString(configPath, yaml.dump(config), StandardCharsets.UTF_8);

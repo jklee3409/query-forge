@@ -4,7 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.JsonNodeFactory;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import io.queryforge.backend.rag.persistence.RagRepository;
+import io.queryforge.backend.rag.retrieval.memory.MemoryCandidate;
 import io.queryforge.backend.rag.retrieval.rewrite.RewriteCandidateService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -23,14 +23,14 @@ public class RagRetrievalExecutionService {
 
     public RawOnlyExecutionResult executeRawOnly(RawOnlyExecutionRequest request) {
         long started = System.nanoTime();
-        List<RagRepository.RetrievalDoc> localRetrievedDocs = domainScopedRetrievalService.retrieveChunks(
+        List<RetrievalDoc> localRetrievedDocs = domainScopedRetrievalService.retrieveChunks(
                 request.originalQuery(),
                 request.queryEmbeddingLiteral(),
                 request.retrievalTopK(),
                 request.domainId(),
                 request.retrievalRuntime()
         );
-        List<RagRepository.RetrievalDoc> rerankedDocs = cohereRerankService.rerank(
+        List<RetrievalDoc> rerankedDocs = cohereRerankService.rerank(
                 request.originalQuery(),
                 localRetrievedDocs,
                 request.rerankTopN()
@@ -106,7 +106,7 @@ public class RagRetrievalExecutionService {
     private List<ExecutedRewriteCandidate> executeRewriteCandidates(
             String rawQuery,
             JsonNode sessionContextSnapshot,
-            List<RagRepository.MemoryCandidate> memoryCandidates,
+            List<MemoryCandidate> memoryCandidates,
             int candidateCount,
             String rewriteQueryProfile,
             ObjectNode domainContext,
@@ -156,14 +156,14 @@ public class RagRetrievalExecutionService {
                 generated.query(),
                 retrievalRuntime
         );
-        List<RagRepository.RetrievalDoc> localRetrievedDocs = domainScopedRetrievalService.retrieveChunks(
+        List<RetrievalDoc> localRetrievedDocs = domainScopedRetrievalService.retrieveChunks(
                 generated.query(),
                 embeddingLiteral,
                 retrievalTopK,
                 domainId,
                 retrievalRuntime
         );
-        List<RagRepository.RetrievalDoc> rerankedDocs = cohereRerankService.rerank(
+        List<RetrievalDoc> rerankedDocs = cohereRerankService.rerank(
                 generated.query(),
                 localRetrievedDocs,
                 rerankTopN
@@ -206,7 +206,7 @@ public class RagRetrievalExecutionService {
         return node;
     }
 
-    private double confidence(List<RagRepository.RetrievalDoc> docs, double denseScore) {
+    private double confidence(List<RetrievalDoc> docs, double denseScore) {
         if (docs.isEmpty()) {
             return 0.0;
         }
@@ -292,8 +292,8 @@ public class RagRetrievalExecutionService {
 
     public record RetrievalMaterial(
             String query,
-            List<RagRepository.RetrievalDoc> retrievedDocs,
-            List<RagRepository.RetrievalDoc> rerankedDocs,
+            List<RetrievalDoc> retrievedDocs,
+            List<RetrievalDoc> rerankedDocs,
             double confidence,
             String retrieverName,
             String rerankerModel,
@@ -308,13 +308,13 @@ public class RagRetrievalExecutionService {
 
         public List<String> retrievedChunkIds() {
             return retrievedDocs.stream()
-                    .map(RagRepository.RetrievalDoc::chunkId)
+                    .map(RetrievalDoc::chunkId)
                     .toList();
         }
 
         public List<String> rerankedChunkIds() {
             return rerankedDocs.stream()
-                    .map(RagRepository.RetrievalDoc::chunkId)
+                    .map(RetrievalDoc::chunkId)
                     .toList();
         }
     }
@@ -341,11 +341,11 @@ public class RagRetrievalExecutionService {
             return originalQuery;
         }
 
-        public List<RagRepository.RetrievalDoc> localRetrievedDocs() {
+        public List<RetrievalDoc> localRetrievedDocs() {
             return rawRetrieval.retrievedDocs();
         }
 
-        public List<RagRepository.RetrievalDoc> rerankedDocs() {
+        public List<RetrievalDoc> rerankedDocs() {
             return rawRetrieval.rerankedDocs();
         }
 
@@ -367,7 +367,7 @@ public class RagRetrievalExecutionService {
     public record SelectiveRewriteExecutionRequest(
             String rawQuery,
             JsonNode sessionContextSnapshot,
-            List<RagRepository.MemoryCandidate> memoryCandidates,
+            List<MemoryCandidate> memoryCandidates,
             int candidateCount,
             String rewriteQueryProfile,
             ObjectNode domainContext,
@@ -425,7 +425,7 @@ public class RagRetrievalExecutionService {
     public record AnchorAwareRewriteExecutionRequest(
             String rawQuery,
             JsonNode sessionContextSnapshot,
-            List<RagRepository.MemoryCandidate> memoryCandidates,
+            List<MemoryCandidate> memoryCandidates,
             int candidateCount,
             String rewriteQueryProfile,
             ObjectNode domainContext,
@@ -490,11 +490,11 @@ public class RagRetrievalExecutionService {
             }
         }
 
-        public List<RagRepository.RetrievalDoc> localRetrievedDocs() {
+        public List<RetrievalDoc> localRetrievedDocs() {
             return retrieval.retrievedDocs();
         }
 
-        public List<RagRepository.RetrievalDoc> rerankedDocs() {
+        public List<RetrievalDoc> rerankedDocs() {
             return retrieval.rerankedDocs();
         }
 

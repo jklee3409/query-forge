@@ -7,6 +7,7 @@ import io.queryforge.backend.admin.console.embedding.ChunkEmbeddingAdminService;
 import io.queryforge.backend.admin.console.gating.GatingDtos;
 import io.queryforge.backend.admin.console.gating.GatingRepository;
 import io.queryforge.backend.admin.console.jobs.LlmJobService;
+import io.queryforge.backend.admin.console.runtime.AdminRetrieverConfiguration;
 import io.queryforge.backend.admin.console.runtime.AdminRuntimeOptionsService;
 import io.queryforge.backend.admin.console.runtime.AdminRuntimeOptionsService.RuntimeCatalog;
 import io.queryforge.backend.admin.console.scope.ConsoleScopeService;
@@ -40,71 +41,43 @@ public class RagTestService {
 
     private final ConsoleExperimentConfig experimentConfig;
     private final AdminRuntimeOptionsService runtimeOptionsService;
+    private final AdminRetrieverConfiguration retrieverConfiguration;
+    private final RewriteLlmPreflight rewriteLlmPreflight;
     private final EvalDatasetService evalDatasetService;
     private final ChunkEmbeddingAdminService chunkEmbeddingService;
     private final ConsoleScopeService scopeService;
-
     private static final String RUN_DISCIPLINE_OFFICIAL = "official";
-
     private static final String RUN_DISCIPLINE_EXPLORATORY = "exploratory";
-
     private static final String COMPARISON_GATING_EFFECT = "gating_effect";
-
     private static final String COMPARISON_REWRITE_EFFECT = "rewrite_effect";
-
     private static final String REWRITE_FAILURE_POLICY_FAIL_RUN = "fail_run";
-
     private static final String REWRITE_FAILURE_POLICY_SKIP_TO_RAW = "skip_to_raw";
-
     private static final String REWRITE_FAILURE_POLICY_HEURISTIC_FALLBACK = "heuristic_fallback";
-
     private static final String REWRITE_QUERY_PROFILE_COMPACT_ANCHOR = "compact_anchor";
-
     private static final String REWRITE_QUERY_PROFILE_DETAILED_INTENT = "detailed_intent";
-
     private static final String SYNTHETIC_FREE_BASELINE_METHOD = "BASELINE";
-
     private static final String STAGE_CUTOFF_RULE_ONLY = "rule_only";
-
     private static final String STAGE_CUTOFF_RULE_PLUS_LLM = "rule_plus_llm";
-
     private static final String STAGE_CUTOFF_UTILITY = "utility";
-
     private static final String STAGE_CUTOFF_DIVERSITY = "diversity";
-
     private static final String STAGE_CUTOFF_FULL_GATING = "full_gating";
-
     private static final String QUERY_LANGUAGE_KO = "ko";
-
     private static final String QUERY_LANGUAGE_EN = "en";
-
     private static final String RETRIEVAL_BACKEND_DB_ANN = "db_ann";
-
     private static final String RETRIEVER_MODE_BM25_ONLY = "bm25_only";
-
     private static final String RETRIEVER_MODE_HYBRID = "hybrid";
-
     private static final int DEFAULT_RAG_RETRIEVAL_TOP_K = 10;
-
     private static final double DEFAULT_REWRITE_THRESHOLD = 0.05d;
-
     private static final String VECTOR_STORE_POSTGRESQL_PGVECTOR = "postgresql-pgvector";
-
     private static final int MAX_RAG_RUN_LABEL_LENGTH = 120;
-
     private static final ZoneId KOREA_ZONE_ID = ZoneId.of("Asia/Seoul");
 
     private static final DateTimeFormatter RUN_LABEL_TIME_FORMATTER = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm")
             .withZone(KOREA_ZONE_ID);
-
     private final AdminEvalDatasetRepository evalDatasetRepository;
-
     private final RagTestRunRepository ragTestRunRepository;
-
     private final GatingRepository gatingRepository;
-
     private final LlmJobService llmJobService;
-
     private final ObjectMapper objectMapper;
 
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
@@ -230,12 +203,12 @@ public class RagTestService {
                 1,
                 500
         );
-        Map<String, Object> retrieverConfig = runtimeOptionsService.resolveRetrieverConfig(request.retrieverConfig(), false, runtimeCatalog);
+        Map<String, Object> retrieverConfig = retrieverConfiguration.resolveRetrieverConfig(request.retrieverConfig(), false, runtimeCatalog);
         runtimeOptionsService.validateLlmModelSelection(blankToNull(request.llmModel()), runtimeCatalog);
         runtimeOptionsService.validateLlmModelSelection(blankToNull(request.rewriteLlmModel()), runtimeCatalog);
-        String retrievalBackend = runtimeOptionsService.normalizeRetrievalBackend(request.retrievalBackend(), runtimeCatalog);
-        runtimeOptionsService.validateRetrievalBackendSelection(retrievalBackend, runtimeCatalog);
-        runtimeOptionsService.validateRetrieverSelection(retrieverConfig, runtimeCatalog);
+        String retrievalBackend = retrieverConfiguration.normalizeRetrievalBackend(request.retrievalBackend(), runtimeCatalog);
+        retrieverConfiguration.validateRetrievalBackendSelection(retrievalBackend, runtimeCatalog);
+        retrieverConfiguration.validateRetrieverSelection(retrieverConfig, runtimeCatalog);
         validateDbAnnConfigurationIfNeeded(retrievalBackend, retrieverConfig);
         String retrievalEmbeddingModel = blankToNull(asTrimmedString(retrieverConfig.get("dense_embedding_model")));
         if (RETRIEVAL_BACKEND_DB_ANN.equals(retrievalBackend)) {
@@ -439,7 +412,7 @@ public class RagTestService {
         config.put("rerank_top_n", rerankTopN);
         config.put("memory_top_n", memoryTopN);
         config.put("rewrite_candidate_count", rewriteCandidateCount);
-        runtimeOptionsService.attachRetrieverConfig(config, retrieverConfig);
+        retrieverConfiguration.attachRetrieverConfig(config, retrieverConfig);
         config.put("retrieval_backend", retrievalBackend);
         config.put("chunk_embedding_model", retrievalEmbeddingModel);
         config.put("vector_store", RETRIEVAL_BACKEND_DB_ANN.equals(retrievalBackend) ? VECTOR_STORE_POSTGRESQL_PGVECTOR : null);
@@ -529,7 +502,7 @@ public class RagTestService {
             sourceGatingRunId.ifPresent(uuid -> config.put("source_gating_run_id", uuid.toString()));
         }
 
-        runtimeOptionsService.validateRewriteStageLlmConfig(config, rewriteEnabled);
+        rewriteLlmPreflight.validateRewriteStageLlmConfig(config, rewriteEnabled);
         JsonNode methodCodesNode = objectMapper.valueToTree(methodCodes);
         JsonNode batchIdsNode = objectMapper.valueToTree(batchIds);
         UUID runId = ragTestRunRepository.createRagTestRun(

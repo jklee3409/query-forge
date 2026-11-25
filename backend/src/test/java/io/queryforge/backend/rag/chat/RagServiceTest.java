@@ -5,17 +5,25 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import io.queryforge.backend.rag.embedding.DenseEmbeddingService;
 import io.queryforge.backend.rag.embedding.HashEmbeddingService;
-import io.queryforge.backend.rag.persistence.RagRepository;
+import io.queryforge.backend.rag.retrieval.ChunkRetrievalRepository;
 import io.queryforge.backend.rag.retrieval.CohereRerankService;
 import io.queryforge.backend.rag.retrieval.DomainScopedRetrievalService;
 import io.queryforge.backend.rag.retrieval.RagPersistPolicy;
 import io.queryforge.backend.rag.retrieval.RagRetrievalExecutionService;
+import io.queryforge.backend.rag.retrieval.RetrievalDoc;
+import io.queryforge.backend.rag.retrieval.RetrievalDtos;
+import io.queryforge.backend.rag.retrieval.agentic.AgenticRetrievalDtos;
 import io.queryforge.backend.rag.retrieval.agentic.AgenticRetrievalService;
+import io.queryforge.backend.rag.retrieval.memory.MemoryCandidate;
+import io.queryforge.backend.rag.retrieval.memory.RagMemoryRepository;
 import io.queryforge.backend.rag.retrieval.rewrite.RewriteCandidateService;
 import io.queryforge.backend.rag.retrieval.routing.QueryStrategyRouter;
+import io.queryforge.backend.rag.runtime.ChatConfigDtos;
 import io.queryforge.backend.rag.runtime.ChatRuntimeConfigService;
-import io.queryforge.backend.rag.runtime.ChatRuntimeDtos;
+import io.queryforge.backend.rag.runtime.readiness.ChatReadinessDtos;
+import io.queryforge.backend.rag.runtime.readiness.ChatReadinessService;
 import io.queryforge.backend.rag.trace.RagTracePersistenceService;
+import io.queryforge.backend.rag.trace.RagTraceRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -53,7 +61,11 @@ class RagServiceTest {
     private final UUID sourceGatingRunId = UUID.fromString("33333333-3333-3333-3333-333333333333");
 
     @Mock
-    private RagRepository repository;
+    private ChunkRetrievalRepository chunkRepository;
+    @Mock
+    private RagMemoryRepository memoryRepository;
+    @Mock
+    private RagTraceRepository traceRepository;
     @Mock
     private HashEmbeddingService embeddingService;
     @Mock
@@ -67,6 +79,8 @@ class RagServiceTest {
     @Mock
     private ChatRuntimeConfigService chatRuntimeConfigService;
     @Mock
+    private ChatReadinessService chatReadinessService;
+    @Mock
     private AgenticRetrievalService agenticRetrievalService;
 
     private RagService ragService;
@@ -76,7 +90,8 @@ class RagServiceTest {
     @BeforeEach
     void setUp() {
         DomainScopedRetrievalService domainScopedRetrievalService = new DomainScopedRetrievalService(
-                repository,
+                chunkRepository,
+                memoryRepository,
                 embeddingService,
                 denseEmbeddingService
         );
@@ -86,19 +101,20 @@ class RagServiceTest {
                 rewriteCandidateService,
                 objectMapper
         ));
-        ragTracePersistenceService = spy(new RagTracePersistenceService(repository));
+        ragTracePersistenceService = spy(new RagTracePersistenceService(traceRepository));
+        ChatResponseAssembler responses = new ChatResponseAssembler(chatAnswerService, objectMapper);
         ragService = new RagService(
-                repository,
+                responses,
+                new AgenticChatService(responses, traceRepository, ragTracePersistenceService, agenticRetrievalService, objectMapper),
+                traceRepository,
                 domainScopedRetrievalService,
                 ragRetrievalExecutionService,
                 ragTracePersistenceService,
-                embeddingService,
                 cohereRerankService,
                 rewriteCandidateService,
-                chatAnswerService,
                 chatRuntimeConfigService,
+                chatReadinessService,
                 new QueryStrategyRouter(),
-                agenticRetrievalService,
                 objectMapper
         );
     }
@@ -106,20 +122,20 @@ class RagServiceTest {
     @Test
     void routerReadinessFallbackUsesRawOnlyAndSkipsRewriteWork() {
         UUID onlineQueryId = UUID.randomUUID();
-        ChatRuntimeDtos.ChatRuntimeConfigResponse config = config("selective_rewrite", true, false);
+        ChatConfigDtos.ChatRuntimeConfigResponse config = config("selective_rewrite", true, false);
         when(chatRuntimeConfigService.getConfig(domainId)).thenReturn(config);
-        when(chatRuntimeConfigService.getReadiness(domainId)).thenReturn(readiness(false, "selected snapshot has no built synthetic memory"));
-        when(repository.createOnlineQuery(eq(domainId), any(), anyString(), any(), anyString(), anyDouble(), any()))
+        when(chatReadinessService.getReadiness(domainId)).thenReturn(readiness(false, "selected snapshot has no built synthetic memory"));
+        when(traceRepository.createOnlineQuery(eq(domainId), any(), anyString(), any(), anyString(), anyDouble(), any()))
                 .thenReturn(onlineQueryId);
         when(embeddingService.embed(anyString())).thenReturn(List.of(1.0d, 0.0d));
         when(embeddingService.toHalfvecLiteral(anyList())).thenReturn("[1.000000,0.000000]");
-        List<RagRepository.RetrievalDoc> docs = List.of(new RagRepository.RetrievalDoc(
+        List<RetrievalDoc> docs = List.of(new RetrievalDoc(
                 "doc-1",
                 "chunk-1",
                 "Spring Security filter chain reference",
                 0.8d
         ));
-        when(repository.findTopChunksByEmbedding(anyString(), anyInt(), eq(domainId))).thenReturn(docs);
+        when(chunkRepository.findTopChunksByEmbedding(anyString(), anyInt(), eq(domainId))).thenReturn(docs);
         when(cohereRerankService.rerank(anyString(), anyList(), anyInt())).thenAnswer(invocation -> invocation.getArgument(1));
         when(cohereRerankService.modelName()).thenReturn("local-rerank-fallback");
         when(chatAnswerService.generateAnswer(anyString(), anyString(), anyString(), anyList()))
@@ -130,7 +146,7 @@ class RagServiceTest {
                         "test-answer-model"
                 ));
 
-        RagDtos.AskResponse response = ragService.ask(new RagDtos.AskRequest(
+        ChatDtos.AskResponse response = ragService.ask(new ChatDtos.AskRequest(
                 "스프링 시큐리티 필터 순서",
                 domainId,
                 "session-1",
@@ -142,9 +158,9 @@ class RagServiceTest {
         assertThat(response.finalQueryUsed()).isEqualTo("스프링 시큐리티 필터 순서");
         assertThat(response.rewriteCandidates()).isEmpty();
         assertThat(response.memoryTopN().size()).isZero();
-        verify(repository, never()).findMemoryTopN(anyString(), anyInt(), anyString(), eq(domainId), anyList(), anyList(), anyList());
+        verify(memoryRepository, never()).findMemoryTopN(anyString(), anyInt(), anyString(), eq(domainId), anyList(), anyList(), anyList());
         verify(rewriteCandidateService, never()).buildCandidates(anyString(), any(), anyList(), anyInt(), anyString(), anyBoolean(), any());
-        verify(repository, never()).createRewriteCandidate(any(), anyInt(), anyString(), anyString(), any(), any(), anyDouble(), any());
+        verify(traceRepository, never()).createRewriteCandidate(any(), anyInt(), anyString(), anyString(), any(), any(), anyDouble(), any());
         verify(ragTracePersistenceService, never()).createRewriteCandidateTrace(any());
         verify(ragTracePersistenceService, never()).markRewriteCandidateAdopted(any());
         verify(agenticRetrievalService, never()).execute(any());
@@ -162,11 +178,11 @@ class RagServiceTest {
 
     @Test
     void routerDisabledKeepsExistingStrictReadinessFailure() {
-        ChatRuntimeDtos.ChatRuntimeConfigResponse config = config("selective_rewrite", false, false);
+        ChatConfigDtos.ChatRuntimeConfigResponse config = config("selective_rewrite", false, false);
         when(chatRuntimeConfigService.getConfig(domainId)).thenReturn(config);
-        when(chatRuntimeConfigService.getReadiness(domainId)).thenReturn(readiness(false, "selected snapshot has no built synthetic memory"));
+        when(chatReadinessService.getReadiness(domainId)).thenReturn(readiness(false, "selected snapshot has no built synthetic memory"));
 
-        assertThatThrownBy(() -> ragService.ask(new RagDtos.AskRequest(
+        assertThatThrownBy(() -> ragService.ask(new ChatDtos.AskRequest(
                 "스프링 시큐리티 필터 순서",
                 domainId,
                 "session-1",
@@ -174,7 +190,7 @@ class RagServiceTest {
                 null
         ))).hasMessageContaining("synthetic memory");
 
-        verify(repository, never()).createOnlineQuery(any(), any(), anyString(), any(), anyString(), anyDouble(), any());
+        verify(traceRepository, never()).createOnlineQuery(any(), any(), anyString(), any(), anyString(), anyDouble(), any());
         verify(rewriteCandidateService, never()).buildCandidates(anyString(), any(), anyList(), anyInt(), anyString(), anyBoolean(), any());
     }
 
@@ -182,17 +198,17 @@ class RagServiceTest {
     void rawOnlyAskKeepsOriginalQueryAndPersistsAnswerTrace() {
         UUID onlineQueryId = UUID.fromString("44444444-4444-4444-4444-444444444444");
         String query = "FilterChainProxy order";
-        ChatRuntimeDtos.ChatRuntimeConfigResponse config = config("raw_only", true, false);
-        List<RagRepository.RetrievalDoc> rawDocs = docs("raw-doc", "raw-chunk", 0.82d);
+        ChatConfigDtos.ChatRuntimeConfigResponse config = config("raw_only", true, false);
+        List<RetrievalDoc> rawDocs = docs("raw-doc", "raw-chunk", 0.82d);
         stubCommonAskDependencies(config, onlineQueryId);
-        when(repository.findTopChunksByEmbedding(anyString(), anyInt(), eq(domainId))).thenReturn(rawDocs);
+        when(chunkRepository.findTopChunksByEmbedding(anyString(), anyInt(), eq(domainId))).thenReturn(rawDocs);
         when(cohereRerankService.rerank(anyString(), anyList(), anyInt())).thenAnswer(invocation -> invocation.getArgument(1));
         when(cohereRerankService.modelName()).thenReturn("local-rerank-fallback");
         stubRewriteLog(UUID.fromString("55555555-5555-5555-5555-555555555555"));
         when(chatAnswerService.generateAnswer(anyString(), anyString(), anyString(), anyList()))
                 .thenReturn(generatedAnswer("raw answer"));
 
-        RagDtos.AskResponse response = ragService.ask(request(query));
+        ChatDtos.AskResponse response = ragService.ask(request(query));
 
         assertThat(response.finalQueryUsed()).isEqualTo(query);
         assertThat(response.rawQuery()).isEqualTo(query);
@@ -200,11 +216,11 @@ class RagServiceTest {
         assertThat(response.answer()).isEqualTo("raw answer");
         assertThat(response.answerModel()).isEqualTo("test-answer-model");
 
-        verify(repository).createOnlineQuery(eq(domainId), eq("session-1"), eq(query), any(), eq("raw_only"), eq(0.05d), any());
-        verify(repository, never()).findMemoryTopN(anyString(), anyInt(), anyString(), any(), anyList(), anyList(), anyList());
+        verify(traceRepository).createOnlineQuery(eq(domainId), eq("session-1"), eq(query), any(), eq("raw_only"), eq(0.05d), any());
+        verify(memoryRepository, never()).findMemoryTopN(anyString(), anyInt(), anyString(), any(), anyList(), anyList(), anyList());
         verify(rewriteCandidateService, never()).buildCandidates(anyString(), any(), anyList(), anyInt(), anyString(), anyBoolean(), any());
         verify(agenticRetrievalService, never()).execute(any());
-        verify(repository).findTopChunksByEmbedding(anyString(), anyInt(), eq(domainId));
+        verify(chunkRepository).findTopChunksByEmbedding(anyString(), anyInt(), eq(domainId));
         verify(chatAnswerService).generateAnswer(eq(query), eq(query), eq("Spring"), anyList());
         ArgumentCaptor<RagTracePersistenceService.RawOnlyTracePersistenceRequest> traceCaptor =
                 ArgumentCaptor.forClass(RagTracePersistenceService.RawOnlyTracePersistenceRequest.class);
@@ -222,17 +238,17 @@ class RagServiceTest {
                     assertThat(trace.rawQuery()).isEqualTo(query);
                     assertThat(trace.finalQuery()).isEqualTo(query);
                 });
-        verify(repository).insertRetrievalResults(eq(onlineQueryId), isNull(), eq("raw"), anyList(), eq("raw_only"), eq("local:dense_only:hash-embedding-v1"), any());
-        verify(repository).insertRerankResults(eq(onlineQueryId), isNull(), anyList(), eq("local-rerank-fallback"));
+        verify(traceRepository).insertRetrievalResults(eq(onlineQueryId), isNull(), eq("raw"), anyList(), eq("raw_only"), eq("local:dense_only:hash-embedding-v1"), any());
+        verify(traceRepository).insertRerankResults(eq(onlineQueryId), isNull(), anyList(), eq("local-rerank-fallback"));
         verify(ragTracePersistenceService, never()).persistRewriteCandidateTrace(any());
         verify(ragTracePersistenceService, never()).createRewriteCandidateTrace(any());
         verify(ragTracePersistenceService, never()).markRewriteCandidateAdopted(any());
         verify(ragTracePersistenceService, never()).createOnlineRewriteLogTrace(any());
         verify(ragTracePersistenceService, never()).insertMemoryRetrievalTrace(any());
         verify(ragTracePersistenceService, never()).insertRewriteCandidateTrace(any());
-        verify(repository).insertAnswer(eq(onlineQueryId), eq("raw answer"), any(), any(), eq("test-answer-model"), any());
-        verify(repository).upsertOnlineQueryDecision(eq(onlineQueryId), eq(query), eq(false), any(), anyDouble(), isNull(), eq("mode_raw_only"), eq("query_router_strategy=raw_only"), any());
-        verify(repository).mergeOnlineQueryMetadata(eq(onlineQueryId), any());
+        verify(traceRepository).insertAnswer(eq(onlineQueryId), eq("raw answer"), any(), any(), eq("test-answer-model"), any());
+        verify(traceRepository).upsertOnlineQueryDecision(eq(onlineQueryId), eq(query), eq(false), any(), anyDouble(), isNull(), eq("mode_raw_only"), eq("query_router_strategy=raw_only"), any());
+        verify(traceRepository).mergeOnlineQueryMetadata(eq(onlineQueryId), any());
         verifyOnlineQueryDecisionPersistence(
                 onlineQueryId,
                 RagRetrievalExecutionService.NonAgenticExecutionKind.RAW_ONLY,
@@ -247,9 +263,9 @@ class RagServiceTest {
                 onlineQueryId,
                 RagRetrievalExecutionService.NonAgenticExecutionKind.RAW_ONLY
         );
-        verify(repository).createOnlineRewriteLog(eq(onlineQueryId), isNull(), eq(query), eq(query), eq("raw_only"), any(), any(), eq(false), eq("full_gating"), eq(false), eq(false), eq(false), anyDouble(), anyDouble(), anyDouble(), eq("mode_raw_only"), eq("query_router_strategy=raw_only"), any());
-        verify(repository, never()).insertMemoryRetrievalLog(any(), any(), anyInt(), any(), any());
-        verify(repository, never()).insertRewriteCandidateLog(any(), any(), any(), anyInt(), anyString(), anyString(), any(), anyBoolean(), any(), any(), any(), any());
+        verify(traceRepository).createOnlineRewriteLog(eq(onlineQueryId), isNull(), eq(query), eq(query), eq("raw_only"), any(), any(), eq(false), eq("full_gating"), eq(false), eq(false), eq(false), anyDouble(), anyDouble(), anyDouble(), eq("mode_raw_only"), eq("query_router_strategy=raw_only"), any());
+        verify(traceRepository, never()).insertMemoryRetrievalLog(any(), any(), anyInt(), any(), any());
+        verify(traceRepository, never()).insertRewriteCandidateLog(any(), any(), any(), anyInt(), anyString(), anyString(), any(), anyBoolean(), any(), any(), any(), any());
     }
 
     @Test
@@ -259,25 +275,25 @@ class RagServiceTest {
         UUID rewriteLogId = UUID.fromString("77777777-7777-7777-7777-777777777777");
         String query = "spring filter order";
         String rewrittenQuery = "FilterChainProxy SecurityFilterChain order";
-        ChatRuntimeDtos.ChatRuntimeConfigResponse config = config("selective_rewrite", false, false);
-        List<RagRepository.MemoryCandidate> memories = memories();
-        List<RagRepository.RetrievalDoc> rawDocs = docs("raw-doc", "raw-chunk", 0.10d);
-        List<RagRepository.RetrievalDoc> rewriteDocs = docs("rewrite-doc", "rewrite-chunk", 0.95d);
+        ChatConfigDtos.ChatRuntimeConfigResponse config = config("selective_rewrite", false, false);
+        List<MemoryCandidate> memories = memories();
+        List<RetrievalDoc> rawDocs = docs("raw-doc", "raw-chunk", 0.10d);
+        List<RetrievalDoc> rewriteDocs = docs("rewrite-doc", "rewrite-chunk", 0.95d);
         stubCommonAskDependencies(config, onlineQueryId);
-        when(repository.findMemoryTopN(anyString(), anyInt(), eq("full_gating"), eq(domainId), eq(List.of("C")), eq(List.of(sourceGatingRunId)), eq(List.of(sourceGatingBatchId))))
+        when(memoryRepository.findMemoryTopN(anyString(), anyInt(), eq("full_gating"), eq(domainId), eq(List.of("C")), eq(List.of(sourceGatingRunId)), eq(List.of(sourceGatingBatchId))))
                 .thenReturn(memories);
-        when(repository.findTopChunksByEmbedding(anyString(), anyInt(), eq(domainId))).thenReturn(rawDocs, rewriteDocs);
+        when(chunkRepository.findTopChunksByEmbedding(anyString(), anyInt(), eq(domainId))).thenReturn(rawDocs, rewriteDocs);
         when(cohereRerankService.rerank(anyString(), anyList(), anyInt())).thenAnswer(invocation -> invocation.getArgument(1));
         when(cohereRerankService.modelName()).thenReturn("local-rerank-fallback");
         when(rewriteCandidateService.buildCandidates(eq(query), any(), eq(memories), eq(2), eq("compact_anchor"), eq(false), any()))
                 .thenReturn(List.of(new RewriteCandidateService.CandidateTemplate("candidate-1", rewrittenQuery)));
-        when(repository.createRewriteCandidate(eq(onlineQueryId), eq(1), eq("candidate-1"), eq(rewrittenQuery), any(), any(), anyDouble(), any()))
+        when(traceRepository.createRewriteCandidate(eq(onlineQueryId), eq(1), eq("candidate-1"), eq(rewrittenQuery), any(), any(), anyDouble(), any()))
                 .thenReturn(rewriteCandidateId);
         stubRewriteLog(rewriteLogId);
         when(chatAnswerService.generateAnswer(anyString(), anyString(), anyString(), anyList()))
                 .thenReturn(generatedAnswer("rewrite answer"));
 
-        RagDtos.AskResponse response = ragService.ask(request(query));
+        ChatDtos.AskResponse response = ragService.ask(request(query));
 
         assertThat(response.finalQueryUsed()).isEqualTo(rewrittenQuery);
         assertThat(response.rewriteApplied()).isTrue();
@@ -286,8 +302,8 @@ class RagServiceTest {
         assertThat(response.rewriteCandidates()).hasSize(1);
         assertThat(response.rewriteCandidates().getFirst().adopted()).isTrue();
 
-        verify(repository).findMemoryTopN(anyString(), anyInt(), eq("full_gating"), eq(domainId), eq(List.of("C")), eq(List.of(sourceGatingRunId)), eq(List.of(sourceGatingBatchId)));
-        verify(repository, times(2)).findTopChunksByEmbedding(anyString(), anyInt(), eq(domainId));
+        verify(memoryRepository).findMemoryTopN(anyString(), anyInt(), eq("full_gating"), eq(domainId), eq(List.of("C")), eq(List.of(sourceGatingRunId)), eq(List.of(sourceGatingBatchId)));
+        verify(chunkRepository, times(2)).findTopChunksByEmbedding(anyString(), anyInt(), eq(domainId));
         ArgumentCaptor<RagRetrievalExecutionService.SelectiveRewriteExecutionRequest> executionRequestCaptor =
                 ArgumentCaptor.forClass(RagRetrievalExecutionService.SelectiveRewriteExecutionRequest.class);
         verify(ragRetrievalExecutionService).executeSelectiveRewrite(executionRequestCaptor.capture());
@@ -296,8 +312,8 @@ class RagServiceTest {
         assertThat(executionRequestCaptor.getValue().rewriteQueryProfile()).isEqualTo("compact_anchor");
         verify(ragRetrievalExecutionService, never()).executeAnchorAwareRewrite(any());
         verify(rewriteCandidateService).buildCandidates(eq(query), any(), eq(memories), eq(2), eq("compact_anchor"), eq(false), any());
-        verify(repository).createRewriteCandidate(eq(onlineQueryId), eq(1), eq("candidate-1"), eq(rewrittenQuery), any(), any(), anyDouble(), any());
-        verify(repository).markRewriteCandidateAdopted(eq(rewriteCandidateId), eq(true), isNull());
+        verify(traceRepository).createRewriteCandidate(eq(onlineQueryId), eq(1), eq("candidate-1"), eq(rewrittenQuery), any(), any(), anyDouble(), any());
+        verify(traceRepository).markRewriteCandidateAdopted(eq(rewriteCandidateId), eq(true), isNull());
         verifyCreateRewriteCandidatePersistence(
                 onlineQueryId,
                 RagRetrievalExecutionService.NonAgenticExecutionKind.SELECTIVE_REWRITE,
@@ -311,9 +327,9 @@ class RagServiceTest {
                 true,
                 null
         );
-        verify(repository).insertRetrievalResults(eq(onlineQueryId), isNull(), eq("raw"), anyList(), eq("selective_rewrite"), eq("local:dense_only:hash-embedding-v1"), any());
-        verify(repository).insertRetrievalResults(eq(onlineQueryId), eq(rewriteCandidateId), eq("rewrite_candidate"), anyList(), eq("selective_rewrite"), eq("local:dense_only:hash-embedding-v1"), any());
-        verify(repository).insertRerankResults(eq(onlineQueryId), eq(rewriteCandidateId), anyList(), eq("local-rerank-fallback"));
+        verify(traceRepository).insertRetrievalResults(eq(onlineQueryId), isNull(), eq("raw"), anyList(), eq("selective_rewrite"), eq("local:dense_only:hash-embedding-v1"), any());
+        verify(traceRepository).insertRetrievalResults(eq(onlineQueryId), eq(rewriteCandidateId), eq("rewrite_candidate"), anyList(), eq("selective_rewrite"), eq("local:dense_only:hash-embedding-v1"), any());
+        verify(traceRepository).insertRerankResults(eq(onlineQueryId), eq(rewriteCandidateId), anyList(), eq("local-rerank-fallback"));
         verifyRewriteCandidateTracePersistence(
                 onlineQueryId,
                 rewriteCandidateId,
@@ -321,10 +337,10 @@ class RagServiceTest {
         );
         verify(ragTracePersistenceService, never()).persistRawOnlyTrace(any());
         verify(chatAnswerService).generateAnswer(eq(query), eq(rewrittenQuery), eq("Spring"), anyList());
-        verify(repository).insertAnswer(eq(onlineQueryId), eq("rewrite answer"), any(), any(), eq("test-answer-model"), any());
-        verify(repository).createOnlineRewriteLog(eq(onlineQueryId), isNull(), eq(query), eq(rewrittenQuery), eq("selective_rewrite"), any(), any(), eq(true), eq("full_gating"), eq(true), eq(true), eq(false), anyDouble(), anyDouble(), anyDouble(), eq("delta_above_threshold"), isNull(), any());
-        verify(repository).insertMemoryRetrievalLog(eq(rewriteLogId), eq(onlineQueryId), eq(1), eq(memories.getFirst()), any());
-        verify(repository).insertRewriteCandidateLog(eq(rewriteLogId), eq(onlineQueryId), eq(rewriteCandidateId), eq(1), eq("candidate-1"), eq(rewrittenQuery), anyDouble(), eq(true), isNull(), any(), any(), any());
+        verify(traceRepository).insertAnswer(eq(onlineQueryId), eq("rewrite answer"), any(), any(), eq("test-answer-model"), any());
+        verify(traceRepository).createOnlineRewriteLog(eq(onlineQueryId), isNull(), eq(query), eq(rewrittenQuery), eq("selective_rewrite"), any(), any(), eq(true), eq("full_gating"), eq(true), eq(true), eq(false), anyDouble(), anyDouble(), anyDouble(), eq("delta_above_threshold"), isNull(), any());
+        verify(traceRepository).insertMemoryRetrievalLog(eq(rewriteLogId), eq(onlineQueryId), eq(1), eq(memories.getFirst()), any());
+        verify(traceRepository).insertRewriteCandidateLog(eq(rewriteLogId), eq(onlineQueryId), eq(rewriteCandidateId), eq(1), eq("candidate-1"), eq(rewrittenQuery), anyDouble(), eq(true), isNull(), any(), any(), any());
         verifyOnlineRewriteLogPersistence(
                 onlineQueryId,
                 RagRetrievalExecutionService.NonAgenticExecutionKind.SELECTIVE_REWRITE,
@@ -369,25 +385,25 @@ class RagServiceTest {
         UUID rewriteLogId = UUID.fromString("77777777-7777-7777-7777-777777777780");
         String query = "spring";
         String rewrittenQuery = "FilterChainProxy SecurityFilterChain order";
-        ChatRuntimeDtos.ChatRuntimeConfigResponse config = config("selective_rewrite", true, false);
-        List<RagRepository.MemoryCandidate> memories = memories();
-        List<RagRepository.RetrievalDoc> rawDocs = docs("raw-doc", "raw-chunk", 0.10d);
-        List<RagRepository.RetrievalDoc> rewriteDocs = docs("rewrite-doc", "rewrite-chunk", 0.95d);
+        ChatConfigDtos.ChatRuntimeConfigResponse config = config("selective_rewrite", true, false);
+        List<MemoryCandidate> memories = memories();
+        List<RetrievalDoc> rawDocs = docs("raw-doc", "raw-chunk", 0.10d);
+        List<RetrievalDoc> rewriteDocs = docs("rewrite-doc", "rewrite-chunk", 0.95d);
         stubCommonAskDependencies(config, onlineQueryId);
-        when(repository.findMemoryTopN(anyString(), anyInt(), eq("full_gating"), eq(domainId), eq(List.of("C")), eq(List.of(sourceGatingRunId)), eq(List.of(sourceGatingBatchId))))
+        when(memoryRepository.findMemoryTopN(anyString(), anyInt(), eq("full_gating"), eq(domainId), eq(List.of("C")), eq(List.of(sourceGatingRunId)), eq(List.of(sourceGatingBatchId))))
                 .thenReturn(memories);
-        when(repository.findTopChunksByEmbedding(anyString(), anyInt(), eq(domainId))).thenReturn(rawDocs, rewriteDocs);
+        when(chunkRepository.findTopChunksByEmbedding(anyString(), anyInt(), eq(domainId))).thenReturn(rawDocs, rewriteDocs);
         when(cohereRerankService.rerank(anyString(), anyList(), anyInt())).thenAnswer(invocation -> invocation.getArgument(1));
         when(cohereRerankService.modelName()).thenReturn("local-rerank-fallback");
         when(rewriteCandidateService.buildCandidates(eq(query), any(), eq(memories), eq(2), eq("compact_anchor"), eq(false), any()))
                 .thenReturn(List.of(new RewriteCandidateService.CandidateTemplate("candidate-1", rewrittenQuery)));
-        when(repository.createRewriteCandidate(eq(onlineQueryId), eq(1), eq("candidate-1"), eq(rewrittenQuery), any(), any(), anyDouble(), any()))
+        when(traceRepository.createRewriteCandidate(eq(onlineQueryId), eq(1), eq("candidate-1"), eq(rewrittenQuery), any(), any(), anyDouble(), any()))
                 .thenReturn(rewriteCandidateId);
         stubRewriteLog(rewriteLogId);
         when(chatAnswerService.generateAnswer(anyString(), anyString(), anyString(), anyList()))
                 .thenReturn(generatedAnswer("router selective answer"));
 
-        RagDtos.AskResponse response = ragService.ask(request(query));
+        ChatDtos.AskResponse response = ragService.ask(request(query));
 
         assertThat(response.finalQueryUsed()).isEqualTo(rewrittenQuery);
         assertThat(response.rewriteApplied()).isTrue();
@@ -404,8 +420,8 @@ class RagServiceTest {
         assertThat(executionRequestCaptor.getValue().rewriteQueryProfile()).isEqualTo("compact_anchor");
         verify(ragRetrievalExecutionService, never()).executeAnchorAwareRewrite(any());
         verify(rewriteCandidateService).buildCandidates(eq(query), any(), eq(memories), eq(2), eq("compact_anchor"), eq(false), any());
-        verify(repository).createRewriteCandidate(eq(onlineQueryId), eq(1), eq("candidate-1"), eq(rewrittenQuery), any(), any(), anyDouble(), any());
-        verify(repository).markRewriteCandidateAdopted(eq(rewriteCandidateId), eq(true), isNull());
+        verify(traceRepository).createRewriteCandidate(eq(onlineQueryId), eq(1), eq("candidate-1"), eq(rewrittenQuery), any(), any(), anyDouble(), any());
+        verify(traceRepository).markRewriteCandidateAdopted(eq(rewriteCandidateId), eq(true), isNull());
         verifyCreateRewriteCandidatePersistence(
                 onlineQueryId,
                 RagRetrievalExecutionService.NonAgenticExecutionKind.SELECTIVE_REWRITE,
@@ -419,19 +435,19 @@ class RagServiceTest {
                 true,
                 null
         );
-        verify(repository).insertRetrievalResults(eq(onlineQueryId), isNull(), eq("raw"), anyList(), eq("selective_rewrite"), eq("local:dense_only:hash-embedding-v1"), any());
-        verify(repository).insertRetrievalResults(eq(onlineQueryId), eq(rewriteCandidateId), eq("rewrite_candidate"), anyList(), eq("selective_rewrite"), eq("local:dense_only:hash-embedding-v1"), any());
-        verify(repository).insertRerankResults(eq(onlineQueryId), eq(rewriteCandidateId), anyList(), eq("local-rerank-fallback"));
+        verify(traceRepository).insertRetrievalResults(eq(onlineQueryId), isNull(), eq("raw"), anyList(), eq("selective_rewrite"), eq("local:dense_only:hash-embedding-v1"), any());
+        verify(traceRepository).insertRetrievalResults(eq(onlineQueryId), eq(rewriteCandidateId), eq("rewrite_candidate"), anyList(), eq("selective_rewrite"), eq("local:dense_only:hash-embedding-v1"), any());
+        verify(traceRepository).insertRerankResults(eq(onlineQueryId), eq(rewriteCandidateId), anyList(), eq("local-rerank-fallback"));
         verifyRewriteCandidateTracePersistence(
                 onlineQueryId,
                 rewriteCandidateId,
                 RagRetrievalExecutionService.NonAgenticExecutionKind.SELECTIVE_REWRITE
         );
         verify(chatAnswerService).generateAnswer(eq(query), eq(rewrittenQuery), eq("Spring"), anyList());
-        verify(repository).insertAnswer(eq(onlineQueryId), eq("router selective answer"), any(), any(), eq("test-answer-model"), any());
-        verify(repository).createOnlineRewriteLog(eq(onlineQueryId), isNull(), eq(query), eq(rewrittenQuery), eq("selective_rewrite"), any(), any(), eq(true), eq("full_gating"), eq(true), eq(true), eq(false), anyDouble(), anyDouble(), anyDouble(), eq("delta_above_threshold"), isNull(), any());
-        verify(repository).insertMemoryRetrievalLog(eq(rewriteLogId), eq(onlineQueryId), eq(1), eq(memories.getFirst()), any());
-        verify(repository).insertRewriteCandidateLog(eq(rewriteLogId), eq(onlineQueryId), eq(rewriteCandidateId), eq(1), eq("candidate-1"), eq(rewrittenQuery), anyDouble(), eq(true), isNull(), any(), any(), any());
+        verify(traceRepository).insertAnswer(eq(onlineQueryId), eq("router selective answer"), any(), any(), eq("test-answer-model"), any());
+        verify(traceRepository).createOnlineRewriteLog(eq(onlineQueryId), isNull(), eq(query), eq(rewrittenQuery), eq("selective_rewrite"), any(), any(), eq(true), eq("full_gating"), eq(true), eq(true), eq(false), anyDouble(), anyDouble(), anyDouble(), eq("delta_above_threshold"), isNull(), any());
+        verify(traceRepository).insertMemoryRetrievalLog(eq(rewriteLogId), eq(onlineQueryId), eq(1), eq(memories.getFirst()), any());
+        verify(traceRepository).insertRewriteCandidateLog(eq(rewriteLogId), eq(onlineQueryId), eq(rewriteCandidateId), eq(1), eq("candidate-1"), eq(rewrittenQuery), anyDouble(), eq(true), isNull(), any(), any(), any());
         verifyOnlineRewriteLogPersistence(
                 onlineQueryId,
                 RagRetrievalExecutionService.NonAgenticExecutionKind.SELECTIVE_REWRITE,
@@ -480,25 +496,25 @@ class RagServiceTest {
         UUID rewriteLogId = UUID.fromString("77777777-7777-7777-7777-777777777778");
         String query = "FilterChainProxy SecurityFilterChain order";
         String rewrittenQuery = "FilterChainProxy SecurityFilterChain order in Spring Security";
-        ChatRuntimeDtos.ChatRuntimeConfigResponse config = config("selective_rewrite", true, true);
-        List<RagRepository.MemoryCandidate> memories = memories();
-        List<RagRepository.RetrievalDoc> rawDocs = docs("raw-doc", "raw-chunk", 0.25d);
-        List<RagRepository.RetrievalDoc> rewriteDocs = docs("rewrite-doc", "rewrite-chunk", 0.90d);
+        ChatConfigDtos.ChatRuntimeConfigResponse config = config("selective_rewrite", true, true);
+        List<MemoryCandidate> memories = memories();
+        List<RetrievalDoc> rawDocs = docs("raw-doc", "raw-chunk", 0.25d);
+        List<RetrievalDoc> rewriteDocs = docs("rewrite-doc", "rewrite-chunk", 0.90d);
         stubCommonAskDependencies(config, onlineQueryId);
-        when(repository.findMemoryTopN(anyString(), anyInt(), eq("full_gating"), eq(domainId), eq(List.of("C")), eq(List.of(sourceGatingRunId)), eq(List.of(sourceGatingBatchId))))
+        when(memoryRepository.findMemoryTopN(anyString(), anyInt(), eq("full_gating"), eq(domainId), eq(List.of("C")), eq(List.of(sourceGatingRunId)), eq(List.of(sourceGatingBatchId))))
                 .thenReturn(memories);
-        when(repository.findTopChunksByEmbedding(anyString(), anyInt(), eq(domainId))).thenReturn(rawDocs, rewriteDocs);
+        when(chunkRepository.findTopChunksByEmbedding(anyString(), anyInt(), eq(domainId))).thenReturn(rawDocs, rewriteDocs);
         when(cohereRerankService.rerank(anyString(), anyList(), anyInt())).thenAnswer(invocation -> invocation.getArgument(1));
         when(cohereRerankService.modelName()).thenReturn("local-rerank-fallback");
         when(rewriteCandidateService.buildCandidates(eq(query), any(), eq(memories), eq(2), eq("compact_anchor"), eq(true), any()))
                 .thenReturn(List.of(new RewriteCandidateService.CandidateTemplate("anchor-aware", rewrittenQuery)));
-        when(repository.createRewriteCandidate(eq(onlineQueryId), eq(1), eq("anchor-aware"), eq(rewrittenQuery), any(), any(), anyDouble(), any()))
+        when(traceRepository.createRewriteCandidate(eq(onlineQueryId), eq(1), eq("anchor-aware"), eq(rewrittenQuery), any(), any(), anyDouble(), any()))
                 .thenReturn(rewriteCandidateId);
         stubRewriteLog(rewriteLogId);
         when(chatAnswerService.generateAnswer(anyString(), anyString(), anyString(), anyList()))
                 .thenReturn(generatedAnswer("anchor answer"));
 
-        RagDtos.AskResponse response = ragService.ask(request(query));
+        ChatDtos.AskResponse response = ragService.ask(request(query));
 
         assertThat(response.answer()).isEqualTo("anchor answer");
         assertThat(response.answerModel()).isEqualTo("test-answer-model");
@@ -510,8 +526,8 @@ class RagServiceTest {
         assertThat(executionRequestCaptor.getValue().memoryCandidates()).isEqualTo(memories);
         assertThat(executionRequestCaptor.getValue().rewriteQueryProfile()).isEqualTo("compact_anchor");
         verify(rewriteCandidateService).buildCandidates(eq(query), any(), eq(memories), eq(2), eq("compact_anchor"), eq(true), any());
-        verify(repository).createRewriteCandidate(eq(onlineQueryId), eq(1), eq("anchor-aware"), eq(rewrittenQuery), any(), any(), anyDouble(), any());
-        verify(repository).markRewriteCandidateAdopted(eq(rewriteCandidateId), eq(true), isNull());
+        verify(traceRepository).createRewriteCandidate(eq(onlineQueryId), eq(1), eq("anchor-aware"), eq(rewrittenQuery), any(), any(), anyDouble(), any());
+        verify(traceRepository).markRewriteCandidateAdopted(eq(rewriteCandidateId), eq(true), isNull());
         verifyCreateRewriteCandidatePersistence(
                 onlineQueryId,
                 RagRetrievalExecutionService.NonAgenticExecutionKind.ANCHOR_AWARE_REWRITE,
@@ -525,10 +541,10 @@ class RagServiceTest {
                 true,
                 null
         );
-        verify(repository).insertRetrievalResults(eq(onlineQueryId), isNull(), eq("raw"), anyList(), eq("selective_rewrite"), eq("local:dense_only:hash-embedding-v1"), any());
-        verify(repository).insertRetrievalResults(eq(onlineQueryId), eq(rewriteCandidateId), eq("rewrite_candidate"), anyList(), eq("selective_rewrite"), eq("local:dense_only:hash-embedding-v1"), any());
-        verify(repository, times(2)).findTopChunksByEmbedding(anyString(), anyInt(), eq(domainId));
-        verify(repository).insertRerankResults(eq(onlineQueryId), eq(rewriteCandidateId), anyList(), eq("local-rerank-fallback"));
+        verify(traceRepository).insertRetrievalResults(eq(onlineQueryId), isNull(), eq("raw"), anyList(), eq("selective_rewrite"), eq("local:dense_only:hash-embedding-v1"), any());
+        verify(traceRepository).insertRetrievalResults(eq(onlineQueryId), eq(rewriteCandidateId), eq("rewrite_candidate"), anyList(), eq("selective_rewrite"), eq("local:dense_only:hash-embedding-v1"), any());
+        verify(chunkRepository, times(2)).findTopChunksByEmbedding(anyString(), anyInt(), eq(domainId));
+        verify(traceRepository).insertRerankResults(eq(onlineQueryId), eq(rewriteCandidateId), anyList(), eq("local-rerank-fallback"));
         verifyRewriteCandidateTracePersistence(
                 onlineQueryId,
                 rewriteCandidateId,
@@ -536,10 +552,10 @@ class RagServiceTest {
         );
         verify(ragTracePersistenceService, never()).persistRawOnlyTrace(any());
         verify(chatAnswerService).generateAnswer(eq(query), eq(rewrittenQuery), eq("Spring"), anyList());
-        verify(repository).insertAnswer(eq(onlineQueryId), eq("anchor answer"), any(), any(), eq("test-answer-model"), any());
-        verify(repository).createOnlineRewriteLog(eq(onlineQueryId), isNull(), eq(query), eq(rewrittenQuery), eq("selective_rewrite"), any(), any(), eq(true), eq("full_gating"), eq(true), eq(true), eq(false), anyDouble(), anyDouble(), anyDouble(), eq("delta_above_threshold"), isNull(), any());
-        verify(repository).insertMemoryRetrievalLog(eq(rewriteLogId), eq(onlineQueryId), eq(1), eq(memories.getFirst()), any());
-        verify(repository).insertRewriteCandidateLog(eq(rewriteLogId), eq(onlineQueryId), eq(rewriteCandidateId), eq(1), eq("anchor-aware"), eq(rewrittenQuery), anyDouble(), eq(true), isNull(), any(), any(), any());
+        verify(traceRepository).insertAnswer(eq(onlineQueryId), eq("anchor answer"), any(), any(), eq("test-answer-model"), any());
+        verify(traceRepository).createOnlineRewriteLog(eq(onlineQueryId), isNull(), eq(query), eq(rewrittenQuery), eq("selective_rewrite"), any(), any(), eq(true), eq("full_gating"), eq(true), eq(true), eq(false), anyDouble(), anyDouble(), anyDouble(), eq("delta_above_threshold"), isNull(), any());
+        verify(traceRepository).insertMemoryRetrievalLog(eq(rewriteLogId), eq(onlineQueryId), eq(1), eq(memories.getFirst()), any());
+        verify(traceRepository).insertRewriteCandidateLog(eq(rewriteLogId), eq(onlineQueryId), eq(rewriteCandidateId), eq(1), eq("anchor-aware"), eq(rewrittenQuery), anyDouble(), eq(true), isNull(), any(), any(), any());
         verifyOnlineRewriteLogPersistence(
                 onlineQueryId,
                 RagRetrievalExecutionService.NonAgenticExecutionKind.ANCHOR_AWARE_REWRITE,
@@ -585,24 +601,24 @@ class RagServiceTest {
     void forcedAgenticModeBranchesToAgenticExecutionAndReturnsMetadata() {
         UUID onlineQueryId = UUID.fromString("44444444-4444-4444-4444-444444444447");
         String query = "spring security and mvc filter order";
-        ChatRuntimeDtos.ChatRuntimeConfigResponse config = config("agentic_multi_query", false, false, true);
-        List<RagRepository.MemoryCandidate> memories = memories();
-        List<RagRepository.RetrievalDoc> mergedDocs = docs("agentic-doc", "agentic-chunk", 0.88d);
+        ChatConfigDtos.ChatRuntimeConfigResponse config = config("agentic_multi_query", false, false, true);
+        List<MemoryCandidate> memories = memories();
+        List<RetrievalDoc> mergedDocs = docs("agentic-doc", "agentic-chunk", 0.88d);
         UUID agenticCandidateId = UUID.fromString("99999999-9999-9999-9999-999999999997");
         ObjectNode agenticCandidateScoreBreakdown = objectMapper.createObjectNode().put("rrf_score", 0.88d);
-        RagDtos.AgenticQueryPlan plan = new RagDtos.AgenticQueryPlan(
+        AgenticRetrievalDtos.AgenticQueryPlan plan = new AgenticRetrievalDtos.AgenticQueryPlan(
                 query,
                 domainId,
                 "spring",
                 "Spring",
                 3,
-                List.of(new RagDtos.AgenticSubquery(1, "FilterChainProxy order", "filter order", 1.0d, objectMapper.createObjectNode())),
+                List.of(new AgenticRetrievalDtos.AgenticSubquery(1, "FilterChainProxy order", "filter order", 1.0d, objectMapper.createObjectNode())),
                 "test-planner",
                 false,
                 null,
                 objectMapper.createObjectNode()
         );
-        RagDtos.SubqueryRetrievalTrace trace = new RagDtos.SubqueryRetrievalTrace(
+        AgenticRetrievalDtos.SubqueryRetrievalTrace trace = new AgenticRetrievalDtos.SubqueryRetrievalTrace(
                 1,
                 "FilterChainProxy order",
                 "FilterChainProxy order",
@@ -610,7 +626,7 @@ class RagServiceTest {
                 "RAW_ONLY",
                 "raw_only",
                 "mode=raw_only",
-                List.of(new RagDtos.ScoredDocumentDto("agentic-doc", "agentic-chunk", "agentic text", 0.88d)),
+                List.of(new RetrievalDtos.ScoredDocumentDto("agentic-doc", "agentic-chunk", "agentic text", 0.88d)),
                 List.of(),
                 objectMapper.createArrayNode(),
                 3L,
@@ -639,20 +655,20 @@ class RagServiceTest {
                         objectMapper.createObjectNode().put("subquery_count", 1)
                 ));
         stubCommonAskDependencies(config, onlineQueryId);
-        when(repository.findMemoryTopN(anyString(), anyInt(), eq("full_gating"), eq(domainId), eq(List.of("C")), eq(List.of(sourceGatingRunId)), eq(List.of(sourceGatingBatchId))))
+        when(memoryRepository.findMemoryTopN(anyString(), anyInt(), eq("full_gating"), eq(domainId), eq(List.of("C")), eq(List.of(sourceGatingRunId)), eq(List.of(sourceGatingBatchId))))
                 .thenReturn(memories);
         when(chatAnswerService.generateAnswer(anyString(), anyString(), anyString(), anyList()))
                 .thenReturn(generatedAnswer("agentic answer"));
         UUID rewriteLogId = UUID.fromString("77777777-7777-7777-7777-777777777779");
         stubRewriteLog(rewriteLogId);
 
-        RagDtos.AskResponse response = ragService.ask(request(query));
+        ChatDtos.AskResponse response = ragService.ask(request(query));
 
         assertThat(response.answer()).isEqualTo("agentic answer");
         assertThat(response.answerModel()).isEqualTo("test-answer-model");
         assertThat(response.agenticMetadata()).isNotNull();
         assertThat(response.agenticMetadata().plan().domainId()).isEqualTo(domainId);
-        assertThat(response.agenticMetadata().mergedDocs()).extracting(RagDtos.ScoredDocumentDto::chunkId)
+        assertThat(response.agenticMetadata().mergedDocs()).extracting(RetrievalDtos.ScoredDocumentDto::chunkId)
                 .containsExactly("agentic-chunk");
 
         ArgumentCaptor<AgenticRetrievalService.AgenticExecutionRequest> requestCaptor =
@@ -664,9 +680,9 @@ class RagServiceTest {
         assertThat(executionRequest.plannerMemoryHints()).isEqualTo(memories);
         assertThat(executionRequest.memoryPreset()).isEqualTo("full_gating");
 
-        verify(repository).createOnlineQuery(eq(domainId), eq("session-1"), eq(query), any(), eq("agentic_multi_query"), eq(0.05d), any());
-        verify(repository).findMemoryTopN(anyString(), anyInt(), eq("full_gating"), eq(domainId), eq(List.of("C")), eq(List.of(sourceGatingRunId)), eq(List.of(sourceGatingBatchId)));
-        verify(repository, never()).findTopChunksByEmbedding(anyString(), anyInt(), any());
+        verify(traceRepository).createOnlineQuery(eq(domainId), eq("session-1"), eq(query), any(), eq("agentic_multi_query"), eq(0.05d), any());
+        verify(memoryRepository).findMemoryTopN(anyString(), anyInt(), eq("full_gating"), eq(domainId), eq(List.of("C")), eq(List.of(sourceGatingRunId)), eq(List.of(sourceGatingBatchId)));
+        verify(chunkRepository, never()).findTopChunksByEmbedding(anyString(), anyInt(), any());
         verify(rewriteCandidateService, never()).buildCandidates(anyString(), any(), anyList(), anyInt(), anyString(), anyBoolean(), any());
         verify(ragTracePersistenceService, never()).persistRawOnlyTrace(any());
         verify(ragTracePersistenceService, never()).persistRewriteCandidateTrace(any());
@@ -771,14 +787,14 @@ class RagServiceTest {
         assertThat(agenticMetadataRequest.sourceMarker()).isEqualTo("agentic_retrieval");
         assertThat(agenticMetadataRequest.metadata().path("agentic_plan").isObject()).isTrue();
         assertThat(agenticMetadataRequest.metadata().path("router").isObject()).isTrue();
-        verify(repository).insertRerankResults(eq(onlineQueryId), isNull(), eq(mergedDocs), eq("agentic-rrf"));
+        verify(traceRepository).insertRerankResults(eq(onlineQueryId), isNull(), eq(mergedDocs), eq("agentic-rrf"));
         verify(chatAnswerService).generateAnswer(eq(query), eq(query), eq("Spring"), eq(mergedDocs));
-        verify(repository).insertAnswer(eq(onlineQueryId), eq("agentic answer"), any(), any(), eq("test-answer-model"), any());
-        verify(repository).upsertOnlineQueryDecision(eq(onlineQueryId), eq(query), eq(false), any(), anyDouble(), isNull(), eq("agentic_multi_query_rrf"), isNull(), any());
-        verify(repository).mergeOnlineQueryMetadata(eq(onlineQueryId), any());
-        verify(repository).createOnlineRewriteLog(eq(onlineQueryId), isNull(), eq(query), eq(query), eq("agentic_multi_query"), any(), any(), eq(true), eq("full_gating"), eq(false), eq(false), eq(false), anyDouble(), anyDouble(), eq(0.0d), eq("agentic_multi_query_rrf"), isNull(), any());
-        verify(repository).insertMemoryRetrievalLog(eq(rewriteLogId), eq(onlineQueryId), eq(1), eq(memories.getFirst()), any());
-        verify(repository).insertRewriteCandidateLog(eq(rewriteLogId), eq(onlineQueryId), eq(agenticCandidateId), eq(1), eq("agentic-candidate-1"), eq("FilterChainProxy order"), eq(0.88d), eq(false), eq("agentic_not_selected"), any(), eq(agenticCandidateScoreBreakdown), any());
+        verify(traceRepository).insertAnswer(eq(onlineQueryId), eq("agentic answer"), any(), any(), eq("test-answer-model"), any());
+        verify(traceRepository).upsertOnlineQueryDecision(eq(onlineQueryId), eq(query), eq(false), any(), anyDouble(), isNull(), eq("agentic_multi_query_rrf"), isNull(), any());
+        verify(traceRepository).mergeOnlineQueryMetadata(eq(onlineQueryId), any());
+        verify(traceRepository).createOnlineRewriteLog(eq(onlineQueryId), isNull(), eq(query), eq(query), eq("agentic_multi_query"), any(), any(), eq(true), eq("full_gating"), eq(false), eq(false), eq(false), anyDouble(), anyDouble(), eq(0.0d), eq("agentic_multi_query_rrf"), isNull(), any());
+        verify(traceRepository).insertMemoryRetrievalLog(eq(rewriteLogId), eq(onlineQueryId), eq(1), eq(memories.getFirst()), any());
+        verify(traceRepository).insertRewriteCandidateLog(eq(rewriteLogId), eq(onlineQueryId), eq(agenticCandidateId), eq(1), eq("agentic-candidate-1"), eq("FilterChainProxy order"), eq(0.88d), eq(false), eq("agentic_not_selected"), any(), eq(agenticCandidateScoreBreakdown), any());
         verify(ragTracePersistenceService, never()).persistOnlineQueryDecision(any());
         verify(ragTracePersistenceService, never()).mergeOnlineQueryMetadata(any());
     }
@@ -787,22 +803,22 @@ class RagServiceTest {
     void routerSelectedAgenticBranchesToAgenticExecutionAndRecordsRouteMetadata() {
         UUID onlineQueryId = UUID.fromString("44444444-4444-4444-4444-444444444449");
         String query = "\uC2A4\uD504\uB9C1 \uC694\uCCAD \uD750\uB984\uC744 \uBE44\uAD50\uD558\uACE0 mvc \uB77C\uC6B0\uD305\uACFC \uCC98\uB9AC \uB2E8\uACC4\uB97C \uC124\uBA85";
-        ChatRuntimeDtos.ChatRuntimeConfigResponse config = config("selective_rewrite", true, false, true);
-        List<RagRepository.MemoryCandidate> memories = memories();
-        List<RagRepository.RetrievalDoc> mergedDocs = docs("agentic-doc", "agentic-router-chunk", 0.91d);
-        RagDtos.AgenticQueryPlan plan = new RagDtos.AgenticQueryPlan(
+        ChatConfigDtos.ChatRuntimeConfigResponse config = config("selective_rewrite", true, false, true);
+        List<MemoryCandidate> memories = memories();
+        List<RetrievalDoc> mergedDocs = docs("agentic-doc", "agentic-router-chunk", 0.91d);
+        AgenticRetrievalDtos.AgenticQueryPlan plan = new AgenticRetrievalDtos.AgenticQueryPlan(
                 query,
                 domainId,
                 "spring",
                 "Spring",
                 3,
-                List.of(new RagDtos.AgenticSubquery(1, "spring filter order", "filter order", 1.0d, objectMapper.createObjectNode())),
+                List.of(new AgenticRetrievalDtos.AgenticSubquery(1, "spring filter order", "filter order", 1.0d, objectMapper.createObjectNode())),
                 "test-planner",
                 false,
                 null,
                 objectMapper.createObjectNode()
         );
-        RagDtos.SubqueryRetrievalTrace trace = new RagDtos.SubqueryRetrievalTrace(
+        AgenticRetrievalDtos.SubqueryRetrievalTrace trace = new AgenticRetrievalDtos.SubqueryRetrievalTrace(
                 1,
                 "spring filter order",
                 "spring filter order",
@@ -810,7 +826,7 @@ class RagServiceTest {
                 "SYNTHETIC_SELECTIVE_REWRITE",
                 "agentic_multi_query_rrf",
                 null,
-                List.of(new RagDtos.ScoredDocumentDto("agentic-doc", "agentic-router-chunk", "agentic text", 0.91d)),
+                List.of(new RetrievalDtos.ScoredDocumentDto("agentic-doc", "agentic-router-chunk", "agentic text", 0.91d)),
                 List.of(),
                 objectMapper.createArrayNode(),
                 4L,
@@ -830,17 +846,17 @@ class RagServiceTest {
                         objectMapper.createObjectNode().put("subquery_count", 1)
                 ));
         stubCommonAskDependencies(config, onlineQueryId);
-        when(repository.findMemoryTopN(anyString(), anyInt(), eq("full_gating"), eq(domainId), eq(List.of("C")), eq(List.of(sourceGatingRunId)), eq(List.of(sourceGatingBatchId))))
+        when(memoryRepository.findMemoryTopN(anyString(), anyInt(), eq("full_gating"), eq(domainId), eq(List.of("C")), eq(List.of(sourceGatingRunId)), eq(List.of(sourceGatingBatchId))))
                 .thenReturn(memories);
         when(chatAnswerService.generateAnswer(anyString(), anyString(), anyString(), anyList()))
                 .thenReturn(generatedAnswer("router agentic answer"));
         stubRewriteLog(UUID.fromString("77777777-7777-7777-7777-777777777781"));
 
-        RagDtos.AskResponse response = ragService.ask(request(query));
+        ChatDtos.AskResponse response = ragService.ask(request(query));
 
         assertThat(response.answer()).isEqualTo("router agentic answer");
         assertThat(response.agenticMetadata()).isNotNull();
-        assertThat(response.agenticMetadata().mergedDocs()).extracting(RagDtos.ScoredDocumentDto::chunkId)
+        assertThat(response.agenticMetadata().mergedDocs()).extracting(RetrievalDtos.ScoredDocumentDto::chunkId)
                 .containsExactly("agentic-router-chunk");
 
         ArgumentCaptor<AgenticRetrievalService.AgenticExecutionRequest> requestCaptor =
@@ -859,17 +875,17 @@ class RagServiceTest {
         assertThat(router.path("metadata").path("agenticMultiQueryEnabled").asBoolean()).isTrue();
         assertThat(router.path("metadata").path("agenticSubquery").asBoolean()).isFalse();
 
-        verify(repository, never()).findTopChunksByEmbedding(anyString(), anyInt(), any());
+        verify(chunkRepository, never()).findTopChunksByEmbedding(anyString(), anyInt(), any());
         verify(rewriteCandidateService, never()).buildCandidates(anyString(), any(), anyList(), anyInt(), anyString(), anyBoolean(), any());
         verify(ragTracePersistenceService, never()).persistOnlineQueryDecision(any());
         verify(ragTracePersistenceService, never()).mergeOnlineQueryMetadata(any());
     }
 
-    private ChatRuntimeDtos.ChatRuntimeConfigResponse config(String mode, boolean routerEnabled, boolean anchorInjectionEnabled) {
+    private ChatConfigDtos.ChatRuntimeConfigResponse config(String mode, boolean routerEnabled, boolean anchorInjectionEnabled) {
         return config(mode, routerEnabled, anchorInjectionEnabled, false);
     }
 
-    private ChatRuntimeDtos.ChatRuntimeConfigResponse config(String mode, boolean routerEnabled, boolean anchorInjectionEnabled, boolean agenticEnabled) {
+    private ChatConfigDtos.ChatRuntimeConfigResponse config(String mode, boolean routerEnabled, boolean anchorInjectionEnabled, boolean agenticEnabled) {
         ObjectNode metadata = objectMapper.createObjectNode();
         if (routerEnabled) {
             metadata.put("routerEnabled", true);
@@ -879,7 +895,7 @@ class RagServiceTest {
             metadata.put("maxSubqueries", 3);
             metadata.put("rrfK", 60);
         }
-        return new ChatRuntimeDtos.ChatRuntimeConfigResponse(
+        return new ChatConfigDtos.ChatRuntimeConfigResponse(
                 domainId,
                 "spring",
                 "Spring",
@@ -916,8 +932,8 @@ class RagServiceTest {
         );
     }
 
-    private ChatRuntimeDtos.ChatDomainReadinessResponse readiness(boolean ready, String... reasons) {
-        return new ChatRuntimeDtos.ChatDomainReadinessResponse(
+    private ChatReadinessDtos.ChatDomainReadinessResponse readiness(boolean ready, String... reasons) {
+        return new ChatReadinessDtos.ChatDomainReadinessResponse(
                 domainId,
                 "spring",
                 "Spring",
@@ -1037,7 +1053,7 @@ class RagServiceTest {
             UUID onlineQueryId,
             UUID rewriteLogId,
             RagRetrievalExecutionService.NonAgenticExecutionKind executionKind,
-            RagRepository.MemoryCandidate memoryCandidate
+            MemoryCandidate memoryCandidate
     ) {
         ArgumentCaptor<RagTracePersistenceService.MemoryRetrievalLogPersistenceRequest> memoryCaptor =
                 ArgumentCaptor.forClass(RagTracePersistenceService.MemoryRetrievalLogPersistenceRequest.class);
@@ -1124,17 +1140,17 @@ class RagServiceTest {
         return request.metadata();
     }
 
-    private void stubCommonAskDependencies(ChatRuntimeDtos.ChatRuntimeConfigResponse config, UUID onlineQueryId) {
+    private void stubCommonAskDependencies(ChatConfigDtos.ChatRuntimeConfigResponse config, UUID onlineQueryId) {
         when(chatRuntimeConfigService.getConfig(domainId)).thenReturn(config);
-        when(chatRuntimeConfigService.getReadiness(domainId)).thenReturn(readiness(true));
-        when(repository.createOnlineQuery(eq(domainId), any(), anyString(), any(), anyString(), anyDouble(), any()))
+        when(chatReadinessService.getReadiness(domainId)).thenReturn(readiness(true));
+        when(traceRepository.createOnlineQuery(eq(domainId), any(), anyString(), any(), anyString(), anyDouble(), any()))
                 .thenReturn(onlineQueryId);
         when(embeddingService.embed(anyString())).thenReturn(List.of(1.0d, 0.0d));
         when(embeddingService.toHalfvecLiteral(anyList())).thenReturn("[1.000000,0.000000]");
     }
 
     private void stubRewriteLog(UUID rewriteLogId) {
-        when(repository.createOnlineRewriteLog(
+        when(traceRepository.createOnlineRewriteLog(
                 any(),
                 any(),
                 anyString(),
@@ -1156,8 +1172,8 @@ class RagServiceTest {
         )).thenReturn(rewriteLogId);
     }
 
-    private RagDtos.AskRequest request(String query) {
-        return new RagDtos.AskRequest(
+    private ChatDtos.AskRequest request(String query) {
+        return new ChatDtos.AskRequest(
                 query,
                 domainId,
                 "session-1",
@@ -1175,8 +1191,8 @@ class RagServiceTest {
         );
     }
 
-    private List<RagRepository.RetrievalDoc> docs(String documentId, String chunkId, double score) {
-        return List.of(new RagRepository.RetrievalDoc(
+    private List<RetrievalDoc> docs(String documentId, String chunkId, double score) {
+        return List.of(new RetrievalDoc(
                 documentId,
                 chunkId,
                 "Spring Security FilterChainProxy documentation",
@@ -1184,8 +1200,8 @@ class RagServiceTest {
         ));
     }
 
-    private List<RagRepository.MemoryCandidate> memories() {
-        return List.of(new RagRepository.MemoryCandidate(
+    private List<MemoryCandidate> memories() {
+        return List.of(new MemoryCandidate(
                 UUID.fromString("88888888-8888-8888-8888-888888888888"),
                 "FilterChainProxy SecurityFilterChain order",
                 "memory-doc",

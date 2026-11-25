@@ -4,29 +4,29 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import io.queryforge.backend.rag.chat.RagDtos;
-import io.queryforge.backend.rag.embedding.DenseEmbeddingService;
-import io.queryforge.backend.rag.embedding.HashEmbeddingService;
-import io.queryforge.backend.rag.persistence.RagRepository;
 import io.queryforge.backend.rag.retrieval.CohereRerankService;
+import io.queryforge.backend.rag.retrieval.DomainScopedRetrievalService;
+import io.queryforge.backend.rag.retrieval.DomainScopedRetrievalService.RetrievalRuntime;
 import io.queryforge.backend.rag.retrieval.RagPersistPolicy;
+import io.queryforge.backend.rag.retrieval.RetrievalDoc;
+import io.queryforge.backend.rag.retrieval.RetrievalDtos;
+import io.queryforge.backend.rag.retrieval.memory.MemoryCandidate;
 import io.queryforge.backend.rag.retrieval.rewrite.RewriteCandidateService;
+import io.queryforge.backend.rag.retrieval.rewrite.RewriteDtos;
 import io.queryforge.backend.rag.retrieval.routing.QueryRouteContext;
 import io.queryforge.backend.rag.retrieval.routing.QueryRouteDecision;
 import io.queryforge.backend.rag.retrieval.routing.QueryStrategy;
 import io.queryforge.backend.rag.retrieval.routing.QueryStrategyRouter;
-import io.queryforge.backend.rag.runtime.ChatRuntimeDtos;
+import io.queryforge.backend.rag.runtime.ChatConfigDtos;
+import io.queryforge.backend.rag.runtime.readiness.ChatReadinessDtos;
 import io.queryforge.backend.rag.trace.RagTracePersistenceService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.LinkedHashMap;
-import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
-import java.util.Map;
 import java.util.UUID;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -37,11 +37,8 @@ public class AgenticRetrievalService {
 
     private static final Pattern SEARCH_TOKEN_PATTERN = Pattern.compile("[@A-Za-z0-9_./:$-]{2,}|\\p{InHangulSyllables}{2,}");
     private static final Pattern TECHNICAL_TOKEN_PATTERN = Pattern.compile("[@A-Za-z_][A-Za-z0-9_./:$-]{1,}");
-
-    private final RagRepository repository;
+    private final DomainScopedRetrievalService domainScopedRetrievalService;
     private final RagTracePersistenceService ragTracePersistenceService;
-    private final HashEmbeddingService embeddingService;
-    private final DenseEmbeddingService denseEmbeddingService;
     private final CohereRerankService cohereRerankService;
     private final RewriteCandidateService rewriteCandidateService;
     private final QueryStrategyRouter queryStrategyRouter;
@@ -51,9 +48,9 @@ public class AgenticRetrievalService {
 
     public AgenticExecutionResult execute(AgenticExecutionRequest request) {
         long started = System.nanoTime();
-        RetrievalRuntime retrievalRuntime = retrievalRuntime(request.config());
+        RetrievalRuntime retrievalRuntime = domainScopedRetrievalService.retrievalRuntime(request.config());
         long planningStarted = System.nanoTime();
-        RagDtos.AgenticQueryPlan plan = plannerService.plan(
+        AgenticRetrievalDtos.AgenticQueryPlan plan = plannerService.plan(
                 request.rawQuery(),
                 request.config(),
                 domainContext(request.config()),
@@ -63,16 +60,16 @@ public class AgenticRetrievalService {
         long planningLatency = elapsedMs(planningStarted);
 
         List<SubqueryExecution> executions = new ArrayList<>();
-        List<List<RagRepository.RetrievalDoc>> resultSets = new ArrayList<>();
+        List<List<RetrievalDoc>> resultSets = new ArrayList<>();
         List<PersistedRewriteCandidate> persistedCandidates = new ArrayList<>();
-        for (RagDtos.AgenticSubquery subquery : plan.subqueries()) {
+        for (AgenticRetrievalDtos.AgenticSubquery subquery : plan.subqueries()) {
             SubqueryExecution execution = executeSubquery(request, subquery, retrievalRuntime);
             executions.add(execution);
             resultSets.add(execution.decision().finalRetrieved());
             persistedCandidates.addAll(execution.persistedCandidates());
         }
 
-        List<RagRepository.RetrievalDoc> mergedDocs = searchResultMerger.mergeRrf(
+        List<RetrievalDoc> mergedDocs = searchResultMerger.mergeRrf(
                 resultSets,
                 request.finalTopK(),
                 request.rrfK()
@@ -99,7 +96,7 @@ public class AgenticRetrievalService {
 
     private SubqueryExecution executeSubquery(
             AgenticExecutionRequest request,
-            RagDtos.AgenticSubquery subquery,
+            AgenticRetrievalDtos.AgenticSubquery subquery,
             RetrievalRuntime retrievalRuntime
     ) {
         long started = System.nanoTime();
@@ -121,10 +118,10 @@ public class AgenticRetrievalService {
         routeDecision = routeDecision.withLatency(routeLatency);
         boolean rawOnlyRoute = routeDecision.routerEnabled() && routeDecision.strategy() == QueryStrategy.RAW_ONLY;
 
-        String queryEmbedding = embeddingLiteral(query, retrievalRuntime);
-        List<RagRepository.MemoryCandidate> memories = rawOnlyRoute
+        String queryEmbedding = domainScopedRetrievalService.embeddingLiteral(query, retrievalRuntime);
+        List<MemoryCandidate> memories = rawOnlyRoute
                 ? List.of()
-                : findMemoryCandidates(
+                : domainScopedRetrievalService.findMemoryCandidates(
                 query,
                 queryEmbedding,
                 request.memoryTopN(),
@@ -137,7 +134,7 @@ public class AgenticRetrievalService {
         );
 
         long retrievalStarted = System.nanoTime();
-        List<RagRepository.RetrievalDoc> rawRetrievedLocal = retrieveChunks(
+        List<RetrievalDoc> rawRetrievedLocal = domainScopedRetrievalService.retrieveChunks(
                 query,
                 queryEmbedding,
                 request.retrievalTopK(),
@@ -156,7 +153,7 @@ public class AgenticRetrievalService {
                 "raw",
                 RagTracePersistenceService.AgenticSubqueryRetrievalTraceWriteScope.SUBQUERY_RAW_RETRIEVAL
         );
-        List<RagRepository.RetrievalDoc> rawRetrieved = cohereRerankService.rerank(
+        List<RetrievalDoc> rawRetrieved = cohereRerankService.rerank(
                 query,
                 rawRetrievedLocal,
                 request.rerankTopN()
@@ -196,9 +193,9 @@ public class AgenticRetrievalService {
             );
             for (int index = 0; index < templates.size(); index++) {
                 RewriteCandidateService.CandidateTemplate template = templates.get(index);
-                String candidateEmbedding = embeddingLiteral(template.query(), retrievalRuntime);
+                String candidateEmbedding = domainScopedRetrievalService.embeddingLiteral(template.query(), retrievalRuntime);
                 retrievalStarted = System.nanoTime();
-                List<RagRepository.RetrievalDoc> candidateRetrievedLocal = retrieveChunks(
+                List<RetrievalDoc> candidateRetrievedLocal = domainScopedRetrievalService.retrieveChunks(
                         template.query(),
                         candidateEmbedding,
                         request.retrievalTopK(),
@@ -206,7 +203,7 @@ public class AgenticRetrievalService {
                         retrievalRuntime
                 );
                 long candidateRetrievalLatency = elapsedMs(retrievalStarted);
-                List<RagRepository.RetrievalDoc> candidateRetrieved = cohereRerankService.rerank(
+                List<RetrievalDoc> candidateRetrieved = cohereRerankService.rerank(
                         template.query(),
                         candidateRetrievedLocal,
                         request.rerankTopN()
@@ -294,7 +291,7 @@ public class AgenticRetrievalService {
             ));
         }
 
-        RagDtos.SubqueryRetrievalTrace trace = new RagDtos.SubqueryRetrievalTrace(
+        AgenticRetrievalDtos.SubqueryRetrievalTrace trace = new AgenticRetrievalDtos.SubqueryRetrievalTrace(
                 subquery.index(),
                 query,
                 decision.finalQuery(),
@@ -313,11 +310,11 @@ public class AgenticRetrievalService {
 
     private void persistSubqueryRetrievalTrace(
             AgenticExecutionRequest request,
-            RagDtos.AgenticSubquery subquery,
+            AgenticRetrievalDtos.AgenticSubquery subquery,
             String subqueryText,
             RetrievalRuntime retrievalRuntime,
             UUID rewriteCandidateId,
-            List<RagRepository.RetrievalDoc> retrievedDocs,
+            List<RetrievalDoc> retrievedDocs,
             long latencyMs,
             String phase,
             RagTracePersistenceService.AgenticSubqueryRetrievalTraceWriteScope writeScope
@@ -344,8 +341,8 @@ public class AgenticRetrievalService {
             String mode,
             String rawQuery,
             double rawConfidence,
-            List<RagRepository.RetrievalDoc> rawRetrieved,
-            List<RagRepository.MemoryCandidate> memoryCandidates,
+            List<RetrievalDoc> rawRetrieved,
+            List<MemoryCandidate> memoryCandidates,
             List<GeneratedCandidate> candidates,
             double threshold,
             UUID domainId,
@@ -359,15 +356,15 @@ public class AgenticRetrievalService {
                 return new Decision(rawQuery, false, rawRetrieved, null, null, "memory_empty", "no memory candidate");
             }
             String memoryQuery = memoryCandidates.getFirst().queryText();
-            String embedding = embeddingLiteral(memoryQuery, retrievalRuntime);
-            List<RagRepository.RetrievalDoc> retrievedLocal = retrieveChunks(
+            String embedding = domainScopedRetrievalService.embeddingLiteral(memoryQuery, retrievalRuntime);
+            List<RetrievalDoc> retrievedLocal = domainScopedRetrievalService.retrieveChunks(
                     memoryQuery,
                     embedding,
                     Math.max(20, rawRetrieved.size()),
                     domainId,
                     retrievalRuntime
             );
-            List<RagRepository.RetrievalDoc> retrieved = cohereRerankService.rerank(
+            List<RetrievalDoc> retrieved = cohereRerankService.rerank(
                     memoryQuery,
                     retrievedLocal,
                     rawRetrieved.size()
@@ -409,7 +406,7 @@ public class AgenticRetrievalService {
 
     private Decision routerRawOnlyDecision(
             String rawQuery,
-            List<RagRepository.RetrievalDoc> rawRetrieved,
+            List<RetrievalDoc> rawRetrieved,
             QueryRouteDecision routeDecision
     ) {
         String rejectedReason = routeDecision.fallbackApplied()
@@ -418,7 +415,7 @@ public class AgenticRetrievalService {
         return new Decision(rawQuery, false, rawRetrieved, null, null, routeDecision.reason(), rejectedReason);
     }
 
-    private String subqueryLabel(RagDtos.AgenticSubquery subquery, String label) {
+    private String subqueryLabel(AgenticRetrievalDtos.AgenticSubquery subquery, String label) {
         String suffix = label == null || label.isBlank() ? "candidate" : label.trim();
         return "subquery_" + subquery.index() + "_" + suffix;
     }
@@ -435,7 +432,7 @@ public class AgenticRetrievalService {
                 && decision.selectedCandidateKey().equals(candidate.candidateKey());
     }
 
-    private ObjectNode agenticCandidateMetadata(RagDtos.AgenticSubquery subquery, String templateLabel) {
+    private ObjectNode agenticCandidateMetadata(AgenticRetrievalDtos.AgenticSubquery subquery, String templateLabel) {
         ObjectNode node = objectMapper.createObjectNode();
         node.put("agentic_multi_query", true);
         node.put("subquery_index", subquery.index());
@@ -445,250 +442,9 @@ public class AgenticRetrievalService {
         return node;
     }
 
-    private RetrievalRuntime retrievalRuntime(ChatRuntimeDtos.ChatRuntimeConfigResponse config) {
-        String backend = config.retrievalBackend() == null || config.retrievalBackend().isBlank()
-                ? "local"
-                : config.retrievalBackend().trim().toLowerCase(Locale.ROOT).replace("-", "_");
-        String mode = config.retrieverMode() == null || config.retrieverMode().isBlank()
-                ? "hybrid"
-                : config.retrieverMode().trim().toLowerCase(Locale.ROOT).replace("-", "_");
-        String denseModel = config.denseEmbeddingModel() == null || config.denseEmbeddingModel().isBlank()
-                ? "intfloat/multilingual-e5-small"
-                : config.denseEmbeddingModel().trim();
-        int candidatePoolK = Math.max(1, config.retrieverCandidatePoolK());
-        double denseWeight = clampWeight(config.retrieverDenseWeight());
-        double bm25Weight = clampWeight(config.retrieverBm25Weight());
-        double technicalWeight = clampWeight(config.retrieverTechnicalWeight());
-        if ("bm25_only".equals(mode)) {
-            denseWeight = 0.0d;
-            bm25Weight = 1.0d;
-            technicalWeight = 0.0d;
-        } else if ("dense_only".equals(mode)) {
-            denseWeight = 1.0d;
-            bm25Weight = 0.0d;
-            technicalWeight = 0.0d;
-        } else {
-            double sum = denseWeight + bm25Weight + technicalWeight;
-            if (sum <= 0.0d) {
-                denseWeight = 0.60d;
-                bm25Weight = 0.32d;
-                technicalWeight = 0.08d;
-                sum = denseWeight + bm25Weight + technicalWeight;
-            }
-            denseWeight = denseWeight / sum;
-            bm25Weight = bm25Weight / sum;
-            technicalWeight = technicalWeight / sum;
-        }
-        return new RetrievalRuntime(backend, denseModel, mode, candidatePoolK, denseWeight, bm25Weight, technicalWeight);
-    }
-
-    private String embeddingLiteral(String query, RetrievalRuntime runtime) {
-        if ("db_ann".equals(runtime.retrievalBackend())) {
-            return embeddingService.toHalfvecLiteral(denseEmbeddingService.embedQuery(
-                    query,
-                    runtime.retrieverMode(),
-                    runtime.denseEmbeddingModel()
-            ));
-        }
-        return embeddingService.toHalfvecLiteral(embeddingService.embed(query));
-    }
-
-    private List<RagRepository.RetrievalDoc> retrieveChunks(
-            String query,
-            String queryEmbeddingLiteral,
-            int topK,
-            UUID domainId,
-            RetrievalRuntime runtime
-    ) {
-        int poolSize = Math.max(topK, runtime.candidatePoolK());
-        List<RagRepository.RetrievalDoc> candidates = new ArrayList<>();
-        List<String> patterns = searchPatterns(query);
-        if ("db_ann".equals(runtime.retrievalBackend())) {
-            if (!"bm25_only".equals(runtime.retrieverMode())) {
-                candidates.addAll(repository.findDbAnnChunkDensePool(
-                        queryEmbeddingLiteral,
-                        runtime.denseEmbeddingModel(),
-                        poolSize,
-                        domainId
-                ));
-            }
-            if (!"dense_only".equals(runtime.retrieverMode())) {
-                candidates.addAll(repository.findDbAnnChunkTextPool(
-                        queryEmbeddingLiteral,
-                        runtime.denseEmbeddingModel(),
-                        patterns,
-                        poolSize,
-                        domainId
-                ));
-            }
-        } else {
-            if (!"bm25_only".equals(runtime.retrieverMode())) {
-                candidates.addAll(repository.findTopChunksByEmbedding(queryEmbeddingLiteral, poolSize, domainId));
-            }
-            if (!"dense_only".equals(runtime.retrieverMode())) {
-                candidates.addAll(repository.findChunkTextPool(patterns, poolSize, domainId));
-            }
-        }
-        if (candidates.isEmpty()) {
-            return List.of();
-        }
-        return rankDocs(query, mergeDocs(candidates), topK, runtime);
-    }
-
-    private List<RagRepository.MemoryCandidate> findMemoryCandidates(
-            String query,
-            String queryEmbeddingLiteral,
-            int topN,
-            String gatingPreset,
-            UUID domainId,
-            List<String> generationStrategies,
-            List<UUID> sourceGatingRunIds,
-            List<UUID> sourceGatingBatchIds,
-            RetrievalRuntime runtime
-    ) {
-        if (!"db_ann".equals(runtime.retrievalBackend())) {
-            return repository.findMemoryTopN(
-                    queryEmbeddingLiteral,
-                    topN,
-                    gatingPreset,
-                    domainId,
-                    generationStrategies,
-                    sourceGatingRunIds,
-                    sourceGatingBatchIds
-            );
-        }
-        int poolSize = Math.max(topN, runtime.candidatePoolK());
-        List<RagRepository.MemoryCandidate> candidates = new ArrayList<>();
-        if (!"bm25_only".equals(runtime.retrieverMode())) {
-            candidates.addAll(repository.findMemoryDensePool(
-                    queryEmbeddingLiteral,
-                    runtime.denseEmbeddingModel(),
-                    poolSize,
-                    gatingPreset,
-                    domainId,
-                    generationStrategies,
-                    sourceGatingRunIds,
-                    sourceGatingBatchIds
-            ));
-        }
-        if (!"dense_only".equals(runtime.retrieverMode())) {
-            candidates.addAll(repository.findMemoryTextPool(
-                    queryEmbeddingLiteral,
-                    runtime.denseEmbeddingModel(),
-                    searchPatterns(query),
-                    poolSize,
-                    gatingPreset,
-                    domainId,
-                    generationStrategies,
-                    sourceGatingRunIds,
-                    sourceGatingBatchIds
-            ));
-        }
-        return rankMemories(query, mergeMemories(candidates), topN, runtime);
-    }
-
-    private List<RagRepository.RetrievalDoc> mergeDocs(List<RagRepository.RetrievalDoc> docs) {
-        Map<String, RagRepository.RetrievalDoc> merged = new LinkedHashMap<>();
-        for (RagRepository.RetrievalDoc doc : docs) {
-            RagRepository.RetrievalDoc current = merged.get(doc.chunkId());
-            if (current == null || doc.score() > current.score()) {
-                merged.put(doc.chunkId(), doc);
-            }
-        }
-        return new ArrayList<>(merged.values());
-    }
-
-    private List<RagRepository.MemoryCandidate> mergeMemories(List<RagRepository.MemoryCandidate> memories) {
-        Map<UUID, RagRepository.MemoryCandidate> merged = new LinkedHashMap<>();
-        for (RagRepository.MemoryCandidate memory : memories) {
-            RagRepository.MemoryCandidate current = merged.get(memory.memoryId());
-            if (current == null || memory.similarity() > current.similarity()) {
-                merged.put(memory.memoryId(), memory);
-            }
-        }
-        return new ArrayList<>(merged.values());
-    }
-
-    private List<RagRepository.RetrievalDoc> rankDocs(
-            String query,
-            List<RagRepository.RetrievalDoc> candidates,
-            int topK,
-            RetrievalRuntime runtime
-    ) {
-        return candidates.stream()
-                .map(doc -> new RagRepository.RetrievalDoc(
-                        doc.documentId(),
-                        doc.chunkId(),
-                        doc.chunkText(),
-                        fusedScore(query, doc.chunkText(), doc.score(), runtime)
-                ))
-                .sorted(Comparator
-                        .comparingDouble(RagRepository.RetrievalDoc::score)
-                        .reversed()
-                        .thenComparing(RagRepository.RetrievalDoc::chunkId))
-                .limit(Math.max(1, topK))
-                .toList();
-    }
-
-    private List<RagRepository.MemoryCandidate> rankMemories(
-            String query,
-            List<RagRepository.MemoryCandidate> candidates,
-            int topN,
-            RetrievalRuntime runtime
-    ) {
-        return candidates.stream()
-                .map(candidate -> withSimilarity(
-                        candidate,
-                        fusedScore(query, memoryLexicalText(candidate), candidate.similarity(), runtime)
-                ))
-                .sorted(Comparator
-                        .comparingDouble(RagRepository.MemoryCandidate::similarity)
-                        .reversed()
-                        .thenComparing(memory -> memory.memoryId().toString()))
-                .limit(Math.max(1, topN))
-                .toList();
-    }
-
-    private double fusedScore(String query, String text, double denseScore, RetrievalRuntime runtime) {
-        double dense = normalizeScore(denseScore);
-        double lexical = lexicalOverlap(query, text);
-        double technical = technicalOverlap(query, text);
-        double combined = (runtime.denseWeight() * dense)
-                + (runtime.bm25Weight() * lexical)
-                + (runtime.technicalWeight() * technical);
-        return Math.max(-1.0d, Math.min(1.0d, (combined * 2.0d) - 1.0d));
-    }
-
-    private RagRepository.MemoryCandidate withSimilarity(RagRepository.MemoryCandidate source, double similarity) {
-        return new RagRepository.MemoryCandidate(
-                source.memoryId(),
-                source.queryText(),
-                source.targetDocId(),
-                source.targetChunkIds(),
-                source.glossaryTerms(),
-                source.metadata(),
-                similarity,
-                source.generationStrategy(),
-                source.generationBatchId(),
-                source.domainId(),
-                source.sourceGatedQueryId(),
-                source.sourceGateRunId(),
-                source.sourceGatingBatchId()
-        );
-    }
-
-    private String memoryLexicalText(RagRepository.MemoryCandidate candidate) {
-        return String.join(
-                " ",
-                candidate.queryText() == null ? "" : candidate.queryText(),
-                candidate.glossaryTerms() == null ? "" : candidate.glossaryTerms().toString(),
-                candidate.metadata() == null ? "" : candidate.metadata().toString()
-        );
-    }
-
     private ObjectNode retrievalMetadata(
             RetrievalRuntime runtime,
-            RagDtos.AgenticSubquery subquery,
+            AgenticRetrievalDtos.AgenticSubquery subquery,
             String phase
     ) {
         ObjectNode node = objectMapper.createObjectNode();
@@ -733,8 +489,8 @@ public class AgenticRetrievalService {
 
     private QueryRouteContext routeContext(
             String rawQuery,
-            ChatRuntimeDtos.ChatRuntimeConfigResponse config,
-            ChatRuntimeDtos.ChatDomainReadinessResponse readiness,
+            ChatConfigDtos.ChatRuntimeConfigResponse config,
+            ChatReadinessDtos.ChatDomainReadinessResponse readiness,
             String mode,
             String rewriteQueryProfile,
             boolean anchorInjectionEnabled,
@@ -762,7 +518,7 @@ public class AgenticRetrievalService {
         );
     }
 
-    private ObjectNode domainContext(ChatRuntimeDtos.ChatRuntimeConfigResponse config) {
+    private ObjectNode domainContext(ChatConfigDtos.ChatRuntimeConfigResponse config) {
         ObjectNode node = objectMapper.createObjectNode();
         node.put("current_technical_domain", config.displayName());
         node.put("domain_key", config.domainKey());
@@ -775,7 +531,7 @@ public class AgenticRetrievalService {
         return node;
     }
 
-    private JsonNode scoreBreakdown(List<RagRepository.RetrievalDoc> retrieved, List<RagRepository.MemoryCandidate> memories) {
+    private JsonNode scoreBreakdown(List<RetrievalDoc> retrieved, List<MemoryCandidate> memories) {
         ObjectNode node = objectMapper.createObjectNode();
         double dense = memories.isEmpty() ? 0.0d : memories.getFirst().similarity();
         node.put("r1", retrieved.isEmpty() ? 0.0d : normalizeScore(retrieved.getFirst().score()));
@@ -789,17 +545,17 @@ public class AgenticRetrievalService {
         return node;
     }
 
-    private JsonNode memorySourceIds(List<RagRepository.MemoryCandidate> memories) {
+    private JsonNode memorySourceIds(List<MemoryCandidate> memories) {
         ArrayNode array = objectMapper.createArrayNode();
-        for (RagRepository.MemoryCandidate memory : memories) {
+        for (MemoryCandidate memory : memories) {
             array.add(memory.memoryId().toString());
         }
         return array;
     }
 
-    private List<RagDtos.RewriteCandidateDto> toRewriteDtos(List<GeneratedCandidate> candidates, Decision decision) {
+    private List<RewriteDtos.RewriteCandidateDto> toRewriteDtos(List<GeneratedCandidate> candidates, Decision decision) {
         return candidates.stream()
-                .map(candidate -> new RagDtos.RewriteCandidateDto(
+                .map(candidate -> new RewriteDtos.RewriteCandidateDto(
                         candidate.rewriteCandidateId(),
                         candidate.label(),
                         candidate.query(),
@@ -814,9 +570,9 @@ public class AgenticRetrievalService {
                 .toList();
     }
 
-    private List<RagDtos.ScoredDocumentDto> toScoredDocs(List<RagRepository.RetrievalDoc> docs) {
+    private List<RetrievalDtos.ScoredDocumentDto> toScoredDocs(List<RetrievalDoc> docs) {
         return docs.stream()
-                .map(doc -> new RagDtos.ScoredDocumentDto(
+                .map(doc -> new RetrievalDtos.ScoredDocumentDto(
                         doc.documentId(),
                         doc.chunkId(),
                         preview(doc.chunkText()),
@@ -825,7 +581,7 @@ public class AgenticRetrievalService {
                 .toList();
     }
 
-    private double confidence(List<RagRepository.RetrievalDoc> docs, double denseScore) {
+    private double confidence(List<RetrievalDoc> docs, double denseScore) {
         if (docs.isEmpty()) {
             return 0.0d;
         }
@@ -838,59 +594,6 @@ public class AgenticRetrievalService {
         r3 /= topN;
         double dense = normalizeScore(denseScore);
         return (0.6d * r1) + (0.3d * r3) + (0.1d * dense);
-    }
-
-    private List<String> searchPatterns(String query) {
-        LinkedHashSet<String> tokens = new LinkedHashSet<>();
-        Matcher matcher = SEARCH_TOKEN_PATTERN.matcher(query == null ? "" : query);
-        while (matcher.find() && tokens.size() < 16) {
-            String value = matcher.group().trim().toLowerCase(Locale.ROOT);
-            if (value.length() >= 2) {
-                tokens.add(value);
-            }
-        }
-        return List.copyOf(tokens);
-    }
-
-    private double lexicalOverlap(String query, String text) {
-        List<String> tokens = searchPatterns(query);
-        if (tokens.isEmpty() || text == null || text.isBlank()) {
-            return 0.0d;
-        }
-        String normalizedText = text.toLowerCase(Locale.ROOT);
-        int hits = 0;
-        for (String token : tokens) {
-            if (normalizedText.contains(token)) {
-                hits++;
-            }
-        }
-        return (double) hits / tokens.size();
-    }
-
-    private double technicalOverlap(String query, String text) {
-        if (query == null || query.isBlank() || text == null || text.isBlank()) {
-            return 0.0d;
-        }
-        LinkedHashSet<String> tokens = new LinkedHashSet<>();
-        Matcher matcher = TECHNICAL_TOKEN_PATTERN.matcher(query);
-        while (matcher.find() && tokens.size() < 12) {
-            tokens.add(matcher.group().toLowerCase(Locale.ROOT));
-        }
-        if (tokens.isEmpty()) {
-            return 0.0d;
-        }
-        String normalizedText = text.toLowerCase(Locale.ROOT);
-        int hits = 0;
-        for (String token : tokens) {
-            if (normalizedText.contains(token)) {
-                hits++;
-            }
-        }
-        return (double) hits / tokens.size();
-    }
-
-    private double clampWeight(double value) {
-        return Math.max(0.0d, Math.min(1.0d, value));
     }
 
     private double normalizeScore(double score) {
@@ -959,10 +662,10 @@ public class AgenticRetrievalService {
     public record AgenticExecutionRequest(
             String rawQuery,
             UUID onlineQueryId,
-            ChatRuntimeDtos.ChatRuntimeConfigResponse config,
-            ChatRuntimeDtos.ChatDomainReadinessResponse readiness,
+            ChatConfigDtos.ChatRuntimeConfigResponse config,
+            ChatReadinessDtos.ChatDomainReadinessResponse readiness,
             JsonNode sessionContext,
-            List<RagRepository.MemoryCandidate> plannerMemoryHints,
+            List<MemoryCandidate> plannerMemoryHints,
             String mode,
             String rewriteQueryProfile,
             String memoryPreset,
@@ -983,10 +686,10 @@ public class AgenticRetrievalService {
         public AgenticExecutionRequest(
                 String rawQuery,
                 UUID onlineQueryId,
-                ChatRuntimeDtos.ChatRuntimeConfigResponse config,
-                ChatRuntimeDtos.ChatDomainReadinessResponse readiness,
+                ChatConfigDtos.ChatRuntimeConfigResponse config,
+                ChatReadinessDtos.ChatDomainReadinessResponse readiness,
                 JsonNode sessionContext,
-                List<RagRepository.MemoryCandidate> plannerMemoryHints,
+                List<MemoryCandidate> plannerMemoryHints,
                 String mode,
                 String rewriteQueryProfile,
                 String memoryPreset,
@@ -1023,10 +726,10 @@ public class AgenticRetrievalService {
     }
 
     public record AgenticExecutionResult(
-            RagDtos.AgenticQueryPlan plan,
-            List<RagDtos.SubqueryRetrievalTrace> traces,
+            AgenticRetrievalDtos.AgenticQueryPlan plan,
+            List<AgenticRetrievalDtos.SubqueryRetrievalTrace> traces,
             List<PersistedRewriteCandidate> persistedCandidates,
-            List<RagRepository.RetrievalDoc> mergedDocs,
+            List<RetrievalDoc> mergedDocs,
             boolean rewriteApplied,
             String selectedReason,
             String rejectedReason,
@@ -1040,7 +743,7 @@ public class AgenticRetrievalService {
             UUID rewriteCandidateId,
             String label,
             String query,
-            List<RagRepository.RetrievalDoc> retrieved,
+            List<RetrievalDoc> retrieved,
             double confidence,
             boolean selected,
             String rejectedReason,
@@ -1049,7 +752,7 @@ public class AgenticRetrievalService {
     }
 
     private record SubqueryExecution(
-            RagDtos.SubqueryRetrievalTrace trace,
+            AgenticRetrievalDtos.SubqueryRetrievalTrace trace,
             Decision decision,
             List<PersistedRewriteCandidate> persistedCandidates
     ) {
@@ -1060,7 +763,7 @@ public class AgenticRetrievalService {
             int candidateRank,
             String label,
             String query,
-            List<RagRepository.RetrievalDoc> retrieved,
+            List<RetrievalDoc> retrieved,
             double confidence,
             UUID rewriteCandidateId,
             JsonNode scoreBreakdown
@@ -1070,28 +773,11 @@ public class AgenticRetrievalService {
     private record Decision(
             String finalQuery,
             boolean rewriteApplied,
-            List<RagRepository.RetrievalDoc> finalRetrieved,
+            List<RetrievalDoc> finalRetrieved,
             UUID selectedCandidateId,
             String selectedCandidateKey,
             String selectedReason,
             String rejectedReason
     ) {
-    }
-
-    private record RetrievalRuntime(
-            String retrievalBackend,
-            String denseEmbeddingModel,
-            String retrieverMode,
-            int candidatePoolK,
-            double denseWeight,
-            double bm25Weight,
-            double technicalWeight
-    ) {
-        String retrieverName() {
-            if ("db_ann".equals(retrievalBackend)) {
-                return "db-ann:" + retrieverMode + ":" + denseEmbeddingModel;
-            }
-            return "local:" + retrieverMode + ":hash-embedding-v1";
-        }
     }
 }
