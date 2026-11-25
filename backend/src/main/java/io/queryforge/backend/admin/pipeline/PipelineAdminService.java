@@ -2,8 +2,10 @@ package io.queryforge.backend.admin.pipeline;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import io.queryforge.backend.admin.corpus.CorpusAdminDtos;
-import io.queryforge.backend.admin.corpus.CorpusAdminService;
+import io.queryforge.backend.admin.corpus.run.CorpusRunDtos;
+import io.queryforge.backend.admin.corpus.run.CorpusRunService;
+import io.queryforge.backend.admin.corpus.source.CorpusSourceDtos;
+import io.queryforge.backend.admin.corpus.source.CorpusSourceService;
 import io.queryforge.backend.admin.pipeline.artifact.DocumentArtifactStoreService;
 import io.queryforge.backend.admin.pipeline.execution.PipelineCommandRunner;
 import io.queryforge.backend.admin.pipeline.source.SourceCatalogService;
@@ -39,8 +41,8 @@ public class PipelineAdminService {
 
     private final AdminPipelineProperties properties;
     private final DataSourceProperties dataSourceProperties;
-    private final PipelineAdminRepository repository;
-    private final CorpusAdminService corpusAdminService;
+    private final PipelineAdminRepository repository;    private final CorpusRunService runService;
+    private final CorpusSourceService sourceService;
     private final SourceCatalogService sourceCatalogService;
     private final DocumentArtifactStoreService artifactStoreService;
     private final PipelineCommandRunner commandRunner;
@@ -93,7 +95,7 @@ public class PipelineAdminService {
 
     @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public PipelineAdminDtos.PipelineRunActionResponse retryRun(UUID runId) {
-        CorpusAdminDtos.RunDetail detail = corpusAdminService.getRunDetail(runId);
+        CorpusRunDtos.RunDetail detail = runService.getRunDetail(runId);
         Map<String, Object> sourceScope = objectMapper.convertValue(
                 detail.run().sourceScope(),
                 new TypeReference<>() {
@@ -124,7 +126,7 @@ public class PipelineAdminService {
             repository.requestRunCancellation(runId);
             return new PipelineAdminDtos.PipelineRunActionResponse(
                     runId,
-                    corpusAdminService.getRunDetail(runId).run().runType(),
+                    runService.getRunDetail(runId).run().runType(),
                     "cancel_requested",
                     "실행 중인 프로세스는 없지만 취소 요청 상태를 기록했습니다."
             );
@@ -143,7 +145,7 @@ public class PipelineAdminService {
         );
     }
 
-    public List<CorpusAdminDtos.RunSummary> listRuns(
+    public List<CorpusRunDtos.RunSummary> listRuns(
             UUID runId,
             String runStatus,
             String runType,
@@ -151,19 +153,19 @@ public class PipelineAdminService {
             Integer limit,
             Integer offset
     ) {
-        return corpusAdminService.listRuns(runId, runStatus, runType, domainId, limit, offset);
+        return runService.listRuns(runId, runStatus, runType, domainId, limit, offset);
     }
 
-    public CorpusAdminDtos.RunDetail getRun(UUID runId) {
-        return corpusAdminService.getRunDetail(runId);
+    public CorpusRunDtos.RunDetail getRun(UUID runId) {
+        return runService.getRunDetail(runId);
     }
 
-    public List<CorpusAdminDtos.RunStep> getRunSteps(UUID runId) {
-        return corpusAdminService.getRunDetail(runId).steps();
+    public List<CorpusRunDtos.RunStep> getRunSteps(UUID runId) {
+        return runService.getRunDetail(runId).steps();
     }
 
     public PipelineAdminDtos.PipelineRunLogsResponse getRunLogs(UUID runId) {
-        List<PipelineAdminDtos.StepLogDto> logs = corpusAdminService.getRunDetail(runId).steps().stream()
+        List<PipelineAdminDtos.StepLogDto> logs = runService.getRunDetail(runId).steps().stream()
                 .map(this::toStepLog)
                 .toList();
         return new PipelineAdminDtos.PipelineRunLogsResponse(runId, logs);
@@ -413,8 +415,8 @@ public class PipelineAdminService {
         List<String> explicitSourceIds = normalizeValues(request.sourceIds());
         List<String> domainSourceIds = List.of();
         if (domainId != null) {
-            domainSourceIds = corpusAdminService.listSources(domainId).stream()
-                    .map(CorpusAdminDtos.SourceSummary::sourceId)
+            domainSourceIds = sourceService.listSources(domainId).stream()
+                    .map(CorpusSourceDtos.SourceSummary::sourceId)
                     .toList();
             if (!explicitSourceIds.isEmpty()) {
                 LinkedHashSet<String> domainSourceSet = new LinkedHashSet<>(domainSourceIds);
@@ -433,9 +435,9 @@ public class PipelineAdminService {
             }
         }
         if (domainId == null && explicitSourceIds.isEmpty() && ("collect".equals(runType) || "full_ingest".equals(runType))) {
-            explicitSourceIds = corpusAdminService.listSources().stream()
-                    .filter(CorpusAdminDtos.SourceSummary::enabled)
-                    .map(CorpusAdminDtos.SourceSummary::sourceId)
+            explicitSourceIds = sourceService.listSources().stream()
+                    .filter(CorpusSourceDtos.SourceSummary::enabled)
+                    .map(CorpusSourceDtos.SourceSummary::sourceId)
                     .toList();
         }
 
@@ -863,7 +865,7 @@ public class PipelineAdminService {
         }
     }
 
-    private PipelineAdminDtos.StepLogDto toStepLog(CorpusAdminDtos.RunStep step) {
+    private PipelineAdminDtos.StepLogDto toStepLog(CorpusRunDtos.RunStep step) {
         return new PipelineAdminDtos.StepLogDto(
                 step.stepId(),
                 step.stepName(),

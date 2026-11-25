@@ -1,6 +1,6 @@
 package io.queryforge.backend.admin.pipeline;
 
-import io.queryforge.backend.admin.corpus.CorpusAdminDtos;
+import io.queryforge.backend.admin.corpus.run.CorpusRunDtos;
 import lombok.RequiredArgsConstructor;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -80,7 +80,7 @@ public class PipelineAdminController {
     }
 
     @GetMapping("/runs")
-    public List<CorpusAdminDtos.RunSummary> listRuns(
+    public List<CorpusRunDtos.RunSummary> listRuns(
             @RequestParam(name = "run_id", required = false) UUID runId,
             @RequestParam(name = "run_status", required = false) String runStatus,
             @RequestParam(name = "run_type", required = false) String runType,
@@ -92,12 +92,12 @@ public class PipelineAdminController {
     }
 
     @GetMapping("/runs/{runId}")
-    public CorpusAdminDtos.RunDetail getRun(@PathVariable UUID runId) {
+    public CorpusRunDtos.RunDetail getRun(@PathVariable UUID runId) {
         return service.getRun(runId);
     }
 
     @GetMapping("/runs/{runId}/steps")
-    public List<CorpusAdminDtos.RunStep> getRunSteps(@PathVariable UUID runId) {
+    public List<CorpusRunDtos.RunStep> getRunSteps(@PathVariable UUID runId) {
         return service.getRunSteps(runId);
     }
 

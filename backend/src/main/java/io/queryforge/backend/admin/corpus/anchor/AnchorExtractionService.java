@@ -2,7 +2,6 @@ package io.queryforge.backend.admin.corpus.anchor;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import io.queryforge.backend.admin.corpus.CorpusAdminDtos;
 import io.queryforge.backend.admin.pipeline.AdminPipelineProperties;
 import io.queryforge.backend.admin.pipeline.source.SourceCatalogService;
 import lombok.RequiredArgsConstructor;
@@ -40,7 +39,7 @@ public class AnchorExtractionService {
     private final SourceCatalogService sourceCatalogService;
 
     @Transactional
-    public CorpusAdminDtos.AnchorExtractResponse extractAnchors(
+    public CorpusAnchorDtos.AnchorExtractResponse extractAnchors(
             List<String> requestedDocumentIds,
             List<String> requestedChunkIds
     ) {
@@ -65,7 +64,7 @@ public class AnchorExtractionService {
 
         TermRefreshSummary termRefreshSummary = refreshTouchedTerms(touchedTermIds);
         AnchorRemapSummary remapSummary = remapSyntheticQueryAnchors(targetChunkIds);
-        return new CorpusAdminDtos.AnchorExtractResponse(
+        return new CorpusAnchorDtos.AnchorExtractResponse(
                 targetChunkIds.size(),
                 deletedEvidenceCount,
                 insertedEvidenceCount,

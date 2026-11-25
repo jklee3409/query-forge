@@ -2,7 +2,6 @@ package io.queryforge.backend.admin.corpus.anchor;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import io.queryforge.backend.admin.corpus.CorpusAdminDtos;
 import lombok.RequiredArgsConstructor;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
@@ -44,11 +43,11 @@ public class AnchorNormalizationService {
     private final ObjectMapper objectMapper;
 
     @Transactional
-    public CorpusAdminDtos.AnchorNormalizationRunSummary createDryRun(
-            CorpusAdminDtos.AnchorNormalizationRunCreateRequest request
+    public AnchorNormalizationDtos.AnchorNormalizationRunSummary createDryRun(
+            AnchorNormalizationDtos.AnchorNormalizationRunCreateRequest request
     ) {
-        CorpusAdminDtos.AnchorNormalizationRunCreateRequest safeRequest = request == null
-                ? CorpusAdminDtos.AnchorNormalizationRunCreateRequest.builder().build()
+        AnchorNormalizationDtos.AnchorNormalizationRunCreateRequest safeRequest = request == null
+                ? AnchorNormalizationDtos.AnchorNormalizationRunCreateRequest.builder().build()
                 : request;
         Integer targetLimit = normalizeTargetLimit(safeRequest.limit());
         List<TargetAnchor> targets = findTargets(
@@ -75,7 +74,7 @@ public class AnchorNormalizationService {
         return getRun(runId);
     }
 
-    public List<CorpusAdminDtos.AnchorNormalizationRunSummary> listRuns(Integer limit, Integer offset) {
+    public List<AnchorNormalizationDtos.AnchorNormalizationRunSummary> listRuns(Integer limit, Integer offset) {
         String sql = """
                 SELECT r.run_id, r.run_name, r.status, r.summary_json::text AS summary_json, r.source_scope_json::text AS source_scope_json,
                        r.applied_update_count, r.created_by, r.reviewed_by, r.created_at, r.updated_at, r.reviewed_at, r.applied_at,
@@ -105,8 +104,8 @@ public class AnchorNormalizationService {
         );
     }
 
-    public CorpusAdminDtos.AnchorNormalizationRunDetail getRunDetail(UUID runId) {
-        return new CorpusAdminDtos.AnchorNormalizationRunDetail(
+    public AnchorNormalizationDtos.AnchorNormalizationRunDetail getRunDetail(UUID runId) {
+        return new AnchorNormalizationDtos.AnchorNormalizationRunDetail(
                 getRun(runId),
                 findCandidates(runId)
         );
@@ -130,12 +129,12 @@ public class AnchorNormalizationService {
     }
 
     @Transactional
-    public CorpusAdminDtos.AnchorNormalizationCandidateDto reviewCandidate(
+    public AnchorNormalizationDtos.AnchorNormalizationCandidateDto reviewCandidate(
             UUID runId,
             UUID candidateId,
-            CorpusAdminDtos.AnchorNormalizationCandidateReviewRequest request
+            AnchorNormalizationDtos.AnchorNormalizationCandidateReviewRequest request
     ) {
-        CorpusAdminDtos.AnchorNormalizationRunSummary run = getRun(runId);
+        AnchorNormalizationDtos.AnchorNormalizationRunSummary run = getRun(runId);
         ensurePendingReview(run, runId);
         String decision = normalizeReviewDecision(request == null ? null : request.decision());
         String reviewedBy = blankToDefault(request == null ? null : request.reviewedBy(), "admin-ui");
@@ -144,13 +143,13 @@ public class AnchorNormalizationService {
     }
 
     @Transactional
-    public CorpusAdminDtos.AnchorNormalizationRunDetail reviewCandidates(
+    public AnchorNormalizationDtos.AnchorNormalizationRunDetail reviewCandidates(
             UUID runId,
-            CorpusAdminDtos.AnchorNormalizationCandidateReviewBatchRequest request
+            AnchorNormalizationDtos.AnchorNormalizationCandidateReviewBatchRequest request
     ) {
-        CorpusAdminDtos.AnchorNormalizationRunSummary run = getRun(runId);
+        AnchorNormalizationDtos.AnchorNormalizationRunSummary run = getRun(runId);
         ensurePendingReview(run, runId);
-        List<CorpusAdminDtos.AnchorNormalizationCandidateDecision> decisions = request == null
+        List<AnchorNormalizationDtos.AnchorNormalizationCandidateDecision> decisions = request == null
                 ? List.of()
                 : request.decisions();
         if (decisions == null || decisions.isEmpty()) {
@@ -158,7 +157,7 @@ public class AnchorNormalizationService {
         }
         String reviewedBy = blankToDefault(request.reviewedBy(), "admin-ui");
         String batchNote = trimToNull(request.note());
-        for (CorpusAdminDtos.AnchorNormalizationCandidateDecision candidateDecision : decisions) {
+        for (AnchorNormalizationDtos.AnchorNormalizationCandidateDecision candidateDecision : decisions) {
             if (candidateDecision == null || candidateDecision.candidateId() == null) {
                 continue;
             }
@@ -176,16 +175,16 @@ public class AnchorNormalizationService {
     }
 
     @Transactional
-    public CorpusAdminDtos.AnchorNormalizationRunSummary approve(
+    public AnchorNormalizationDtos.AnchorNormalizationRunSummary approve(
             UUID runId,
-            CorpusAdminDtos.AnchorNormalizationReviewRequest request
+            AnchorNormalizationDtos.AnchorNormalizationReviewRequest request
     ) {
-        CorpusAdminDtos.AnchorNormalizationRunSummary run = getRun(runId);
+        AnchorNormalizationDtos.AnchorNormalizationRunSummary run = getRun(runId);
         ensurePendingReview(run, runId);
-        List<CorpusAdminDtos.AnchorNormalizationCandidateDto> candidates = findCandidates(runId);
+        List<AnchorNormalizationDtos.AnchorNormalizationCandidateDto> candidates = findCandidates(runId);
         validateCandidateReviewDecisions(runId, candidates);
         int applied = 0;
-        for (CorpusAdminDtos.AnchorNormalizationCandidateDto candidate : candidates) {
+        for (AnchorNormalizationDtos.AnchorNormalizationCandidateDto candidate : candidates) {
             if (!"would_update".equals(candidate.resolutionStatus())
                     || !REVIEW_DECISION_APPROVE.equals(candidate.reviewDecision())) {
                 continue;
@@ -204,11 +203,11 @@ public class AnchorNormalizationService {
     }
 
     @Transactional
-    public CorpusAdminDtos.AnchorNormalizationRunSummary reject(
+    public AnchorNormalizationDtos.AnchorNormalizationRunSummary reject(
             UUID runId,
-            CorpusAdminDtos.AnchorNormalizationReviewRequest request
+            AnchorNormalizationDtos.AnchorNormalizationReviewRequest request
     ) {
-        CorpusAdminDtos.AnchorNormalizationRunSummary run = getRun(runId);
+        AnchorNormalizationDtos.AnchorNormalizationRunSummary run = getRun(runId);
         ensurePendingReview(run, runId);
         String reviewedBy = blankToDefault(request == null ? null : request.reviewedBy(), "admin-ui");
         String note = trimToNull(request == null ? null : request.note());
@@ -216,7 +215,7 @@ public class AnchorNormalizationService {
         return getRun(runId);
     }
 
-    private void ensurePendingReview(CorpusAdminDtos.AnchorNormalizationRunSummary run, UUID runId) {
+    private void ensurePendingReview(AnchorNormalizationDtos.AnchorNormalizationRunSummary run, UUID runId) {
         if (!"pending_review".equals(run.status())) {
             throw new IllegalArgumentException("anchor normalization run is not pending_review: " + runId);
         }
@@ -224,11 +223,11 @@ public class AnchorNormalizationService {
 
     private void validateCandidateReviewDecisions(
             UUID runId,
-            List<CorpusAdminDtos.AnchorNormalizationCandidateDto> candidates
+            List<AnchorNormalizationDtos.AnchorNormalizationCandidateDto> candidates
     ) {
         int pending = 0;
         int invalidApprove = 0;
-        for (CorpusAdminDtos.AnchorNormalizationCandidateDto candidate : candidates) {
+        for (AnchorNormalizationDtos.AnchorNormalizationCandidateDto candidate : candidates) {
             if (reviewRequired(candidate) && REVIEW_DECISION_PENDING.equals(candidate.reviewDecision())) {
                 pending += 1;
             }
@@ -245,7 +244,7 @@ public class AnchorNormalizationService {
         }
     }
 
-    private boolean reviewRequired(CorpusAdminDtos.AnchorNormalizationCandidateDto candidate) {
+    private boolean reviewRequired(AnchorNormalizationDtos.AnchorNormalizationCandidateDto candidate) {
         return !"unchanged".equals(candidate.resolutionStatus());
     }
 
@@ -257,14 +256,14 @@ public class AnchorNormalizationService {
         return normalized;
     }
 
-    private CorpusAdminDtos.AnchorNormalizationCandidateDto updateCandidateReview(
+    private AnchorNormalizationDtos.AnchorNormalizationCandidateDto updateCandidateReview(
             UUID runId,
             UUID candidateId,
             String decision,
             String reviewedBy,
             String note
     ) {
-        CorpusAdminDtos.AnchorNormalizationCandidateDto candidate = findCandidate(runId, candidateId);
+        AnchorNormalizationDtos.AnchorNormalizationCandidateDto candidate = findCandidate(runId, candidateId);
         if (REVIEW_DECISION_APPROVE.equals(decision) && !"would_update".equals(candidate.resolutionStatus())) {
             throw new IllegalArgumentException("only would_update candidates can be approved: " + candidateId);
         }
@@ -515,7 +514,7 @@ public class AnchorNormalizationService {
                 .addValue("metadataJson", candidate.metadataJson().toString()));
     }
 
-    private CorpusAdminDtos.AnchorNormalizationRunSummary getRun(UUID runId) {
+    private AnchorNormalizationDtos.AnchorNormalizationRunSummary getRun(UUID runId) {
         String sql = """
                 SELECT r.run_id, r.run_name, r.status, r.summary_json::text AS summary_json, r.source_scope_json::text AS source_scope_json,
                        r.applied_update_count, r.created_by, r.reviewed_by, r.created_at, r.updated_at, r.reviewed_at, r.applied_at,
@@ -535,7 +534,7 @@ public class AnchorNormalizationService {
                 ) review_stats ON TRUE
                 WHERE r.run_id = :runId
                 """;
-        List<CorpusAdminDtos.AnchorNormalizationRunSummary> rows = jdbcTemplate.query(
+        List<AnchorNormalizationDtos.AnchorNormalizationRunSummary> rows = jdbcTemplate.query(
                 sql,
                 new MapSqlParameterSource("runId", runId),
                 runSummaryRowMapper()
@@ -546,7 +545,7 @@ public class AnchorNormalizationService {
         return rows.getFirst();
     }
 
-    private CorpusAdminDtos.AnchorNormalizationCandidateDto findCandidate(UUID runId, UUID candidateId) {
+    private AnchorNormalizationDtos.AnchorNormalizationCandidateDto findCandidate(UUID runId, UUID candidateId) {
         String sql = """
                 SELECT candidate_id, run_id, term_id, term_type, current_canonical_form, current_normalized_form,
                        proposed_canonical_form, proposed_normalized_form, resolution_status, change_required,
@@ -556,7 +555,7 @@ public class AnchorNormalizationService {
                 WHERE run_id = :runId
                   AND candidate_id = :candidateId
                 """;
-        List<CorpusAdminDtos.AnchorNormalizationCandidateDto> rows = jdbcTemplate.query(
+        List<AnchorNormalizationDtos.AnchorNormalizationCandidateDto> rows = jdbcTemplate.query(
                 sql,
                 new MapSqlParameterSource()
                         .addValue("runId", runId)
@@ -569,7 +568,7 @@ public class AnchorNormalizationService {
         return rows.getFirst();
     }
 
-    private List<CorpusAdminDtos.AnchorNormalizationCandidateDto> findCandidates(UUID runId) {
+    private List<AnchorNormalizationDtos.AnchorNormalizationCandidateDto> findCandidates(UUID runId) {
         String sql = """
                 SELECT candidate_id, run_id, term_id, term_type, current_canonical_form, current_normalized_form,
                        proposed_canonical_form, proposed_normalized_form, resolution_status, change_required,
@@ -593,7 +592,7 @@ public class AnchorNormalizationService {
         );
     }
 
-    private int updateCanonicalColumns(CorpusAdminDtos.AnchorNormalizationCandidateDto candidate) {
+    private int updateCanonicalColumns(AnchorNormalizationDtos.AnchorNormalizationCandidateDto candidate) {
         String sql = """
                 UPDATE corpus_glossary_terms t
                 SET canonical_form = :proposedCanonicalForm,
@@ -642,10 +641,10 @@ public class AnchorNormalizationService {
                 .addValue("applied", applied));
     }
 
-    private RowMapper<CorpusAdminDtos.AnchorNormalizationRunSummary> runSummaryRowMapper() {
+    private RowMapper<AnchorNormalizationDtos.AnchorNormalizationRunSummary> runSummaryRowMapper() {
         return (rs, rowNum) -> {
             JsonNode summary = readJson(rs, "summary_json");
-            return new CorpusAdminDtos.AnchorNormalizationRunSummary(
+            return new AnchorNormalizationDtos.AnchorNormalizationRunSummary(
                     readUuid(rs, "run_id"),
                     rs.getString("run_name"),
                     rs.getString("status"),
@@ -670,8 +669,8 @@ public class AnchorNormalizationService {
         };
     }
 
-    private RowMapper<CorpusAdminDtos.AnchorNormalizationCandidateDto> candidateRowMapper() {
-        return (rs, rowNum) -> new CorpusAdminDtos.AnchorNormalizationCandidateDto(
+    private RowMapper<AnchorNormalizationDtos.AnchorNormalizationCandidateDto> candidateRowMapper() {
+        return (rs, rowNum) -> new AnchorNormalizationDtos.AnchorNormalizationCandidateDto(
                 readUuid(rs, "candidate_id"),
                 readUuid(rs, "term_id"),
                 rs.getString("term_type"),
@@ -692,7 +691,7 @@ public class AnchorNormalizationService {
     }
 
     private Map<String, Object> sourceScopePayload(
-            CorpusAdminDtos.AnchorNormalizationRunCreateRequest request,
+            AnchorNormalizationDtos.AnchorNormalizationRunCreateRequest request,
             Integer limit
     ) {
         Map<String, Object> payload = new LinkedHashMap<>();

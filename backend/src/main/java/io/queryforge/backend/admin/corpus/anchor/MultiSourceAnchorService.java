@@ -4,7 +4,6 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import io.queryforge.backend.admin.corpus.CorpusAdminDtos;
 import lombok.RequiredArgsConstructor;
 import org.springframework.jdbc.core.RowMapper;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
@@ -46,11 +45,11 @@ public class MultiSourceAnchorService {
     private final ObjectMapper objectMapper;
 
     @Transactional
-    public CorpusAdminDtos.MultiSourceAnchorBuildRunSummary buildRelations(
-            CorpusAdminDtos.MultiSourceAnchorBuildRequest request
+    public MultiSourceAnchorDtos.MultiSourceAnchorBuildRunSummary buildRelations(
+            MultiSourceAnchorDtos.MultiSourceAnchorBuildRequest request
     ) {
-        CorpusAdminDtos.MultiSourceAnchorBuildRequest safeRequest = request == null
-                ? CorpusAdminDtos.MultiSourceAnchorBuildRequest.builder().build()
+        MultiSourceAnchorDtos.MultiSourceAnchorBuildRequest safeRequest = request == null
+                ? MultiSourceAnchorDtos.MultiSourceAnchorBuildRequest.builder().build()
                 : request;
         String relationVersion = normalizeText(safeRequest.relationVersion(), DEFAULT_RELATION_VERSION);
         List<String> relationTypes = normalizeRelationTypes(safeRequest.relationTypes());
@@ -107,7 +106,7 @@ public class MultiSourceAnchorService {
         return getRun(runId);
     }
 
-    public List<CorpusAdminDtos.MultiSourceAnchorBuildRunSummary> listRuns(Integer limit, Integer offset) {
+    public List<MultiSourceAnchorDtos.MultiSourceAnchorBuildRunSummary> listRuns(Integer limit, Integer offset) {
         int safeLimit = limit == null ? 20 : Math.max(1, Math.min(100, limit));
         int safeOffset = offset == null ? 0 : Math.max(0, offset);
         return jdbcTemplate.query(
@@ -142,8 +141,8 @@ public class MultiSourceAnchorService {
         );
     }
 
-    public CorpusAdminDtos.MultiSourceAnchorBuildRunSummary getRun(UUID runId) {
-        List<CorpusAdminDtos.MultiSourceAnchorBuildRunSummary> rows = jdbcTemplate.query(
+    public MultiSourceAnchorDtos.MultiSourceAnchorBuildRunSummary getRun(UUID runId) {
+        List<MultiSourceAnchorDtos.MultiSourceAnchorBuildRunSummary> rows = jdbcTemplate.query(
                 """
                 SELECT run_id,
                        run_name,
@@ -614,8 +613,8 @@ public class MultiSourceAnchorService {
         return value.trim();
     }
 
-    private RowMapper<CorpusAdminDtos.MultiSourceAnchorBuildRunSummary> runRowMapper() {
-        return (rs, rowNum) -> new CorpusAdminDtos.MultiSourceAnchorBuildRunSummary(
+    private RowMapper<MultiSourceAnchorDtos.MultiSourceAnchorBuildRunSummary> runRowMapper() {
+        return (rs, rowNum) -> new MultiSourceAnchorDtos.MultiSourceAnchorBuildRunSummary(
                 readUuid(rs, "run_id"),
                 rs.getString("run_name"),
                 rs.getString("relation_version"),
