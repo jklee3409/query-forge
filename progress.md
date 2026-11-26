@@ -1,5 +1,10 @@
 # progress.md
 
+## [2026-11-26] RAG 01 실행 설정과 API 계약
+
+- 직접 호출 모델 설정, 검색기 기본값·입력 범위, Agentic 실행 범위, 단수 스냅샷 호환 규칙을 공유했다. Python은 Java가 읽는 runtime override 필드만 보낸다.
+- Admin 등록·승격, 채팅·Java 평가, 오류 응답을 Java 102건, Python 38건 및 React HTTP 계약으로 검증했다. 03의 스냅샷·대조군 재현을 기록했다. [01 작업 기록](docs/architecture/rag-work-plan/progress.md)
+
 ## [2026-11-25] Session Summary (Chat Ask Orchestration)
 - Consolidated post-answer trace writes and original-query retrieval. Separated rewrite adoption from memory-query search and reused runtime settings for readiness and Agentic dispatch.
 - Reduced `RagService.ask()` from 572 to 409 lines and removed two internal trace records. Verified all 198 backend cases across the suite and a targeted rerun, plus 36 Python evaluation cases.

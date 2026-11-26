@@ -3,6 +3,10 @@
 ## Overview
 High-level progress tracking for the `docs` directory.
 
+## [2026-11-26] RAG 01 계약 확인
+
+- 배포·모델·실행 설정의 출처와 우선순위, HTTP 계약, 단계별 기존 차이, 03의 스냅샷·대조군 재현을 문서화했다. [설정과 API 계약](architecture/rag-work-plan/01-runtime-and-api-contracts.md)
+
 ## [2026-11-25] Session Summary (Backend Role Packages)
 - Updated the package guidance, test commands, and full source inventory for the feature-first, role-second layout.
 
