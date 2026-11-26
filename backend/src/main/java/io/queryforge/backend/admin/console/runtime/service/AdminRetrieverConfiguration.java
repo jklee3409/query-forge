@@ -3,6 +3,7 @@ package io.queryforge.backend.admin.console.runtime.service;
 import io.queryforge.backend.admin.console.runtime.dto.AdminRuntimeOptionsDtos.RuntimeCatalog;
 import io.queryforge.backend.admin.console.runtime.dto.AdminRuntimeOptionsDtos.RuntimeOptionMetadata;
 import io.queryforge.backend.admin.console.runtime.dto.AdminRuntimeOptionsDtos;
+import io.queryforge.backend.rag.retrieval.candidate.dto.RetrievalDtos.RetrievalRuntime;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
@@ -12,8 +13,11 @@ import java.util.Map;
 
 import static io.queryforge.backend.admin.console.configuration.support.ConsoleParameters.asTrimmedString;
 import static io.queryforge.backend.admin.console.configuration.support.ConsoleParameters.blankToNull;
-import static io.queryforge.backend.admin.console.configuration.support.ConsoleParameters.clampRange;
 import static io.queryforge.backend.admin.console.configuration.support.ConsoleParameters.firstNonBlank;
+import static io.queryforge.backend.rag.retrieval.candidate.dto.RetrievalDtos.DEFAULT_DENSE_EMBEDDING_MODEL;
+import static io.queryforge.backend.rag.retrieval.candidate.dto.RetrievalDtos.DEFAULT_DENSE_WEIGHT;
+import static io.queryforge.backend.rag.retrieval.candidate.dto.RetrievalDtos.DEFAULT_BM25_WEIGHT;
+import static io.queryforge.backend.rag.retrieval.candidate.dto.RetrievalDtos.DEFAULT_TECHNICAL_WEIGHT;
 
 @Component
 @RequiredArgsConstructor
@@ -25,11 +29,7 @@ public class AdminRetrieverConfiguration {
     private static final String RETRIEVER_MODE_BM25_ONLY = "bm25_only";
     private static final String RETRIEVER_MODE_DENSE_ONLY = "dense_only";
     private static final String RETRIEVER_MODE_HYBRID = "hybrid";
-    private static final String DEFAULT_DENSE_EMBEDDING_MODEL = "intfloat/multilingual-e5-small";
     private static final int DEFAULT_RETRIEVER_CANDIDATE_POOL_K = 50;
-    private static final double DEFAULT_RAG_HYBRID_DENSE_WEIGHT = 0.60d;
-    private static final double DEFAULT_RAG_HYBRID_BM25_WEIGHT = 0.32d;
-    private static final double DEFAULT_RAG_HYBRID_TECHNICAL_WEIGHT = 0.08d;
 
     public void validateRetrieverSelection(Map<String, Object> retrieverConfig, RuntimeCatalog catalog) {
         String retrieverMode = catalogService.normalizeRetrieverMode(asTrimmedString(retrieverConfig.get("retriever_mode")));
@@ -124,23 +124,23 @@ public class AdminRetrieverConfiguration {
                 modeDefaults.get("retriever_candidate_pool_k"),
                 catalogService.runtimeDefaultInt(runtimeCatalog, "retriever_candidate_pool_k", DEFAULT_RETRIEVER_CANDIDATE_POOL_K)
         )
-                : clampRange(request.candidatePoolK(), 1, 500, "retriever_candidate_pool_k");
+                : RetrievalRuntime.validateCandidatePoolK(request.candidatePoolK(), "retriever_candidate_pool_k");
 
         Map<?, ?> defaultWeights = modeDefaults.get("retriever_fusion_weights") instanceof Map<?, ?> weights
                 ? weights
                 : Map.of();
-        double defaultDenseWeight = catalogService.doubleDefault(defaultWeights.get("dense"), DEFAULT_RAG_HYBRID_DENSE_WEIGHT);
-        double defaultBm25Weight = catalogService.doubleDefault(defaultWeights.get("bm25"), DEFAULT_RAG_HYBRID_BM25_WEIGHT);
-        double defaultTechnicalWeight = catalogService.doubleDefault(defaultWeights.get("technical"), DEFAULT_RAG_HYBRID_TECHNICAL_WEIGHT);
+        double defaultDenseWeight = catalogService.doubleDefault(defaultWeights.get("dense"), DEFAULT_DENSE_WEIGHT);
+        double defaultBm25Weight = catalogService.doubleDefault(defaultWeights.get("bm25"), DEFAULT_BM25_WEIGHT);
+        double defaultTechnicalWeight = catalogService.doubleDefault(defaultWeights.get("technical"), DEFAULT_TECHNICAL_WEIGHT);
         double denseWeight = fixedModePreset || request == null || request.denseWeight() == null
                 ? defaultDenseWeight
-                : clampRange(request.denseWeight(), 0.0d, 1.0d, "retriever_dense_weight");
+                : RetrievalRuntime.validateFusionWeight(request.denseWeight(), "retriever_dense_weight");
         double bm25Weight = fixedModePreset || request == null || request.bm25Weight() == null
                 ? defaultBm25Weight
-                : clampRange(request.bm25Weight(), 0.0d, 1.0d, "retriever_bm25_weight");
+                : RetrievalRuntime.validateFusionWeight(request.bm25Weight(), "retriever_bm25_weight");
         double technicalWeight = fixedModePreset || request == null || request.technicalWeight() == null
                 ? defaultTechnicalWeight
-                : clampRange(request.technicalWeight(), 0.0d, 1.0d, "retriever_technical_weight");
+                : RetrievalRuntime.validateFusionWeight(request.technicalWeight(), "retriever_technical_weight");
         if (RETRIEVER_MODE_BM25_ONLY.equals(mode)) {
             denseWeight = 0.0d;
             bm25Weight = 1.0d;

@@ -22,6 +22,10 @@ import java.util.UUID;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+import static io.queryforge.backend.rag.retrieval.candidate.dto.RetrievalDtos.DEFAULT_DENSE_WEIGHT;
+import static io.queryforge.backend.rag.retrieval.candidate.dto.RetrievalDtos.DEFAULT_BM25_WEIGHT;
+import static io.queryforge.backend.rag.retrieval.candidate.dto.RetrievalDtos.DEFAULT_TECHNICAL_WEIGHT;
+
 @Service
 @RequiredArgsConstructor
 public class DomainScopedRetrievalService {
@@ -34,15 +38,9 @@ public class DomainScopedRetrievalService {
     private final DenseEmbeddingService denseEmbeddingService;
 
     public RetrievalRuntime retrievalRuntime(ChatConfigDtos.ChatRuntimeConfigResponse config) {
-        String backend = config.retrievalBackend() == null || config.retrievalBackend().isBlank()
-                ? "local"
-                : config.retrievalBackend().trim().toLowerCase(Locale.ROOT).replace("-", "_");
-        String mode = config.retrieverMode() == null || config.retrieverMode().isBlank()
-                ? "hybrid"
-                : config.retrieverMode().trim().toLowerCase(Locale.ROOT).replace("-", "_");
-        String denseModel = config.denseEmbeddingModel() == null || config.denseEmbeddingModel().isBlank()
-                ? "intfloat/multilingual-e5-small"
-                : config.denseEmbeddingModel().trim();
+        String backend = RetrievalRuntime.normalizeBackend(config.retrievalBackend());
+        String mode = RetrievalRuntime.normalizeMode(config.retrieverMode());
+        String denseModel = RetrievalRuntime.normalizeDenseModel(config.denseEmbeddingModel());
         int candidatePoolK = Math.max(1, config.retrieverCandidatePoolK());
         double denseWeight = clampWeight(config.retrieverDenseWeight());
         double bm25Weight = clampWeight(config.retrieverBm25Weight());
@@ -58,9 +56,9 @@ public class DomainScopedRetrievalService {
         } else {
             double sum = denseWeight + bm25Weight + technicalWeight;
             if (sum <= 0.0d) {
-                denseWeight = 0.60d;
-                bm25Weight = 0.32d;
-                technicalWeight = 0.08d;
+                denseWeight = DEFAULT_DENSE_WEIGHT;
+                bm25Weight = DEFAULT_BM25_WEIGHT;
+                technicalWeight = DEFAULT_TECHNICAL_WEIGHT;
                 sum = denseWeight + bm25Weight + technicalWeight;
             }
             denseWeight = denseWeight / sum;

@@ -3,6 +3,7 @@ package io.queryforge.backend.rag.runtime.promotion.service;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import io.queryforge.backend.rag.retrieval.agentic.dto.AgenticRetrievalLimits;
 import io.queryforge.backend.rag.runtime.configuration.dto.ChatConfigDtos;
 import io.queryforge.backend.rag.runtime.configuration.service.ChatRuntimeConfigService;
 import io.queryforge.backend.rag.runtime.promotion.dto.ChatConfigPromotionDtos;
@@ -14,6 +15,12 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.UUID;
+
+import static io.queryforge.backend.rag.runtime.configuration.model.RagExecutionSettings.RETRIEVAL_TOP_K;
+import static io.queryforge.backend.rag.runtime.configuration.model.RagExecutionSettings.RERANK_TOP_N;
+import static io.queryforge.backend.rag.runtime.configuration.model.RagExecutionSettings.MEMORY_TOP_N;
+import static io.queryforge.backend.rag.runtime.configuration.model.RagExecutionSettings.REWRITE_CANDIDATE_COUNT;
+import static io.queryforge.backend.rag.runtime.configuration.model.RagExecutionSettings.REWRITE_THRESHOLD;
 
 @Service
 @RequiredArgsConstructor
@@ -88,23 +95,18 @@ public class ChatConfigPromotionService {
         );
         boolean agenticMultiQueryEnabled = "agentic_multi_query".equals(mode)
                 || (routerEnabled && configuredAgenticMultiQueryEnabled);
-        int agenticMaxSubqueries = Math.max(
-                1,
-                Math.min(
-                        4,
-                        configInt(config, "agentic_max_subqueries", configInt(config, "maxSubqueries", metadata.path("maxSubqueries").asInt(3)))
-                )
-        );
-        int agenticRrfK = Math.max(
-                1,
-                configInt(config, "agentic_rrf_k", configInt(config, "rrfK", metadata.path("rrfK").asInt(60)))
+        AgenticRetrievalLimits agenticLimits = new AgenticRetrievalLimits(
+                configInt(config, "agentic_max_subqueries", configInt(config, "maxSubqueries",
+                        metadata.path("maxSubqueries").asInt(AgenticRetrievalLimits.DEFAULT_CHAT_MAX_SUBQUERIES))),
+                configInt(config, "agentic_rrf_k", configInt(config, "rrfK",
+                        metadata.path("rrfK").asInt(AgenticRetrievalLimits.DEFAULT_RRF_K)))
         );
         metadata.put("routerEnabled", routerEnabled);
         metadata.put("agenticMultiQueryEnabled", agenticMultiQueryEnabled);
-        metadata.put("maxSubqueries", agenticMaxSubqueries);
-        metadata.put("agenticMaxSubqueries", agenticMaxSubqueries);
-        metadata.put("rrfK", agenticRrfK);
-        metadata.put("agenticRrfK", agenticRrfK);
+        metadata.put("maxSubqueries", agenticLimits.maxSubqueries());
+        metadata.put("agenticMaxSubqueries", agenticLimits.maxSubqueries());
+        metadata.put("rrfK", agenticLimits.rrfK());
+        metadata.put("agenticRrfK", agenticLimits.rrfK());
         JsonNode retrieverConfig = config.path("retriever_config");
         JsonNode fusionWeights = firstPresentObject(
                 retrieverConfig.path("retriever_fusion_weights"),
@@ -140,11 +142,11 @@ public class ChatConfigPromotionService {
                 configDouble(fusionWeights, "dense", current.retrieverDenseWeight()),
                 configDouble(fusionWeights, "bm25", current.retrieverBm25Weight()),
                 configDouble(fusionWeights, "technical", current.retrieverTechnicalWeight()),
-                firstNonNull(run.retrievalTopK(), configInt(config, "retrieval_top_k", current.retrievalTopK())),
-                firstNonNull(run.rerankTopN(), configInt(config, "rerank_top_n", current.rerankTopN())),
-                configInt(config, "memory_top_n", current.memoryTopN()),
-                configInt(config, "rewrite_candidate_count", current.rewriteCandidateCount()),
-                firstNonNull(run.threshold(), configDouble(config, "rewrite_threshold", current.rewriteThreshold())),
+                firstNonNull(run.retrievalTopK(), configInt(config, RETRIEVAL_TOP_K.key(), current.retrievalTopK())),
+                firstNonNull(run.rerankTopN(), configInt(config, RERANK_TOP_N.key(), current.rerankTopN())),
+                configInt(config, MEMORY_TOP_N.key(), current.memoryTopN()),
+                configInt(config, REWRITE_CANDIDATE_COUNT.key(), current.rewriteCandidateCount()),
+                firstNonNull(run.threshold(), configDouble(config, REWRITE_THRESHOLD.key(), current.rewriteThreshold())),
                 rewriteFailurePolicy,
                 routerEnabled,
                 metadata,

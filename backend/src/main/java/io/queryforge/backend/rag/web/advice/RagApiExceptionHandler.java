@@ -18,11 +18,9 @@ public class RagApiExceptionHandler {
 
     @ExceptionHandler(GeminiServiceUnavailableException.class)
     public ProblemDetail handleGeminiServiceUnavailable(GeminiServiceUnavailableException exception) {
-        ProblemDetail detail = ProblemDetail.forStatusAndDetail(
-                HttpStatus.SERVICE_UNAVAILABLE,
-                GEMINI_SERVICE_UNAVAILABLE_MESSAGE
+        ProblemDetail detail = problem(
+                HttpStatus.SERVICE_UNAVAILABLE, "Gemini service unavailable", GEMINI_SERVICE_UNAVAILABLE_MESSAGE
         );
-        detail.setTitle("Gemini service unavailable");
         detail.setProperty("errorCode", GEMINI_SERVICE_UNAVAILABLE_CODE);
         detail.setProperty("retryable", true);
         detail.setProperty("retryMessage", GEMINI_RETRY_MESSAGE);
@@ -35,23 +33,24 @@ public class RagApiExceptionHandler {
 
     @ExceptionHandler(RagRetrievalEvalException.class)
     public ProblemDetail handleRagRetrievalEval(RagRetrievalEvalException exception) {
-        ProblemDetail detail = ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, exception.getMessage());
-        detail.setTitle("Retrieval eval request rejected");
+        ProblemDetail detail = problem(HttpStatus.BAD_REQUEST, "Retrieval eval request rejected", exception.getMessage());
         detail.setProperty("code", exception.code());
         return detail;
     }
 
     @ExceptionHandler(IllegalArgumentException.class)
     public ProblemDetail handleIllegalArgument(IllegalArgumentException exception) {
-        ProblemDetail detail = ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, exception.getMessage());
-        detail.setTitle("Invalid request");
-        return detail;
+        return problem(HttpStatus.BAD_REQUEST, "Invalid request", exception.getMessage());
     }
 
     @ExceptionHandler(IllegalStateException.class)
     public ProblemDetail handleIllegalState(IllegalStateException exception) {
-        ProblemDetail detail = ProblemDetail.forStatusAndDetail(HttpStatus.INTERNAL_SERVER_ERROR, exception.getMessage());
-        detail.setTitle("Pipeline error");
+        return problem(HttpStatus.INTERNAL_SERVER_ERROR, "Pipeline error", exception.getMessage());
+    }
+
+    private ProblemDetail problem(HttpStatus status, String title, String message) {
+        ProblemDetail detail = ProblemDetail.forStatusAndDetail(status, message);
+        detail.setTitle(title);
         return detail;
     }
 }

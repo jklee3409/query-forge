@@ -8,6 +8,7 @@ import io.queryforge.backend.admin.console.embedding.dto.ChunkEmbeddingAdminDtos
 import io.queryforge.backend.admin.console.embedding.service.ChunkEmbeddingAdminService;
 import io.queryforge.backend.admin.console.runtime.dto.AdminRuntimeOptionsDtos;
 import io.queryforge.backend.admin.console.runtime.service.AdminRuntimeOptionsService;
+import io.queryforge.backend.rag.retrieval.candidate.dto.RetrievalDtos.RetrievalRuntime;
 import io.queryforge.backend.rag.runtime.configuration.dto.ChatConfigDtos;
 import io.queryforge.backend.rag.runtime.configuration.model.RagExecutionSettings;
 import io.queryforge.backend.rag.runtime.configuration.repository.ChatRuntimeConfigRepository;
@@ -23,6 +24,8 @@ import java.util.Locale;
 import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
+
+import static io.queryforge.backend.rag.retrieval.candidate.dto.RetrievalDtos.DEFAULT_DENSE_EMBEDDING_MODEL;
 
 @Service
 @RequiredArgsConstructor
@@ -46,7 +49,6 @@ public class ChatRuntimeConfigService {
     private static final Set<String> FAILURE_POLICIES = Set.of("fail_run", "skip_to_raw", "heuristic_fallback");
     private static final Set<String> RETRIEVAL_BACKENDS = Set.of("local", "db_ann");
     private static final Set<String> RETRIEVER_MODES = Set.of("bm25_only", "dense_only", "hybrid");
-    private static final String DEFAULT_DENSE_EMBEDDING_MODEL = "intfloat/multilingual-e5-small";
     private static final int MAX_SELECTED_SOURCE_GATING_BATCHES = 20;
     private final ChatRuntimeConfigRepository repository;
     private final ChunkEmbeddingAdminService chunkEmbeddingService;
@@ -126,32 +128,20 @@ public class ChatRuntimeConfigService {
                 DEFAULT_DENSE_EMBEDDING_MODEL
         );
         validateCatalogSelection(denseEmbeddingModel, runtimeOptions.denseEmbeddingModels(), "denseEmbeddingModel");
-        int retrieverCandidatePoolK = bounded(
-                request.retrieverCandidatePoolK(),
-                current.retrieverCandidatePoolK(),
-                1,
-                500,
+        int retrieverCandidatePoolK = RetrievalRuntime.validateCandidatePoolK(
+                request.retrieverCandidatePoolK() == null ? current.retrieverCandidatePoolK() : request.retrieverCandidatePoolK(),
                 "retrieverCandidatePoolK"
         );
-        double retrieverDenseWeight = boundedDouble(
-                request.retrieverDenseWeight(),
-                current.retrieverDenseWeight(),
-                0.0,
-                1.0,
+        double retrieverDenseWeight = RetrievalRuntime.validateFusionWeight(
+                request.retrieverDenseWeight() == null ? current.retrieverDenseWeight() : request.retrieverDenseWeight(),
                 "retrieverDenseWeight"
         );
-        double retrieverBm25Weight = boundedDouble(
-                request.retrieverBm25Weight(),
-                current.retrieverBm25Weight(),
-                0.0,
-                1.0,
+        double retrieverBm25Weight = RetrievalRuntime.validateFusionWeight(
+                request.retrieverBm25Weight() == null ? current.retrieverBm25Weight() : request.retrieverBm25Weight(),
                 "retrieverBm25Weight"
         );
-        double retrieverTechnicalWeight = boundedDouble(
-                request.retrieverTechnicalWeight(),
-                current.retrieverTechnicalWeight(),
-                0.0,
-                1.0,
+        double retrieverTechnicalWeight = RetrievalRuntime.validateFusionWeight(
+                request.retrieverTechnicalWeight() == null ? current.retrieverTechnicalWeight() : request.retrieverTechnicalWeight(),
                 "retrieverTechnicalWeight"
         );
         double weightSum = retrieverDenseWeight + retrieverBm25Weight + retrieverTechnicalWeight;
@@ -332,28 +322,10 @@ public class ChatRuntimeConfigService {
     ) {
         boolean provided = request.sourceGatingBatchIds() != null || request.sourceGatingBatchId() != null;
         List<UUID> values = provided
-                ? normalizeUuidList(request.sourceGatingBatchIds())
-                : normalizeUuidList(current.sourceGatingBatchIds());
-        if (values.isEmpty()) {
-            UUID fallback = provided ? request.sourceGatingBatchId() : current.sourceGatingBatchId();
-            if (fallback != null) {
-                values = List.of(fallback);
-            }
-        }
-        return values;
-    }
-
-    private List<UUID> normalizeUuidList(List<UUID> rawValues) {
-        if (rawValues == null || rawValues.isEmpty()) {
-            return List.of();
-        }
-        LinkedHashSet<UUID> values = new LinkedHashSet<>();
-        for (UUID value : rawValues) {
-            if (value != null) {
-                values.add(value);
-            }
-        }
-        return List.copyOf(values);
+                ? GatingSnapshotDtos.distinctIds(request.sourceGatingBatchIds())
+                : GatingSnapshotDtos.distinctIds(current.sourceGatingBatchIds());
+        UUID fallback = provided ? request.sourceGatingBatchId() : current.sourceGatingBatchId();
+        return GatingSnapshotDtos.withLegacyId(values, fallback);
     }
 
     private void validateSnapshot(
@@ -445,22 +417,6 @@ public class ChatRuntimeConfigService {
             throw new IllegalArgumentException("at least one generation strategy is required");
         }
         return List.copyOf(normalized);
-    }
-
-    private int bounded(Integer raw, int fallback, int min, int max, String fieldName) {
-        int value = raw == null ? fallback : raw;
-        if (value < min || value > max) {
-            throw new IllegalArgumentException(fieldName + " must be between " + min + " and " + max);
-        }
-        return value;
-    }
-
-    private double boundedDouble(Double raw, double fallback, double min, double max, String fieldName) {
-        double value = raw == null ? fallback : raw;
-        if (value < min || value > max) {
-            throw new IllegalArgumentException(fieldName + " must be between " + min + " and " + max);
-        }
-        return value;
     }
 
     private String firstNonBlank(String... values) {

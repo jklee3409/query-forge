@@ -1,5 +1,6 @@
 package io.queryforge.backend.rag.runtime.readiness.service;
 
+import io.queryforge.backend.rag.retrieval.candidate.dto.RetrievalDtos.RetrievalRuntime;
 import io.queryforge.backend.rag.runtime.configuration.dto.ChatConfigDtos;
 import io.queryforge.backend.rag.runtime.configuration.service.ChatRuntimeConfigService;
 import io.queryforge.backend.rag.runtime.readiness.dto.ChatReadinessDtos;
@@ -23,7 +24,6 @@ public class ChatReadinessService {
     private final ChatRuntimeConfigService configService;
     private final ChatReadinessRepository repository;
     private final GatingSnapshotRepository snapshotRepository;
-    private static final String DEFAULT_DENSE_EMBEDDING_MODEL = "intfloat/multilingual-e5-small";
 
     public ChatReadinessDtos.ChatDomainReadinessResponse getReadiness(UUID domainId) {
         return evaluateReadiness(configService.getConfig(domainId));
@@ -43,14 +43,12 @@ public class ChatReadinessService {
                 .distinct()
                 .toList();
 
-        List<UUID> selectedBatchIds = normalizeUuidList(config.sourceGatingBatchIds());
-        if (selectedBatchIds.isEmpty() && config.sourceGatingBatchId() != null) {
-            selectedBatchIds = List.of(config.sourceGatingBatchId());
-        }
-        List<UUID> configSourceGatingRunIds = normalizeUuidList(config.sourceGatingRunIds());
-        if (configSourceGatingRunIds.isEmpty() && config.sourceGatingRunId() != null) {
-            configSourceGatingRunIds = List.of(config.sourceGatingRunId());
-        }
+        List<UUID> selectedBatchIds = GatingSnapshotDtos.withLegacyId(
+                GatingSnapshotDtos.distinctIds(config.sourceGatingBatchIds()), config.sourceGatingBatchId()
+        );
+        List<UUID> configSourceGatingRunIds = GatingSnapshotDtos.withLegacyId(
+                GatingSnapshotDtos.distinctIds(config.sourceGatingRunIds()), config.sourceGatingRunId()
+        );
         List<GatingSnapshotDtos.GatingSnapshot> snapshots = new ArrayList<>();
         for (UUID selectedBatchId : selectedBatchIds) {
             snapshotRepository.findGatingSnapshot(selectedBatchId).ifPresent(snapshots::add);
@@ -90,14 +88,14 @@ public class ChatReadinessService {
                 ? "completed"
                 : "mixed");
 
-        String embeddingModel = firstNonBlank(config.denseEmbeddingModel(), DEFAULT_DENSE_EMBEDDING_MODEL);
+        String embeddingModel = RetrievalRuntime.normalizeDenseModel(config.denseEmbeddingModel());
         ChatReadinessDtos.DomainChunkEmbeddingStatus embeddingStatus =
                 repository.findDomainChunkEmbeddingStatus(config.domainId(), embeddingModel);
         long domainChunkCount = embeddingStatus == null ? 0L : embeddingStatus.domainChunkCount();
         long materializedChunkCount = embeddingStatus == null ? 0L : embeddingStatus.materializedChunkCount();
         long missingChunkCount = Math.max(0L, domainChunkCount - materializedChunkCount);
-        String retrievalBackend = normalizeText(config.retrievalBackend(), "local");
-        String retrieverMode = normalizeText(config.retrieverMode(), "hybrid");
+        String retrievalBackend = RetrievalRuntime.normalizeBackend(config.retrievalBackend());
+        String retrieverMode = RetrievalRuntime.normalizeMode(config.retrieverMode());
         boolean dbAnnRequired = "db_ann".equals(retrievalBackend);
         boolean chunkEmbeddingsReady = !dbAnnRequired || (domainChunkCount > 0L && missingChunkCount == 0L);
 
@@ -242,19 +240,6 @@ public class ChatReadinessService {
         );
     }
 
-    private List<UUID> normalizeUuidList(List<UUID> rawValues) {
-        if (rawValues == null || rawValues.isEmpty()) {
-            return List.of();
-        }
-        LinkedHashSet<UUID> values = new LinkedHashSet<>();
-        for (UUID value : rawValues) {
-            if (value != null) {
-                values.add(value);
-            }
-        }
-        return List.copyOf(values);
-    }
-
     private String promptBindingKey(String rewriteQueryProfile) {
         String profile = rewriteQueryProfile == null ? "" : rewriteQueryProfile.trim().toLowerCase(Locale.ROOT);
         if ("detailed_intent".equals(profile)) {
@@ -268,12 +253,4 @@ public class ChatReadinessService {
         return normalized == null ? "" : normalized.trim().toLowerCase(Locale.ROOT).replace("-", "_");
     }
 
-    private String firstNonBlank(String... values) {
-        for (String value : values) {
-            if (value != null && !value.isBlank()) {
-                return value.trim();
-            }
-        }
-        return null;
-    }
 }

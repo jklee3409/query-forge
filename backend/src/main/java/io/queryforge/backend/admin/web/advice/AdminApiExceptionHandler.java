@@ -10,15 +10,17 @@ public class AdminApiExceptionHandler {
 
     @ExceptionHandler(IllegalStateException.class)
     public ProblemDetail handleIllegalState(IllegalStateException exception) {
-        ProblemDetail detail = ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, exception.getMessage());
-        detail.setTitle("요청 충돌");
-        return detail;
+        return problem(HttpStatus.CONFLICT, "요청 충돌", exception.getMessage());
     }
 
     @ExceptionHandler(IllegalArgumentException.class)
     public ProblemDetail handleIllegalArgument(IllegalArgumentException exception) {
-        ProblemDetail detail = ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, exception.getMessage());
-        detail.setTitle("잘못된 요청");
+        return problem(HttpStatus.BAD_REQUEST, "잘못된 요청", exception.getMessage());
+    }
+
+    private ProblemDetail problem(HttpStatus status, String title, String message) {
+        ProblemDetail detail = ProblemDetail.forStatusAndDetail(status, message);
+        detail.setTitle(title);
         return detail;
     }
 }

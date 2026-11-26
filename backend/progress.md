@@ -1,5 +1,11 @@
 # progress.md
 
+## [2026-11-26] RAG 01 Runtime and API Contracts
+
+- Reused `RagExecutionSettings` parameter names for recorded runs and promotion. Shared retriever defaults and write-time ranges, Agentic limit handling, singular snapshot fallback, and direct model selection by stage.
+- Kept Admin catalog checks, readiness queries, evaluation overrides, Spring bean selection, and answer/rewrite/planner fallback behavior at their respective boundaries.
+- Passed 102 targeted MVC, service and PostgreSQL integration tests. The promotion fixture leaves omitted fields and JSON null in the recorded config, checks explicit false and zero, and uses a stub executor.
+
 ## [2026-11-25] Session Summary (Chat Ask Orchestration)
 - Grouped rewrite, memory, and candidate logs after the answer. Preserved the earlier retrieval and rerank writes so they remain available when answer generation fails.
 - Shared original-query search and reranking with Java evaluation. Separated memory-query retrieval from the rewrite decision and covered threshold equality, tied candidates, and empty memory.

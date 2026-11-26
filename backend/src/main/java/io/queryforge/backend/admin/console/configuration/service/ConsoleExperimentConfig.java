@@ -17,6 +17,11 @@ import java.util.Map;
 
 import static io.queryforge.backend.admin.console.configuration.support.ConsoleParameters.blankToNull;
 import static io.queryforge.backend.admin.console.configuration.support.ConsoleParameters.isEnglishOnlyMethod;
+import static io.queryforge.backend.rag.runtime.configuration.model.RagExecutionSettings.RETRIEVAL_TOP_K;
+import static io.queryforge.backend.rag.runtime.configuration.model.RagExecutionSettings.RERANK_TOP_N;
+import static io.queryforge.backend.rag.runtime.configuration.model.RagExecutionSettings.MEMORY_TOP_N;
+import static io.queryforge.backend.rag.runtime.configuration.model.RagExecutionSettings.REWRITE_CANDIDATE_COUNT;
+import static io.queryforge.backend.rag.runtime.configuration.model.RagExecutionSettings.REWRITE_THRESHOLD;
 
 @Service
 @RequiredArgsConstructor
@@ -168,9 +173,9 @@ public class ConsoleExperimentConfig {
         config.put("llm_tpm", 1_000_000);
         config.put("llm_rpd", 10_000);
         config.put("llm_batch_size", 20);
-        config.put("memory_top_n", settings.memoryTopN());
-        config.put("rewrite_candidate_count", settings.rewriteCandidateCount());
-        config.put("rewrite_threshold", settings.rewriteThreshold());
+        config.put(MEMORY_TOP_N.key(), settings.memoryTopN());
+        config.put(REWRITE_CANDIDATE_COUNT.key(), settings.rewriteCandidateCount());
+        config.put(REWRITE_THRESHOLD.key(), settings.rewriteThreshold());
         config.put(
                 "rewrite_memory_candidate_pool_n",
                 runtimeOptionsService.runtimeDefaultInt(runtimeCatalog, "rewrite_memory_candidate_pool_n", DEFAULT_REWRITE_MEMORY_CANDIDATE_POOL_N)
@@ -182,8 +187,8 @@ public class ConsoleExperimentConfig {
         config.put("memory_lookup_hint_token_max", 3);
         config.put("memory_lookup_retrieval_strategy", "max_score");
         config.put("rewrite_memory_hint_retrieval_enabled", false);
-        config.put("retrieval_top_k", settings.retrievalTopK());
-        config.put("rerank_top_n", settings.rerankTopN());
+        config.put(RETRIEVAL_TOP_K.key(), settings.retrievalTopK());
+        config.put(RERANK_TOP_N.key(), settings.rerankTopN());
         config.put("use_session_context", false);
         config.put("avg_queries_per_chunk", 2.0);
         config.put("max_total_queries", 40);

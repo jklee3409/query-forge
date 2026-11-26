@@ -28,6 +28,7 @@ import java.util.UUID;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -226,6 +227,17 @@ class RagRetrievalEvalControllerTest {
         assertThat(captor.getValue().runtimeConfig().path("router_enabled").asBoolean()).isTrue();
         assertThat(captor.getValue().runtimeConfig().path("agentic_multi_query_enabled").asBoolean()).isTrue();
         assertThat(captor.getValue().runtimeConfig().path("retrieval_top_k").asInt()).isEqualTo(7);
+    }
+
+    @Test
+    void unknownPersistPolicyIsRejectedDuringRequestDecoding() throws Exception {
+        mockMvc.perform(post("/api/rag/eval/retrieval")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"domainId":"%s", "query":"filter chain", "persistPolicy":"UNKNOWN"}
+                                """.formatted(DOMAIN_ID)))
+                .andExpect(status().isBadRequest());
+        verifyNoInteractions(ragRetrievalEvalService);
     }
 
     @Test

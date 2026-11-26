@@ -1,6 +1,9 @@
 package io.queryforge.backend.admin.console.evaluation.integration;
 
+import com.fasterxml.jackson.databind.ObjectMapper;
+import io.queryforge.backend.admin.console.runtime.service.ConsoleEnvironment;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.webmvc.test.autoconfigure.AutoConfigureMockMvc;
@@ -8,6 +11,8 @@ import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.test.context.DynamicPropertyRegistry;
 import org.springframework.test.context.DynamicPropertySource;
+import org.springframework.test.context.bean.override.mockito.MockitoBean;
+import org.springframework.test.context.bean.override.mockito.MockitoSpyBean;
 import org.springframework.test.context.jdbc.Sql;
 import org.springframework.test.web.servlet.MockMvc;
 import org.testcontainers.containers.PostgreSQLContainer;
@@ -15,13 +20,21 @@ import org.testcontainers.junit.jupiter.Container;
 import org.testcontainers.junit.jupiter.Testcontainers;
 import org.testcontainers.utility.DockerImageName;
 
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.UUID;
+import java.util.concurrent.ExecutorService;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.containsString;
+import static org.hamcrest.Matchers.nullValue;
+import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.Mockito.doReturn;
 import static org.springframework.http.MediaType.APPLICATION_JSON;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -94,6 +107,15 @@ class AdminConsoleRagIntegrationTest {
 
     @Autowired
     private NamedParameterJdbcTemplate jdbcTemplate;
+
+    @Autowired
+    private ObjectMapper objectMapper;
+
+    @MockitoSpyBean
+    private ConsoleEnvironment consoleEnvironment;
+
+    @MockitoBean(name = "llmJobExecutor")
+    private ExecutorService executor;
 
     @Test
     void deleteRagTestRemovesRunWithRelatedResults() throws Exception {
@@ -741,6 +763,110 @@ class AdminConsoleRagIntegrationTest {
     }
 
     @Test
+    void registeredRawRunPromotesWithColumnValuesAndLegacyConfigFallbacks(@TempDir Path fixtureRoot) throws Exception {
+        doReturn(fixtureRoot).when(consoleEnvironment).resolveRepoRoot();
+        UUID datasetId = insertEvalDataset("legacy-runtime-promotion");
+        var domain = mockMvc.perform(post("/api/admin/domains")
+                        .contentType(APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "domainKey":"legacy-runtime-promotion",
+                                  "displayName":"Promotion contract",
+                                  "primaryLanguage":"ko",
+                                  "sourceLanguage":"en"
+                                }
+                                """))
+                .andExpect(status().isOk())
+                .andReturn();
+        UUID domainId = UUID.fromString(objectMapper.readTree(domain.getResponse().getContentAsString())
+                .at("/domain/domainId").asText());
+        var params = new MapSqlParameterSource().addValue("domainId", domainId).addValue("datasetId", datasetId);
+        jdbcTemplate.update("UPDATE eval_dataset SET domain_id = :domainId WHERE dataset_id = :datasetId", params);
+        jdbcTemplate.update("""
+                INSERT INTO tech_doc_domain_method_policy (domain_id, method_code, default_query_language)
+                VALUES (:domainId, 'A', 'ko')
+                """, params);
+
+        mockMvc.perform(put("/api/admin/chat/config")
+                        .contentType(APPLICATION_JSON)
+                        .content("""
+                                {"domainId":"%s", "mode":" RAW_ONLY ", "memoryTopN":8, "routerEnabled":true}
+                                """.formatted(domainId)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.mode").value("raw_only"));
+
+        var registered = mockMvc.perform(post("/api/admin/console/rag/tests/run")
+                        .contentType(APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "domainId":"%s",
+                                  "datasetId":"%s",
+                                  "syntheticFreeBaseline":true,
+                                  "retrievalBackend":"local",
+                                  "retrievalTopK":12,
+                                  "rerankTopN":4,
+                                  "threshold":0,
+                                  "agenticRrfK":501
+                                }
+                                """.formatted(domainId, datasetId)))
+                .andExpect(status().isOk())
+                .andReturn();
+        String runId = objectMapper.readTree(registered.getResponse().getContentAsString())
+                .path("ragTestRunId").asText();
+        params.addValue("runId", UUID.fromString(runId));
+        var recorded = objectMapper.readTree(jdbcTemplate.queryForObject(
+                "SELECT config_json::text FROM rag_test_run_config WHERE rag_test_run_id = :runId",
+                params, String.class));
+        assertThat(recorded.path("memory_top_n").asInt()).isEqualTo(5);
+        assertThat(recorded.path("rewrite_candidate_count").asInt()).isEqualTo(2);
+        assertThat(recorded.path("agentic_max_subqueries").asInt()).isEqualTo(4);
+        assertThat(recorded.path("agentic_rrf_k").asInt()).isEqualTo(500);
+
+        jdbcTemplate.update("UPDATE rag_test_run SET status = 'completed' WHERE rag_test_run_id = :runId", params);
+        jdbcTemplate.update("""
+                UPDATE rag_test_run_config
+                SET config_json = '{"router_enabled":false,"memory_top_n":null}'::jsonb
+                WHERE rag_test_run_id = :runId
+                """, params);
+        mockMvc.perform(post("/api/admin/chat/config/apply-rag-run")
+                        .contentType(APPLICATION_JSON)
+                        .content("""
+                                {"ragTestRunId":"%s"}
+                                """.formatted(runId)))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.mode").value("raw_only"))
+                .andExpect(jsonPath("$.sourceGatingBatchId").value(nullValue()))
+                .andExpect(jsonPath("$.sourceGatingBatchIds").isEmpty())
+                .andExpect(jsonPath("$.retrievalTopK").value(12))
+                .andExpect(jsonPath("$.rerankTopN").value(4))
+                .andExpect(jsonPath("$.rewriteThreshold").value(0.0))
+                .andExpect(jsonPath("$.memoryTopN").value(8))
+                .andExpect(jsonPath("$.routerEnabled").value(false));
+
+        mockMvc.perform(get("/api/chat/readiness").param("domain_id", domainId.toString()))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.mode").value("raw_only"))
+                .andExpect(jsonPath("$.readyForRewrite").value(true))
+                .andExpect(jsonPath("$.blockingReasons").isEmpty());
+    }
+
+    @Test
+    void adminRegistrationStateFailureRemainsConflict(@TempDir Path fixtureRoot) throws Exception {
+        UUID datasetId = insertEvalDataset("admin-conflict");
+        Path file = Files.createFile(fixtureRoot.resolve("occupied"));
+        doReturn(file).when(consoleEnvironment).resolveRepoRoot();
+
+        mockMvc.perform(post("/api/admin/console/rag/tests/run")
+                        .contentType(APPLICATION_JSON)
+                        .content("""
+                                {"datasetId":"%s", "syntheticFreeBaseline":true, "retrievalBackend":"local"}
+                                """.formatted(datasetId)))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.title").value("요청 충돌"))
+                .andExpect(jsonPath("$.detail").value(containsString("failed to write experiment config")));
+    }
+
+    @Test
     void runRagRejectsCatalogOutOfAllowlistLlmModel() throws Exception {
         UUID datasetId = insertEvalDataset("spring-rag-invalid-llm-model");
         mockMvc.perform(post("/api/admin/console/rag/tests/run")
@@ -813,6 +939,7 @@ class AdminConsoleRagIntegrationTest {
 
     @Test
     void runRagRewriteEnabledRequiresRewriteStageApiKey() throws Exception {
+        doReturn(null).when(consoleEnvironment).readEnv(anyString());
         UUID datasetId = insertEvalDataset("spring-rag-rewrite-preflight-api-key");
         UUID sourceGatingBatchId = insertCompletedGatingBatch("A", "full_gating");
         String runName = "rewrite-preflight-" + UUID.randomUUID();

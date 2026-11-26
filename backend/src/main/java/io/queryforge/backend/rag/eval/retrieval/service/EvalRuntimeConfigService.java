@@ -4,10 +4,12 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import io.queryforge.backend.rag.eval.retrieval.dto.RagRetrievalEvalDtos;
+import io.queryforge.backend.rag.retrieval.agentic.dto.AgenticRetrievalLimits;
 import io.queryforge.backend.rag.runtime.configuration.dto.ChatConfigDtos;
 import io.queryforge.backend.rag.runtime.configuration.model.RagExecutionSettings;
 import io.queryforge.backend.rag.runtime.configuration.model.RagExecutionSettings.Parameter;
 import io.queryforge.backend.rag.runtime.readiness.dto.ChatReadinessDtos;
+import io.queryforge.backend.rag.runtime.snapshot.dto.GatingSnapshotDtos;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
@@ -97,9 +99,7 @@ class EvalRuntimeConfigService {
                 "source_gating_batch_id",
                 "snapshot_id"
         );
-        if (sourceGatingBatchIds.isEmpty() && sourceGatingBatchId != null) {
-            sourceGatingBatchIds = List.of(sourceGatingBatchId);
-        }
+        sourceGatingBatchIds = GatingSnapshotDtos.withLegacyId(sourceGatingBatchIds, sourceGatingBatchId);
         List<UUID> sourceGatingRunIds = uuidList(
                 runtime,
                 baseConfig.sourceGatingRunIds(),
@@ -112,9 +112,7 @@ class EvalRuntimeConfigService {
                 "sourceGatingRunId",
                 "source_gating_run_id"
         );
-        if (sourceGatingRunIds.isEmpty() && sourceGatingRunId != null) {
-            sourceGatingRunIds = List.of(sourceGatingRunId);
-        }
+        sourceGatingRunIds = GatingSnapshotDtos.withLegacyId(sourceGatingRunIds, sourceGatingRunId);
         ChatConfigDtos.ChatRuntimeConfigResponse config = new ChatConfigDtos.ChatRuntimeConfigResponse(
                 baseConfig.domainId(),
                 baseConfig.domainKey(),
@@ -382,22 +380,16 @@ class EvalRuntimeConfigService {
         return nonNullList(fallback);
     }
 
-    static AgenticEvalSettings agenticSettings(JsonNode metadata) {
-        int maxSubqueries = intValue(metadata, 4, "agenticMaxSubqueries", "agentic_max_subqueries", "strategyRouterAgenticMaxSubqueries", "strategy_router_agentic_max_subqueries");
-        int rrfK = intValue(metadata, 60, "agenticRrfK", "agentic_rrf_k", "rrfK", "rrf_k");
-        return new AgenticEvalSettings(Math.max(1, Math.min(maxSubqueries, 4)), Math.max(1, rrfK));
+    static AgenticRetrievalLimits agenticSettings(JsonNode metadata) {
+        int maxSubqueries = intValue(metadata, AgenticRetrievalLimits.DEFAULT_EVAL_MAX_SUBQUERIES, "agenticMaxSubqueries", "agentic_max_subqueries", "strategyRouterAgenticMaxSubqueries", "strategy_router_agentic_max_subqueries");
+        int rrfK = intValue(metadata, AgenticRetrievalLimits.DEFAULT_RRF_K, "agenticRrfK", "agentic_rrf_k", "rrfK", "rrf_k");
+        return new AgenticRetrievalLimits(maxSubqueries, rrfK);
     }
 
     record RuntimeEvalContext(
             ChatConfigDtos.ChatRuntimeConfigResponse config,
             ChatReadinessDtos.ChatDomainReadinessResponse readiness,
             RagExecutionSettings settings
-    ) {
-    }
-
-    record AgenticEvalSettings(
-            int maxSubqueries,
-            int rrfK
     ) {
     }
 

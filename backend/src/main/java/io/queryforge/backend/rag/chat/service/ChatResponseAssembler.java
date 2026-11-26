@@ -6,6 +6,7 @@ import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import io.queryforge.backend.rag.chat.answer.dto.ChatAnswerDtos;
 import io.queryforge.backend.rag.chat.answer.service.ChatAnswerService;
+import io.queryforge.backend.rag.retrieval.agentic.dto.AgenticRetrievalLimits;
 import io.queryforge.backend.rag.retrieval.agentic.dto.AgenticExecutionDtos;
 import io.queryforge.backend.rag.retrieval.agentic.dto.AgenticRetrievalDtos;
 import io.queryforge.backend.rag.retrieval.candidate.dto.RetrievalDtos;
@@ -99,8 +100,10 @@ class ChatResponseAssembler {
 
     AgenticSettings agenticSettings(JsonNode metadata) {
         boolean enabled = booleanMetadata(metadata, "agenticMultiQueryEnabled", "agentic_multi_query_enabled", false);
-        int maxSubqueries = intMetadata(metadata, "maxSubqueries", "max_subqueries", 3);
-        int rrfK = intMetadata(metadata, "rrfK", "rrf_k", 60);
+        AgenticRetrievalLimits limits = new AgenticRetrievalLimits(
+                intMetadata(metadata, "maxSubqueries", "max_subqueries", AgenticRetrievalLimits.DEFAULT_CHAT_MAX_SUBQUERIES),
+                intMetadata(metadata, "rrfK", "rrf_k", AgenticRetrievalLimits.DEFAULT_RRF_K)
+        );
         String mergeStrategy = stringMetadata(metadata, "agenticMergeStrategy", "agentic_merge_strategy", "RRF");
         String normalizedMergeStrategy = mergeStrategy == null || mergeStrategy.isBlank()
                 ? "RRF"
@@ -110,9 +113,9 @@ class ChatResponseAssembler {
         }
         return new AgenticSettings(
                 enabled,
-                Math.max(1, Math.min(maxSubqueries, 4)),
+                limits.maxSubqueries(),
                 normalizedMergeStrategy,
-                Math.max(1, rrfK)
+                limits.rrfK()
         );
     }
 

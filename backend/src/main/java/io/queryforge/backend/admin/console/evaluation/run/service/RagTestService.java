@@ -16,6 +16,7 @@ import io.queryforge.backend.admin.console.runtime.dto.AdminRuntimeOptionsDtos.R
 import io.queryforge.backend.admin.console.runtime.service.AdminRetrieverConfiguration;
 import io.queryforge.backend.admin.console.runtime.service.AdminRuntimeOptionsService;
 import io.queryforge.backend.admin.console.scope.service.ConsoleScopeService;
+import io.queryforge.backend.rag.retrieval.agentic.dto.AgenticRetrievalLimits;
 import io.queryforge.backend.rag.runtime.configuration.model.RagExecutionSettings;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -34,7 +35,6 @@ import java.util.UUID;
 
 import static io.queryforge.backend.admin.console.configuration.support.ConsoleParameters.asTrimmedString;
 import static io.queryforge.backend.admin.console.configuration.support.ConsoleParameters.blankToNull;
-import static io.queryforge.backend.admin.console.configuration.support.ConsoleParameters.boundedPositiveInt;
 import static io.queryforge.backend.admin.console.configuration.support.ConsoleParameters.defaultCreatedBy;
 import static io.queryforge.backend.admin.console.configuration.support.ConsoleParameters.firstNonBlank;
 import static io.queryforge.backend.admin.console.configuration.support.ConsoleParameters.normalizeGatingPreset;
@@ -189,17 +189,15 @@ public class RagTestService {
                         request.threshold()
                 )
         );
-        int agenticMaxSubqueries = boundedPositiveInt(
-                request.agenticMaxSubqueries(),
-                runtimeOptionsService.runtimeDefaultInt(runtimeCatalog, "agentic_max_subqueries", 4),
-                1,
-                4
-        );
-        int agenticRrfK = boundedPositiveInt(
-                request.agenticRrfK(),
-                runtimeOptionsService.runtimeDefaultInt(runtimeCatalog, "agentic_rrf_k", 60),
-                1,
-                500
+        AgenticRetrievalLimits agenticLimits = AgenticRetrievalLimits.forRegistration(
+                request.agenticMaxSubqueries() == null
+                        ? runtimeOptionsService.runtimeDefaultInt(runtimeCatalog, "agentic_max_subqueries",
+                                AgenticRetrievalLimits.DEFAULT_EVAL_MAX_SUBQUERIES)
+                        : request.agenticMaxSubqueries(),
+                request.agenticRrfK() == null
+                        ? runtimeOptionsService.runtimeDefaultInt(runtimeCatalog, "agentic_rrf_k",
+                                AgenticRetrievalLimits.DEFAULT_RRF_K)
+                        : request.agenticRrfK()
         );
         Map<String, Object> retrieverConfig = retrieverConfiguration.resolveRetrieverConfig(request.retrieverConfig(), false, runtimeCatalog);
         runtimeOptionsService.validateLlmModelSelection(blankToNull(request.llmModel()), runtimeCatalog);
@@ -378,12 +376,12 @@ public class RagTestService {
         config.put("forced_retrieval_mode", routerEnabled ? "strategy_router" : forcedRetrievalMode);
         config.put("agentic_multi_query_enabled", agenticMultiQueryEnabled);
         config.put("agenticMultiQueryEnabled", agenticMultiQueryEnabled);
-        config.put("agentic_max_subqueries", agenticMaxSubqueries);
-        config.put("agenticMaxSubqueries", agenticMaxSubqueries);
-        config.put("maxSubqueries", agenticMaxSubqueries);
-        config.put("agentic_rrf_k", agenticRrfK);
-        config.put("agenticRrfK", agenticRrfK);
-        config.put("rrfK", agenticRrfK);
+        config.put("agentic_max_subqueries", agenticLimits.maxSubqueries());
+        config.put("agenticMaxSubqueries", agenticLimits.maxSubqueries());
+        config.put("maxSubqueries", agenticLimits.maxSubqueries());
+        config.put("agentic_rrf_k", agenticLimits.rrfK());
+        config.put("agenticRrfK", agenticLimits.rrfK());
+        config.put("rrfK", agenticLimits.rrfK());
         config.put("rewrite_query_profile", rewriteQueryProfile);
         config.put("rewrite_anchor_injection_enabled", rewriteAnchorInjectionEnabled);
         // memory_lookup_* is retained only for explicit memory_only_* ablation modes.
@@ -550,8 +548,8 @@ public class RagTestService {
         initialRetrievalConfig.put("router_enabled", routerEnabled);
         initialRetrievalConfig.put("forced_retrieval_mode", routerEnabled ? "strategy_router" : forcedRetrievalMode);
         initialRetrievalConfig.put("agentic_multi_query_enabled", agenticMultiQueryEnabled);
-        initialRetrievalConfig.put("agentic_max_subqueries", agenticMaxSubqueries);
-        initialRetrievalConfig.put("agentic_rrf_k", agenticRrfK);
+        initialRetrievalConfig.put("agentic_max_subqueries", agenticLimits.maxSubqueries());
+        initialRetrievalConfig.put("agentic_rrf_k", agenticLimits.rrfK());
         initialRetrievalConfig.put("synthetic_free_baseline", syntheticFreeBaseline);
         initialRetrievalConfig.put("retriever_config", retrieverConfig);
         CanonicalAnchorVersionMetadata.putDefaults(initialRetrievalConfig);

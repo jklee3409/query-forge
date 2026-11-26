@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import io.queryforge.backend.rag.runtime.configuration.dto.ChatConfigDtos;
 import io.queryforge.backend.rag.runtime.configuration.model.RagExecutionSettings;
+import io.queryforge.backend.rag.runtime.snapshot.dto.GatingSnapshotDtos;
 import lombok.RequiredArgsConstructor;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
@@ -380,13 +381,9 @@ public class ChatRuntimeConfigRepository {
         UUID sourceGatingBatchId = readUuid(rs, "source_gating_batch_id");
         UUID sourceGatingRunId = readUuid(rs, "source_gating_run_id");
         List<UUID> sourceGatingBatchIds = readUuidArray(rs.getString("source_gating_batch_ids"));
-        if (sourceGatingBatchIds.isEmpty() && sourceGatingBatchId != null) {
-            sourceGatingBatchIds = List.of(sourceGatingBatchId);
-        }
+        sourceGatingBatchIds = GatingSnapshotDtos.withLegacyId(sourceGatingBatchIds, sourceGatingBatchId);
         List<UUID> sourceGatingRunIds = readUuidArray(rs.getString("source_gating_run_ids"));
-        if (sourceGatingRunIds.isEmpty() && sourceGatingRunId != null) {
-            sourceGatingRunIds = List.of(sourceGatingRunId);
-        }
+        sourceGatingRunIds = GatingSnapshotDtos.withLegacyId(sourceGatingRunIds, sourceGatingRunId);
         boolean memoryMode = !"raw_only".equalsIgnoreCase(rs.getString("mode"));
         boolean ready = !memoryMode || (!sourceGatingBatchIds.isEmpty() && !sourceGatingRunIds.isEmpty());
         String readinessMessage = ready

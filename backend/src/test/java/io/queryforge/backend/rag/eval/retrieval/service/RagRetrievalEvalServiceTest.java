@@ -1,6 +1,7 @@
 package io.queryforge.backend.rag.eval.retrieval.service;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import io.queryforge.backend.rag.chat.answer.service.ChatAnswerService;
 import io.queryforge.backend.rag.chat.service.RagService;
 import io.queryforge.backend.rag.eval.retrieval.dto.RagRetrievalEvalDtos;
@@ -28,6 +29,8 @@ import io.queryforge.backend.rag.trace.write.repository.RagTraceRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.ValueSource;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -254,6 +257,63 @@ class RagRetrievalEvalServiceTest {
         verify(domainScopedRetrievalService).findMemoryCandidates(
                 eq(QUERY), eq("embedding"), eq(2), anyString(), eq(DOMAIN_ID),
                 anyList(), anyList(), anyList(), eq(retrievalRuntime)
+        );
+    }
+
+    @ParameterizedTest
+    @ValueSource(strings = {"omitted", "null", "empty"})
+    void singularSnapshotOverrideKeepsActiveListsAndPreservesFalseAndEmptyOverrides(String listInput) throws Exception {
+        givenRuntime();
+        var base = config();
+        UUID requestedBatch = UUID.randomUUID();
+        UUID requestedRun = UUID.randomUUID();
+        var runtime = (ObjectNode) objectMapper.readTree("""
+                {
+                  "source_gating_batch_id": "%s",
+                  "source_gating_run_id": "%s",
+                  "generationStrategies": [],
+                  "routerEnabled": false,
+                  "readyForRewrite": false,
+                  "rewriteAnchorInjectionEnabled": false,
+                  "retrievalTopK": null,
+                  "retrieval_top_k": 8,
+                  "rerank_top_n": null
+                }
+                """.formatted(requestedBatch, requestedRun));
+        if ("null".equals(listInput)) {
+            runtime.putNull("source_gating_batch_ids");
+            runtime.putNull("source_gating_run_ids");
+        } else if ("empty".equals(listInput)) {
+            runtime.putArray("source_gating_batch_ids");
+            runtime.putArray("source_gating_run_ids");
+        }
+        var expectedBatchIds = "empty".equals(listInput) ? List.of(requestedBatch) : base.sourceGatingBatchIds();
+        var expectedRunIds = "empty".equals(listInput) ? List.of(requestedRun) : base.sourceGatingRunIds();
+        givenMemoryCandidates(List.of());
+        when(agenticRetrievalService.execute(any())).thenReturn(agenticResult(List.of(doc("chunk", 0.91d))));
+
+        service.execute(new RagRetrievalEvalDtos.RagRetrievalEvalRequest(
+                DOMAIN_ID, QUERY, "agentic_multi_query", null, null, null, null, null, null, runtime
+        ));
+
+        var captor = ArgumentCaptor.forClass(AgenticExecutionDtos.AgenticExecutionRequest.class);
+        verify(agenticRetrievalService).execute(captor.capture());
+        var execution = captor.getValue();
+        assertThat(execution.config().sourceGatingBatchId()).isEqualTo(requestedBatch);
+        assertThat(execution.config().sourceGatingRunId()).isEqualTo(requestedRun);
+        assertThat(execution.config().sourceGatingBatchIds()).isEqualTo(expectedBatchIds);
+        assertThat(execution.config().sourceGatingRunIds()).isEqualTo(expectedRunIds);
+        assertThat(execution.config().generationStrategies()).isEmpty();
+        assertThat(execution.config().routerEnabled()).isFalse();
+        assertThat(execution.config().rewriteAnchorInjectionEnabled()).isFalse();
+        assertThat(execution.readiness().readyForRewrite()).isFalse();
+        assertThat(execution.settings().retrievalTopK()).isEqualTo(8);
+        assertThat(execution.settings().rerankTopN()).isEqualTo(5);
+        assertThat(execution.maxSubqueries()).isEqualTo(4);
+        assertThat(execution.rrfK()).isEqualTo(60);
+        verify(domainScopedRetrievalService).findMemoryCandidates(
+                eq(QUERY), eq("embedding"), eq(5), eq("full_gating"), eq(DOMAIN_ID),
+                eq(List.of()), eq(expectedRunIds), eq(expectedBatchIds), eq(retrievalRuntime)
         );
     }
 

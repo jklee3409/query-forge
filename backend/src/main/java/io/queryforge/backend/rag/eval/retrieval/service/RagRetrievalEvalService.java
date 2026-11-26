@@ -6,8 +6,8 @@ import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import io.queryforge.backend.rag.eval.retrieval.dto.RagRetrievalEvalDtos;
 import io.queryforge.backend.rag.eval.retrieval.exception.RagRetrievalEvalException;
-import io.queryforge.backend.rag.eval.retrieval.service.EvalRuntimeConfigService.AgenticEvalSettings;
 import io.queryforge.backend.rag.eval.retrieval.service.EvalRuntimeConfigService.RuntimeEvalContext;
+import io.queryforge.backend.rag.retrieval.agentic.dto.AgenticRetrievalLimits;
 import io.queryforge.backend.rag.retrieval.agentic.dto.AgenticExecutionDtos;
 import io.queryforge.backend.rag.retrieval.agentic.service.AgenticRetrievalService;
 import io.queryforge.backend.rag.retrieval.candidate.dto.RetrievalDtos;
@@ -132,6 +132,7 @@ public class RagRetrievalEvalService {
                     query,
                     config,
                     readiness,
+                    retrievalRuntime,
                     settings,
                     started,
                     null,
@@ -219,6 +220,7 @@ public class RagRetrievalEvalService {
                     query,
                     config,
                     readiness,
+                    retrievalRuntime,
                     settings,
                     started,
                     routed,
@@ -362,17 +364,16 @@ public class RagRetrievalEvalService {
             String query,
             ChatConfigDtos.ChatRuntimeConfigResponse config,
             ChatReadinessDtos.ChatDomainReadinessResponse readiness,
+            RetrievalDtos.RetrievalRuntime retrievalRuntime,
             RagExecutionSettings executionSettings,
             long started,
             QueryRouteDecision routeDecision,
             List<MemoryCandidate> plannerMemoryCandidates
     ) {
-        RetrievalDtos.RetrievalRuntime retrievalRuntime =
-                domainScopedRetrievalService.retrievalRuntime(config);
         List<MemoryCandidate> memoryCandidates = plannerMemoryCandidates == null
                 ? findMemoryCandidates(query, config, retrievalRuntime, executionSettings.memoryTopN())
                 : plannerMemoryCandidates;
-        AgenticEvalSettings settings = agenticSettings(config.metadata());
+        AgenticRetrievalLimits settings = agenticSettings(config.metadata());
         AgenticExecutionDtos.AgenticExecutionResult result = agenticRetrievalService.execute(
                 new AgenticExecutionDtos.AgenticExecutionRequest(
                         query,
@@ -579,7 +580,7 @@ public class RagRetrievalEvalService {
 
     private JsonNode agenticTrace(
             AgenticExecutionDtos.AgenticExecutionResult result,
-            AgenticEvalSettings settings,
+            AgenticRetrievalLimits settings,
             int finalTopK
     ) {
         ObjectNode node = objectMapper.createObjectNode();

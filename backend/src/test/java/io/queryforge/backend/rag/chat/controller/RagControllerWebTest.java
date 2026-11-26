@@ -95,7 +95,27 @@ class RagControllerWebTest {
                 .andExpect(jsonPath("$.errorCode").value("GEMINI_SERVICE_UNAVAILABLE"))
                 .andExpect(jsonPath("$.detail").value("Gemini 모델에 문제가 발생하였습니다. 잠시 후 다시 시도해주세요."))
                 .andExpect(jsonPath("$.retryMessage").value("Gemini 모델에 문제가 발생하였습니다. 답변을 다시 생성 중입니다"))
-                .andExpect(jsonPath("$.attempts").value(2));
+                .andExpect(jsonPath("$.attempts").value(2))
+                .andExpect(jsonPath("$.retryable").value(true))
+                .andExpect(jsonPath("$.provider").value("gemini"))
+                .andExpect(jsonPath("$.model").value("gemini-2.5-flash-lite"))
+                .andExpect(jsonPath("$.statusCode").value(503))
+                .andExpect(jsonPath("$.code").doesNotHaveJsonPath());
+    }
+
+    @Test
+    void chatStateFailureIsAnInternalServerError() throws Exception {
+        when(ragService.ask(any())).thenThrow(new IllegalStateException("answer failed"));
+
+        mockMvc.perform(post("/api/chat/ask")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"query":"filter chain"}
+                                """))
+                .andExpect(status().isInternalServerError())
+                .andExpect(jsonPath("$.title").value("Pipeline error"))
+                .andExpect(jsonPath("$.detail").value("answer failed"))
+                .andExpect(jsonPath("$.errorCode").doesNotHaveJsonPath());
     }
 
     @Test

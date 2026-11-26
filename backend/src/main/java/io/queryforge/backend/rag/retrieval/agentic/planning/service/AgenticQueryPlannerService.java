@@ -4,6 +4,8 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
+import io.queryforge.backend.rag.provider.environment.model.ChatModelSettings;
+import io.queryforge.backend.rag.provider.environment.model.ChatModelSettings.Stage;
 import io.queryforge.backend.rag.provider.environment.service.RuntimeEnvService;
 import io.queryforge.backend.rag.provider.springai.gateway.SpringAiChatGateway;
 import io.queryforge.backend.rag.retrieval.agentic.planning.dto.AgenticPlanningDtos;
@@ -136,7 +138,7 @@ public class AgenticQueryPlannerService {
             List<MemoryCandidate> memoryHints,
             int maxSubqueries
     ) {
-        String provider = runtimeEnvService.getOrDefault("QUERY_FORGE_LLM_PROVIDER", "gemini").toLowerCase(Locale.ROOT);
+        String provider = ChatModelSettings.provider(runtimeEnvService);
         Optional<PlannerPayload> springAiPlan = requestSpringAiPlan(
                 provider,
                 rawQuery,
@@ -165,11 +167,7 @@ public class AgenticQueryPlannerService {
         if (springAiChatGateway == null) {
             return Optional.empty();
         }
-        String model = runtimeEnvService.getOrDefault(
-                "QUERY_FORGE_LLM_PLANNER_MODEL",
-                runtimeEnvService.getOrDefault("QUERY_FORGE_LLM_REWRITE_MODEL",
-                        runtimeEnvService.getOrDefault("QUERY_FORGE_LLM_MODEL", "spring-ai-chat"))
-        );
+        String model = ChatModelSettings.springAiModelLabel(runtimeEnvService, Stage.PLANNER, provider);
         return springAiChatGateway.completeJson(
                         provider,
                         SYSTEM_PROMPT,
@@ -194,13 +192,8 @@ public class AgenticQueryPlannerService {
         if (apiKey.isBlank()) {
             return Optional.empty();
         }
-        String model = runtimeEnvService.getOrDefault(
-                "QUERY_FORGE_LLM_PLANNER_MODEL",
-                runtimeEnvService.getOrDefault("QUERY_FORGE_LLM_REWRITE_MODEL",
-                        runtimeEnvService.getOrDefault("QUERY_FORGE_LLM_MODEL", "gemini-2.5-flash-lite"))
-        );
-        String baseUrl = runtimeEnvService.getOrDefault("QUERY_FORGE_GEMINI_BASE_URL", "https://generativelanguage.googleapis.com");
-        int maxOutputTokens = parseInt(runtimeEnvService.getOrDefault("QUERY_FORGE_LLM_MAX_OUTPUT_TOKENS", "384"), 384);
+        ChatModelSettings settings = ChatModelSettings.direct(runtimeEnvService, Stage.PLANNER, false);
+        String model = settings.model();
         try {
             ObjectNode payload = objectMapper.createObjectNode();
             payload.putObject("systemInstruction")
@@ -216,11 +209,11 @@ public class AgenticQueryPlannerService {
             ObjectNode generationConfig = payload.putObject("generationConfig");
             generationConfig.put("responseMimeType", "application/json");
             generationConfig.put("temperature", 0.1d);
-            generationConfig.put("maxOutputTokens", maxOutputTokens);
+            generationConfig.put("maxOutputTokens", settings.maxOutputTokens());
 
             String encodedModel = URLEncoder.encode(model, StandardCharsets.UTF_8);
             URI uri = URI.create(
-                    baseUrl.replaceAll("/+$", "")
+                    settings.baseUrl().replaceAll("/+$", "")
                             + "/v1beta/models/"
                             + encodedModel
                             + ":generateContent?key="
@@ -255,18 +248,13 @@ public class AgenticQueryPlannerService {
         if (apiKey.isBlank()) {
             return Optional.empty();
         }
-        String model = runtimeEnvService.getOrDefault(
-                "QUERY_FORGE_LLM_PLANNER_MODEL",
-                runtimeEnvService.getOrDefault("QUERY_FORGE_LLM_REWRITE_MODEL",
-                        runtimeEnvService.getOrDefault("QUERY_FORGE_LLM_MODEL", "gpt-4o-mini"))
-        );
-        String baseUrl = runtimeEnvService.getOrDefault("QUERY_FORGE_OPENAI_BASE_URL", "https://api.openai.com/v1");
-        int maxTokens = parseInt(runtimeEnvService.getOrDefault("QUERY_FORGE_LLM_MAX_OUTPUT_TOKENS", "384"), 384);
+        ChatModelSettings settings = ChatModelSettings.direct(runtimeEnvService, Stage.PLANNER, true);
+        String model = settings.model();
         try {
             ObjectNode payload = objectMapper.createObjectNode();
             payload.put("model", model);
             payload.put("temperature", 0.1d);
-            payload.put("max_tokens", maxTokens);
+            payload.put("max_tokens", settings.maxOutputTokens());
             payload.putObject("response_format").put("type", "json_object");
             ArrayNode messages = payload.putArray("messages");
             messages.addObject().put("role", "system").put("content", SYSTEM_PROMPT);
@@ -275,7 +263,7 @@ public class AgenticQueryPlannerService {
                     .put("content", buildPlannerPrompt(rawQuery, config, domainContext, memoryHints, maxSubqueries));
 
             HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create(baseUrl.replaceAll("/+$", "") + "/chat/completions"))
+                    .uri(URI.create(settings.baseUrl().replaceAll("/+$", "") + "/chat/completions"))
                     .timeout(Duration.ofSeconds(45))
                     .header("Authorization", "Bearer " + apiKey)
                     .header("Content-Type", "application/json")
@@ -467,14 +455,6 @@ public class AgenticQueryPlannerService {
             }
         }
         return "";
-    }
-
-    private int parseInt(String raw, int fallback) {
-        try {
-            return Integer.parseInt(raw);
-        } catch (Exception ignored) {
-            return fallback;
-        }
     }
 
     private String normalizeWhitespace(String value) {

@@ -30,6 +30,7 @@ import static io.queryforge.backend.rag.runtime.configuration.model.RagExecution
 import static io.queryforge.backend.rag.runtime.configuration.model.RagExecutionSettings.RETRIEVAL_TOP_K;
 import static io.queryforge.backend.rag.runtime.configuration.model.RagExecutionSettings.REWRITE_CANDIDATE_COUNT;
 import static io.queryforge.backend.rag.runtime.configuration.model.RagExecutionSettings.REWRITE_THRESHOLD;
+import static io.queryforge.backend.rag.retrieval.candidate.dto.RetrievalDtos.DEFAULT_DENSE_EMBEDDING_MODEL;
 
 @Service
 @RequiredArgsConstructor
@@ -48,7 +49,6 @@ public class AdminRuntimeOptionsService {
     private static final String RETRIEVER_MODE_HYBRID = "hybrid";
     private static final String DEFAULT_LLM_MODEL = "gemini-2.5-flash-lite";
     private static final String DEFAULT_LLM_FALLBACK_MODEL = "gemini-2.5-flash-lite";
-    private static final String DEFAULT_DENSE_EMBEDDING_MODEL = "intfloat/multilingual-e5-small";
     private static final String MODEL_CATALOG_RELATIVE_PATH = "configs/app/model_catalog.yml";
     private static final int DEFAULT_REWRITE_MEMORY_CANDIDATE_POOL_N = 20;
     private static final int DEFAULT_RETRIEVER_CANDIDATE_POOL_K = 50;
