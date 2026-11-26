@@ -301,13 +301,18 @@ public class LlmJobResultService {
             EvalDatasetDtos.EvalSampleMeta meta = sampleMetaMap.get(sampleId);
             Map<String, Object> metricContributionPayload = new LinkedHashMap<>();
             metricContributionPayload.put("mode", row.path("mode").asText(""));
-            metricContributionPayload.put("raw_mrr", row.path("raw_mrr").asDouble(0.0));
+            boolean versionedEval = row.path("eval_policy_version").asInt() == 2;
+            metricContributionPayload.put("raw_mrr", detailMetric(row, "raw_mrr", versionedEval));
             metricContributionPayload.put("mode_mrr", row.path("mode_mrr").asDouble(0.0));
-            metricContributionPayload.put("raw_ndcg", row.path("raw_ndcg").asDouble(0.0));
+            metricContributionPayload.put("raw_ndcg", detailMetric(row, "raw_ndcg", versionedEval));
             metricContributionPayload.put("mode_ndcg", row.path("mode_ndcg").asDouble(0.0));
-            metricContributionPayload.put("raw_confidence", row.path("raw_confidence").asDouble(0.0));
-            metricContributionPayload.put("best_candidate_confidence", row.path("best_candidate_confidence").asDouble(0.0));
-            metricContributionPayload.put("confidence_delta", row.path("confidence_delta").asDouble(0.0));
+            metricContributionPayload.put("raw_confidence", detailMetric(row, "raw_confidence", versionedEval));
+            metricContributionPayload.put("best_candidate_confidence", detailMetric(row, "best_candidate_confidence", versionedEval));
+            metricContributionPayload.put("confidence_delta", detailMetric(row, "confidence_delta", versionedEval));
+            if (versionedEval) {
+                metricContributionPayload.put("eval_policy_version", 2);
+                metricContributionPayload.put("effective_snapshot", nullableJson(row.get("effective_snapshot")));
+            }
             metricContributionPayload.put("rewrite_reason", row.path("rewrite_reason").asText(""));
             metricContributionPayload.put("raw_rank", row.hasNonNull("raw_rank") ? row.path("raw_rank").asInt() : null);
             metricContributionPayload.put("final_rank", row.hasNonNull("final_rank") ? row.path("final_rank").asInt() : null);
@@ -446,6 +451,7 @@ public class LlmJobResultService {
         List<String> priority = List.of(
                 "selective_rewrite",
                 "selective_rewrite_with_session",
+                "selective_rewrite_full_gating",
                 "memory_only_full_gating",
                 "memory_only_gated",
                 "raw_only"
@@ -475,6 +481,10 @@ public class LlmJobResultService {
             return null;
         }
         return node.asDouble();
+    }
+
+    private Double detailMetric(JsonNode row, String key, boolean versionedEval) {
+        return versionedEval ? nullableDouble(row.get(key)) : Double.valueOf(row.path(key).asDouble(0.0));
     }
 
     private Integer nullableInteger(JsonNode node) {

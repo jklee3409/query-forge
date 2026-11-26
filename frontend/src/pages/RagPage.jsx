@@ -326,9 +326,17 @@ function firstMetricNumber(values) {
   return null
 }
 
+const GATING_REWRITE_MODES = [
+  'selective_rewrite_ungated',
+  'selective_rewrite_rule_only',
+  'selective_rewrite_full_gating',
+]
+const GATING_REWRITE_MODE_PRIORITY = [...GATING_REWRITE_MODES].reverse()
+
 const RUN_METRIC_MODE_PRIORITY = [
   'selective_rewrite_with_session',
   'selective_rewrite',
+  ...GATING_REWRITE_MODE_PRIORITY,
   'rewrite_always',
   'raw_only',
   'memory_only_full_gating',
@@ -418,6 +426,7 @@ function formatMetric(value) {
 const RUN_DETAIL_REWRITE_MODE_PRIORITY = [
   'selective_rewrite_with_session',
   'selective_rewrite',
+  ...GATING_REWRITE_MODE_PRIORITY,
   'rewrite_always',
   'memory_only_gated',
   'memory_only_full_gating',
@@ -460,7 +469,7 @@ function resolveRunDetailRewriteRow(rows) {
 }
 
 function isQueryRewriteMode(mode) {
-  return ['selective_rewrite_with_session', 'selective_rewrite', 'rewrite_always'].includes(mode)
+  return ['selective_rewrite_with_session', 'selective_rewrite', 'rewrite_always', ...GATING_REWRITE_MODES].includes(mode)
 }
 
 function renderRunDetailModeSummary(retrievalByModeRows) {
@@ -477,6 +486,7 @@ function renderRunDetailModeSummary(retrievalByModeRows) {
     'rewrite_always',
     'selective_rewrite',
     'selective_rewrite_with_session',
+    ...GATING_REWRITE_MODES,
     'memory_only_gated',
     'memory_only_full_gating',
     'memory_only_rule_only',
@@ -2394,7 +2404,13 @@ export function RagPage({ notify, domainId = null }) {
     }
   }, [form.stageCutoffEnabled, form.gatingApplied, form.syntheticFreeBaseline, form.runDiscipline])
 
-  const effectiveGatingPreset = form.gatingApplied ? form.gatingPreset : 'ungated'
+  const officialComparison = !form.syntheticFreeBaseline && form.runDiscipline === 'official'
+  const officialGatingComparison = officialComparison && form.officialComparisonType === 'gating_effect'
+  const effectiveGatingApplied = !form.syntheticFreeBaseline && (officialComparison || form.gatingApplied)
+  const effectiveRewriteFailurePolicy = officialComparison ? 'skip_to_raw' : form.rewriteFailurePolicy
+  const effectiveGatingPreset = officialGatingComparison
+    ? 'full_gating'
+    : (effectiveGatingApplied ? form.gatingPreset : 'ungated')
   const stageCutoffEnabledForRun = !form.syntheticFreeBaseline && form.gatingApplied && Boolean(form.stageCutoffEnabled)
   const runGatingPreset = form.syntheticFreeBaseline
     ? 'ungated'
@@ -2622,20 +2638,18 @@ export function RagPage({ notify, domainId = null }) {
       }
     }
     try {
-      const gatingApplied = syntheticFreeBaseline ? false : Boolean(form.gatingApplied)
-      const routerEnabled = !syntheticFreeBaseline && Boolean(form.queryRouterEnabled)
-      const forcedRetrievalMode = routerEnabled ? 'strategy_router' : (form.forcedRetrievalMode || 'selective_rewrite')
-      const agenticMultiQueryEnabled = !syntheticFreeBaseline
-        && (routerEnabled ? Boolean(form.agenticMultiQueryEnabled) : forcedRetrievalMode === 'agentic_multi_query')
+      const routerEnabled = effectiveRouterEnabled
+      const forcedRetrievalMode = effectiveForcedRetrievalMode
+      const agenticMultiQueryEnabled = effectiveAgenticMultiQueryEnabled
       const rewriteEnabled = syntheticFreeBaseline ? false : forcedRetrievalMode !== 'raw_only'
       const selectiveRewrite = syntheticFreeBaseline
         ? false
         : ['selective_rewrite', 'anchor_aware_rewrite', 'agentic_multi_query', 'strategy_router'].includes(forcedRetrievalMode)
-      const useSessionContext = syntheticFreeBaseline || routerEnabled ? false : Boolean(form.useSessionContext)
-      const rewriteAnchorInjectionEnabled = syntheticFreeBaseline
+      const useSessionContext = syntheticFreeBaseline || officialComparison || routerEnabled ? false : Boolean(form.useSessionContext)
+      const rewriteAnchorInjectionEnabled = syntheticFreeBaseline || officialGatingComparison
         ? false
         : rewriteEnabled && (forcedRetrievalMode === 'anchor_aware_rewrite' || Boolean(form.rewriteAnchorInjectionEnabled))
-      const multiSourceAnchorExpansionEnabled = syntheticFreeBaseline
+      const multiSourceAnchorExpansionEnabled = syntheticFreeBaseline || officialComparison
         ? false
         : rewriteEnabled && rewriteAnchorInjectionEnabled && Boolean(form.multiSourceAnchorExpansionEnabled)
       const created = await requestJson('/api/admin/console/rag/tests/run', {
@@ -2665,7 +2679,7 @@ export function RagPage({ notify, domainId = null }) {
               : null,
           officialRun,
           officialComparisonType: officialRun ? form.officialComparisonType : null,
-          gatingApplied,
+          gatingApplied: effectiveGatingApplied,
           stageCutoffEnabled: stageCutoffEnabled || null,
           stageCutoffLevel,
           rewriteEnabled,
@@ -2677,7 +2691,7 @@ export function RagPage({ notify, domainId = null }) {
           rewriteAnchorInjectionEnabled,
           multiSourceAnchorExpansionEnabled,
           rewriteQueryProfile: rewriteEnabled ? (form.rewriteQueryProfile || runtimeOptions.defaultRewriteQueryProfile || 'compact_anchor') : 'compact_anchor',
-          rewriteFailurePolicy: form.rewriteFailurePolicy || 'fail_run',
+          rewriteFailurePolicy: effectiveRewriteFailurePolicy || 'fail_run',
           llmModel: form.llmModel || runtimeOptions.defaultLlmModel || null,
           rewriteLlmModel: form.rewriteLlmModel || null,
           threshold: toNumber(form.threshold),
@@ -3100,10 +3114,12 @@ export function RagPage({ notify, domainId = null }) {
   const selectedSnapshotSummary = selectedSnapshot
     ? `${shortId(selectedSnapshot.gatingBatchId)} / ${selectedSnapshot.gatingPreset} / ${selectedSnapshot.methodCode || '-'}`
     : (form.syntheticFreeBaseline ? '미사용' : '필수')
-  const effectiveRouterEnabled = !form.syntheticFreeBaseline && Boolean(form.queryRouterEnabled)
-  const effectiveForcedRetrievalMode = effectiveRouterEnabled
-    ? 'strategy_router'
-    : (form.forcedRetrievalMode || 'selective_rewrite')
+  const effectiveRouterEnabled = !form.syntheticFreeBaseline && !officialComparison && Boolean(form.queryRouterEnabled)
+  const effectiveForcedRetrievalMode = form.syntheticFreeBaseline
+    ? 'raw_only'
+    : officialComparison ? 'selective_rewrite'
+      : effectiveRouterEnabled ? 'strategy_router' : (form.forcedRetrievalMode || 'selective_rewrite')
+  const effectiveRewriteEnabled = officialComparison || form.rewriteEnabled
   const effectiveAgenticMultiQueryEnabled = !form.syntheticFreeBaseline
     && (effectiveRouterEnabled ? Boolean(form.agenticMultiQueryEnabled) : effectiveForcedRetrievalMode === 'agentic_multi_query')
   const retrievalBalanceItems = [
@@ -3118,13 +3134,13 @@ export function RagPage({ notify, domainId = null }) {
     { label: '전략', value: selectedMethodSummary },
     { label: '스냅샷', value: selectedSnapshotSummary },
     { label: '게이팅', value: runGatingPreset },
-    { label: '재작성', value: form.rewriteEnabled ? (form.selectiveRewrite ? '선택적' : '항상') : '꺼짐' },
+    { label: '재작성', value: effectiveRewriteEnabled ? (officialComparison || form.selectiveRewrite ? '선택적' : '항상') : '꺼짐' },
     { label: 'Router', value: effectiveRouterEnabled ? 'on' : 'off' },
     { label: 'Execution mode', value: effectiveForcedRetrievalMode },
     { label: 'Agentic', value: effectiveAgenticMultiQueryEnabled ? 'enabled' : 'disabled' },
     { label: 'Memory Top-N', value: form.memoryTopN || '-' },
     { label: 'Rewrite candidates', value: form.rewriteCandidateCount || '-' },
-    { label: '재작성 프로필', value: form.rewriteEnabled ? form.rewriteQueryProfile : 'compact_anchor' },
+    { label: '재작성 프로필', value: effectiveRewriteEnabled ? form.rewriteQueryProfile : 'compact_anchor' },
     { label: 'Rewrite LLM', value: form.rewriteLlmModel || form.llmModel || runtimeOptions.defaultLlmModel || '-' },
     { label: '검색', value: `${form.retrievalBackend} / ${retrieverModeLabel(form.retrieverMode)}` },
   ]
@@ -3266,7 +3282,7 @@ export function RagPage({ notify, domainId = null }) {
             <label className="filter-field">게이팅 프리셋
               <select
                 value={runGatingPreset}
-                disabled={form.syntheticFreeBaseline || !form.gatingApplied || stageCutoffEnabledForRun}
+                disabled={!effectiveGatingApplied || officialGatingComparison || stageCutoffEnabledForRun}
                 onChange={(event) => setForm((prev) => ({ ...prev, gatingPreset: event.target.value }))}
               >
                 <option value="ungated">ungated</option>
@@ -3313,14 +3329,14 @@ export function RagPage({ notify, domainId = null }) {
               <ExperimentSection
                 title="재작성 전략"
                 description="재작성, 선택 적용, 컷오프, 후보 수를 설정합니다."
-                badge={form.rewriteEnabled ? '재작성 켬' : '재작성 끔'}
+                badge={effectiveRewriteEnabled ? '재작성 켬' : '재작성 끔'}
               >
                 <div className="form-grid form-grid--3">
-            <label className={`check-pill ${form.queryRouterEnabled ? 'is-active' : ''} ${form.syntheticFreeBaseline ? 'is-disabled' : ''}`}>
+            <label className={`check-pill ${effectiveRouterEnabled ? 'is-active' : ''} ${form.syntheticFreeBaseline || officialComparison ? 'is-disabled' : ''}`}>
               <input
                 type="checkbox"
-                checked={form.queryRouterEnabled}
-                disabled={form.syntheticFreeBaseline}
+                checked={effectiveRouterEnabled}
+                disabled={form.syntheticFreeBaseline || officialComparison}
                 onChange={(event) => setForm((prev) => ({
                   ...prev,
                   queryRouterEnabled: event.target.checked,
@@ -3330,13 +3346,13 @@ export function RagPage({ notify, domainId = null }) {
                   agenticMultiQueryEnabled: event.target.checked ? true : prev.forcedRetrievalMode === 'agentic_multi_query',
                 }))}
               />
-              <span className="check-pill__box" aria-hidden="true">{form.queryRouterEnabled ? '✓' : ''}</span>
+              <span className="check-pill__box" aria-hidden="true">{effectiveRouterEnabled ? '✓' : ''}</span>
               <span className="check-pill__text">Strategy Router</span>
             </label>
             <label className="filter-field filter-field--small">Execution mode
               <select
-                value={form.forcedRetrievalMode}
-                disabled={form.syntheticFreeBaseline || form.queryRouterEnabled}
+                value={effectiveRouterEnabled ? form.forcedRetrievalMode : effectiveForcedRetrievalMode}
+                disabled={form.syntheticFreeBaseline || officialComparison || effectiveRouterEnabled}
                 onChange={(event) => setForm((prev) => {
                   const mode = event.target.value
                   return {
@@ -3357,11 +3373,11 @@ export function RagPage({ notify, domainId = null }) {
               </select>
               <span className="field-hint">Router off Java forcedMode</span>
             </label>
-            <label className={`check-pill ${effectiveAgenticMultiQueryEnabled ? 'is-active' : ''} ${form.syntheticFreeBaseline || !form.queryRouterEnabled ? 'is-disabled' : ''}`}>
+            <label className={`check-pill ${effectiveAgenticMultiQueryEnabled ? 'is-active' : ''} ${!effectiveRouterEnabled ? 'is-disabled' : ''}`}>
               <input
                 type="checkbox"
                 checked={effectiveAgenticMultiQueryEnabled}
-                disabled={form.syntheticFreeBaseline || !form.queryRouterEnabled}
+                disabled={!effectiveRouterEnabled}
                 onChange={(event) => setForm((prev) => ({ ...prev, agenticMultiQueryEnabled: event.target.checked }))}
               />
               <span className="check-pill__box" aria-hidden="true">{effectiveAgenticMultiQueryEnabled ? '✓' : ''}</span>
@@ -3413,7 +3429,7 @@ export function RagPage({ notify, domainId = null }) {
             <label className="filter-field">Rewrite LLM
               <select
                 value={form.rewriteLlmModel}
-                disabled={!form.rewriteEnabled}
+                disabled={!effectiveRewriteEnabled}
                 onChange={(event) => setForm((prev) => ({ ...prev, rewriteLlmModel: event.target.value }))}
               >
                 <option value="">공통 LLM 사용</option>
@@ -3424,7 +3440,7 @@ export function RagPage({ notify, domainId = null }) {
             <label className="filter-field filter-field--small">재작성 프로필
               <select
                 value={form.rewriteQueryProfile}
-                disabled={!form.rewriteEnabled}
+                disabled={!effectiveRewriteEnabled}
                 onChange={(event) => setForm((prev) => ({ ...prev, rewriteQueryProfile: event.target.value }))}
               >
                 {(runtimeOptions.rewriteQueryProfiles.length > 0
@@ -3444,7 +3460,7 @@ export function RagPage({ notify, domainId = null }) {
                   max="1"
                   step="0.01"
                   value={form.threshold}
-                  disabled={!form.rewriteEnabled || !form.selectiveRewrite}
+                  disabled={!effectiveRewriteEnabled || (!officialComparison && !form.selectiveRewrite)}
                   onChange={(event) => setForm((prev) => ({ ...prev, threshold: event.target.value }))}
                   aria-label="재작성 임계값 슬라이더"
                 />
@@ -3454,7 +3470,7 @@ export function RagPage({ notify, domainId = null }) {
                   max="1"
                   step="0.01"
                   value={form.threshold}
-                  disabled={!form.rewriteEnabled || !form.selectiveRewrite}
+                  disabled={!effectiveRewriteEnabled || (!officialComparison && !form.selectiveRewrite)}
                   onChange={(event) => setForm((prev) => ({ ...prev, threshold: event.target.value }))}
                 />
               </div>
@@ -3587,21 +3603,21 @@ export function RagPage({ notify, domainId = null }) {
               <span className="check-pill__box" aria-hidden="true">{form.stageCutoffEnabled ? '✓' : ''}</span>
               <span className="check-pill__text">스테이지 컷오프</span>
             </label>
-            <label><input type="checkbox" checked={form.gatingApplied} disabled={form.syntheticFreeBaseline} onChange={(event) => setForm((prev) => ({ ...prev, gatingApplied: event.target.checked }))} />게이팅 반영</label>
-            <label><input type="checkbox" checked={form.rewriteEnabled} disabled={form.syntheticFreeBaseline} onChange={(event) => setForm((prev) => ({ ...prev, rewriteEnabled: event.target.checked }))} />재작성 사용</label>
-            <label><input type="checkbox" checked={form.selectiveRewrite} disabled={form.syntheticFreeBaseline || !form.rewriteEnabled} onChange={(event) => setForm((prev) => ({ ...prev, selectiveRewrite: event.target.checked, useSessionContext: event.target.checked ? prev.useSessionContext : false }))} />선택 적용</label>
-            <label><input type="checkbox" checked={form.useSessionContext} disabled={form.syntheticFreeBaseline || !form.rewriteEnabled || !form.selectiveRewrite} onChange={(event) => setForm((prev) => ({ ...prev, useSessionContext: event.target.checked }))} />세션 문맥</label>
-            <label><input type="checkbox" checked={form.rewriteAnchorInjectionEnabled} disabled={form.syntheticFreeBaseline || !form.rewriteEnabled} onChange={(event) => setForm((prev) => ({ ...prev, rewriteAnchorInjectionEnabled: event.target.checked }))} />앵커 주입</label>
-            <label><input type="checkbox" checked={form.multiSourceAnchorExpansionEnabled} disabled={form.syntheticFreeBaseline || !form.rewriteEnabled || !form.rewriteAnchorInjectionEnabled} onChange={(event) => setForm((prev) => ({ ...prev, multiSourceAnchorExpansionEnabled: event.target.checked }))} />multi-source hints</label>
+            <label><input type="checkbox" checked={effectiveGatingApplied} disabled={form.syntheticFreeBaseline || officialComparison} onChange={(event) => setForm((prev) => ({ ...prev, gatingApplied: event.target.checked }))} />게이팅 반영</label>
+            <label><input type="checkbox" checked={effectiveRewriteEnabled} disabled={form.syntheticFreeBaseline || officialComparison} onChange={(event) => setForm((prev) => ({ ...prev, rewriteEnabled: event.target.checked }))} />재작성 사용</label>
+            <label><input type="checkbox" checked={officialComparison || form.selectiveRewrite} disabled={form.syntheticFreeBaseline || officialComparison || !form.rewriteEnabled} onChange={(event) => setForm((prev) => ({ ...prev, selectiveRewrite: event.target.checked, useSessionContext: event.target.checked ? prev.useSessionContext : false }))} />선택 적용</label>
+            <label><input type="checkbox" checked={!officialComparison && form.useSessionContext} disabled={form.syntheticFreeBaseline || officialComparison || !form.rewriteEnabled || !form.selectiveRewrite} onChange={(event) => setForm((prev) => ({ ...prev, useSessionContext: event.target.checked }))} />세션 문맥</label>
+            <label><input type="checkbox" checked={!officialGatingComparison && form.rewriteAnchorInjectionEnabled} disabled={form.syntheticFreeBaseline || officialGatingComparison || !effectiveRewriteEnabled} onChange={(event) => setForm((prev) => ({ ...prev, rewriteAnchorInjectionEnabled: event.target.checked }))} />앵커 주입</label>
+            <label><input type="checkbox" checked={!officialComparison && form.multiSourceAnchorExpansionEnabled} disabled={form.syntheticFreeBaseline || officialComparison || !form.rewriteEnabled || !form.rewriteAnchorInjectionEnabled} onChange={(event) => setForm((prev) => ({ ...prev, multiSourceAnchorExpansionEnabled: event.target.checked }))} />multi-source hints</label>
             <label className="rewrite-strategy-field">
               <span className="rewrite-strategy-field__label">재작성 실패 정책</span>
               <div className="rewrite-strategy-field__control">
                 <select
-                  value={form.rewriteFailurePolicy}
-                  disabled={form.syntheticFreeBaseline || !form.rewriteEnabled}
+                  value={effectiveRewriteFailurePolicy}
+                  disabled={form.syntheticFreeBaseline || officialComparison || !effectiveRewriteEnabled}
                   onChange={(event) => setForm((prev) => ({ ...prev, rewriteFailurePolicy: event.target.value }))}
                 >
-                  {runtimeOptions.rewriteFailurePolicies.map((policy) => (
+                  {(officialComparison ? ['skip_to_raw'] : runtimeOptions.rewriteFailurePolicies).map((policy) => (
                     <option key={policy} value={policy}>{policy}</option>
                   ))}
                 </select>

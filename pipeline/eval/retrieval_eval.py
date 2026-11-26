@@ -40,6 +40,12 @@ try:
         runtime_retriever_label,
         runtime_retriever_metadata,
     )
+    from eval.official_retrieval_eval import (
+        GATING_COMPARISON_MODES,
+        official_forced_mode,
+        official_rewrite_diagnostics,
+        official_runtime_config,
+    )
     from eval.java_retrieval_client import (
         JAVA_RETRIEVAL_BLOCKED_FORCED_MODES,
         JAVA_RETRIEVAL_ENDPOINT_PATH,
@@ -80,6 +86,12 @@ except ModuleNotFoundError:  # pragma: no cover
         run_selective_rewrite,
         runtime_retriever_label,
         runtime_retriever_metadata,
+    )
+    from pipeline.eval.official_retrieval_eval import (
+        GATING_COMPARISON_MODES,
+        official_forced_mode,
+        official_rewrite_diagnostics,
+        official_runtime_config,
     )
     from pipeline.eval.java_retrieval_client import (
         JAVA_RETRIEVAL_BLOCKED_FORCED_MODES,
@@ -197,10 +209,31 @@ def _mean(rows: list[float]) -> float:
     return float(statistics.fmean(rows))
 
 
+def _p95(rows: list[float]) -> float | None:
+    if len(rows) < 2:
+        return rows[0] if rows else None
+    return statistics.quantiles(rows, n=20, method="inclusive")[-1]
+
+
+def _official_latency_summary(rows: list[dict[str, Any]]) -> dict[str, float | None]:
+    server = [row["server_latency_ms"] for row in rows if row["server_latency_ms"] is not None]
+    rewrite = [row["final_rewrite_latency_ms"] for row in rows if row["final_rewrite_latency_ms"] is not None]
+    round_trip = [row["java_round_trip_latency_ms"] for row in rows]
+    return {
+        "p95_latency_ms": _p95([row["elapsed_ms"] for row in rows]),
+        "avg_java_round_trip_latency_ms": _mean(round_trip),
+        "p95_java_round_trip_latency_ms": _p95(round_trip),
+        "avg_server_latency_ms": _mean(server) if server else None,
+        "p95_server_latency_ms": _p95(server),
+        "avg_rewrite_latency_ms": _mean(rewrite) if rewrite else None,
+        "p95_rewrite_latency_ms": _p95(rewrite),
+    }
+
+
 def _selected_strategy_for_mode(mode: str) -> str | None:
     if mode in {"raw_only", "selective_rewrite", "anchor_aware_rewrite", "agentic_multi_query"}:
         return mode
-    if mode in {"rewrite_always", "selective_rewrite_with_session"}:
+    if mode in {"rewrite_always", "selective_rewrite_with_session"} or mode in GATING_COMPARISON_MODES:
         return "selective_rewrite"
     return None
 
@@ -337,8 +370,9 @@ def _render_report(
         lines.append(
             f"| {row['mode']} | {row['recall@5']:.4f} | {row['hit@5']:.4f} | {row['mrr@10']:.4f} | "
             f"{row['ndcg@10']:.4f} | {row.get('avg_latency_ms', 0.0):.2f} | "
-            f"{int(row.get('degraded_query_count', 0))} | {row.get('adoption_rate', 0.0):.4f} | "
-            f"{row.get('bad_rewrite_rate', 0.0):.4f} |"
+            f"{_format_optional_metric(row.get('degraded_query_count', 0), 'd')} | "
+            f"{row.get('adoption_rate', 0.0):.4f} | "
+            f"{_format_optional_metric(row.get('bad_rewrite_rate', 0.0), '.4f')} |"
         )
 
     lines.extend(
@@ -368,6 +402,12 @@ def _render_report(
 
     report_path.parent.mkdir(parents=True, exist_ok=True)
     report_path.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def _format_optional_metric(value: int | float | None, specifier: str) -> str:
+    if value is None:
+        return "-"
+    return format(int(value) if specifier == "d" else value, specifier)
 
 
 def _dedup_candidates(
@@ -455,9 +495,13 @@ def _java_forced_mode_for_eval_mode(
 ) -> str | None:
     if settings is None or not settings.enabled:
         return None
+    if settings.eval_policy_version is not None:
+        return official_forced_mode(mode)
     normalized_mode = normalize_forced_mode(mode)
     if normalized_mode not in JAVA_RETRIEVAL_SUPPORTED_FORCED_MODES:
         return None
+    if settings.use_rewrite_effect_row_modes:
+        return normalized_mode
     return settings.forced_mode or normalized_mode
 
 
@@ -491,6 +535,14 @@ def _validate_java_backend_modes(
     settings: JavaRetrievalEvalSettings | None,
 ) -> None:
     if settings is None or not settings.enabled:
+        return
+    if settings.eval_policy_version is not None:
+        unsupported = [mode for mode in active_modes if official_forced_mode(mode) is None]
+        if unsupported:
+            raise JavaRetrievalClientError(
+                code="unsupported_forced_mode",
+                detail=f"Unsupported official retrieval comparison modes: {', '.join(unsupported)}.",
+            )
         return
     _raise_unsupported_java_modes(active_modes)
     if settings.forced_mode:
@@ -682,32 +734,52 @@ def _evaluate_mode(
                 code="java_backend_domain_id_required",
                 detail="domain_id or java_backend_domain_id is required when Java retrieval eval is enabled",
             )
+        runtime_config = java_settings.runtime_config
+        official_policy = java_settings.eval_policy_version is not None
+        if official_policy:
+            runtime_config = official_runtime_config(runtime_config or {}, mode, java_forced_mode)
+        elif java_settings.use_rewrite_effect_row_modes:
+            runtime_config = {
+                **(runtime_config or {}),
+                "mode": java_forced_mode,
+                "forced_retrieval_mode": java_forced_mode,
+            }
+        request_started = time.perf_counter()
         result = java_client.retrieve(
             domain_id=java_settings.domain_id,
             query=sample.query_text,
             forced_mode=java_forced_mode,
             top_k=config.retrieval_top_k,
-            include_trace=java_settings.include_trace,
-            include_scores=java_settings.include_scores,
+            include_trace=official_policy or java_settings.include_trace,
+            include_scores=official_policy or java_settings.include_scores,
             include_metadata=java_settings.include_metadata,
-            runtime_config=java_settings.runtime_config,
+            runtime_config=runtime_config,
         )
+        round_trip_ms = (time.perf_counter() - request_started) * 1000.0
+        if (official_policy or java_settings.use_rewrite_effect_row_modes) and (
+            normalize_forced_mode(result.forced_mode) != java_forced_mode
+            or normalize_forced_mode(result.selected_mode) != java_forced_mode
+        ):
+            raise JavaRetrievalClientError(
+                code="java_retrieval_mode_mismatch",
+                detail=(
+                    f"Official {mode} sample {sample.sample_id} requested {java_forced_mode}, "
+                    f"but Java reported forcedMode={result.forced_mode!r} and selectedMode={result.selected_mode!r}."
+                ),
+            )
+        rewrite_info = _java_rewrite_info(
+            mode=mode, sample=sample, forced_mode=java_forced_mode, result=result,
+        )
+        if official_policy:
+            rewrite_info.update(official_rewrite_diagnostics(result, mode=mode, runtime=runtime_config))
+            rewrite_info["java_round_trip_latency_ms"] = round_trip_ms
         retrieval = result.to_retrieval_candidates()
         metrics = retrieval_metrics(
             expected_chunk_ids=sample.expected_chunk_ids,
             expected_doc_ids=sample.expected_doc_ids,
             retrieved=retrieval,
         )
-        return (
-            metrics,
-            _java_rewrite_info(
-                mode=mode,
-                sample=sample,
-                forced_mode=java_forced_mode,
-                result=result,
-            ),
-            retrieval,
-        )
+        return metrics, rewrite_info, retrieval
 
     if mode == "raw_only":
         retrieval = raw_retrieval
@@ -1088,6 +1160,9 @@ def run_retrieval_eval(
     java_settings = java_settings or java_retrieval_settings_from_config(config.raw)
     actual_eval_backend = RETRIEVAL_EVAL_BACKEND_JAVA if java_settings else configured_eval_backend
     eval_backend_metadata = _retrieval_eval_backend_metadata(actual_eval_backend)
+    policy_version = java_settings.eval_policy_version if java_settings else None
+    if config.raw.get("eval_policy_version") == 2 and policy_version is None:
+        raise ValueError("eval_policy_version=2 requires official Java evaluation without a forced-mode override")
     options = type(
         "DbOptions",
         (),
@@ -1114,6 +1189,7 @@ def run_retrieval_eval(
                 "retriever_config": config.retriever_config.to_metadata(),
                 "retrieval_backend": retrieval_backend,
                 **eval_backend_metadata,
+                **({"eval_policy_version": policy_version} if policy_version is not None else {}),
             },
             run_label="eval-retrieval",
         )
@@ -1144,11 +1220,15 @@ def run_retrieval_eval(
             for item in (config.raw.get("retrieval_modes") or [])
             if str(item).strip()
         ]
-        active_modes = [mode for mode in configured_modes if mode in MODES] or list(
-            JAVA_DEFAULT_MODES if java_settings else LEGACY_DEFAULT_MODES
-        )
+        active_modes = configured_modes if policy_version is not None else [
+            mode for mode in configured_modes if mode in MODES
+        ]
+        active_modes = active_modes or list(JAVA_DEFAULT_MODES if java_settings else LEGACY_DEFAULT_MODES)
         if synthetic_free_baseline:
             active_modes = ["raw_only"]
+        answer_mode = config.raw.get("answer_eval_mode")
+        if policy_version is not None and (not isinstance(answer_mode, str) or answer_mode not in active_modes):
+            raise ValueError(f"answer_eval_mode {answer_mode!r} is not an evaluated retrieval mode")
         eval_concurrency = _resolve_eval_concurrency(config.raw)
         if java_settings:
             _validate_java_backend_modes(active_modes=active_modes, settings=java_settings)
@@ -1168,90 +1248,104 @@ def run_retrieval_eval(
             len(active_modes),
             eval_concurrency,
         )
-        dataset_scope = derive_eval_corpus_scope(samples) if dataset_id else {
-            "source_products": set(),
-            "product_filters": set(),
-            "expected_doc_ids": set(),
-        }
-        allowed_products = dataset_scope["product_filters"]
-        expected_doc_ids = dataset_scope["expected_doc_ids"]
-        if dataset_id and not allowed_products and expected_doc_ids:
-            LOGGER.warning(
-                "retrieval_eval_dataset_scope_missing_source_products dataset_id=%s expected_doc_ids=%s; "
-                "falling back to expected_doc_ids-only chunk scope",
-                dataset_id,
-                len(expected_doc_ids),
-            )
-        elif dataset_id and not allowed_products and not expected_doc_ids:
-            LOGGER.warning(
-                "retrieval_eval_dataset_scope_empty dataset_id=%s; falling back to full corpus",
-                dataset_id,
-            )
-        retrieval_adapter: DbAnnRuntimeRetrievalAdapter | None = None
-        if retrieval_backend == "db_ann":
-            retrieval_adapter = DbAnnRuntimeRetrievalAdapter(
-                connection,
-                allowed_products=sorted(allowed_products) if dataset_id else None,
-                include_document_ids=sorted(expected_doc_ids) if dataset_id else None,
-                memory_experiment_key=config.experiment_key,
-                retriever_config=config.retriever_config,
-            )
-            chunks = []
-        else:
-            chunks = load_chunk_items(
-                connection,
-                allowed_products=allowed_products if dataset_id else None,
-                include_document_ids=expected_doc_ids if dataset_id else None,
-            )
-        if dataset_id:
-            LOGGER.info(
-                "retrieval_eval_dataset_scope dataset_id=%s source_products=%s product_filters=%s expected_doc_ids=%s loaded_chunks=%s",
-                dataset_id,
-                len(dataset_scope["source_products"]),
-                len(allowed_products),
-                len(expected_doc_ids),
-                len(chunks),
-            )
         needs_memory = any(mode != "raw_only" for mode in active_modes)
-        memories = []
-        if needs_memory and retrieval_backend != "db_ann":
-            memories = load_memory_items(connection, memory_experiment_key=config.experiment_key)
-        retriever_metadata = runtime_retriever_metadata(
-            retriever_config=config.retriever_config,
-            retrieval_adapter=retrieval_adapter,
-        )
-        raw_retrieval_by_sample, empty_raw_sample_ids = _precompute_raw_retrieval(
-            samples=samples,
-            chunks=chunks,
-            config=config,
-            retrieval_adapter=retrieval_adapter,
-            retrieval_backend=retrieval_backend,
-        )
         raw_cache_path = _raw_retrieval_cache_path(output_root, config.experiment_key)
-        _write_raw_retrieval_cache(
-            path=raw_cache_path,
-            experiment_key=config.experiment_key,
-            samples=samples,
-            raw_retrieval_by_sample=raw_retrieval_by_sample,
-            retriever_metadata=retriever_metadata,
-            empty_sample_ids=empty_raw_sample_ids,
-        )
-        multi_source_anchor_index = None
-        if _is_multi_source_anchor_expansion_enabled(config.raw):
-            multi_source_anchor_index = load_multi_source_anchor_index(
-                connection,
-                relation_version=str(config.raw.get("multi_source_anchor_relation_version") or "multi-source-anchor-v1"),
-                relation_types=_multi_source_relation_types(config.raw),
-                min_relation_score=config.raw.get("multi_source_anchor_min_score", 0.72),
+        if policy_version is not None:
+            chunks = []
+            memories = []
+            retrieval_adapter = None
+            multi_source_anchor_index = None
+            retriever_metadata = {
+                "retrieval_backend": retrieval_backend,
+                "retriever_name": "java-retrieval-eval",
+                "retriever_config": config.retriever_config.to_metadata(),
+            }
+            raw_retrieval_by_sample = {}
+            raw_metrics_by_sample = {}
+            empty_raw_sample_ids = []
+        else:
+            dataset_scope = derive_eval_corpus_scope(samples) if dataset_id else {
+                "source_products": set(),
+                "product_filters": set(),
+                "expected_doc_ids": set(),
+            }
+            allowed_products = dataset_scope["product_filters"]
+            expected_doc_ids = dataset_scope["expected_doc_ids"]
+            if dataset_id and not allowed_products and expected_doc_ids:
+                LOGGER.warning(
+                    "retrieval_eval_dataset_scope_missing_source_products dataset_id=%s expected_doc_ids=%s; "
+                    "falling back to expected_doc_ids-only chunk scope",
+                    dataset_id,
+                    len(expected_doc_ids),
+                )
+            elif dataset_id and not allowed_products and not expected_doc_ids:
+                LOGGER.warning(
+                    "retrieval_eval_dataset_scope_empty dataset_id=%s; falling back to full corpus",
+                    dataset_id,
+                )
+            retrieval_adapter: DbAnnRuntimeRetrievalAdapter | None = None
+            if retrieval_backend == "db_ann":
+                retrieval_adapter = DbAnnRuntimeRetrievalAdapter(
+                    connection,
+                    allowed_products=sorted(allowed_products) if dataset_id else None,
+                    include_document_ids=sorted(expected_doc_ids) if dataset_id else None,
+                    memory_experiment_key=config.experiment_key,
+                    retriever_config=config.retriever_config,
+                )
+                chunks = []
+            else:
+                chunks = load_chunk_items(
+                    connection,
+                    allowed_products=allowed_products if dataset_id else None,
+                    include_document_ids=expected_doc_ids if dataset_id else None,
+                )
+            if dataset_id:
+                LOGGER.info(
+                    "retrieval_eval_dataset_scope dataset_id=%s source_products=%s product_filters=%s expected_doc_ids=%s loaded_chunks=%s",
+                    dataset_id,
+                    len(dataset_scope["source_products"]),
+                    len(allowed_products),
+                    len(expected_doc_ids),
+                    len(chunks),
+                )
+            memories = []
+            if needs_memory and retrieval_backend != "db_ann":
+                memories = load_memory_items(connection, memory_experiment_key=config.experiment_key)
+            retriever_metadata = runtime_retriever_metadata(
+                retriever_config=config.retriever_config,
+                retrieval_adapter=retrieval_adapter,
             )
-        raw_metrics_by_sample: dict[str, dict[str, float]] = {
-            sample.sample_id: retrieval_metrics(
-                expected_chunk_ids=sample.expected_chunk_ids,
-                expected_doc_ids=sample.expected_doc_ids,
-                retrieved=raw_retrieval_by_sample.get(sample.sample_id, []),
+            raw_retrieval_by_sample, empty_raw_sample_ids = _precompute_raw_retrieval(
+                samples=samples,
+                chunks=chunks,
+                config=config,
+                retrieval_adapter=retrieval_adapter,
+                retrieval_backend=retrieval_backend,
             )
-            for sample in samples
-        }
+            _write_raw_retrieval_cache(
+                path=raw_cache_path,
+                experiment_key=config.experiment_key,
+                samples=samples,
+                raw_retrieval_by_sample=raw_retrieval_by_sample,
+                retriever_metadata=retriever_metadata,
+                empty_sample_ids=empty_raw_sample_ids,
+            )
+            multi_source_anchor_index = None
+            if _is_multi_source_anchor_expansion_enabled(config.raw):
+                multi_source_anchor_index = load_multi_source_anchor_index(
+                    connection,
+                    relation_version=str(config.raw.get("multi_source_anchor_relation_version") or "multi-source-anchor-v1"),
+                    relation_types=_multi_source_relation_types(config.raw),
+                    min_relation_score=config.raw.get("multi_source_anchor_min_score", 0.72),
+                )
+            raw_metrics_by_sample: dict[str, dict[str, float]] = {
+                sample.sample_id: retrieval_metrics(
+                    expected_chunk_ids=sample.expected_chunk_ids,
+                    expected_doc_ids=sample.expected_doc_ids,
+                    retrieved=raw_retrieval_by_sample.get(sample.sample_id, []),
+                )
+                for sample in samples
+            }
         mode_scores: dict[str, list[dict[str, Any]]] = defaultdict(list)
         rewrite_rows: dict[str, list[dict[str, Any]]] = defaultdict(list)
         rewrite_generation_stats_by_mode: dict[str, dict[str, int]] = defaultdict(
@@ -1340,6 +1434,15 @@ def run_retrieval_eval(
                 if row["mode"] == "raw_only"
             }
         )
+        if policy_version is not None:
+            raw_retrieval_by_sample = {
+                row["sample"].sample_id: row["retrieval"]
+                for row in evaluated
+                if row["mode"] == "raw_only"
+            }
+            empty_raw_sample_ids = [
+                sample_id for sample_id, retrieval in raw_retrieval_by_sample.items() if not retrieval
+            ]
 
         for row in evaluated:
             sample = row["sample"]
@@ -1356,13 +1459,36 @@ def run_retrieval_eval(
                 if backend == RETRIEVAL_EVAL_BACKEND_JAVA
                 else RETRIEVAL_EVAL_BACKEND_LEGACY
             )
-            raw_metrics = raw_metrics_by_sample.get(sample.sample_id, {})
+            raw_metrics = raw_metrics_by_sample.get(sample.sample_id)
+            has_raw_baseline = raw_metrics is not None or policy_version is None
+            raw_mrr = (raw_metrics or {}).get("mrr@10", 0.0) if has_raw_baseline else None
+            raw_ndcg = (raw_metrics or {}).get("ndcg@10", 0.0) if has_raw_baseline else None
             raw_rank = _first_expected_rank(
                 sample=sample,
                 retrieval=raw_retrieval_by_sample.get(sample.sample_id, []),
             )
             final_rank = _first_expected_rank(sample=sample, retrieval=retrieval)
-            degraded_vs_raw = float(metrics.get("mrr@10", 0.0)) < float(raw_metrics.get("mrr@10", 0.0))
+            degraded_vs_raw = (
+                float(metrics.get("mrr@10", 0.0)) < raw_mrr if raw_mrr is not None else None
+            )
+            raw_confidence = rewrite_info.get("raw_confidence")
+            best_confidence = rewrite_info.get("best_candidate_confidence")
+            confidence_delta = (
+                best_confidence - raw_confidence
+                if raw_confidence is not None and best_confidence is not None
+                else None
+            )
+            if policy_version is not None:
+                row_backend_metadata.update({
+                    "eval_policy_version": policy_version,
+                    "effective_snapshot": rewrite_info.get("snapshot"),
+                    "anchor_injection_enabled": rewrite_info.get("anchor_injection_enabled"),
+                    "rewrite_generation": rewrite_info.get("rewrite_generation"),
+                    "server_latency_ms": rewrite_info.get("server_latency_ms"),
+                    "java_round_trip_latency_ms": rewrite_info.get("java_round_trip_latency_ms"),
+                    "raw_retrieval_latency_ms": rewrite_info.get("raw_retrieval_latency_ms"),
+                    "rejected_reason": rewrite_info.get("rejected_reason"),
+                })
             rewrite_generation_stats = rewrite_generation_stats_by_mode[mode]
             rewrite_generation_stats["rewrite_llm_attempted_count"] += (
                 1 if rewrite_info.get("rewrite_llm_attempted") else 0
@@ -1400,10 +1526,7 @@ def run_retrieval_eval(
                     "rewrite_call_count": int(rewrite_info.get("rewrite_call_count") or 0),
                     **metrics,
                     "rewrite_applied": bool(rewrite_info["rewrite_applied"]),
-                    "confidence_delta": float(
-                        rewrite_info.get("best_candidate_confidence", 0.0)
-                        - rewrite_info.get("raw_confidence", 0.0)
-                    ),
+                    "confidence_delta": confidence_delta,
                     "elapsed_ms": float(row.get("elapsed_ms", 0.0)),
                     "degraded_vs_raw": degraded_vs_raw,
                     "final_rewrite_latency_ms": rewrite_info.get("final_rewrite_latency_ms"),
@@ -1431,9 +1554,9 @@ def run_retrieval_eval(
                     "rewrite_call_count": int(rewrite_info.get("rewrite_call_count") or 0),
                     "strategy_router_metadata": rewrite_info.get("strategy_router_metadata"),
                     "rewrite_applied": bool(rewrite_info["rewrite_applied"]),
-                    "raw_confidence": rewrite_info["raw_confidence"],
-                    "best_candidate_confidence": rewrite_info["best_candidate_confidence"],
-                    "confidence_delta": rewrite_info["best_candidate_confidence"] - rewrite_info["raw_confidence"],
+                    "raw_confidence": raw_confidence,
+                    "best_candidate_confidence": best_confidence,
+                    "confidence_delta": confidence_delta,
                     "final_query": rewrite_info["final_query"],
                     "rewrite_reason": rewrite_info["rewrite_reason"],
                     "selected_rewrite": rewrite_info.get("selected_rewrite"),
@@ -1443,18 +1566,18 @@ def run_retrieval_eval(
                     "final_retrieval_rank": final_rank,
                     "elapsed_ms": float(row.get("elapsed_ms", 0.0)),
                     "degraded_vs_raw": degraded_vs_raw,
-                    "raw_metrics": raw_metrics,
+                    "raw_metrics": (raw_metrics or {}) if has_raw_baseline else None,
                     "final_metrics": metrics,
                     "rewrite_metrics": (
                         metrics
-                        if mode in {
+                        if (mode in GATING_COMPARISON_MODES or mode in {
                             "rewrite_always",
                             "selective_rewrite",
                             "selective_rewrite_with_session",
                             "anchor_aware_rewrite",
                             "agentic_multi_query",
                             "strategy_router",
-                        }
+                        })
                         and bool(rewrite_info["rewrite_applied"])
                         else None
                     ),
@@ -1467,9 +1590,9 @@ def run_retrieval_eval(
                     "rewrite_heuristic_fallback_used": bool(rewrite_info.get("rewrite_heuristic_fallback_used")),
                     "final_rewrite_latency_ms": rewrite_info.get("final_rewrite_latency_ms"),
                     "pure_rewrite_latency_ms": rewrite_info.get("pure_rewrite_latency_ms"),
-                    "raw_mrr": raw_metrics.get("mrr@10", 0.0),
+                    "raw_mrr": raw_mrr,
                     "mode_mrr": metrics["mrr@10"],
-                    "raw_ndcg": raw_metrics.get("ndcg@10", 0.0),
+                    "raw_ndcg": raw_ndcg,
                     "mode_ndcg": metrics["ndcg@10"],
                     "memory_top_n": rewrite_info.get("memory_top_n", []),
                     "top_memory_candidates": rewrite_info.get("memory_top_n", []),
@@ -1551,6 +1674,10 @@ def run_retrieval_eval(
                                     "java_forced_mode": rewrite_info.get("java_forced_mode"),
                                     "java_selected_mode": rewrite_info.get("java_selected_mode"),
                                     "java_warnings": rewrite_info.get("java_warnings"),
+                                    **({
+                                        "eval_policy_version": policy_version,
+                                        "effective_snapshot": rewrite_info.get("snapshot"),
+                                    } if policy_version is not None else {}),
                                     **retriever_metadata,
                                 }
                             ),
@@ -1559,8 +1686,10 @@ def run_retrieval_eval(
 
         summary_rows: list[dict[str, Any]] = []
         category_rows: list[dict[str, Any]] = []
-        raw_baseline_mrr = _mean([float(row["mrr@10"]) for row in mode_scores.get("raw_only", [])])
-        raw_baseline_ndcg = _mean([float(row["ndcg@10"]) for row in mode_scores.get("raw_only", [])])
+        raw_rows = mode_scores.get("raw_only", [])
+        has_run_baseline = bool(raw_rows) or policy_version is None
+        raw_baseline_mrr = _mean([float(row["mrr@10"]) for row in raw_rows])
+        raw_baseline_ndcg = _mean([float(row["ndcg@10"]) for row in raw_rows])
 
         for mode in active_modes:
             rows = mode_scores.get(mode, [])
@@ -1573,14 +1702,14 @@ def run_retrieval_eval(
             bad_rewrite_cases = 0
             rewrite_total = 0
             for row in rewrite_rows.get(mode, []):
-                if row["rewrite_applied"]:
+                if row["rewrite_applied"] and row["raw_mrr"] is not None:
                     rewrite_total += 1
                     if row["mode_mrr"] < row["raw_mrr"]:
                         bad_rewrite_cases += 1
             bad_rewrite_rate = bad_rewrite_cases / rewrite_total if rewrite_total else 0.0
             rewrite_rejection_rate = (
                 sum(1 for row in rows if not row["rewrite_applied"]) / len(rows)
-                if mode in {
+                if mode in GATING_COMPARISON_MODES or mode in {
                     "rewrite_always",
                     "selective_rewrite",
                     "selective_rewrite_with_session",
@@ -1589,7 +1718,8 @@ def run_retrieval_eval(
                 }
                 else 0.0
             )
-            avg_confidence_delta = _mean([float(row.get("confidence_delta", 0.0)) for row in rows])
+            deltas = [float(row["confidence_delta"]) for row in rows if row.get("confidence_delta") is not None]
+            avg_confidence_delta = _mean(deltas) if deltas or policy_version is None else None
             avg_latency_ms = _mean([float(row.get("elapsed_ms", 0.0)) for row in rows])
             degraded_query_count = sum(1 for row in rows if bool(row.get("degraded_vs_raw")))
             llm_summary = _llm_call_summary(rows)
@@ -1601,13 +1731,14 @@ def run_retrieval_eval(
                     **aggregates,
                     "avg_latency_ms": avg_latency_ms,
                     **llm_summary,
-                    "degraded_query_count": degraded_query_count,
+                    "degraded_query_count": degraded_query_count if has_run_baseline else None,
                     "adoption_rate": adoption_rate,
                     "rewrite_rejection_rate": rewrite_rejection_rate,
                     "avg_confidence_delta": avg_confidence_delta,
-                    "rewrite_gain_mrr": aggregates["mrr@10"] - raw_baseline_mrr,
-                    "rewrite_gain_ndcg": aggregates["ndcg@10"] - raw_baseline_ndcg,
-                    "bad_rewrite_rate": bad_rewrite_rate,
+                    "rewrite_gain_mrr": aggregates["mrr@10"] - raw_baseline_mrr if has_run_baseline else None,
+                    "rewrite_gain_ndcg": aggregates["ndcg@10"] - raw_baseline_ndcg if has_run_baseline else None,
+                    "bad_rewrite_rate": bad_rewrite_rate if has_run_baseline else None,
+                    **(_official_latency_summary(rows) if policy_version is not None else {}),
                 }
             )
 
@@ -1685,7 +1816,7 @@ def run_retrieval_eval(
             "memory_generation_strategies": memory_strategy_filters,
             "synthetic_free_baseline": synthetic_free_baseline,
             "memory_experiment_key": config.experiment_key if needs_memory else None,
-            "memory_entry_count_loaded": None if retrieval_backend == "db_ann" else len(memories),
+            "memory_entry_count_loaded": None if policy_version is not None or retrieval_backend == "db_ann" else len(memories),
             **retriever_metadata,
             "backend": "java" if java_settings else "python_legacy",
             **eval_backend_metadata,
@@ -1697,7 +1828,7 @@ def run_retrieval_eval(
             "java_error_policy": "fail_fast_run_level" if java_settings else None,
             "phase_8d_comparison_readiness_criteria": list(PHASE_8D_COMPARISON_READINESS_CRITERIA),
             "active_modes": active_modes,
-            "raw_retrieval_cache_path": str(raw_cache_path),
+            "raw_retrieval_cache_path": str(raw_cache_path) if policy_version is None else None,
             "raw_retrieval_empty_sample_ids": empty_raw_sample_ids,
             "rewrite_llm_attempted_count": rewrite_llm_attempted_total,
             "rewrite_llm_success_count": rewrite_llm_success_total,
@@ -1716,12 +1847,36 @@ def run_retrieval_eval(
             "selected_anchor_count": llm_summary_payload["selected_anchor_count"],
             "selected_agentic_count": llm_summary_payload["selected_agentic_count"],
             "rewrite_generation_stats": rewrite_stats_by_mode_payload,
-            "multi_source_anchor_expansion_enabled": _is_multi_source_anchor_expansion_enabled(config.raw),
+            "multi_source_anchor_expansion_enabled": (
+                policy_version is None and _is_multi_source_anchor_expansion_enabled(config.raw)
+            ),
             "multi_source_anchor_diagnostics": _aggregate_multi_source_anchor_diagnostics(rewrite_flat_rows),
             "degraded_query_count_definition": "per-sample mode mrr@10 lower than the same sample raw_only mrr@10",
             "summary": summary_rows,
             "category_summary": category_rows,
         }
+        report_paths = {}
+        if policy_version is not None:
+            context_path = _write_official_answer_context(
+                output_root=output_root,
+                config=config,
+                run_id=run_context.experiment_run_id,
+                dataset_id=dataset_id,
+                mode=answer_mode,
+                evaluated=evaluated,
+            )
+            context_path = str(context_path)
+            report_paths["java_retrieval_context"] = context_path
+            summary_payload.update({
+                "eval_policy_version": policy_version,
+                "config_hash": config.config_hash,
+                "answer_eval_mode": answer_mode,
+                "java_retrieval_context_path": context_path,
+                "multi_source_anchor_expansion_supported": False,
+                "multi_source_anchor_expansion_requested": _is_multi_source_anchor_expansion_enabled(config.raw),
+            })
+        else:
+            report_paths["raw_retrieval_cache"] = str(raw_cache_path)
         summary_path.write_text(
             json.dumps(summary_payload, ensure_ascii=False, indent=2),
             encoding="utf-8",
@@ -1737,6 +1892,15 @@ def run_retrieval_eval(
                 "legacy_fallback_used",
                 *METRIC_KEYS,
                 "avg_latency_ms",
+                *((
+                    "p95_latency_ms",
+                    "avg_java_round_trip_latency_ms",
+                    "p95_java_round_trip_latency_ms",
+                    "avg_server_latency_ms",
+                    "p95_server_latency_ms",
+                    "avg_rewrite_latency_ms",
+                    "p95_rewrite_latency_ms",
+                ) if policy_version is not None else ()),
                 "avg_llm_calls",
                 "llm_call_count",
                 "planner_call_count",
@@ -1764,12 +1928,12 @@ def run_retrieval_eval(
         bad_cases = [
             row
             for row in rewrite_flat_rows
-            if row["rewrite_applied"] and row["mode_mrr"] < row["raw_mrr"]
+            if row["rewrite_applied"] and row["raw_mrr"] is not None and row["mode_mrr"] < row["raw_mrr"]
         ][:40]
         best_cases = [
             row
             for row in rewrite_flat_rows
-            if row["rewrite_applied"] and row["mode_mrr"] > row["raw_mrr"]
+            if row["rewrite_applied"] and row["raw_mrr"] is not None and row["mode_mrr"] > row["raw_mrr"]
         ][:40]
         bad_case_md = docs_root / "bad_rewrite_cases.md"
         best_case_md = docs_root / "best_rewrite_cases.md"
@@ -1816,7 +1980,7 @@ def run_retrieval_eval(
                     "summary_json": str(summary_path),
                     "summary_csv": str(summary_csv_path),
                     "category_csv": str(category_csv_path),
-                    "raw_retrieval_cache": str(raw_cache_path),
+                    **report_paths,
                     "latest_report_md": str(latest_report_path),
                     "bad_rewrite_md": str(bad_case_md),
                     "best_rewrite_md": str(best_case_md),
@@ -1831,6 +1995,49 @@ def run_retrieval_eval(
         raise exception
     finally:
         connection.close()
+
+
+def _write_official_answer_context(
+    *,
+    output_root: Path,
+    config: Any,
+    run_id: str,
+    dataset_id: str | None,
+    mode: str,
+    evaluated: list[dict[str, Any]],
+) -> tuple[Path, str]:
+    if __package__ == "pipeline.eval":
+        from pipeline.eval.retrieval_context import answer_snapshot, write_retrieval_context
+    else:
+        from eval.retrieval_context import answer_snapshot, write_retrieval_context
+
+    rows = []
+    for row in evaluated:
+        if row["mode"] != mode:
+            continue
+        sample = row["sample"]
+        rewrite = row["rewrite_info"]
+        rows.append({
+            "sample_id": sample.sample_id,
+            "query": sample.query_text,
+            "final_query": rewrite["final_query"],
+            "snapshot": rewrite.get("snapshot"),
+            "retrieved": [
+                {"chunk_id": item.chunk_id, "score": item.score} for item in row["retrieval"]
+            ],
+            "rewrite": rewrite,
+        })
+    path = write_retrieval_context(
+        output_root,
+        retrieval_run_id=run_id,
+        experiment_key=config.experiment_key,
+        config_hash=config.config_hash,
+        dataset_id=dataset_id,
+        mode=mode,
+        snapshot=answer_snapshot(config.raw, mode),
+        rows=rows,
+    )
+    return path, mode
 
 
 def run_retrieval_eval_from_env(experiment: str) -> dict[str, Any]:

@@ -851,6 +851,51 @@ class AdminConsoleRagIntegrationTest {
     }
 
     @Test
+    void officialGatingComparisonRegistersThreeSelectiveSnapshots(@TempDir Path fixtureRoot) throws Exception {
+        doReturn(fixtureRoot).when(consoleEnvironment).resolveRepoRoot();
+        doReturn("fixture-key").when(consoleEnvironment).readEnv("QUERY_FORGE_LLM_REWRITE_API_KEY");
+        UUID datasetId = insertEvalDataset("spring-official-gating-policy");
+        UUID ungated = insertCompletedGatingBatch("A", "ungated");
+        UUID ruleOnly = insertCompletedGatingBatch("A", "rule_only");
+        UUID fullGating = insertCompletedGatingBatch("A", "full_gating");
+
+        var registered = mockMvc.perform(post("/api/admin/console/rag/tests/run")
+                        .contentType(APPLICATION_JSON)
+                        .content("""
+                                {
+                                  "datasetId":"%s",
+                                  "methodCodes":["A"],
+                                  "officialRun":true,
+                                  "officialComparisonType":"gating_effect",
+                                  "gatingApplied":true,
+                                  "gatingPreset":"full_gating",
+                                  "comparisonGatingBatchIds":{"ungated":"%s","rule_only":"%s","full_gating":"%s"},
+                                  "rewriteEnabled":false,
+                                  "selectiveRewrite":false,
+                                  "rewriteFailurePolicy":"fail_run"
+                                }
+                                """.formatted(datasetId, ungated, ruleOnly, fullGating)))
+                .andExpect(status().isOk())
+                .andReturn();
+        UUID runId = UUID.fromString(objectMapper.readTree(registered.getResponse().getContentAsString())
+                .path("ragTestRunId").asText());
+        var recorded = objectMapper.readTree(jdbcTemplate.queryForObject(
+                "SELECT config_json::text FROM rag_test_run_config WHERE rag_test_run_id = :runId",
+                new MapSqlParameterSource("runId", runId), String.class));
+        assertThat(recorded.path("eval_policy_version").asInt()).isEqualTo(2);
+        assertThat(recorded.path("rewrite_enabled").asBoolean()).isTrue();
+        assertThat(recorded.path("selective_rewrite").asBoolean()).isTrue();
+        assertThat(recorded.path("rewrite_failure_policy").asText()).isEqualTo("skip_to_raw");
+        assertThat(recorded.path("answer_eval_mode").asText()).isEqualTo("selective_rewrite_full_gating");
+        assertThat(recorded.path("retrieval_modes")).extracting(mode -> mode.asText()).containsExactly(
+                "raw_only", "selective_rewrite_ungated", "selective_rewrite_rule_only", "selective_rewrite_full_gating"
+        );
+        assertThat(recorded.at("/comparison_snapshots/ungated/gating_batch_id").asText()).isEqualTo(ungated.toString());
+        assertThat(recorded.at("/comparison_snapshots/rule_only/gating_batch_id").asText()).isEqualTo(ruleOnly.toString());
+        assertThat(recorded.at("/comparison_snapshots/full_gating/gating_batch_id").asText()).isEqualTo(fullGating.toString());
+    }
+
+    @Test
     void adminRegistrationStateFailureRemainsConflict(@TempDir Path fixtureRoot) throws Exception {
         UUID datasetId = insertEvalDataset("admin-conflict");
         Path file = Files.createFile(fixtureRoot.resolve("occupied"));

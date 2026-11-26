@@ -9,6 +9,7 @@ import io.queryforge.backend.rag.provider.environment.model.ChatModelSettings.St
 import io.queryforge.backend.rag.provider.environment.service.RuntimeEnvService;
 import io.queryforge.backend.rag.provider.springai.gateway.SpringAiChatGateway;
 import io.queryforge.backend.rag.retrieval.memory.model.MemoryCandidate;
+import io.queryforge.backend.rag.retrieval.rewrite.dto.RewriteDtos;
 import io.queryforge.backend.rag.retrieval.rewrite.dto.RewriteDtos.CandidateTemplate;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
@@ -71,23 +72,71 @@ public class RewriteCandidateService {
             boolean anchorInjectionEnabled,
             JsonNode domainContext
     ) {
+        return buildCandidates(rawQuery, sessionContext, memories, candidateCount, rewriteQueryProfile,
+                anchorInjectionEnabled, domainContext, null);
+    }
+
+    public RewriteDtos.CandidateGeneration buildObservedCandidates(
+            String rawQuery,
+            JsonNode sessionContext,
+            List<MemoryCandidate> memories,
+            int candidateCount,
+            String rewriteQueryProfile,
+            boolean anchorInjectionEnabled,
+            JsonNode domainContext
+    ) {
+        long started = System.nanoTime();
+        Observation observation = new Observation();
+        List<CandidateTemplate> candidates = buildCandidates(rawQuery, sessionContext, memories, candidateCount,
+                rewriteQueryProfile, anchorInjectionEnabled, domainContext, observation);
+        return new RewriteDtos.CandidateGeneration(candidates, new RewriteDtos.GenerationDiagnostics(
+                observation.attemptCount > 0, observation.succeeded, !observation.succeeded && !candidates.isEmpty(),
+                observation.attemptCount, observation.promptAssetId, observation.provider, observation.model,
+                observation.succeeded ? null : observation.failureReason, (System.nanoTime() - started) / 1_000_000L
+        ), observation.promptMemories);
+    }
+
+    private List<CandidateTemplate> buildCandidates(
+            String rawQuery,
+            JsonNode sessionContext,
+            List<MemoryCandidate> memories,
+            int candidateCount,
+            String rewriteQueryProfile,
+            boolean anchorInjectionEnabled,
+            JsonNode domainContext,
+            Observation observation
+    ) {
         int limitedCount = Math.max(1, Math.min(candidateCount, 2));
         List<CandidateTemplate> fallback = heuristicCandidates(rawQuery, sessionContext, memories, limitedCount);
         Optional<PromptAsset> promptAsset = resolvePromptAsset(rewriteQueryProfile);
         if (promptAsset.isEmpty()) {
+            if (observation != null) observation.failureReason = "prompt_unavailable";
             return fallback;
         }
+        if (observation != null) observation.promptAssetId = promptAsset.get().id();
         Optional<List<CandidateTemplate>> llmCandidates = requestLlmCandidates(
-                promptAsset.get(),
-                rawQuery,
-                sessionContext,
-                memories,
-                limitedCount,
-                rewriteQueryProfile,
-                anchorInjectionEnabled,
-                domainContext
+                promptAsset.get(), rawQuery, sessionContext, memories, limitedCount,
+                rewriteQueryProfile, anchorInjectionEnabled, domainContext, observation
         );
+        if (observation != null) observation.succeeded = llmCandidates.isPresent();
         return llmCandidates.orElse(fallback);
+    }
+
+    private static final class Observation {
+        private int attemptCount;
+        private boolean succeeded;
+        private String promptAssetId;
+        private String provider;
+        private String model;
+        private String failureReason = "provider_unavailable";
+        private JsonNode promptMemories;
+
+        void attempted(String provider, String model) {
+            attemptCount++;
+            this.provider = provider;
+            this.model = model;
+            failureReason = "provider_response_unusable";
+        }
     }
 
     private Optional<PromptAsset> resolvePromptAsset(String rewriteQueryProfile) {
@@ -136,7 +185,8 @@ public class RewriteCandidateService {
             int candidateCount,
             String rewriteQueryProfile,
             boolean anchorInjectionEnabled,
-            JsonNode domainContext
+            JsonNode domainContext,
+            Observation observation
     ) {
         String provider = ChatModelSettings.provider(runtimeEnvService);
         Optional<List<CandidateTemplate>> springAiCandidates = requestSpringAiCandidates(
@@ -148,7 +198,7 @@ public class RewriteCandidateService {
                 candidateCount,
                 rewriteQueryProfile,
                 anchorInjectionEnabled,
-                domainContext
+                domainContext, observation
         );
         if (springAiCandidates.isPresent()) {
             return springAiCandidates;
@@ -162,7 +212,7 @@ public class RewriteCandidateService {
                     candidateCount,
                     rewriteQueryProfile,
                     anchorInjectionEnabled,
-                    domainContext
+                    domainContext, observation
             );
         }
         return requestGeminiCandidates(
@@ -173,7 +223,7 @@ public class RewriteCandidateService {
                 candidateCount,
                 rewriteQueryProfile,
                 anchorInjectionEnabled,
-                domainContext
+                domainContext, observation
         );
     }
 
@@ -186,25 +236,26 @@ public class RewriteCandidateService {
             int candidateCount,
             String rewriteQueryProfile,
             boolean anchorInjectionEnabled,
-            JsonNode domainContext
+            JsonNode domainContext,
+            Observation observation
     ) {
         if (springAiChatGateway == null) {
             return Optional.empty();
         }
-        return springAiChatGateway.completeJson(
-                        provider,
-                        promptAsset.text(),
-                        buildRewriteUserPrompt(
-                                rawQuery,
-                                sessionContext,
-                                memories,
-                                candidateCount,
-                                rewriteQueryProfile,
-                                anchorInjectionEnabled,
-                                domainContext
-                        )
-                )
-                .flatMap(content -> parseCandidatePayload(content, candidateCount));
+        String userPrompt = buildRewriteUserPrompt(rawQuery, sessionContext, memories, candidateCount,
+                rewriteQueryProfile, anchorInjectionEnabled, domainContext);
+        if (observation == null) {
+            return springAiChatGateway.completeJson(provider, promptAsset.text(), userPrompt)
+                    .flatMap(content -> parseCandidatePayload(content, candidateCount));
+        }
+        SpringAiChatGateway.Completion completion = springAiChatGateway.completeJsonObserved(
+                provider, promptAsset.text(), userPrompt
+        );
+        if (!completion.attempted()) {
+            return Optional.empty();
+        }
+        observeAttempt(observation, "spring_ai", completion.model(), userPrompt);
+        return parseCandidatePayload(completion.content(), candidateCount);
     }
 
     private Optional<List<CandidateTemplate>> requestGeminiCandidates(
@@ -215,7 +266,8 @@ public class RewriteCandidateService {
             int candidateCount,
             String rewriteQueryProfile,
             boolean anchorInjectionEnabled,
-            JsonNode domainContext
+            JsonNode domainContext,
+            Observation observation
     ) {
         String apiKey = firstNonBlank(
                 runtimeEnvService.get("QUERY_FORGE_GEMINI_API_KEY"),
@@ -237,15 +289,9 @@ public class RewriteCandidateService {
             ObjectNode userNode = contents.addObject();
             userNode.put("role", "user");
             ArrayNode userParts = userNode.putArray("parts");
-            userParts.addObject().put("text", buildRewriteUserPrompt(
-                    rawQuery,
-                    sessionContext,
-                    memories,
-                    candidateCount,
-                    rewriteQueryProfile,
-                    anchorInjectionEnabled,
-                    domainContext
-            ));
+            String userPrompt = buildRewriteUserPrompt(rawQuery, sessionContext, memories, candidateCount,
+                    rewriteQueryProfile, anchorInjectionEnabled, domainContext);
+            userParts.addObject().put("text", userPrompt);
 
             ObjectNode generationConfig = payload.putObject("generationConfig");
             generationConfig.put("responseMimeType", "application/json");
@@ -266,6 +312,7 @@ public class RewriteCandidateService {
                     .header("Content-Type", "application/json")
                     .POST(HttpRequest.BodyPublishers.ofString(payload.toString()))
                     .build();
+            observeAttempt(observation, "gemini", model, userPrompt);
             HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
             if (response.statusCode() >= 400) {
                 return Optional.empty();
@@ -286,7 +333,8 @@ public class RewriteCandidateService {
             int candidateCount,
             String rewriteQueryProfile,
             boolean anchorInjectionEnabled,
-            JsonNode domainContext
+            JsonNode domainContext,
+            Observation observation
     ) {
         String apiKey = runtimeEnvService.getOrDefault("OPENAI_API_KEY", "").trim();
         if (apiKey.isBlank()) {
@@ -304,17 +352,9 @@ public class RewriteCandidateService {
             messages.addObject()
                     .put("role", "system")
                     .put("content", promptAsset.text());
-            messages.addObject()
-                    .put("role", "user")
-                    .put("content", buildRewriteUserPrompt(
-                            rawQuery,
-                            sessionContext,
-                            memories,
-                            candidateCount,
-                            rewriteQueryProfile,
-                            anchorInjectionEnabled,
-                            domainContext
-                    ));
+            String userPrompt = buildRewriteUserPrompt(rawQuery, sessionContext, memories, candidateCount,
+                    rewriteQueryProfile, anchorInjectionEnabled, domainContext);
+            messages.addObject().put("role", "user").put("content", userPrompt);
 
             HttpRequest request = HttpRequest.newBuilder()
                     .uri(URI.create(settings.baseUrl().replaceAll("/+$", "") + "/chat/completions"))
@@ -323,6 +363,7 @@ public class RewriteCandidateService {
                     .header("Content-Type", "application/json")
                     .POST(HttpRequest.BodyPublishers.ofString(payload.toString()))
                     .build();
+            observeAttempt(observation, "openai", model, userPrompt);
             HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
             if (response.statusCode() >= 400) {
                 return Optional.empty();
@@ -336,6 +377,15 @@ public class RewriteCandidateService {
             return parseCandidatePayload(content, candidateCount);
         } catch (Exception ignored) {
             return Optional.empty();
+        }
+    }
+
+    private void observeAttempt(Observation observation, String provider, String model, String userPrompt) {
+        if (observation != null) {
+            observation.attempted(provider, model);
+            observation.promptMemories = readJsonObject(userPrompt)
+                    .map(node -> node.get("top_memory_candidates"))
+                    .orElse(null);
         }
     }
 

@@ -374,10 +374,13 @@ public class LlmJobService {
                     return;
                 }
                 llmJobRepository.markItemRunning(item.jobItemId());
-                ExperimentCommandDtos.ExperimentCommandResponse response = experimentPipelineService.run(
-                        new ExperimentCommandDtos.ExperimentCommandRequest(command, experiment),
-                        job.jobId().toString()
-                );
+                ExperimentCommandDtos.ExperimentCommandRequest request =
+                        new ExperimentCommandDtos.ExperimentCommandRequest(command, experiment);
+                String executionKey = job.jobId().toString();
+                UUID retrievalRunId = retrievalRunIdForAnswer(command, resultByCommand.get("eval-retrieval"));
+                ExperimentCommandDtos.ExperimentCommandResponse response = retrievalRunId == null
+                        ? experimentPipelineService.run(request, executionKey)
+                        : experimentPipelineService.run(request, executionKey, retrievalRunId);
                 resultByCommand.put(command, response.summary());
                 LlmJobDtos.LlmJobRow afterRun = llmJobRepository.findJob(job.jobId())
                         .orElseThrow(() -> new IllegalStateException("llm job missing after command run: " + job.jobId()));
@@ -454,6 +457,14 @@ public class LlmJobService {
             return true;
         }
         return false;
+    }
+
+    private UUID retrievalRunIdForAnswer(String command, JsonNode retrievalResult) {
+        if (!"eval-answer".equals(command) || retrievalResult == null
+                || retrievalResult.path("eval_policy_version").asInt() != 2) {
+            return null;
+        }
+        return UUID.fromString(retrievalResult.path("experiment_run_id").asText());
     }
 
     private void handleJobFailure(

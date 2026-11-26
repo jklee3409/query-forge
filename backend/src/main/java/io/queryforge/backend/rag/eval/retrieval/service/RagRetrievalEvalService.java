@@ -85,15 +85,30 @@ public class RagRetrievalEvalService {
         UUID domainId = request.domainId();
         String query = request.query().trim();
         ChatConfigDtos.ChatRuntimeConfigResponse config = chatRuntimeConfigService.getConfig(domainId);
-        ChatReadinessDtos.ChatDomainReadinessResponse readiness = chatReadinessService.evaluateReadiness(config);
+        boolean official = EvalRuntimeConfigService.isOfficialV2(request);
+        if (official && !OfficialRetrievalEval.supports(request.forcedMode())) {
+            throw evalError(ERROR_UNSUPPORTED_FORCED_MODE, "forcedMode is not supported by eval policy version 2");
+        }
+        ChatReadinessDtos.ChatDomainReadinessResponse readiness = official
+                ? null : chatReadinessService.evaluateReadiness(config);
         RuntimeEvalContext runtimeContext = runtimeConfigService.resolve(request, config, readiness);
         config = runtimeContext.config();
-        readiness = runtimeContext.readiness();
+        readiness = official ? chatReadinessService.evaluateReadiness(config) : runtimeContext.readiness();
         validateRuntime(config, readiness);
 
         RetrievalDtos.RetrievalRuntime retrievalRuntime =
                 domainScopedRetrievalService.retrievalRuntime(config);
         RagExecutionSettings settings = runtimeContext.settings();
+        if (official) {
+            OfficialRetrievalEval.Result result = OfficialRetrievalEval.execute(
+                    request.forcedMode(), query, config, retrievalRuntime, settings, request.includeTrace(),
+                    domainScopedRetrievalService, ragRetrievalExecutionService, objectMapper
+            );
+            return response(request, domainId, query, result.decision().finalQuery(), request.forcedMode(),
+                    result.decision().finalRetrieved(), elapsedMs(started), started, null, result.trace(),
+                    List.of(), result.llmCallCount());
+        }
+
 
         return switch (request.forcedMode()) {
             case "raw_only" -> executeRawOnly(

@@ -3,6 +3,7 @@ from __future__ import annotations
 import csv
 import json
 import tempfile
+from dataclasses import replace
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Callable
@@ -392,6 +393,12 @@ def _run_default_comparison(
     )
     if java_settings is not None:
         java_raw.update(_java_settings_raw(java_settings))
+        if java_settings.forced_mode and java_settings.use_rewrite_effect_row_modes:
+            java_settings = replace(java_settings, use_rewrite_effect_row_modes=False)
+        if java_settings.eval_policy_version is not None:
+            runtime = dict(java_settings.runtime_config or {})
+            runtime.pop("eval_policy_version", None)
+            java_settings = replace(java_settings, eval_policy_version=None, runtime_config=runtime)
 
     with tempfile.TemporaryDirectory(prefix="query_forge_eval_compare_") as temp_dir:
         variant_root = Path(temp_dir)
@@ -430,6 +437,7 @@ def _variant_raw(
     use_java_backend: bool,
 ) -> dict[str, Any]:
     raw = dict(source)
+    raw.pop("eval_policy_version", None)
     raw["experiment_key"] = experiment_key
     raw["retrieval_modes"] = list(modes)
     raw["use_java_backend"] = use_java_backend

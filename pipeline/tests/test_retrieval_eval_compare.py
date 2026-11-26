@@ -4,8 +4,12 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
-from pipeline.eval.java_retrieval_client import JavaRetrievalClientError
+from pipeline.eval.java_retrieval_client import (
+    JavaRetrievalClientError,
+    java_retrieval_settings_from_config,
+)
 from pipeline.eval.retrieval_eval_compare import (
     COMPARISON_BLOCKED_MODES,
     COMPARISON_METRIC_KEYS,
@@ -19,6 +23,7 @@ from pipeline.eval.retrieval_eval_compare import (
     compute_metric_delta_report,
     normalize_comparison_modes,
     run_legacy_vs_java_retrieval_compare,
+    _run_default_comparison,
     _variant_raw,
 )
 
@@ -234,6 +239,38 @@ class RetrievalEvalCompareTests(unittest.TestCase):
         self.assertNotIn("full java content", encoded)
         self.assertNotIn("contentPreview", encoded)
         self.assertNotIn("preview must not be copied", encoded)
+
+    def test_default_comparison_preserves_an_explicit_java_settings_override(self) -> None:
+        base_raw = {
+            "retrieval_eval_backend": "java",
+            "run_discipline": "official",
+            "official_comparison_type": "rewrite_effect",
+            "retrieval_modes": ["raw_only", "selective_rewrite"],
+            "forced_retrieval_mode": "selective_rewrite",
+        }
+        settings = java_retrieval_settings_from_config(base_raw)
+        self.assertTrue(settings.use_rewrite_effect_row_modes)
+        with patch("pipeline.eval.retrieval_eval_compare.run_retrieval_eval", return_value=_payload()) as runner:
+            _run_default_comparison(
+                base_raw=base_raw,
+                base_experiment_key="unit",
+                modes=base_raw["retrieval_modes"],
+                output_root=Path("unused"),
+                docs_root=Path("unused"),
+                database_url=None,
+                db_host="localhost",
+                db_port=5432,
+                db_name="unit",
+                db_user="unit",
+                db_password="",
+                java_client=None,
+                java_settings=settings,
+            )
+
+        override = runner.call_args.kwargs["java_settings"]
+        self.assertEqual(override.forced_mode, "selective_rewrite")
+        self.assertFalse(override.use_rewrite_effect_row_modes)
+        self.assertTrue(settings.use_rewrite_effect_row_modes)
 
     def test_java_client_error_fails_fast(self) -> None:
         def legacy_runner(**_kwargs):

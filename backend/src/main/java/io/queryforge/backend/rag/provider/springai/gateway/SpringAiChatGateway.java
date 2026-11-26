@@ -3,6 +3,7 @@ package io.queryforge.backend.rag.provider.springai.gateway;
 import io.queryforge.backend.rag.provider.environment.service.RuntimeEnvService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.ai.chat.client.ChatClient;
+import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Component;
 
@@ -35,6 +36,33 @@ public class SpringAiChatGateway {
         } catch (RuntimeException exception) {
             return Optional.empty();
         }
+    }
+
+    public Completion completeJsonObserved(String provider, String systemPrompt, String userPrompt) {
+        if (!isEnabledFor(provider)) {
+            return new Completion(false, null, null);
+        }
+        ChatClient.Builder builder = chatClientBuilderProvider.getIfAvailable();
+        if (builder == null) {
+            return new Completion(false, null, null);
+        }
+        try {
+            ChatResponse response = builder.build().prompt().system(systemPrompt).user(userPrompt).call().chatResponse();
+            if (response == null) {
+                return new Completion(true, null, null);
+            }
+            String model = response.getMetadata().getModel();
+            String content = response.getResult() == null ? null : response.getResult().getOutput().getText();
+            return new Completion(
+                    true, content == null || content.isBlank() ? null : content.trim(),
+                    model == null || model.isBlank() ? null : model
+            );
+        } catch (RuntimeException exception) {
+            return new Completion(true, null, null);
+        }
+    }
+
+    public record Completion(boolean attempted, String content, String model) {
     }
 
     private boolean isEnabledFor(String provider) {

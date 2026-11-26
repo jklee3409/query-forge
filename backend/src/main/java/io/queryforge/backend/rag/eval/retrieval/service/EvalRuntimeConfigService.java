@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import io.queryforge.backend.rag.eval.retrieval.dto.RagRetrievalEvalDtos;
+import io.queryforge.backend.rag.eval.retrieval.exception.RagRetrievalEvalException;
 import io.queryforge.backend.rag.retrieval.agentic.dto.AgenticRetrievalLimits;
 import io.queryforge.backend.rag.runtime.configuration.dto.ChatConfigDtos;
 import io.queryforge.backend.rag.runtime.configuration.model.RagExecutionSettings;
@@ -13,6 +14,7 @@ import io.queryforge.backend.rag.runtime.snapshot.dto.GatingSnapshotDtos;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.UUID;
@@ -29,12 +31,24 @@ class EvalRuntimeConfigService {
 
     private final ObjectMapper objectMapper;
 
+    static boolean isOfficialV2(RagRetrievalEvalDtos.RagRetrievalEvalRequest request) {
+        JsonNode version = request.runtimeConfig() == null ? null : request.runtimeConfig().get("eval_policy_version");
+        if (version == null || version.isNull()) {
+            return false;
+        }
+        if (!version.isIntegralNumber() || !version.canConvertToInt() || version.intValue() != 2) {
+            throw new RagRetrievalEvalException("unsupported_eval_policy_version", "eval_policy_version must be 2");
+        }
+        return true;
+    }
+
     RuntimeEvalContext resolve(
             RagRetrievalEvalDtos.RagRetrievalEvalRequest request,
             ChatConfigDtos.ChatRuntimeConfigResponse baseConfig,
             ChatReadinessDtos.ChatDomainReadinessResponse baseReadiness
     ) {
         JsonNode runtime = request.runtimeConfig();
+        boolean official = isOfficialV2(request);
         RagExecutionSettings settings = resolveExecutionSettings(request, baseConfig.executionSettings());
         if (runtime == null || runtime.isNull() || runtime.isMissingNode() || !runtime.isObject()) {
             return new RuntimeEvalContext(baseConfig, baseReadiness, settings);
@@ -113,6 +127,16 @@ class EvalRuntimeConfigService {
                 "source_gating_run_id"
         );
         sourceGatingRunIds = GatingSnapshotDtos.withLegacyId(sourceGatingRunIds, sourceGatingRunId);
+        if (official) {
+            mode = request.forcedMode();
+            SnapshotIds snapshots = "raw_only".equals(mode)
+                    ? new SnapshotIds(List.of(), List.of())
+                    : officialSnapshotIds(runtime, sourceGatingBatchIds, sourceGatingRunIds);
+            sourceGatingBatchIds = snapshots.batchIds();
+            sourceGatingRunIds = snapshots.runIds();
+            sourceGatingBatchId = sourceGatingBatchIds.isEmpty() ? null : sourceGatingBatchIds.getFirst();
+            sourceGatingRunId = sourceGatingRunIds.isEmpty() ? null : sourceGatingRunIds.getFirst();
+        }
         ChatConfigDtos.ChatRuntimeConfigResponse config = new ChatConfigDtos.ChatRuntimeConfigResponse(
                 baseConfig.domainId(),
                 baseConfig.domainKey(),
@@ -158,12 +182,64 @@ class EvalRuntimeConfigService {
                 boolValue(runtime, baseConfig.readyForRewrite(), "readyForRewrite", "ready_for_rewrite"),
                 baseConfig.readinessMessage()
         );
-        ChatReadinessDtos.ChatDomainReadinessResponse readiness = readinessForRuntimeOverride(
+        ChatReadinessDtos.ChatDomainReadinessResponse readiness = official ? null : readinessForRuntimeOverride(
                 runtime,
                 baseReadiness,
                 config
         );
         return new RuntimeEvalContext(config, readiness, settings);
+    }
+
+    private SnapshotIds officialSnapshotIds(JsonNode runtime, List<UUID> defaultBatches, List<UUID> defaultRuns) {
+        String[] batchListKeys = {"sourceGatingBatchIds", "source_gating_batch_ids"};
+        String[] batchKeys = {"sourceGatingBatchId", "source_gating_batch_id", "snapshot_id"};
+        String[] runListKeys = {"sourceGatingRunIds", "source_gating_run_ids"};
+        String[] runKeys = {"sourceGatingRunId", "source_gating_run_id"};
+        JsonNode batchList = override(runtime, batchListKeys);
+        JsonNode runList = override(runtime, runListKeys);
+        JsonNode batchId = override(runtime, batchKeys);
+        JsonNode runId = override(runtime, runKeys);
+        if (batchList == null && runList == null && batchId == null && runId == null) {
+            return new SnapshotIds(defaultBatches, defaultRuns);
+        }
+        // Explicit overrides never intersect with the active chat snapshot.
+        return new SnapshotIds(snapshotIds(batchList, batchId), snapshotIds(runList, runId));
+    }
+
+    private List<UUID> snapshotIds(JsonNode ids, JsonNode id) {
+        List<UUID> values = new ArrayList<>();
+        if (ids != null) {
+            if (!ids.isArray()) {
+                throw new RagRetrievalEvalException("invalid_eval_snapshot", "snapshot identifiers must be an array");
+            }
+            for (JsonNode value : ids) {
+                values.add(snapshotId(value));
+            }
+        }
+        return GatingSnapshotDtos.withLegacyId(List.copyOf(values), id == null ? null : snapshotId(id));
+    }
+
+    private UUID snapshotId(JsonNode value) {
+        if (value.isTextual()) {
+            try {
+                return UUID.fromString(value.textValue().trim());
+            } catch (IllegalArgumentException ignored) {
+                // Reject a malformed explicit request before it can fall back to a different snapshot.
+            }
+        }
+        throw new RagRetrievalEvalException("invalid_eval_snapshot", "snapshot identifier must be a UUID");
+    }
+
+    private JsonNode override(JsonNode runtime, String... keys) {
+        for (String key : keys) {
+            if (runtime.hasNonNull(key)) {
+                return runtime.get(key);
+            }
+        }
+        return null;
+    }
+
+    private record SnapshotIds(List<UUID> batchIds, List<UUID> runIds) {
     }
 
     private RagExecutionSettings resolveExecutionSettings(

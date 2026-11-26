@@ -25,6 +25,7 @@ JAVA_RETRIEVAL_SUPPORTED_FORCED_MODES = frozenset(
 JAVA_RETRIEVAL_AGENTIC_MODE = "agentic_multi_query"
 JAVA_RETRIEVAL_BLOCKED_FORCED_MODES = frozenset()
 OFFICIAL_RETRIEVAL_EVAL_BACKEND = "java"
+OFFICIAL_EVAL_POLICY_VERSION = 2
 RETRIEVAL_EVAL_BACKEND_JAVA = "java"
 RETRIEVAL_EVAL_BACKEND_LEGACY = "legacy"
 RETRIEVAL_EVAL_BACKEND_KEYS = (
@@ -35,6 +36,7 @@ RETRIEVAL_EVAL_BACKEND_KEYS = (
 
 
 _RUNTIME_CONFIG_KEYS = frozenset("""
+    eval_policy_version
     routerEnabled router_enabled query_router_enabled
     agenticMultiQueryEnabled agentic_multi_query_enabled query_router_agentic_enabled
     forcedRetrievalMode forced_retrieval_mode java_forced_mode mode chat_mode runtime_mode
@@ -119,6 +121,8 @@ class JavaRetrievalEvalSettings:
     include_metadata: bool
     forced_mode: str | None = None
     runtime_config: dict[str, Any] | None = None
+    use_rewrite_effect_row_modes: bool = False
+    eval_policy_version: int | None = None
 
 
 @dataclass(slots=True)
@@ -404,10 +408,32 @@ def java_retrieval_settings_from_config(raw_config: dict[str, Any] | None) -> Ja
         keys=("java_backend_domain_id", "java_domain_id", "domain_id", "domainId"),
         default=os.getenv("QUERY_FORGE_JAVA_EVAL_DOMAIN_ID") or "",
     )
-    forced_mode = _str_from_config(
+    explicit_forced_mode = _str_from_config(
         source,
-        keys=("java_forced_mode", "java_retrieval_forced_mode", "forced_retrieval_mode"),
+        keys=("java_forced_mode", "java_retrieval_forced_mode"),
         default="",
+    )
+    runtime_config = dict(source)
+    policy_version = runtime_config.pop("eval_policy_version", None)
+    uses_official_policy = (
+        type(policy_version) is int
+        and policy_version == OFFICIAL_EVAL_POLICY_VERSION
+        and source.get("run_discipline") == "official"
+        and not source.get("synthetic_free_baseline")
+        and not explicit_forced_mode
+    )
+    if uses_official_policy:
+        runtime_config["eval_policy_version"] = policy_version
+    forced_mode = explicit_forced_mode or _str_from_config(
+        source, keys=("forced_retrieval_mode",), default=""
+    )
+    modes = source.get("retrieval_modes")
+    use_rewrite_effect_row_modes = (
+        not explicit_forced_mode
+        and source.get("run_discipline") == "official"
+        and source.get("official_comparison_type") == "rewrite_effect"
+        and isinstance(modes, (list, tuple))
+        and {normalize_forced_mode(mode) for mode in modes} == {"raw_only", "selective_rewrite"}
     )
     return JavaRetrievalEvalSettings(
         enabled=True,
@@ -434,7 +460,9 @@ def java_retrieval_settings_from_config(raw_config: dict[str, Any] | None) -> Ja
             default=False,
         ),
         forced_mode=normalize_forced_mode(forced_mode) if forced_mode else None,
-        runtime_config=dict(source),
+        runtime_config=runtime_config,
+        use_rewrite_effect_row_modes=use_rewrite_effect_row_modes,
+        eval_policy_version=policy_version if uses_official_policy else None,
     )
 
 

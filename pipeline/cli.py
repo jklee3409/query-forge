@@ -145,6 +145,8 @@ def build_parser() -> argparse.ArgumentParser:
         subparser = subparsers.add_parser(command)
         subparser.add_argument("--experiment", default="scaffold")
         subparser.add_argument("--log-level", default="INFO")
+        if command == "eval-answer":
+            subparser.add_argument("--retrieval-run-id")
 
     import_eval = subparsers.add_parser("import-eval-jsonl")
     import_eval.add_argument("--eval-dev", default="data/eval/human_eval_dev.jsonl")
@@ -297,7 +299,7 @@ def main() -> int:
         return 0
 
     if args.command == "eval-answer":
-        summary = run_answer_eval_from_env(args.experiment)
+        summary = run_answer_eval_from_env(args.experiment, retrieval_run_id=args.retrieval_run_id)
         LOGGER.info("[pipeline] command=%s finished summary=%s", args.command, summary)
         print(json.dumps(summary, ensure_ascii=False, indent=2))
         return 0

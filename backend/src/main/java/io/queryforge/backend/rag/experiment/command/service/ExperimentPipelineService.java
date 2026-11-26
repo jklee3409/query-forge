@@ -14,11 +14,13 @@ import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.ConcurrentHashMap;
@@ -48,22 +50,35 @@ public class ExperimentPipelineService {
     }
 
     public ExperimentCommandDtos.ExperimentCommandResponse run(ExperimentCommandDtos.ExperimentCommandRequest request, String executionKey) {
+        return run(request, executionKey, null);
+    }
+
+    public ExperimentCommandDtos.ExperimentCommandResponse run(
+            ExperimentCommandDtos.ExperimentCommandRequest request, String executionKey, UUID retrievalRunId
+    ) {
         String command = normalizedCommand(request.command());
         if (!ALLOWED_COMMANDS.contains(command)) {
             throw new IllegalArgumentException("unsupported command: " + request.command());
+        }
+        if (retrievalRunId != null && !"eval-answer".equals(command)) {
+            throw new IllegalArgumentException("retrievalRunId is only supported for eval-answer");
         }
         String experiment = request.experiment() == null || request.experiment().isBlank()
                 ? "exp4"
                 : request.experiment().trim();
 
         Path repoRoot = resolveRepoRoot();
-        List<String> commandLine = List.of(
+        List<String> commandLine = new ArrayList<>(List.of(
                 properties.pythonCommand(),
                 repoRoot.resolve("pipeline/cli.py").normalize().toString(),
                 command,
                 "--experiment",
                 experiment
-        );
+        ));
+        if (retrievalRunId != null) {
+            commandLine.add("--retrieval-run-id");
+            commandLine.add(retrievalRunId.toString());
+        }
 
         ProcessBuilder processBuilder = new ProcessBuilder(commandLine)
                 .directory(repoRoot.toFile());

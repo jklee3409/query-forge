@@ -18,6 +18,7 @@ import io.queryforge.backend.rag.retrieval.execution.model.RagPersistPolicy;
 import io.queryforge.backend.rag.retrieval.execution.service.RagRetrievalExecutionService;
 import io.queryforge.backend.rag.retrieval.memory.model.MemoryCandidate;
 import io.queryforge.backend.rag.retrieval.memory.repository.RagMemoryRepository;
+import io.queryforge.backend.rag.retrieval.rewrite.dto.RewriteDtos;
 import io.queryforge.backend.rag.retrieval.routing.dto.QueryRouteDecision;
 import io.queryforge.backend.rag.retrieval.routing.model.QueryStrategy;
 import io.queryforge.backend.rag.retrieval.routing.service.QueryStrategyRouter;
@@ -106,6 +107,120 @@ class RagRetrievalEvalServiceTest {
                 agenticRetrievalService,
                 objectMapper,
                 new EvalRuntimeConfigService(objectMapper)
+        );
+    }
+
+    @Test
+    void officialRawOnlyKeepsOrderedChunksAndSkipsRewrite() {
+        givenOfficialRuntime();
+        var raw = retrieval(QUERY, List.of(doc("second", .8), doc("first", .6)), .4);
+        when(ragRetrievalExecutionService.executeRawRetrieval(any(), eq(0.0d))).thenReturn(raw);
+
+        var response = service.execute(officialRequest("raw_only", objectMapper.createObjectNode()));
+
+        assertThat(response.retrievedChunkIds()).containsExactly("second", "first");
+        assertThat(response.persisted()).isFalse();
+        assertThat(response.persistPolicy()).isEqualTo(RagPersistPolicy.NONE);
+        assertThat(response.trace().retrievalTrace().path("evalPolicyVersion").asInt()).isEqualTo(2);
+        assertThat(response.trace().retrievalTrace().path("generation").isNull()).isTrue();
+        var snapshot = response.trace().retrievalTrace().path("snapshot");
+        assertThat(snapshot.path("sourceGatingBatchIds")).isEqualTo(objectMapper.createArrayNode());
+        assertThat(snapshot.path("sourceGatingRunIds")).isEqualTo(objectMapper.createArrayNode());
+        verify(ragRetrievalExecutionService, never()).executeObservedRewrite(any());
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void officialSelectiveUsesSharedDecisionAndAppliedSnapshot(boolean candidateImproves) {
+        givenOfficialRuntime();
+        givenMemoryCandidates(List.of());
+        var raw = retrieval(QUERY, List.of(doc("raw", .8)), .4);
+        double score = candidateImproves ? .8 : .4;
+        var candidate = candidate("rewritten", List.of(doc("rewrite", .9)), score);
+        when(ragRetrievalExecutionService.executeRawRetrieval(any(), eq(0.0d))).thenReturn(raw);
+        var generation = new RewriteDtos.CandidateGeneration(
+                List.of(), new RewriteDtos.GenerationDiagnostics(true, true, false, 1,
+                "prompt.md", "openai", "actual-model", null, 3), objectMapper.createArrayNode()
+        );
+        when(ragRetrievalExecutionService.executeObservedRewrite(any())).thenReturn(
+                new RagRetrievalExecutionService.ObservedRewrite(new RetrievalExecutionDtos.RewriteExecutionResult(
+                        List.of(candidate), false, 9
+                ), generation)
+        );
+        UUID batch = UUID.randomUUID();
+        UUID run = UUID.randomUUID();
+        var runtime = objectMapper.createObjectNode()
+                .put("source_gating_batch_id", batch.toString())
+                .put("source_gating_run_id", run.toString())
+                .put("rewrite_anchor_injection_enabled", false);
+
+        var response = service.execute(officialRequest("selective_rewrite", runtime));
+
+        assertThat(response.selectedMode()).isEqualTo("selective_rewrite");
+        assertThat(response.retrievedChunkIds()).containsExactly(candidateImproves ? "rewrite" : "raw");
+        assertThat(response.finalQuery()).isEqualTo(candidateImproves ? "rewritten" : QUERY);
+        var trace = response.trace().retrievalTrace();
+        assertThat(trace.path("rewriteApplied").asBoolean()).isEqualTo(candidateImproves);
+        assertThat(trace.path("decisionReason").asText()).isEqualTo(
+                candidateImproves ? "delta_above_threshold" : "delta_below_threshold"
+        );
+        assertThat(trace.path("snapshot").path("sourceGatingBatchIds").get(0).asText()).isEqualTo(batch.toString());
+        assertThat(trace.path("snapshot").path("sourceGatingRunIds").get(0).asText()).isEqualTo(run.toString());
+        assertThat(trace.path("rawRetrievedChunkIds").get(0).asText()).isEqualTo("raw");
+        assertThat(trace.path("anchorInjectionEnabled").asBoolean()).isFalse();
+        assertThat(trace.path("generation").path("model").asText()).isEqualTo("actual-model");
+        var captor = ArgumentCaptor.forClass(ChatConfigDtos.ChatRuntimeConfigResponse.class);
+        verify(chatReadinessService).evaluateReadiness(captor.capture());
+        assertThat(captor.getValue().sourceGatingBatchIds()).containsExactly(batch);
+        assertThat(captor.getValue().sourceGatingRunIds()).containsExactly(run);
+        verify(domainScopedRetrievalService).findMemoryCandidates(
+                eq(QUERY), eq("embedding"), anyInt(), anyString(), eq(DOMAIN_ID),
+                anyList(), eq(List.of(run)), eq(List.of(batch)), eq(retrievalRuntime)
+        );
+    }
+
+    @ParameterizedTest
+    @ValueSource(booleans = {true, false})
+    void officialSelectiveKeepsRawWhenGenerationFailedOrWasUnavailable(boolean attempted) {
+        givenOfficialRuntime();
+        givenMemoryCandidates(List.of());
+        when(ragRetrievalExecutionService.executeRawRetrieval(any(), eq(0.0d)))
+                .thenReturn(retrieval(QUERY, List.of(doc("raw", .8)), .4));
+        var generation = new RewriteDtos.CandidateGeneration(
+                List.of(new RewriteDtos.CandidateTemplate("heuristic", "guessed")),
+                new RewriteDtos.GenerationDiagnostics(attempted, false, true, attempted ? 1 : 0,
+                        "prompt.md", null, null, attempted ? "provider_response_unusable" : "provider_unavailable", 3),
+                null
+        );
+        when(ragRetrievalExecutionService.executeObservedRewrite(any())).thenReturn(
+                new RagRetrievalExecutionService.ObservedRewrite(new RetrievalExecutionDtos.RewriteExecutionResult(
+                        List.of(), true, 9
+                ), generation)
+        );
+
+        var response = service.execute(officialRequest("anchor_aware_rewrite", objectMapper.createObjectNode()));
+
+        assertThat(response.retrievedChunkIds()).containsExactly("raw");
+        assertThat(response.finalQuery()).isEqualTo(QUERY);
+        var trace = response.trace().retrievalTrace();
+        assertThat(trace.path("rewriteApplied").asBoolean()).isFalse();
+        assertThat(trace.path("decisionReason").asText()).isEqualTo(attempted ? "rewrite_failed" : "rewrite_unavailable");
+        assertThat(trace.path("generation").path("attempted").asBoolean()).isEqualTo(attempted);
+        assertThat(trace.path("bestCandidateConfidence").isNull()).isTrue();
+        assertThat(response.llmCallCount().rewriteCalls()).isEqualTo(attempted ? 1 : 0);
+    }
+
+    private void givenOfficialRuntime() {
+        when(chatRuntimeConfigService.getConfig(DOMAIN_ID)).thenReturn(config());
+        when(chatReadinessService.evaluateReadiness(any())).thenReturn(readiness());
+        when(domainScopedRetrievalService.retrievalRuntime(any())).thenReturn(retrievalRuntime);
+        when(domainScopedRetrievalService.embeddingLiteral(QUERY, retrievalRuntime)).thenReturn("embedding");
+    }
+
+    private RagRetrievalEvalDtos.RagRetrievalEvalRequest officialRequest(String mode, ObjectNode runtime) {
+        runtime.put("eval_policy_version", 2);
+        return new RagRetrievalEvalDtos.RagRetrievalEvalRequest(
+                DOMAIN_ID, QUERY, mode, null, null, null, true, true, false, runtime
         );
     }
 

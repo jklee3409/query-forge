@@ -70,11 +70,32 @@ public class RagRetrievalExecutionService {
     public RewriteExecutionResult executeRewrite(RewriteExecutionRequest request) {
         long started = System.nanoTime();
         List<RewriteDtos.CandidateTemplate> generatedCandidates = generateRewriteCandidates(request);
+        return executeCandidates(request, generatedCandidates, started);
+    }
+
+    public ObservedRewrite executeObservedRewrite(RewriteExecutionRequest request) {
+        long started = System.nanoTime();
+        RewriteDtos.CandidateGeneration generation = rewriteCandidateService.buildObservedCandidates(
+                request.rawQuery(), request.sessionContextSnapshot(), request.memoryCandidates(),
+                request.candidateCount(), request.rewriteQueryProfile(), request.anchorInjectionEnabled(), request.domainContext()
+        );
+        // Only model-generated candidates may enter the official selective policy.
+        List<RewriteDtos.CandidateTemplate> eligible = generation.diagnostics().succeeded()
+                ? generation.candidates() : List.of();
+        return new ObservedRewrite(executeCandidates(request, eligible, started), generation);
+    }
+
+    private RewriteExecutionResult executeCandidates(
+            RewriteExecutionRequest request, List<RewriteDtos.CandidateTemplate> generatedCandidates, long started
+    ) {
         List<ExecutedRewriteCandidate> executedCandidates = new ArrayList<>();
         for (int index = 0; index < generatedCandidates.size(); index++) {
             executedCandidates.add(executeCandidate(request, index + 1, generatedCandidates.get(index)));
         }
         return new RewriteExecutionResult(executedCandidates, request.anchorInjectionEnabled(), elapsedMs(started));
+    }
+
+    public record ObservedRewrite(RewriteExecutionResult execution, RewriteDtos.CandidateGeneration generation) {
     }
 
     public List<RewriteDtos.CandidateTemplate> generateRewriteCandidates(RewriteExecutionRequest request) {

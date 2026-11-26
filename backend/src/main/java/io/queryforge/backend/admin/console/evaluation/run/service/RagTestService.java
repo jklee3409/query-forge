@@ -214,7 +214,9 @@ public class RagTestService {
                 request.runName(),
                 retrievalBackend + ":" + String.valueOf(retrieverConfig.get("retriever_mode"))
         );
-        String rewriteFailurePolicy = normalizeRewriteFailurePolicy(request.rewriteFailurePolicy());
+        String rewriteFailurePolicy = RUN_DISCIPLINE_OFFICIAL.equals(runDiscipline)
+                ? REWRITE_FAILURE_POLICY_SKIP_TO_RAW
+                : normalizeRewriteFailurePolicy(request.rewriteFailurePolicy());
         runtimeOptionsService.validateRewriteFailurePolicySelection(rewriteFailurePolicy, runtimeCatalog);
         String requestedRewriteQueryProfile = normalizeRewriteQueryProfile(request.rewriteQueryProfile(), runtimeCatalog);
         runtimeOptionsService.validateRewriteQueryProfileSelection(requestedRewriteQueryProfile, runtimeCatalog);
@@ -247,9 +249,6 @@ public class RagTestService {
                         "official gating-effect runs require comparison_gating_batch_ids for ungated, rule_only, full_gating"
                 );
             }
-            if (request.rewriteEnabled() != null && request.rewriteEnabled()) {
-                throw new IllegalArgumentException("official gating-effect runs must not enable rewrite");
-            }
             if (Boolean.FALSE.equals(request.gatingApplied())) {
                 throw new IllegalArgumentException("official gating-effect runs require gating_applied=true");
             }
@@ -257,16 +256,16 @@ public class RagTestService {
                     && !"full_gating".equalsIgnoreCase(request.gatingPreset().trim())) {
                 throw new IllegalArgumentException("official gating-effect runs require gating_preset=full_gating");
             }
-            if (Boolean.TRUE.equals(request.selectiveRewrite()) || Boolean.TRUE.equals(request.useSessionContext())) {
-                throw new IllegalArgumentException("official gating-effect runs must not include rewrite variants");
+            if (Boolean.TRUE.equals(request.useSessionContext())) {
+                throw new IllegalArgumentException("official gating-effect runs require use_session_context=false");
             }
             gatingApplied = true;
             gatingPreset = "full_gating";
-            rewriteEnabled = false;
-            selectiveRewrite = false;
+            rewriteEnabled = true;
+            selectiveRewrite = true;
             useSessionContext = false;
             routerEnabled = false;
-            forcedRetrievalMode = "raw_only";
+            forcedRetrievalMode = "selective_rewrite";
             agenticMultiQueryEnabled = false;
             rewriteAnchorInjectionEnabled = false;
             multiSourceAnchorExpansionEnabled = false;
@@ -337,7 +336,7 @@ public class RagTestService {
         if (!rewriteEnabled) {
             rewriteAnchorInjectionEnabled = false;
         }
-        if (!rewriteEnabled || !rewriteAnchorInjectionEnabled) {
+        if (!rewriteEnabled || !rewriteAnchorInjectionEnabled || RUN_DISCIPLINE_OFFICIAL.equals(runDiscipline)) {
             multiSourceAnchorExpansionEnabled = false;
         }
         String rewriteQueryProfile = rewriteEnabled
@@ -418,6 +417,9 @@ public class RagTestService {
             config.put("official_comparison_type", officialComparisonType);
             config.put("official_variable_axis", officialComparisonType);
             config.put("official_isolation_validated", true);
+            config.put("eval_policy_version", 2);
+            config.put("answer_eval_mode", COMPARISON_GATING_EFFECT.equals(officialComparisonType)
+                    ? "selective_rewrite_full_gating" : "selective_rewrite");
         }
 
         if (syntheticFreeBaseline) {
@@ -456,7 +458,7 @@ public class RagTestService {
             config.put("comparison_snapshots", comparisonSnapshots);
             config.put(
                     "retrieval_modes",
-                    List.of("raw_only", "memory_only_ungated", "memory_only_rule_only", "memory_only_full_gating")
+                    List.of("raw_only", "selective_rewrite_ungated", "selective_rewrite_rule_only", "selective_rewrite_full_gating")
             );
             config.put("snapshot_id", comparisonBatchIds.get("full_gating").toString());
         } else if (RUN_DISCIPLINE_OFFICIAL.equals(runDiscipline)

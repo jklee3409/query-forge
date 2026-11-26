@@ -446,17 +446,63 @@ class RetrievalEvalJavaAdapterTests(unittest.TestCase):
                 self.assertEqual(metrics["hit@5"], 1.0)
                 self.assertEqual(rewrite_info["backend"], "java")
 
-    def test_official_raw_row_uses_recorded_forced_mode(self) -> None:
-        settings = java_retrieval_settings_from_config({
-            "retrieval_eval_backend": "java",
-            "forced_retrieval_mode": "selective_rewrite",
-            "retrieval_modes": ["raw_only", "selective_rewrite"],
-        })
+    def test_official_rewrite_effect_requests_each_row_mode(self) -> None:
+        config = _official_rewrite_effect_config()
+        settings = java_retrieval_settings_from_config(config.raw)
+        for mode in config.raw["retrieval_modes"]:
+            with self.subTest(mode=mode):
+                session = _RecordingSession(_FakeResponse(status_code=200, body={
+                    "forcedMode": mode,
+                    "selectedMode": mode,
+                    "retrievedChunkIds": ["chunk-1"],
+                }))
+                metrics, info, _ = _evaluate_java_row(mode, config, settings, session)
 
-        self.assertEqual(
-            retrieval_eval._java_forced_mode_for_eval_mode(mode="raw_only", settings=settings),
-            "selective_rewrite",
-        )
+                self.assertEqual(metrics["hit@5"], 1.0)
+                self.assertEqual(info["java_forced_mode"], mode)
+                self.assertEqual(info["java_selected_mode"], mode)
+                request = session.calls[0]["json"]
+                self.assertEqual(request["forcedMode"], mode)
+                self.assertEqual(request["runtimeConfig"]["mode"], mode)
+                self.assertEqual(request["runtimeConfig"]["forced_retrieval_mode"], mode)
+                self.assertEqual(request["runtimeConfig"]["source_gating_batch_id"], config.raw["source_gating_batch_id"])
+
+        self.assertEqual(settings.runtime_config["mode"], "selective_rewrite")
+        self.assertEqual(settings.runtime_config["forced_retrieval_mode"], "selective_rewrite")
+
+    def test_official_rewrite_effect_rejects_missing_or_mismatched_response_modes(self) -> None:
+        config = _official_rewrite_effect_config()
+        settings = java_retrieval_settings_from_config(config.raw)
+        for forced_mode, selected_mode in (
+            ("selective_rewrite", "raw_only"),
+            ("raw_only", "selective_rewrite"),
+            (None, "raw_only"),
+            ("raw_only", None),
+        ):
+            with self.subTest(forced_mode=forced_mode, selected_mode=selected_mode):
+                session = _RecordingSession(_FakeResponse(status_code=200, body={
+                    "forcedMode": forced_mode,
+                    "selectedMode": selected_mode,
+                    "retrievedChunkIds": ["chunk-1"],
+                }))
+                with self.assertRaises(retrieval_eval.JavaRetrievalClientError) as context:
+                    _evaluate_java_row("raw_only", config, settings, session)
+                self.assertEqual(context.exception.code, "java_retrieval_mode_mismatch")
+
+    def test_single_mode_and_explicit_overrides_keep_run_forced_mode(self) -> None:
+        config = _official_rewrite_effect_config()
+        for override in (
+            {"retrieval_modes": ["raw_only"]},
+            {"run_discipline": "exploratory"},
+            {"java_forced_mode": "selective_rewrite"},
+            {"java_retrieval_forced_mode": "selective_rewrite"},
+        ):
+            with self.subTest(override=override):
+                settings = java_retrieval_settings_from_config({**config.raw, **override})
+                self.assertEqual(
+                    retrieval_eval._java_forced_mode_for_eval_mode(mode="raw_only", settings=settings),
+                    "selective_rewrite",
+                )
 
     def test_official_java_backend_allows_supported_modes(self) -> None:
         class Config:
@@ -613,6 +659,43 @@ class RetrievalEvalJavaAdapterTests(unittest.TestCase):
 
         self.assertEqual(context.exception.code, "java_backend_unavailable")
         self.assertIn("connection refused", context.exception.detail)
+
+
+def _official_rewrite_effect_config():
+    class Config:
+        retrieval_top_k = 2
+        raw = {
+            "retrieval_eval_backend": "java",
+            "java_backend_domain_id": "11111111-1111-1111-1111-111111111111",
+            "run_discipline": "official",
+            "official_comparison_type": "rewrite_effect",
+            "official_isolation_validated": True,
+            "mode": "selective_rewrite",
+            "forced_retrieval_mode": "selective_rewrite",
+            "router_enabled": False,
+            "retrieval_modes": ["raw_only", "selective_rewrite"],
+            "source_gating_batch_id": "22222222-2222-2222-2222-222222222222",
+        }
+
+    return Config()
+
+
+def _evaluate_java_row(mode, config, settings, session):
+    return retrieval_eval._evaluate_mode(
+        mode=mode,
+        sample=_sample(),
+        chunks=[],
+        memories=[],
+        config=config,
+        memory_strategy_filters=[],
+        source_gating_run_id=None,
+        comparison_source_runs={},
+        retrieval_adapter=None,
+        multi_source_anchor_index=None,
+        raw_retrieval=[],
+        java_client=JavaRetrievalEvalClient(settings.base_url, session=session),
+        java_settings=settings,
+    )
 
 
 def _sample() -> EvalSample:

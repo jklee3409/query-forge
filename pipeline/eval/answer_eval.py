@@ -21,6 +21,7 @@ try:
     from common.experiment_run import ExperimentRunRecorder
     from common.text_utils import copy_ratio, extract_extractive_summary
     from loaders.common import connect, default_database_args
+    from eval.retrieval_context import POLICY_VERSION, answer_snapshot, load_retrieval_context
     from eval.runtime import (
         DbAnnRuntimeRetrievalAdapter,
         RetrievalCandidate,
@@ -45,6 +46,7 @@ except ModuleNotFoundError:  # pragma: no cover
     from pipeline.common.experiment_run import ExperimentRunRecorder
     from pipeline.common.text_utils import copy_ratio, extract_extractive_summary
     from pipeline.loaders.common import connect, default_database_args
+    from pipeline.eval.retrieval_context import POLICY_VERSION, answer_snapshot, load_retrieval_context
     from pipeline.eval.runtime import (
         DbAnnRuntimeRetrievalAdapter,
         RetrievalCandidate,
@@ -396,6 +398,12 @@ def _evaluate_answer_sample(
         top_n=config.rerank_top_n,
         retriever_config=config.retriever_config,
     )
+    return _score_answer_sample(sample, rewrite_outcome, reranked, started)
+
+
+def _score_answer_sample(
+    sample: Any, rewrite_outcome: RewriteOutcome, reranked: list[RetrievalCandidate], started: float
+) -> dict[str, Any]:
     answer_segments = [
         extract_extractive_summary(item.text, max_sentences=1)
         for item in reranked[:2]
@@ -470,6 +478,90 @@ def _evaluate_answer_sample(
     }
 
 
+def _evaluate_retrieved_answers(
+    connection: Any,
+    *,
+    config: Any,
+    dataset_id: str | None,
+    samples: list[Any],
+    output_root: Path,
+    retrieval_run_id: str,
+    mode: str,
+) -> list[dict[str, Any]]:
+    rows = load_retrieval_context(
+        output_root,
+        retrieval_run_id=retrieval_run_id,
+        experiment_key=config.experiment_key,
+        config_hash=config.config_hash,
+        dataset_id=dataset_id,
+        mode=mode,
+        snapshot=answer_snapshot(config.raw, mode),
+        sample_queries={sample.sample_id: sample.query_text for sample in samples},
+    )
+    chunk_ids = sorted({item["chunk_id"] for row in rows.values() for item in row["retrieved"]})
+    with connection.cursor() as cursor:
+        cursor.execute(
+            """
+            SELECT 1
+            FROM experiment_runs r
+            JOIN experiments e ON e.experiment_id = r.experiment_id
+            WHERE r.experiment_run_id = %s AND r.run_label = 'eval-retrieval'
+              AND r.status = 'completed' AND e.experiment_key = %s
+            """,
+            (retrieval_run_id, config.experiment_key),
+        )
+        if cursor.fetchone() is None:
+            raise ValueError(f"Completed retrieval run not found: {retrieval_run_id}.")
+        chunks = {}
+        if chunk_ids:
+            cursor.execute(
+                "SELECT chunk_id, document_id, chunk_text FROM corpus_chunks WHERE chunk_id = ANY(%s)",
+                (chunk_ids,),
+            )
+            chunks = {row["chunk_id"]: row for row in cursor.fetchall()}
+    missing_chunk_ids = len(chunk_ids) - len(chunks)
+    if missing_chunk_ids:
+        raise ValueError(f"Retrieval context for run {retrieval_run_id} has {missing_chunk_ids} missing chunks.")
+
+    results = []
+    for sample in samples:
+        started = time.perf_counter()
+        row = rows[sample.sample_id]
+        rewrite = row["rewrite"]
+        contexts = [
+            RetrievalCandidate(
+                chunk_id=item["chunk_id"],
+                document_id=chunks[item["chunk_id"]]["document_id"],
+                score=float(item["score"]),
+                text=chunks[item["chunk_id"]]["chunk_text"],
+            )
+            for item in row["retrieved"]
+        ]
+        outcome = RewriteOutcome(
+            final_query=row["final_query"],
+            rewrite_applied=bool(rewrite.get("rewrite_applied")),
+            rewrite_reason=rewrite.get("rewrite_reason") or "java_retrieval_context",
+            raw_confidence=rewrite.get("raw_confidence") or 0.0,
+            best_candidate_confidence=rewrite.get("best_candidate_confidence") or 0.0,
+            memory_top_n=[],
+            candidates=[],
+            rewrite_llm_attempted=bool(rewrite.get("rewrite_llm_attempted")),
+            rewrite_llm_succeeded=bool(rewrite.get("rewrite_llm_succeeded")),
+            rewrite_heuristic_fallback_used=bool(rewrite.get("rewrite_heuristic_fallback_used")),
+            final_rewrite_latency_ms=rewrite.get("final_rewrite_latency_ms"),
+            pure_rewrite_latency_ms=rewrite.get("pure_rewrite_latency_ms"),
+        )
+        scored = _score_answer_sample(sample, outcome, contexts, started)
+        scored["sample_row"].update(
+            raw_confidence=rewrite.get("raw_confidence"),
+            best_candidate_confidence=rewrite.get("best_candidate_confidence"),
+            retrieval_run_id=retrieval_run_id,
+            retrieval_mode=mode,
+        )
+        results.append(scored)
+    return results
+
+
 def run_answer_eval(
     *,
     experiment: str,
@@ -482,8 +574,14 @@ def run_answer_eval(
     db_name: str = "query_forge",
     db_user: str = "query_forge",
     db_password: str = "query_forge",
+    retrieval_run_id: str | None = None,
 ) -> dict[str, Any]:
     config = load_experiment_config(experiment, experiment_root=experiment_root)
+    reuse_retrieval = config.raw.get("eval_policy_version") == POLICY_VERSION
+    if reuse_retrieval and retrieval_run_id is None:
+        raise ValueError("Answer evaluation policy 2 requires a completed --retrieval-run-id.")
+    if retrieval_run_id is not None and not reuse_retrieval:
+        raise ValueError("--retrieval-run-id requires answer evaluation policy 2.")
     options = type(
         "DbOptions",
         (),
@@ -534,81 +632,149 @@ def run_answer_eval(
         retrieval_backend = normalize_retrieval_backend(str(config.raw.get("retrieval_backend") or "local"))
         eval_query_language = str(config.raw.get("eval_query_language") or "ko").strip().lower()
         samples = load_eval_samples(connection, dataset_id=dataset_id, query_language=eval_query_language)
-        LOGGER.info(
-            "answer_eval_parallelism samples=%s concurrency=%s",
-            len(samples),
-            eval_concurrency,
-        )
-        dataset_scope = derive_eval_corpus_scope(samples) if dataset_id else {
-            "source_products": set(),
-            "product_filters": set(),
-            "expected_doc_ids": set(),
-        }
-        allowed_products = dataset_scope["product_filters"]
-        expected_doc_ids = dataset_scope["expected_doc_ids"]
-        if dataset_id and not allowed_products and expected_doc_ids:
-            LOGGER.warning(
-                "answer_eval_dataset_scope_missing_source_products dataset_id=%s expected_doc_ids=%s; "
-                "falling back to expected_doc_ids-only chunk scope",
-                dataset_id,
-                len(expected_doc_ids),
-            )
-        elif dataset_id and not allowed_products and not expected_doc_ids:
-            LOGGER.warning(
-                "answer_eval_dataset_scope_empty dataset_id=%s; falling back to full corpus",
-                dataset_id,
-            )
-        retrieval_adapter: DbAnnRuntimeRetrievalAdapter | None = None
-        if retrieval_backend == "db_ann":
-            retrieval_adapter = DbAnnRuntimeRetrievalAdapter(
+        if retrieval_run_id is not None:
+            mode = str(config.raw.get("answer_eval_mode") or "").strip()
+            evaluated = _evaluate_retrieved_answers(
                 connection,
-                allowed_products=sorted(allowed_products) if dataset_id else None,
-                include_document_ids=sorted(expected_doc_ids) if dataset_id else None,
-                memory_experiment_key=config.experiment_key,
-                retriever_config=config.retriever_config,
+                config=config,
+                dataset_id=dataset_id,
+                samples=samples,
+                output_root=output_root,
+                retrieval_run_id=retrieval_run_id,
+                mode=mode,
             )
-            chunks = []
+            rerank_model = "java-retrieval-eval"
+            retriever_metadata = {
+                "retrieval_run_id": retrieval_run_id,
+                "retrieval_mode": mode,
+                "eval_policy_version": POLICY_VERSION,
+            }
+            context_summary = {"memory_entry_count_loaded": None}
         else:
-            chunks = load_chunk_items(
-                connection,
-                allowed_products=allowed_products if dataset_id else None,
-                include_document_ids=expected_doc_ids if dataset_id else None,
-            )
-        if dataset_id:
             LOGGER.info(
-                "answer_eval_dataset_scope dataset_id=%s source_products=%s product_filters=%s expected_doc_ids=%s loaded_chunks=%s",
-                dataset_id,
-                len(dataset_scope["source_products"]),
-                len(allowed_products),
-                len(expected_doc_ids),
-                len(chunks),
+                "answer_eval_parallelism samples=%s concurrency=%s",
+                len(samples),
+                eval_concurrency,
             )
-        memories = []
-        if rewrite_enabled and retrieval_backend != "db_ann":
-            memories = load_memory_items(connection, memory_experiment_key=config.experiment_key)
-        retriever_metadata = runtime_retriever_metadata(
-            retriever_config=config.retriever_config,
-            retrieval_adapter=retrieval_adapter,
-        )
-        raw_retrieval_by_sample, empty_raw_sample_ids, raw_cache_loaded = _resolve_raw_retrieval_cache(
-            samples=samples,
-            chunks=chunks,
-            config=config,
-            output_root=output_root,
-            retrieval_adapter=retrieval_adapter,
-            retrieval_backend=retrieval_backend,
-            retriever_metadata=retriever_metadata,
-        )
-        multi_source_anchor_index = None
-        if _is_multi_source_anchor_expansion_enabled(config.raw):
-            multi_source_anchor_index = load_multi_source_anchor_index(
-                connection,
-                relation_version=str(config.raw.get("multi_source_anchor_relation_version") or "multi-source-anchor-v1"),
-                relation_types=_multi_source_relation_types(config.raw),
-                min_relation_score=config.raw.get("multi_source_anchor_min_score", 0.72),
+            dataset_scope = derive_eval_corpus_scope(samples) if dataset_id else {
+                "source_products": set(),
+                "product_filters": set(),
+                "expected_doc_ids": set(),
+            }
+            allowed_products = dataset_scope["product_filters"]
+            expected_doc_ids = dataset_scope["expected_doc_ids"]
+            if dataset_id and not allowed_products and expected_doc_ids:
+                LOGGER.warning(
+                    "answer_eval_dataset_scope_missing_source_products dataset_id=%s expected_doc_ids=%s; "
+                    "falling back to expected_doc_ids-only chunk scope",
+                    dataset_id,
+                    len(expected_doc_ids),
+                )
+            elif dataset_id and not allowed_products and not expected_doc_ids:
+                LOGGER.warning(
+                    "answer_eval_dataset_scope_empty dataset_id=%s; falling back to full corpus",
+                    dataset_id,
+                )
+            retrieval_adapter: DbAnnRuntimeRetrievalAdapter | None = None
+            if retrieval_backend == "db_ann":
+                retrieval_adapter = DbAnnRuntimeRetrievalAdapter(
+                    connection,
+                    allowed_products=sorted(allowed_products) if dataset_id else None,
+                    include_document_ids=sorted(expected_doc_ids) if dataset_id else None,
+                    memory_experiment_key=config.experiment_key,
+                    retriever_config=config.retriever_config,
+                )
+                chunks = []
+            else:
+                chunks = load_chunk_items(
+                    connection,
+                    allowed_products=allowed_products if dataset_id else None,
+                    include_document_ids=expected_doc_ids if dataset_id else None,
+                )
+            if dataset_id:
+                LOGGER.info(
+                    "answer_eval_dataset_scope dataset_id=%s source_products=%s product_filters=%s expected_doc_ids=%s loaded_chunks=%s",
+                    dataset_id,
+                    len(dataset_scope["source_products"]),
+                    len(allowed_products),
+                    len(expected_doc_ids),
+                    len(chunks),
+                )
+            memories = []
+            if rewrite_enabled and retrieval_backend != "db_ann":
+                memories = load_memory_items(connection, memory_experiment_key=config.experiment_key)
+            retriever_metadata = runtime_retriever_metadata(
+                retriever_config=config.retriever_config,
+                retrieval_adapter=retrieval_adapter,
             )
+            raw_retrieval_by_sample, empty_raw_sample_ids, raw_cache_loaded = _resolve_raw_retrieval_cache(
+                samples=samples,
+                chunks=chunks,
+                config=config,
+                output_root=output_root,
+                retrieval_adapter=retrieval_adapter,
+                retrieval_backend=retrieval_backend,
+                retriever_metadata=retriever_metadata,
+            )
+            multi_source_anchor_index = None
+            if _is_multi_source_anchor_expansion_enabled(config.raw):
+                multi_source_anchor_index = load_multi_source_anchor_index(
+                    connection,
+                    relation_version=str(config.raw.get("multi_source_anchor_relation_version") or "multi-source-anchor-v1"),
+                    relation_types=_multi_source_relation_types(config.raw),
+                    min_relation_score=config.raw.get("multi_source_anchor_min_score", 0.72),
+                )
 
-        sample_rows: list[dict[str, Any]] = []
+            evaluated: list[dict[str, Any]] = []
+            if eval_concurrency <= 1 or len(samples) <= 1:
+                for sample in samples:
+                    evaluated.append(
+                        _evaluate_answer_sample(
+                            sample=sample,
+                            chunks=chunks,
+                            memories=memories,
+                            config=config,
+                            rewrite_enabled=rewrite_enabled,
+                            selective_rewrite=selective_rewrite,
+                            gating_applied=gating_applied,
+                            source_gating_run_id=source_gating_run_id,
+                            memory_strategy_filters=memory_strategy_filters,
+                            retrieval_adapter=retrieval_adapter,
+                            multi_source_anchor_index=multi_source_anchor_index,
+                            raw_retrieval=raw_retrieval_by_sample.get(sample.sample_id, []),
+                        )
+                    )
+            else:
+                with ThreadPoolExecutor(max_workers=min(eval_concurrency, len(samples))) as pool:
+                    futures = [
+                        pool.submit(
+                            _evaluate_answer_sample,
+                            sample=sample,
+                            chunks=chunks,
+                            memories=memories,
+                            config=config,
+                            rewrite_enabled=rewrite_enabled,
+                            selective_rewrite=selective_rewrite,
+                            gating_applied=gating_applied,
+                            source_gating_run_id=source_gating_run_id,
+                            memory_strategy_filters=memory_strategy_filters,
+                            retrieval_adapter=retrieval_adapter,
+                            multi_source_anchor_index=multi_source_anchor_index,
+                            raw_retrieval=raw_retrieval_by_sample.get(sample.sample_id, []),
+                        )
+                        for sample in samples
+                    ]
+                    for future in as_completed(futures):
+                        evaluated.append(future.result())
+
+            rerank_model = f"cohere-or-{runtime_retriever_label(retriever_config=config.retriever_config, retrieval_adapter=retrieval_adapter)}"
+            context_summary = {
+                "memory_entry_count_loaded": None if retrieval_backend == "db_ann" else len(memories),
+                "raw_retrieval_cache_path": str(_raw_retrieval_cache_path(output_root, config.experiment_key)),
+                "raw_retrieval_cache_loaded": raw_cache_loaded,
+                "raw_retrieval_empty_sample_ids": empty_raw_sample_ids,
+            }
+
         with connection.cursor() as cursor:
             cursor.execute(
                 """
@@ -618,48 +784,6 @@ def run_answer_eval(
                 """,
                 (f"answer_eval:{config.experiment_key}",),
             )
-
-        evaluated: list[dict[str, Any]] = []
-        if eval_concurrency <= 1 or len(samples) <= 1:
-            for sample in samples:
-                evaluated.append(
-                    _evaluate_answer_sample(
-                        sample=sample,
-                        chunks=chunks,
-                        memories=memories,
-                        config=config,
-                        rewrite_enabled=rewrite_enabled,
-                        selective_rewrite=selective_rewrite,
-                        gating_applied=gating_applied,
-                        source_gating_run_id=source_gating_run_id,
-                        memory_strategy_filters=memory_strategy_filters,
-                        retrieval_adapter=retrieval_adapter,
-                        multi_source_anchor_index=multi_source_anchor_index,
-                        raw_retrieval=raw_retrieval_by_sample.get(sample.sample_id, []),
-                    )
-                )
-        else:
-            with ThreadPoolExecutor(max_workers=min(eval_concurrency, len(samples))) as pool:
-                futures = [
-                    pool.submit(
-                        _evaluate_answer_sample,
-                        sample=sample,
-                        chunks=chunks,
-                        memories=memories,
-                        config=config,
-                        rewrite_enabled=rewrite_enabled,
-                        selective_rewrite=selective_rewrite,
-                        gating_applied=gating_applied,
-                        source_gating_run_id=source_gating_run_id,
-                        memory_strategy_filters=memory_strategy_filters,
-                        retrieval_adapter=retrieval_adapter,
-                        multi_source_anchor_index=multi_source_anchor_index,
-                        raw_retrieval=raw_retrieval_by_sample.get(sample.sample_id, []),
-                    )
-                    for sample in samples
-                ]
-                for future in as_completed(futures):
-                    evaluated.append(future.result())
 
         evaluated.sort(key=lambda row: row["sample"].sample_id)
         sample_rows = [row["sample_row"] for row in evaluated]
@@ -705,7 +829,7 @@ def run_answer_eval(
                             rank,
                             None,
                             None,
-                            f"cohere-or-{runtime_retriever_label(retriever_config=config.retriever_config, retrieval_adapter=retrieval_adapter)}",
+                            rerank_model,
                             item.score,
                             Jsonb(
                                 {
@@ -766,12 +890,9 @@ def run_answer_eval(
             "synthetic_free_baseline": synthetic_free_baseline,
             "rewrite_enabled": rewrite_enabled,
             "selective_rewrite": selective_rewrite,
-            "memory_experiment_key": config.experiment_key if rewrite_enabled else None,
-            "memory_entry_count_loaded": None if retrieval_backend == "db_ann" else len(memories),
+            "memory_experiment_key": config.experiment_key if rewrite_enabled and not reuse_retrieval else None,
             **retriever_metadata,
-            "raw_retrieval_cache_path": str(_raw_retrieval_cache_path(output_root, config.experiment_key)),
-            "raw_retrieval_cache_loaded": raw_cache_loaded,
-            "raw_retrieval_empty_sample_ids": empty_raw_sample_ids,
+            **context_summary,
             "rewrite_llm_attempted_count": int(rewrite_generation_stats["rewrite_llm_attempted_count"]),
             "rewrite_llm_success_count": int(rewrite_generation_stats["rewrite_llm_success_count"]),
             "rewrite_llm_failure_count": int(rewrite_generation_stats["rewrite_llm_failure_count"]),
@@ -860,10 +981,11 @@ def run_answer_eval(
         connection.close()
 
 
-def run_answer_eval_from_env(experiment: str) -> dict[str, Any]:
+def run_answer_eval_from_env(experiment: str, *, retrieval_run_id: str | None = None) -> dict[str, Any]:
     defaults = default_database_args()
     return run_answer_eval(
         experiment=experiment,
+        retrieval_run_id=retrieval_run_id,
         database_url=defaults["database_url"],
         db_host=defaults["db_host"],
         db_port=defaults["db_port"],

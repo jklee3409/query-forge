@@ -7,6 +7,7 @@ import io.queryforge.backend.admin.console.jobs.model.LlmJobType;
 import io.queryforge.backend.admin.console.jobs.repository.LlmJobRepository;
 import io.queryforge.backend.admin.console.jobs.result.service.LlmJobResultService;
 import io.queryforge.backend.admin.console.jobs.service.LlmJobService;
+import io.queryforge.backend.rag.experiment.command.dto.ExperimentCommandDtos;
 import io.queryforge.backend.rag.experiment.command.service.ExperimentPipelineService;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -39,6 +40,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.clearInvocations;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
+import static org.mockito.Mockito.verifyNoMoreInteractions;
+import static org.mockito.Mockito.when;
 
 @SpringBootTest
 @Testcontainers(disabledWithoutDocker = true)
@@ -124,6 +127,37 @@ class LlmJobFinalizationIntegrationTest {
                 SELECT rag_test_result_detail_id FROM rag_rewrite_anchor_eval WHERE rag_test_run_id = ?
                 """, UUID.class, run.runId())).isEqualTo(detailIds(run).getFirst());
         verifyNoInteractions(pipeline);
+    }
+
+    @Test
+    void resumesAnswerWithTheCompletedRetrievalRun() throws Exception {
+        RagRun run = createRun();
+        writeReport(run);
+        UUID retrievalRunId = UUID.randomUUID();
+        jdbc.update("""
+                INSERT INTO experiment_runs (experiment_run_id, run_label, status)
+                VALUES (?, 'eval-retrieval', 'completed')
+                """, retrievalRunId);
+        LlmJobDtos.LlmJobItemRow retrieval = jobs.findJobItems(run.jobId()).getFirst();
+        jobs.markItemCompleted(retrieval.jobItemId(), objectMapper.createObjectNode()
+                .put("eval_policy_version", 2)
+                .put("experiment_run_id", retrievalRunId.toString())
+                .set("summary", run.results().get("eval-retrieval").get("summary")));
+        String experiment = job(run).experimentName();
+        jobs.createJobItem(run.jobId(), 2, "eval-answer",
+                objectMapper.createObjectNode().put("command", "eval-answer"), 0);
+        jobs.markJobFailed(run.jobId(), "previous failure", objectMapper.createObjectNode());
+        var request = new ExperimentCommandDtos.ExperimentCommandRequest("eval-answer", experiment);
+        when(pipeline.run(request, run.jobId().toString(), retrievalRunId))
+                .thenReturn(new ExperimentCommandDtos.ExperimentCommandResponse(
+                        "eval-answer", experiment, 0, objectMapper.createObjectNode(), "", ""
+                ));
+
+        retryAndRunWorker(run.jobId());
+
+        assertThat(job(run).jobStatus()).isEqualTo("completed");
+        verify(pipeline).run(request, run.jobId().toString(), retrievalRunId);
+        verifyNoMoreInteractions(pipeline);
     }
 
     @Test
@@ -267,6 +301,8 @@ class LlmJobFinalizationIntegrationTest {
         worker.retryJob(jobId);
         ArgumentCaptor<Runnable> task = ArgumentCaptor.forClass(Runnable.class);
         verify(executor).execute(task.capture());
+        // These tests exercise finalization after a due retry, independently of the container clock.
+        jdbc.update("UPDATE llm_job SET next_run_at = TIMESTAMPTZ '2000-01-01 00:00:00+00' WHERE job_id = ?", jobId);
         task.getValue().run();
     }
 
