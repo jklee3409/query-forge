@@ -1,4 +1,4 @@
-package io.queryforge.backend.rag.chat.routing.service;
+package io.queryforge.backend.rag.retrieval.routing.service;
 
 import io.queryforge.backend.rag.retrieval.routing.dto.QueryRouteContext;
 import io.queryforge.backend.rag.runtime.configuration.dto.ChatConfigDtos;
@@ -7,12 +7,12 @@ import io.queryforge.backend.rag.runtime.readiness.dto.ChatReadinessDtos;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
-public final class ChatRequestRouting {
+public final class QueryRouteContexts {
 
     private static final Pattern SEARCH_TOKEN_PATTERN = Pattern.compile("[@A-Za-z0-9_./:$-]{2,}|\\p{InHangulSyllables}{2,}");
     private static final Pattern TECHNICAL_TOKEN_PATTERN = Pattern.compile("[@A-Za-z_][A-Za-z0-9_./:$-]{1,}");
 
-    private ChatRequestRouting() {
+    private QueryRouteContexts() {
     }
 
     public static QueryRouteContext initialRouteContext(
@@ -20,7 +20,8 @@ public final class ChatRequestRouting {
             ChatConfigDtos.ChatRuntimeConfigResponse config,
             ChatReadinessDtos.ChatDomainReadinessResponse readiness,
             String mode,
-            String rewriteQueryProfile
+            String rewriteQueryProfile,
+            boolean agenticSubquery
     ) {
         return new QueryRouteContext(
                 rawQuery,
@@ -38,7 +39,7 @@ public final class ChatRequestRouting {
                 false,
                 false,
                 null,
-                false
+                agenticSubquery
         );
     }
 

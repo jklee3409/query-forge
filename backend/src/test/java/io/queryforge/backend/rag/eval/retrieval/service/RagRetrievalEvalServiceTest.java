@@ -51,6 +51,7 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoMoreInteractions;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -486,6 +487,40 @@ class RagRetrievalEvalServiceTest {
     }
 
     @Test
+    void legacySelectiveEvalChoosesLowerCandidateIndexWithoutComparingRawConfidence() {
+        givenRuntime();
+        givenMemoryCandidates(List.of());
+        var earlier = candidate(1, "earlier candidate", List.of(doc("chunk-earlier", 0.25d)), 0.25d);
+        var later = candidate(2, "later candidate", List.of(doc("chunk-later", 0.25d)), 0.25d);
+        when(ragRetrievalExecutionService.executeRewrite(any()))
+                .thenReturn(new RetrievalExecutionDtos.RewriteExecutionResult(List.of(later, earlier), false, 12L));
+
+        var response = service.execute(request("selective_rewrite", null, null));
+
+        assertThat(response.finalQuery()).isEqualTo("earlier candidate");
+        assertThat(response.retrievedChunkIds()).containsExactly("chunk-earlier");
+        verify(ragRetrievalExecutionService).executeRewrite(any());
+        verifyNoMoreInteractions(ragRetrievalExecutionService);
+    }
+
+    @Test
+    void legacySelectiveEvalKeepsOriginalQueryWithAnEmptyResultWhenNoCandidateExists() {
+        givenRuntime();
+        givenMemoryCandidates(List.of());
+        when(ragRetrievalExecutionService.executeRewrite(any()))
+                .thenReturn(new RetrievalExecutionDtos.RewriteExecutionResult(List.of(), false, 12L));
+
+        var response = service.execute(request("selective_rewrite", null, null));
+
+        assertThat(response.finalQuery()).isEqualTo(QUERY);
+        assertThat(response.retrievedChunkIds()).isEmpty();
+        assertThat(response.warnings())
+                .containsExactly("rewrite execution returned no candidates; retrievedChunkIds is empty");
+        verify(ragRetrievalExecutionService).executeRewrite(any());
+        verifyNoMoreInteractions(ragRetrievalExecutionService);
+    }
+
+    @Test
     void anchorAwareRewriteCallsExecutionService() {
         givenRuntime();
         List<MemoryCandidate> memories = List.of(memory());
@@ -589,6 +624,10 @@ class RagRetrievalEvalServiceTest {
 
     private void givenMemoryCandidates(List<MemoryCandidate> memories) {
         when(domainScopedRetrievalService.embeddingLiteral(QUERY, retrievalRuntime)).thenReturn("embedding");
+        when(domainScopedRetrievalService.findMemoryCandidates(
+                eq(QUERY), eq("embedding"), anyInt(), anyString(),
+                any(ChatConfigDtos.ChatRuntimeConfigResponse.class), eq(retrievalRuntime)
+        )).thenCallRealMethod();
         when(domainScopedRetrievalService.findMemoryCandidates(
                 eq(QUERY),
                 eq("embedding"),
@@ -765,9 +804,18 @@ class RagRetrievalEvalServiceTest {
             List<RetrievalDoc> docs,
             double confidence
     ) {
+        return candidate(1, query, docs, confidence);
+    }
+
+    private RetrievalExecutionDtos.ExecutedRewriteCandidate candidate(
+            int index,
+            String query,
+            List<RetrievalDoc> docs,
+            double confidence
+    ) {
         return new RetrievalExecutionDtos.ExecutedRewriteCandidate(
-                1,
-                "candidate-1",
+                index,
+                "candidate-" + index,
                 query,
                 objectMapper.createObjectNode(),
                 retrieval(query, docs, confidence)

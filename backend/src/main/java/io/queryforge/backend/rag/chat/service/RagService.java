@@ -4,10 +4,8 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import io.queryforge.backend.rag.chat.dto.ChatDtos;
-import io.queryforge.backend.rag.chat.routing.service.ChatRequestRouting;
 import io.queryforge.backend.rag.chat.service.ChatResponseAssembler.AgenticSettings;
 import io.queryforge.backend.rag.chat.service.ChatResponseAssembler.AnswerDraft;
-import io.queryforge.backend.rag.chat.service.RewriteDecisionPolicy.Decision;
 import io.queryforge.backend.rag.retrieval.agentic.dto.AgenticExecutionDtos.AgenticExecutionRequest;
 import io.queryforge.backend.rag.retrieval.candidate.dto.RetrievalDtos;
 import io.queryforge.backend.rag.retrieval.candidate.model.RetrievalDoc;
@@ -22,7 +20,11 @@ import io.queryforge.backend.rag.retrieval.execution.model.RagPersistPolicy;
 import io.queryforge.backend.rag.retrieval.execution.service.RagRetrievalExecutionService;
 import io.queryforge.backend.rag.retrieval.memory.model.MemoryCandidate;
 import io.queryforge.backend.rag.retrieval.rewrite.dto.RewriteDtos;
+import io.queryforge.backend.rag.retrieval.rewrite.policy.RewriteDecisionPolicy;
+import io.queryforge.backend.rag.retrieval.rewrite.policy.RewriteDecisionPolicy.Decision;
+import io.queryforge.backend.rag.retrieval.rewrite.service.RewriteDomainContext;
 import io.queryforge.backend.rag.retrieval.routing.dto.QueryRouteContext;
+import io.queryforge.backend.rag.retrieval.routing.service.QueryRouteContexts;
 import io.queryforge.backend.rag.retrieval.routing.dto.QueryRouteDecision;
 import io.queryforge.backend.rag.retrieval.routing.model.QueryStrategy;
 import io.queryforge.backend.rag.retrieval.routing.service.QueryStrategyRouter;
@@ -87,8 +89,8 @@ public class RagService {
         String mode = normalizedMode(config.mode());
         String rewriteQueryProfile = normalizedRewriteProfile(config.rewriteQueryProfile());
         long routeStarted = System.nanoTime();
-        QueryRouteContext routingContext = ChatRequestRouting.initialRouteContext(
-                rawQuery, config, readiness, mode, rewriteQueryProfile
+        QueryRouteContext routingContext = QueryRouteContexts.initialRouteContext(
+                rawQuery, config, readiness, mode, rewriteQueryProfile, false
         );
         QueryRouteDecision routeDecision = queryStrategyRouter.route(routingContext);
         long routeLatency = responses.elapsedMs(routeStarted);
@@ -138,10 +140,7 @@ public class RagService {
                     rawEmbeddingLiteral,
                     settings.memoryTopN(),
                     memoryPreset,
-                    config.domainId(),
-                    config.generationStrategies(),
-                    config.sourceGatingRunIds(),
-                    config.sourceGatingBatchIds(),
+                    config,
                     retrievalRuntime
             );
         }
@@ -255,7 +254,7 @@ public class RagService {
                     memoryCandidates,
                     settings.rewriteCandidateCount(),
                     routeDecision.rewriteQueryProfile(),
-                    responses.domainContext(config),
+                    RewriteDomainContext.create(objectMapper, config),
                     retrievalTopK,
                     rerankTopN,
                     config.domainId(),

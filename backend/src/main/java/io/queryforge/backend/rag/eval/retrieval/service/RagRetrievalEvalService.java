@@ -18,6 +18,8 @@ import io.queryforge.backend.rag.retrieval.execution.dto.RetrievalExecutionDtos;
 import io.queryforge.backend.rag.retrieval.execution.model.RagPersistPolicy;
 import io.queryforge.backend.rag.retrieval.execution.service.RagRetrievalExecutionService;
 import io.queryforge.backend.rag.retrieval.memory.model.MemoryCandidate;
+import io.queryforge.backend.rag.retrieval.rewrite.policy.RewriteDecisionPolicy;
+import io.queryforge.backend.rag.retrieval.rewrite.service.RewriteDomainContext;
 import io.queryforge.backend.rag.retrieval.routing.dto.QueryRouteContext;
 import io.queryforge.backend.rag.retrieval.routing.dto.QueryRouteDecision;
 import io.queryforge.backend.rag.retrieval.routing.service.QueryStrategyRouter;
@@ -29,7 +31,6 @@ import io.queryforge.backend.rag.runtime.readiness.service.ChatReadinessService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 
-import java.util.Comparator;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
@@ -38,7 +39,6 @@ import java.util.regex.Pattern;
 import java.util.stream.IntStream;
 
 import static io.queryforge.backend.rag.eval.retrieval.service.EvalRuntimeConfigService.agenticSettings;
-import static io.queryforge.backend.rag.eval.retrieval.service.EvalRuntimeConfigService.nonNullList;
 import static io.queryforge.backend.rag.eval.retrieval.service.EvalRuntimeConfigService.normalizeText;
 import static io.queryforge.backend.rag.eval.retrieval.service.EvalRuntimeConfigService.normalizedMode;
 
@@ -309,7 +309,7 @@ public class RagRetrievalEvalService {
                         memoryCandidates,
                         settings.rewriteCandidateCount(),
                         rewriteProfile,
-                        domainContext(config),
+                        RewriteDomainContext.create(objectMapper, config),
                         settings.retrievalTopK(),
                         settings.rerankTopN(),
                         config.domainId(),
@@ -318,7 +318,7 @@ public class RagRetrievalEvalService {
                         anchorAware
                 )
         );
-        RetrievalExecutionDtos.ExecutedRewriteCandidate selected = selectCandidate(result.candidates());
+        RetrievalExecutionDtos.ExecutedRewriteCandidate selected = RewriteDecisionPolicy.bestLegacyEvalCandidate(result.candidates());
         List<String> warnings = selected == null
                 ? List.of("rewrite execution returned no candidates; retrievedChunkIds is empty")
                 : List.of();
@@ -351,10 +351,7 @@ public class RagRetrievalEvalService {
                 embeddingLiteral,
                 memoryTopN,
                 normalizedPreset(config.gatingPreset()),
-                config.domainId(),
-                nonNullList(config.generationStrategies()),
-                nonNullList(config.sourceGatingRunIds()),
-                nonNullList(config.sourceGatingBatchIds()),
+                config,
                 retrievalRuntime
         );
     }
@@ -533,17 +530,6 @@ public class RagRetrievalEvalService {
         return List.copyOf(merged);
     }
 
-    private RetrievalExecutionDtos.ExecutedRewriteCandidate selectCandidate(
-            List<RetrievalExecutionDtos.ExecutedRewriteCandidate> candidates
-    ) {
-        return (candidates == null ? List.<RetrievalExecutionDtos.ExecutedRewriteCandidate>of() : candidates)
-                .stream()
-                .max(Comparator
-                        .comparingDouble(RetrievalExecutionDtos.ExecutedRewriteCandidate::confidence)
-                        .thenComparing(candidate -> -candidate.index()))
-                .orElse(null);
-    }
-
     private void validateRequest(RagRetrievalEvalDtos.RagRetrievalEvalRequest request) {
         if (request == null) {
             throw evalError(ERROR_REQUEST_REQUIRED, "request_required: request is required");
@@ -651,19 +637,6 @@ public class RagRetrievalEvalService {
                 rawRetrievalConfidence,
                 false
         );
-    }
-
-    private ObjectNode domainContext(ChatConfigDtos.ChatRuntimeConfigResponse config) {
-        ObjectNode node = objectMapper.createObjectNode();
-        node.put("current_technical_domain", config.displayName());
-        node.put("domain_key", config.domainKey());
-        node.put("source_language", config.sourceLanguage() == null ? "" : config.sourceLanguage());
-        node.put(
-                "rewrite_instruction",
-                "Keep the query inside the " + config.displayName()
-                        + " documentation domain and do not add anchors from other domains."
-        );
-        return node;
     }
 
     private String normalizedRewriteProfile(String rewriteProfile) {

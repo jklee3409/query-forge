@@ -1,6 +1,6 @@
-package io.queryforge.backend.rag.chat.service;
+package io.queryforge.backend.rag.retrieval.rewrite.policy;
 
-import io.queryforge.backend.rag.chat.service.RewriteDecisionPolicy.Decision;
+import io.queryforge.backend.rag.retrieval.rewrite.policy.RewriteDecisionPolicy.Decision;
 import io.queryforge.backend.rag.retrieval.candidate.model.RetrievalDoc;
 import io.queryforge.backend.rag.retrieval.execution.dto.RetrievalExecutionDtos.ExecutedRewriteCandidate;
 import io.queryforge.backend.rag.retrieval.execution.dto.RetrievalExecutionDtos.RetrievalMaterial;

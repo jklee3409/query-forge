@@ -20,7 +20,11 @@ import io.queryforge.backend.rag.retrieval.memory.model.MemoryCandidate;
 import io.queryforge.backend.rag.retrieval.rerank.service.CohereRerankService;
 import io.queryforge.backend.rag.retrieval.rewrite.dto.RewriteDtos;
 import io.queryforge.backend.rag.retrieval.rewrite.service.RewriteCandidateService;
+import io.queryforge.backend.rag.retrieval.rewrite.policy.RewriteDecisionPolicy;
+import io.queryforge.backend.rag.retrieval.rewrite.service.RewriteDomainContext;
+import io.queryforge.backend.rag.retrieval.rewrite.service.RewriteScoring;
 import io.queryforge.backend.rag.retrieval.routing.dto.QueryRouteContext;
+import io.queryforge.backend.rag.retrieval.routing.service.QueryRouteContexts;
 import io.queryforge.backend.rag.retrieval.routing.dto.QueryRouteDecision;
 import io.queryforge.backend.rag.retrieval.routing.model.QueryStrategy;
 import io.queryforge.backend.rag.retrieval.routing.service.QueryStrategyRouter;
@@ -33,19 +37,13 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.List;
-import java.util.Locale;
 import java.util.UUID;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 @Component
 @RequiredArgsConstructor
 public class AgenticRetrievalService {
 
-    private static final Pattern SEARCH_TOKEN_PATTERN = Pattern.compile("[@A-Za-z0-9_./:$-]{2,}|\\p{InHangulSyllables}{2,}");
-    private static final Pattern TECHNICAL_TOKEN_PATTERN = Pattern.compile("[@A-Za-z_][A-Za-z0-9_./:$-]{1,}");
     private final DomainScopedRetrievalService domainScopedRetrievalService;
     private final AgenticTracePersistenceService agenticTracePersistenceService;
     private final CohereRerankService cohereRerankService;
@@ -62,7 +60,7 @@ public class AgenticRetrievalService {
         AgenticPlanningDtos.AgenticQueryPlan plan = plannerService.plan(
                 request.rawQuery(),
                 request.config(),
-                domainContext(request.config()),
+                RewriteDomainContext.create(objectMapper, request.config()),
                 request.plannerMemoryHints(),
                 request.maxSubqueries()
         );
@@ -113,17 +111,10 @@ public class AgenticRetrievalService {
         RagExecutionSettings settings = request.settings();
         String query = normalizeWhitespace(subquery.query());
         long routeStarted = System.nanoTime();
-        QueryRouteDecision routeDecision = queryStrategyRouter.route(routeContext(
-                query,
-                request.config(),
-                request.readiness(),
-                request.mode(),
-                request.rewriteQueryProfile(),
-                request.config().rewriteAnchorInjectionEnabled(),
-                false,
-                false,
-                null
-        ));
+        QueryRouteContext routeContext = QueryRouteContexts.initialRouteContext(
+                query, request.config(), request.readiness(), request.mode(), request.rewriteQueryProfile(), true
+        );
+        QueryRouteDecision routeDecision = queryStrategyRouter.route(routeContext);
         long routeLatency = elapsedMs(routeStarted);
         routeDecision = routeDecision.withLatency(routeLatency);
         boolean rawOnlyRoute = routeDecision.routerEnabled() && routeDecision.strategy() == QueryStrategy.RAW_ONLY;
@@ -136,10 +127,7 @@ public class AgenticRetrievalService {
                 queryEmbedding,
                 settings.memoryTopN(),
                 request.memoryPreset(),
-                request.config().domainId(),
-                request.config().generationStrategies(),
-                request.config().sourceGatingRunIds(),
-                request.config().sourceGatingBatchIds(),
+                request.config(),
                 retrievalRuntime
         );
 
@@ -169,21 +157,13 @@ public class AgenticRetrievalService {
                 settings.rerankTopN()
         );
         double rawDense = memories.isEmpty() ? 0.0d : memories.getFirst().similarity();
-        double rawConfidence = confidence(rawRetrieved, rawDense);
+        double rawConfidence = RewriteScoring.confidence(rawRetrieved, rawDense);
 
         if (routeDecision.routerEnabled() && !rawOnlyRoute) {
             routeStarted = System.nanoTime();
-            QueryRouteDecision refined = queryStrategyRouter.route(routeContext(
-                    query,
-                    request.config(),
-                    request.readiness(),
-                    request.mode(),
-                    request.rewriteQueryProfile(),
-                    request.config().rewriteAnchorInjectionEnabled(),
-                    true,
-                    !memories.isEmpty(),
-                    rawConfidence
-            ));
+            QueryRouteDecision refined = queryStrategyRouter.route(
+                    routeContext.withRetrievalEvidence(!memories.isEmpty(), rawConfidence)
+            );
             routeLatency += elapsedMs(routeStarted);
             routeDecision = refined.withLatency(routeLatency);
             rawOnlyRoute = routeDecision.strategy() == QueryStrategy.RAW_ONLY;
@@ -199,7 +179,7 @@ public class AgenticRetrievalService {
                     settings.rewriteCandidateCount(),
                     routeDecision.rewriteQueryProfile(),
                     routeDecision.anchorInjectionEnabled(),
-                    domainContext(request.config())
+                    RewriteDomainContext.create(objectMapper, request.config())
             );
             for (int index = 0; index < templates.size(); index++) {
                 RewriteDtos.CandidateTemplate template = templates.get(index);
@@ -218,10 +198,10 @@ public class AgenticRetrievalService {
                         candidateRetrievedLocal,
                         settings.rerankTopN()
                 );
-                double candidateConfidence = confidence(candidateRetrieved, rawDense);
+                double candidateConfidence = RewriteScoring.confidence(candidateRetrieved, rawDense);
                 int candidateRank = subquery.index() * 10 + index + 1;
                 String candidateLabel = subqueryLabel(subquery, template.label());
-                JsonNode candidateScoreBreakdown = scoreBreakdown(candidateRetrieved, memories);
+                JsonNode candidateScoreBreakdown = RewriteScoring.scoreBreakdown(objectMapper, candidateRetrieved, memories);
                 UUID candidateId = agenticTracePersistenceService.createAgenticRewriteCandidateTrace(
                         new AgenticTraceWriteDtos.AgenticRewriteCandidateTracePersistenceRequest(
                                 persistPolicy,
@@ -361,7 +341,7 @@ public class AgenticRetrievalService {
         if ("raw_only".equals(mode)) {
             return new Decision(rawQuery, false, rawRetrieved, null, null, "raw_only", "mode=raw_only");
         }
-        if ("memory_only_ungated".equals(mode) || "memory_only_gated".equals(mode)) {
+        if (RewriteDecisionPolicy.usesMemoryQuery(mode)) {
             if (memoryCandidates.isEmpty()) {
                 return new Decision(rawQuery, false, rawRetrieved, null, null, "memory_empty", "no memory candidate");
             }
@@ -382,36 +362,15 @@ public class AgenticRetrievalService {
             return new Decision(memoryQuery, true, retrieved, null, null, "memory_only", null);
         }
 
-        GeneratedCandidate best = candidates.stream()
-                .max(Comparator.comparingDouble(GeneratedCandidate::confidence))
-                .orElse(null);
-        if (best == null) {
-            return new Decision(rawQuery, false, rawRetrieved, null, null, "no_candidate", "rewrite candidate missing");
-        }
-        if ("rewrite_always".equals(mode)) {
-            return new Decision(
-                    best.query(),
-                    true,
-                    best.retrieved(),
-                    best.rewriteCandidateId(),
-                    best.candidateKey(),
-                    "forced",
-                    null
-            );
-        }
-        double delta = best.confidence() - rawConfidence;
-        if (delta >= threshold) {
-            return new Decision(
-                    best.query(),
-                    true,
-                    best.retrieved(),
-                    best.rewriteCandidateId(),
-                    best.candidateKey(),
-                    "delta_above_threshold",
-                    null
-            );
-        }
-        return new Decision(rawQuery, false, rawRetrieved, null, null, "delta_below_threshold", "best-candidate delta below threshold");
+        RewriteDecisionPolicy.Selection<GeneratedCandidate> selection = RewriteDecisionPolicy.select(
+                mode, rawConfidence, candidates, GeneratedCandidate::confidence, threshold
+        );
+        GeneratedCandidate best = selection.candidate();
+        return best == null
+                ? new Decision(rawQuery, false, rawRetrieved, null, null,
+                        selection.selectedReason(), selection.rejectedReason())
+                : new Decision(best.query(), true, best.retrieved(), best.rewriteCandidateId(),
+                        best.candidateKey(), selection.selectedReason(), null);
     }
 
     private Decision routerRawOnlyDecision(
@@ -419,10 +378,8 @@ public class AgenticRetrievalService {
             List<RetrievalDoc> rawRetrieved,
             QueryRouteDecision routeDecision
     ) {
-        String rejectedReason = routeDecision.fallbackApplied()
-                ? routeDecision.fallbackReason()
-                : "query_router_strategy=" + routeDecision.strategy().name().toLowerCase(Locale.ROOT);
-        return new Decision(rawQuery, false, rawRetrieved, null, null, routeDecision.reason(), rejectedReason);
+        return new Decision(rawQuery, false, rawRetrieved, null, null,
+                routeDecision.reason(), RewriteDecisionPolicy.routerRejectionReason(routeDecision));
     }
 
     private String subqueryLabel(AgenticPlanningDtos.AgenticSubquery subquery, String label) {
@@ -497,64 +454,6 @@ public class AgenticRetrievalService {
         return node;
     }
 
-    private QueryRouteContext routeContext(
-            String rawQuery,
-            ChatConfigDtos.ChatRuntimeConfigResponse config,
-            ChatReadinessDtos.ChatDomainReadinessResponse readiness,
-            String mode,
-            String rewriteQueryProfile,
-            boolean anchorInjectionEnabled,
-            boolean memoryCandidatesKnown,
-            boolean memoryCandidatesAvailable,
-            Double rawRetrievalConfidence
-    ) {
-        return new QueryRouteContext(
-                rawQuery,
-                config.domainId(),
-                config,
-                readiness,
-                mode,
-                rewriteQueryProfile,
-                anchorInjectionEnabled,
-                rawQuery == null ? 0 : rawQuery.length(),
-                queryTokenCount(rawQuery),
-                containsKorean(rawQuery),
-                containsEnglish(rawQuery),
-                containsTechnicalAnchor(rawQuery),
-                memoryCandidatesKnown,
-                memoryCandidatesAvailable,
-                rawRetrievalConfidence,
-                true
-        );
-    }
-
-    private ObjectNode domainContext(ChatConfigDtos.ChatRuntimeConfigResponse config) {
-        ObjectNode node = objectMapper.createObjectNode();
-        node.put("current_technical_domain", config.displayName());
-        node.put("domain_key", config.domainKey());
-        node.put("source_language", config.sourceLanguage() == null ? "" : config.sourceLanguage());
-        node.put(
-                "rewrite_instruction",
-                "Keep the query inside the " + config.displayName()
-                        + " documentation domain and do not add anchors from other domains."
-        );
-        return node;
-    }
-
-    private JsonNode scoreBreakdown(List<RetrievalDoc> retrieved, List<MemoryCandidate> memories) {
-        ObjectNode node = objectMapper.createObjectNode();
-        double dense = memories.isEmpty() ? 0.0d : memories.getFirst().similarity();
-        node.put("r1", retrieved.isEmpty() ? 0.0d : normalizeScore(retrieved.getFirst().score()));
-        node.put(
-                "r3",
-                retrieved.isEmpty()
-                        ? 0.0d
-                        : retrieved.stream().limit(3).mapToDouble(item -> normalizeScore(item.score())).average().orElse(0.0d)
-        );
-        node.put("dense", normalizeScore(dense));
-        return node;
-    }
-
     private JsonNode memorySourceIds(List<MemoryCandidate> memories) {
         ArrayNode array = objectMapper.createArrayNode();
         for (MemoryCandidate memory : memories) {
@@ -589,65 +488,6 @@ public class AgenticRetrievalService {
                         doc.score()
                 ))
                 .toList();
-    }
-
-    private double confidence(List<RetrievalDoc> docs, double denseScore) {
-        if (docs.isEmpty()) {
-            return 0.0d;
-        }
-        double r1 = normalizeScore(docs.getFirst().score());
-        int topN = Math.min(3, docs.size());
-        double r3 = 0.0d;
-        for (int index = 0; index < topN; index++) {
-            r3 += normalizeScore(docs.get(index).score());
-        }
-        r3 /= topN;
-        double dense = normalizeScore(denseScore);
-        return (0.6d * r1) + (0.3d * r3) + (0.1d * dense);
-    }
-
-    private double normalizeScore(double score) {
-        return Math.max(0.0d, Math.min(1.0d, (score + 1.0d) / 2.0d));
-    }
-
-    private int queryTokenCount(String query) {
-        Matcher matcher = SEARCH_TOKEN_PATTERN.matcher(query == null ? "" : query);
-        int count = 0;
-        while (matcher.find()) {
-            count++;
-        }
-        return count;
-    }
-
-    private boolean containsKorean(String query) {
-        return query != null && query.codePoints().anyMatch(codePoint -> codePoint >= 0xAC00 && codePoint <= 0xD7A3);
-    }
-
-    private boolean containsEnglish(String query) {
-        return query != null && query.codePoints().anyMatch(codePoint ->
-                (codePoint >= 'A' && codePoint <= 'Z') || (codePoint >= 'a' && codePoint <= 'z'));
-    }
-
-    private boolean containsTechnicalAnchor(String query) {
-        if (query == null || query.isBlank()) {
-            return false;
-        }
-        Matcher matcher = TECHNICAL_TOKEN_PATTERN.matcher(query);
-        while (matcher.find()) {
-            String token = matcher.group();
-            if (token.contains(".")
-                    || token.contains("/")
-                    || token.contains(":")
-                    || token.contains("$")
-                    || token.contains("-")
-                    || token.matches(".*[A-Z].*[A-Z].*")
-                    || token.matches(".*\\d.*")
-                    || token.endsWith("Exception")
-                    || token.endsWith("Error")) {
-                return true;
-            }
-        }
-        return false;
     }
 
     private String normalizeWhitespace(String value) {

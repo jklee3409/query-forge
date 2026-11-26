@@ -126,6 +126,20 @@ public class DomainScopedRetrievalService {
             String queryEmbeddingLiteral,
             int topN,
             String gatingPreset,
+            ChatConfigDtos.ChatRuntimeConfigResponse config,
+            RetrievalRuntime runtime
+    ) {
+        return findMemoryCandidates(
+                query, queryEmbeddingLiteral, topN, gatingPreset, config.domainId(),
+                config.generationStrategies(), config.sourceGatingRunIds(), config.sourceGatingBatchIds(), runtime
+        );
+    }
+
+    public List<MemoryCandidate> findMemoryCandidates(
+            String query,
+            String queryEmbeddingLiteral,
+            int topN,
+            String gatingPreset,
             UUID domainId,
             List<String> generationStrategies,
             List<UUID> sourceGatingRunIds,

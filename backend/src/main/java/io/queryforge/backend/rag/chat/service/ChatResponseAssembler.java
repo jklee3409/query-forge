@@ -276,19 +276,6 @@ class ChatResponseAssembler {
         return node;
     }
 
-    ObjectNode domainContext(ChatConfigDtos.ChatRuntimeConfigResponse config) {
-        ObjectNode node = objectMapper.createObjectNode();
-        node.put("current_technical_domain", config.displayName());
-        node.put("domain_key", config.domainKey());
-        node.put("source_language", config.sourceLanguage() == null ? "" : config.sourceLanguage());
-        node.put(
-                "rewrite_instruction",
-                "Keep the query inside the " + config.displayName()
-                        + " documentation domain and do not add anchors from other domains."
-        );
-        return node;
-    }
-
     private void putNullableUuid(ObjectNode node, String fieldName, UUID value) {
         if (value == null) {
             node.putNull(fieldName);
