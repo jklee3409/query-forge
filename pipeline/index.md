@@ -12,6 +12,7 @@ Python pipeline for data processing, synthetic query generation, quality gating,
 - `datasets/build_eval_dataset.py`: evaluation dataset creation
 - `eval/*`: retrieval/answer evaluation stages
 - `eval/java_retrieval_client.py`: optional Java retrieval eval endpoint client for `POST /api/rag/eval/retrieval`
+- The Java retrieval client sends the execution overrides consumed by Java and preserves false, null, and empty arrays in those values.
 - `eval/retrieval_eval_compare.py`: Phase 8C/8D legacy vs Java-backed retrieval comparison runner, report contract, and Phase 9 readiness criteria
 - `common/*`: shared config, experiment run, llm, embedding, and utility modules
 - `cli.py`: pipeline command entrypoint

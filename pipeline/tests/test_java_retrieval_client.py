@@ -174,6 +174,34 @@ class JavaRetrievalClientContractTests(unittest.TestCase):
         self.assertTrue(payload["includeScores"])
         self.assertFalse(payload["includeMetadata"])
 
+    def test_payload_projects_java_overrides_without_forwarding_model_credentials(self) -> None:
+        payload = build_retrieval_eval_payload(
+            domain_id="11111111-1111-1111-1111-111111111111",
+            query="filter chain",
+            forced_mode="raw_only",
+            runtime_config={
+                "llm_api_key": "fixture",
+                "router_enabled": False,
+                "rerank_top_n": None,
+                "source_gating_run_ids": [],
+                "metadata_json": {"agenticRrfK": 42, "api_key": "fixture"},
+                "retriever_config": {
+                    "candidate_pool_k": 25,
+                    "retriever_fusion_weights": {"dense": 0.7, "token": "fixture"},
+                },
+            },
+        )
+        self.assertEqual(payload["runtimeConfig"], {
+            "router_enabled": False,
+            "rerank_top_n": None,
+            "source_gating_run_ids": [],
+            "metadata_json": {"agenticRrfK": 42},
+            "retriever_config": {
+                "candidate_pool_k": 25,
+                "retriever_fusion_weights": {"dense": 0.7},
+            },
+        })
+
     def test_agentic_mode_is_sent_to_java_endpoint(self) -> None:
         session = _RecordingSession(
             _FakeResponse(
@@ -417,6 +445,18 @@ class RetrievalEvalJavaAdapterTests(unittest.TestCase):
                 self.assertEqual([item.chunk_id for item in retrieval], ["chunk-2", "chunk-1"])
                 self.assertEqual(metrics["hit@5"], 1.0)
                 self.assertEqual(rewrite_info["backend"], "java")
+
+    def test_official_raw_row_uses_recorded_forced_mode(self) -> None:
+        settings = java_retrieval_settings_from_config({
+            "retrieval_eval_backend": "java",
+            "forced_retrieval_mode": "selective_rewrite",
+            "retrieval_modes": ["raw_only", "selective_rewrite"],
+        })
+
+        self.assertEqual(
+            retrieval_eval._java_forced_mode_for_eval_mode(mode="raw_only", settings=settings),
+            "selective_rewrite",
+        )
 
     def test_official_java_backend_allows_supported_modes(self) -> None:
         class Config:

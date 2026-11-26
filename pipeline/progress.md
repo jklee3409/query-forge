@@ -1,5 +1,10 @@
 # progress.md
 
+## [2026-11-26] Java RAG Runtime Override Payload
+
+- Limited `runtimeConfig` on the Java HTTP request to override fields the endpoint consumes, including the relevant nested metadata and retriever settings. Preserved aliases, false, null, empty arrays, and the existing mode selection and fail-fast semantics.
+- Passed 38 Java retrieval client and comparison tests. The official raw-row mapping reproduction is assigned to 03-A.
+
 ## [2026-06-25] Session Summary (Java Runtime Retrieval Eval and Memory FK Fix)
 - What was done: Switched the official retrieval-eval default policy to the Java endpoint, allowed Java-backed `agentic_multi_query`, and passed Admin run config through `runtimeConfig` so Java execution uses GUI-provided parameters.
 - Runner result: `JavaRetrievalEvalClient` now includes `runtimeConfig` in `/api/rag/eval/retrieval` requests, recognizes `forced_retrieval_mode`, and reports `agentic_multi_query` as a supported Java forced mode. Default modes for Java-backed runs are narrowed to Java-supported modes when no explicit `retrieval_modes` is present.

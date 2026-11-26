@@ -34,6 +34,64 @@ RETRIEVAL_EVAL_BACKEND_KEYS = (
 )
 
 
+_RUNTIME_CONFIG_KEYS = frozenset("""
+    routerEnabled router_enabled query_router_enabled
+    agenticMultiQueryEnabled agentic_multi_query_enabled query_router_agentic_enabled
+    forcedRetrievalMode forced_retrieval_mode java_forced_mode mode chat_mode runtime_mode
+    retrieval_mode retrievalMode
+    generationStrategies generation_strategies memory_generation_strategies source_generation_strategies
+    sourceGatingBatchId source_gating_batch_id snapshot_id sourceGatingBatchIds source_gating_batch_ids
+    sourceGatingRunId source_gating_run_id sourceGatingRunIds source_gating_run_ids
+    gatingPreset gating_preset rewriteQueryProfile rewrite_query_profile
+    rewriteAnchorInjectionEnabled rewrite_anchor_injection_enabled useSessionContext use_session_context
+    retrievalBackend retrieval_backend chunk_embedding_model
+    retrievalTopK retrieval_top_k topK top_k rerankTopN rerank_top_n
+    memoryTopN memory_top_n rewriteCandidateCount rewrite_candidate_count
+    rewriteThreshold rewrite_threshold threshold rewriteFailurePolicy rewrite_failure_policy
+    readyForRewrite ready_for_rewrite
+""".split())
+_METADATA_KEYS = frozenset("""
+    routerEnabled router_enabled queryRouterEnabled query_router_enabled
+    agenticMultiQueryEnabled agentic_multi_query_enabled queryRouterAgenticEnabled query_router_agentic_enabled
+    routerFallbackAllowed query_router_fallback_allowed
+    agenticMaxSubqueries agentic_max_subqueries strategyRouterAgenticMaxSubqueries
+    strategy_router_agentic_max_subqueries agenticRrfK agentic_rrf_k rrfK rrf_k
+""".split())
+_RETRIEVER_KEYS = frozenset("""
+    denseEmbeddingModel dense_embedding_model retrieverMode retriever_mode
+    retrieverCandidatePoolK retriever_candidate_pool_k
+""".split())
+_FUSION_FIELDS = ("retrieverFusionWeights", "retriever_fusion_weights")
+_FUSION_KEYS = frozenset("""
+    dense denseWeight dense_weight bm25 bm25Weight bm25_weight
+    technical technicalWeight technical_weight
+""".split())
+
+
+def _runtime_overrides(source: dict[str, Any]) -> dict[str, Any]:
+    overrides = {key: value for key, value in source.items() if key in _RUNTIME_CONFIG_KEYS | _RETRIEVER_KEYS}
+    for key in ("metadata", "metadata_json"):
+        if isinstance(source.get(key), dict):
+            overrides[key] = {name: value for name, value in source[key].items() if name in _METADATA_KEYS}
+    for key in ("retrieverConfig", "retriever_config"):
+        if isinstance(source.get(key), dict):
+            retriever = source[key]
+            overrides[key] = {
+                name: value
+                for name, value in retriever.items()
+                if name in _RETRIEVER_KEYS or name in {"candidatePoolK", "candidate_pool_k"}
+            }
+            _copy_fusion_overrides(retriever, overrides[key])
+    _copy_fusion_overrides(source, overrides)
+    return overrides
+
+
+def _copy_fusion_overrides(source: dict[str, Any], target: dict[str, Any]) -> None:
+    for key in _FUSION_FIELDS:
+        if isinstance(source.get(key), dict):
+            target[key] = {name: value for name, value in source[key].items() if name in _FUSION_KEYS}
+
+
 class JavaRetrievalClientError(RuntimeError):
     def __init__(
         self,
@@ -229,7 +287,7 @@ def build_retrieval_eval_payload(
     if include_metadata is not None:
         payload["includeMetadata"] = bool(include_metadata)
     if runtime_config:
-        payload["runtimeConfig"] = dict(runtime_config)
+        payload["runtimeConfig"] = _runtime_overrides(runtime_config)
     return payload
 
 

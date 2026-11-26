@@ -1,5 +1,9 @@
 # progress.md
 
+## [2026-11-26] Java RAG Runtime Contract Regressions
+
+- Added coverage for projecting Java request fields without forwarding model credential settings, and for the existing run-level forced mode on a `raw_only` row. Passed 38 Java client and comparison tests.
+
 ## [2026-06-25] Java Runtime Retrieval Eval Tests
 - Updated Java retrieval client tests for official Java default behavior, GUI runtime config propagation, and Java-backed `agentic_multi_query` execution instead of client-side blocking.
 - Kept comparison runner tests DB-free and Java-server-free; comparison-mode agentic remains a separate comparison policy while direct Java retrieval eval can execute agentic through the endpoint.
