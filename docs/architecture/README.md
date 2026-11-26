@@ -10,6 +10,7 @@
 | `corpus_storage.md` | PostgreSQL corpus schema, source/document/section/chunk/glossary relation, import 흐름을 설명합니다. |
 | `pipeline_orchestration.md` | Spring Boot가 Python pipeline command를 subprocess로 실행하고 run/step/log/artifact를 추적하는 방식을 설명합니다. |
 | `domain_pipeline_integration_design.md` | `tech_doc_domain`, source membership, domain-scoped synthetic/gating/RAG/eval 흐름의 설계와 운영 제약을 설명합니다. |
+| [RAG 공통 실행과 Spring AI 작업 설계](rag-work-plan/index.md) | 실행 설정과 API 계약, Java 공통 실행, 공식 연구 평가, Spring AI 모델 호출·RAG·Tool 도입의 구현 순서와 검증 기준을 정리합니다. |
 
 ## 읽는 기준
 

@@ -1,5 +1,10 @@
 # progress.md
 
+## [2026-11-26] 공식 RAG 평가 v2
+
+- 공식 게이팅 실행의 세 스냅샷을 각각 선택적 재작성 행으로 표시한다. 공식 실행에서 Router, 세션, 다중 소스 확장을 비활성화하고 실제 실행의 `skip_to_raw` 정책을 표시한다.
+- `npm run build`를 통과하고 백엔드에서 제공하는 React 번들을 갱신했다.
+
 ## [2026-06-30] Session Summary (Retrieval Eval Rewrite Defaults)
 - What was done: Added client-side fallback defaults for the Retrieval Eval Lab rewrite-strategy section so Memory Top-N, Rewrite candidates, Agentic subqueries, and Agentic RRF K are populated even before/without a refreshed backend catalog response.
 - Default result: The UI now starts from the Java research defaults: rewrite threshold `0.05`, retrieval Top-K `10`, rerank Top-N `5`, memory Top-N `5`, rewrite candidates `2`, agentic subqueries `4`, and RRF K `60`.

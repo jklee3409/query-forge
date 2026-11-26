@@ -26,6 +26,7 @@ Key experiment docs:
 Key architecture docs:
 - [Backend feature boundaries and type dependencies](architecture/backend_feature_boundaries.md)
 - [Backend source inventory](architecture/backend_source_inventory.md)
+- [RAG 공통 실행과 Spring AI 단계별 작업 설계](architecture/rag-work-plan/index.md)
 - `architecture/domain_pipeline_integration_design.md`
 
 Key migration docs:

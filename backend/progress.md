@@ -1,5 +1,15 @@
 # progress.md
 
+## [2026-11-26] 공식 RAG 검색 평가 v2와 작업 재개
+
+- 공식 선택적 재작성에 공통 채택 규칙을 적용하고, 공급자 미호출과 실패를 구분해 원 질의로 진행한다. 원 질의 행은 활성 채팅 스냅샷을 상속하지 않는다.
+- 관리자 등록에 고정 스냅샷 세 조건과 `skip_to_raw`를 기록하고, 작업 재시도에서 완료된 retrieval run ID를 답변 단계에 전달한다. PostgreSQL 테스트의 대기 시각은 실제 스키마 제약을 만족하는 과거 값으로 고정했다.
+- Java 대상 79건을 통과했다. Anchor 스위치에 따른 실제 프롬프트 입력과 PostgreSQL 작업 재개를 확인했다.
+
+## [2026-11-26] Spring AI 이관 기준 테스트
+
+- 가짜 provider로 재작성·Planner·답변의 직접 OpenAI 요청과 fallback을 검증했다. 신규 4건과 기존 답변·Planner 5건 통과.
+
 ## [2026-11-26] RAG 01 Runtime and API Contracts
 
 - Reused `RagExecutionSettings` parameter names for recorded runs and promotion. Shared retriever defaults and write-time ranges, Agentic limit handling, singular snapshot fallback, and direct model selection by stage.

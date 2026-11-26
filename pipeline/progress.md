@@ -1,5 +1,15 @@
 # progress.md
 
+## [2026-11-26] 공식 RAG 평가 v2의 검색 결과 재사용
+
+- Java 공식 평가의 실행 모드, 스냅샷과 진단을 확인한 뒤 Java 원 질의 순위를 기준으로 비교 지표를 계산한다.
+- 지정한 답변 평가 행의 스냅샷과 run ID를 검증하고, Java 청크 ID 순서의 본문으로 답변을 채점한다. Java 클라이언트, 공식 비교, 답변 CSV·지연과 Router 관련 테스트 58건을 통과했다.
+
+## [2026-11-26] 공식 Rewrite 평가의 행별 Java 모드
+
+- 공식 rewrite 비교의 raw와 selective 행을 각각 요청하고 응답 모드 불일치를 채점 전에 거절한다. 단일 모드와 명시 override를 보존했다.
+- Java 평가 클라이언트, 비교 runner, StrategyRouter 평가 테스트 46건 통과.
+
 ## [2026-11-26] Java RAG Runtime Override Payload
 
 - Limited `runtimeConfig` on the Java HTTP request to override fields the endpoint consumes, including the relevant nested metadata and retriever settings. Preserved aliases, false, null, empty arrays, and the existing mode selection and fail-fast semantics.

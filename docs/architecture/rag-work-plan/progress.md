@@ -3,9 +3,9 @@
 | 작업 | 상태 | 검증 기록 |
 | --- | --- | --- |
 | [01 설정과 API 계약](01-runtime-and-api-contracts.md) | 구현·검증 완료 | Java 102건, Python 38건, React HTTP 계약 확인 |
-| [02 Java 검색과 재작성 공통화](02-java-retrieval-execution.md) | 설계 완료 | 구현 대기 |
-| [03 공식 연구 평가 교정과 검색 결과 재사용](03-research-evaluation.md) | 설계 완료 | 구현 대기 |
-| [04 Spring AI 모델 호출과 프롬프트](04-spring-ai-provider-and-prompts.md) | 설계 완료 | 구현 대기 |
+| [02 Java 검색과 재작성 공통화](02-java-retrieval-execution.md) | 구현·검증 완료 | 대상 Java 87건 통과 |
+| [03 공식 연구 평가 교정과 검색 결과 재사용](03-research-evaluation.md) | 구현·회귀 검증 완료, Anchor 실측 대기 | Java 79건(PostgreSQL 통합 포함), Python 58건, React 프로덕션 빌드 통과 |
+| [04 Spring AI 모델 호출과 프롬프트](04-spring-ai-provider-and-prompts.md) | 회귀 기준 확보 | provider·답변·Planner 테스트 9건 통과 |
 | [05 Spring AI RAG와 Tool](05-spring-ai-rag-and-tools.md) | 설계 완료 | 구현 대기 |
 
 ## 2026-11-26
@@ -36,3 +36,18 @@
   --tests "*.RagRetrievalExecutionServiceTest" `
   --tests "*.AdminConsoleGatingIntegrationTest"
 ```
+
+## 2026-11-26 · 03-A와 Spring AI 기준 테스트
+
+- 공식 rewrite 비교는 원 질의 행과 selective 행의 Java 요청을 분리한다. 요청과 응답의 실행 모드가 다르면 채점 전에 실패한다. 단일 모드와 비교 runner의 명시 선택을 보존했다.
+- 재작성·Planner·답변의 실제 OpenAI 요청을 가짜 provider로 캡처했다. 단계별 모델, 메시지 역할·순서, 토큰, 온도 및 실패 대체 경로를 확인했다. 직접 호출 온도는 재작성 0.2, 답변·Planner 0.1이다.
+
+## 02 Java 공통 검색 실행
+
+- 채팅·Agentic·Java 평가의 메모리 범위와 문맥 조립, 재작성 점수·판정을 공유했다. 온라인은 후보 입력 순서, 기존 평가에는 후보 인덱스에 따른 동점 판정과 빈 후보 결과를 유지했다.
+- Agentic의 재순위화 실패 전 진행 trace와 평가의 무기록 경계를 유지했다. 대상 Java 테스트 87건을 통과했다.
+
+## 2026-11-26 · 03-B·C 공식 평가 v2
+
+- 공식 게이팅 세 행의 스냅샷, `skip_to_raw`, Java 원 질의 대조군과 무기록 응답을 검증했다. 답변 평가가 행별 스냅샷과 retrieval run ID를 확인하고 Java 청크 순서대로 본문을 읽는다. PostgreSQL 작업 재시도 테스트는 완료된 검색 실행을 재사용한다.
+- Java 대상 테스트 79건과 Python 58건을 통과했다. 동일 스냅샷 입력에서 Anchor 스위치에 따라 공급자 프롬프트에 들어가는 힌트를 확인했고 React 번들을 갱신했다. Anchor on/off의 실제 코퍼스 지표와 모델 지연은 측정하지 않았다.

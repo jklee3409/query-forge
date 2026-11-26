@@ -1,9 +1,27 @@
 # progress.md
 
+## [2026-11-26] RAG 03-B·C 공식 평가 v2
+
+- 게이팅 세 스냅샷의 공식 선택적 재작성과 `skip_to_raw`를 검증했다. 답변 평가는 같은 retrieval run의 지정 행과 청크 순서를 재사용한다. [작업 진행표](docs/architecture/rag-work-plan/progress.md)
+- Java 대상 테스트 79건, Python 58건과 React 프로덕션 빌드를 통과했다. 실제 모델과 고정 데이터셋을 사용하는 Anchor on/off 실측은 남아 있다.
+
+## [2026-11-26] RAG 03-A 교정과 이관 기준 검증
+
+- 공식 rewrite의 Java 요청을 행별 모드로 교정하고 Python 46건을 통과했다. provider 요청 검증 9건으로 Spring AI 이관 전 동작을 고정했다.
+
+## [2026-11-26] RAG 01 검증 및 후속 작업 분리
+
+- 01의 Java 102건과 Python 38건을 재실행하고 React HTTP 오류 매핑을 확인했다. 직접 재작성 온도는 0.2이며 01 문서의 값과 다르다.
+- 03-A부터 수정하고 02 실행 계약을 고정한 뒤 03-B·C와 Spring AI 이관을 진행하는 순서를 검토했다. 애플리케이션 코드는 변경하지 않았다.
+
 ## [2026-11-26] RAG 01 실행 설정과 API 계약
 
 - 직접 호출 모델 설정, 검색기 기본값·입력 범위, Agentic 실행 범위, 단수 스냅샷 호환 규칙을 공유했다. Python은 Java가 읽는 runtime override 필드만 보낸다.
 - Admin 등록·승격, 채팅·Java 평가, 오류 응답을 Java 102건, Python 38건 및 React HTTP 계약으로 검증했다. 03의 스냅샷·대조군 재현을 기록했다. [01 작업 기록](docs/architecture/rag-work-plan/progress.md)
+
+## [2026-11-26] RAG 공통 실행과 Spring AI 작업 설계
+
+- 설정·응답 계약, 공통 Java 검색 실행, 공식 평가 교정과 검색 결과 재사용, Spring AI 모델 호출 및 RAG·Tool 적용 순서를 정했다. [단계별 작업 설계](docs/architecture/rag-work-plan/index.md)
 
 ## [2026-11-25] Session Summary (Chat Ask Orchestration)
 - Consolidated post-answer trace writes and original-query retrieval. Separated rewrite adoption from memory-query search and reused runtime settings for readiness and Agentic dispatch.

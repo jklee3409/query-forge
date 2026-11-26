@@ -13,6 +13,7 @@ Python pipeline for data processing, synthetic query generation, quality gating,
 - `eval/*`: retrieval/answer evaluation stages
 - `eval/java_retrieval_client.py`: optional Java retrieval eval endpoint client for `POST /api/rag/eval/retrieval`
 - The Java retrieval client sends the execution overrides consumed by Java and preserves false, null, and empty arrays in those values.
+- `eval/official_retrieval_eval.py` maps official v2 rows to Java modes and verifies their snapshots and traces. `eval/retrieval_context.py` passes Java's ordered chunk IDs to answer evaluation using the retrieval run ID.
 - `eval/retrieval_eval_compare.py`: Phase 8C/8D legacy vs Java-backed retrieval comparison runner, report contract, and Phase 9 readiness criteria
 - `common/*`: shared config, experiment run, llm, embedding, and utility modules
 - `cli.py`: pipeline command entrypoint

@@ -3,9 +3,17 @@
 ## Overview
 High-level progress tracking for the `docs` directory.
 
+## [2026-11-26] 공식 RAG 평가 v2
+
+- 게이팅 비교 행, 원 질의 fallback, 답변 평가 산출물과 Anchor 비교 조건을 기록했다. [공식 평가 작업 문서](architecture/rag-work-plan/03-research-evaluation.md)
+
 ## [2026-11-26] RAG 01 계약 확인
 
 - 배포·모델·실행 설정의 출처와 우선순위, HTTP 계약, 단계별 기존 차이, 03의 스냅샷·대조군 재현을 문서화했다. [설정과 API 계약](architecture/rag-work-plan/01-runtime-and-api-contracts.md)
+
+## [2026-11-26] RAG 공통 실행과 Spring AI 작업 설계
+
+- 설정과 API 계약, Java 검색 공통화, 연구 평가, Spring AI 모델 호출과 프롬프트, RAG와 Tool을 다섯 작업으로 설계했다. [작업 인덱스](architecture/rag-work-plan/index.md)
 
 ## [2026-11-25] Session Summary (Backend Role Packages)
 - Updated the package guidance, test commands, and full source inventory for the feature-first, role-second layout.
